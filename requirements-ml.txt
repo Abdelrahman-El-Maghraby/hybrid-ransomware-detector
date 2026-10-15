@@ -1,0 +1,8 @@
+# Optional: training and loading models for the ML classifier layer.
+# Without these the layer still runs, using its transparent rule engine.
+#   pip install -r requirements-ml.txt
+#   python RansomwareScanner.py --train-ml BENIGN_DIR MALICIOUS_DIR
+# All three ship prebuilt wheels for x86_64 and arm64 on Windows, macOS, Linux.
+scikit-learn>=1.3
+joblib>=1.3
+numpy>=1.24

@@ -16,6 +16,10 @@ third-party dependency is not installed:
     relationship_scanner  Office external relationships (remote template
                           injection, Follina-style OLE, UNC/NTLM leaks)
     container_extractor   safe ZIP inspection (zip bomb / zip slip / lures)
+    mail_analyzer         MailGuard: .eml/.msg SPF/DKIM/DMARC, spoofing,
+                          deceptive links, attachment extraction
+    ml_classifier         static byte/PE features + RandomForest (or a
+                          transparent rule engine when no model is trained)
     scoring               transparent weighted scoring matrix
 """
 
@@ -28,6 +32,8 @@ from .prompt_guard import (PromptGuard, PromptGuardResult, DEFUSEDXML_AVAILABLE,
                            wrap_untrusted_with_nonce)
 from .relationship_scanner import RelationshipScanner, RelationshipResult
 from .container_extractor import ContainerExtractor, ContainerResult
+from .mail_analyzer import MailAnalyzer, MailResult, MSG_AVAILABLE
+from .ml_classifier import MLClassifier, MLResult, SKLEARN_AVAILABLE
 from .scoring import ScoringMatrix, ScoreResult
 
 __all__ = [
@@ -40,5 +46,7 @@ __all__ = [
     "wrap_untrusted_with_nonce",
     "RelationshipScanner", "RelationshipResult",
     "ContainerExtractor", "ContainerResult",
+    "MailAnalyzer", "MailResult", "MSG_AVAILABLE",
+    "MLClassifier", "MLResult", "SKLEARN_AVAILABLE",
     "ScoringMatrix", "ScoreResult",
 ]
