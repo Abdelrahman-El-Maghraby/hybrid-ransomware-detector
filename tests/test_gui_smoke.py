@@ -19,6 +19,7 @@ import gui  # noqa: E402
 import RansomwareScanner as RS  # noqa: E402
 from tests.helpers import make_docx  # noqa: E402
 from tests.test_file_integrity import _pe_bytes  # noqa: E402
+from tests.test_mail_analyzer import make_eml  # noqa: E402
 
 
 def _pump(app, seconds=0.3):
@@ -34,6 +35,9 @@ def app(tmp_path, monkeypatch):
     downloads.mkdir()
     make_docx(downloads / "notes.docx")
     (downloads / "invoice.pdf").write_bytes(_pe_bytes(2048))
+    make_eml(downloads / "statement.eml", subject="Invoice overdue",
+             sender='"billing@bank.example" <x@evil.example>',
+             attachments=[("pay.pdf.exe", _pe_bytes(1024), "application", "octet-stream")])
     monkeypatch.setitem(RS.CONFIG, "scan_directories", [str(downloads)])
     monkeypatch.setitem(RS.CONFIG, "report_directory", str(tmp_path / "reports"))
     monkeypatch.setitem(RS.CONFIG, "quarantine_dir", str(tmp_path / "vault"))
@@ -61,6 +65,14 @@ def test_full_gui_flow(app, tmp_path):
     rows = {r["file_name"]: r for r in dash.row_results.values()}
     assert rows["invoice.pdf"]["verdict"] == "Critical"
     assert "exe!" in gui.layers_summary(rows["invoice.pdf"])
+
+    mail = rows["statement.eml"]
+    assert mail["verdict"] in ("High", "Critical")
+    summary = gui.layers_summary(mail)
+    assert "mail1!1" in summary and "spoof!" in summary
+    mail_win = gui.DetailWindow(app, mail)            # renders the MailGuard section
+    _pump(app, 0.3)
+    mail_win.destroy()
 
     win = gui.DetailWindow(app, rows["invoice.pdf"])
     _pump(app, 0.3)
