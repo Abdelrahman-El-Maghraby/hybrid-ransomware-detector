@@ -35,6 +35,12 @@ Design principles (these encode the requirement directly):
      score() returns a full per-indicator breakdown, so the report can show
      exactly which signals drove the verdict and by how much.
 
+v4 adds technical indicators from the new layers (file integrity, hidden
+content / prompt injection, Office external relationships, archive inspection,
+VBA stomping and XLM macros). An archive is scored like its most dangerous
+member: that member's contributions are carried over, prefixed with its name,
+so the same caps and the semantic-only clamp still apply.
+
 Two scores are produced:
   * risk_score   - 0-100, the modern, granular figure with verdict bands,
   * severity_score - the legacy 0-10 figure (risk_score/10, rounded) kept so
@@ -106,6 +112,14 @@ class ScoreResult:
         }
 
 
+def _prefixed(member: str, c: Dict) -> "Contribution":
+    return Contribution(
+        indicator=f"archive_member:{c.get('indicator', '?')}",
+        category=str(c.get("category", "technical")),
+        points=float(c.get("points", 0) or 0),
+        detail=f"[{member}] {c.get('detail', '')}".strip())
+
+
 def _band(score: int) -> str:
     for low, high, label in BANDS:
         if low <= score <= high:
@@ -127,6 +141,19 @@ class ScoringMatrix:
           "virustotal": {"malicious": int, "suspicious": int, "total": int,
                          "ratio": 0..1},
           "llm":    {"is_suspicious": bool, "confidence": 0..1, "elements": [..]},
+
+          # v4 layers
+          "integrity": {"disguised_executable": str|None, "encrypted_likely": bool,
+                        "format_mismatch": bool, "detail": str},
+          "prompt_guard": {"injection_status": "none|suspicious|confirmed",
+                           "indicators": [..], "hidden_text_found": bool,
+                           "hidden_reasons": [..]},
+          "relationships": {"kinds": [..], "targets": [..]},
+          "archive": {"zip_slip": bool, "zip_bomb": bool, "encrypted_unreadable": bool,
+                      "executable_members": [..], "double_extension_members": [..],
+                      "rtlo_members": [..], "reasons": {...},
+                      "worst_member": {"name": str, "contributions": [..]}},
+          # macro gains: "vba_stomping": bool, "xlm_macros": bool
         }
     """
 
@@ -143,6 +170,34 @@ class ScoringMatrix:
     W_VT_RATIO = 80.0              # scaled by detection ratio
     W_VT_FLOOR = 35.0              # a few engines flag even at a low ratio
     W_LLM = 24.0                   # scaled by confidence (semantic, capped low)
+
+    # ---- v4 technical indicators -------------------------------------------
+    W_VBA_STOMPING = 90.0          # P-code/source mismatch = deliberate evasion
+    W_XLM_MACROS = 55.0            # Excel 4.0 macro sheets (rarely legitimate)
+    W_DISGUISED_EXECUTABLE = 90.0  # PE/ELF/Mach-O/LNK/script behind a doc extension
+    W_ENCRYPTED_CONTENT = 70.0     # signature gone + random bytes = ransomware impact
+    W_FORMAT_MISMATCH = 15.0       # content doesn't match the extension
+    W_INJECTION_CONFIRMED = 50.0   # prompt injection hidden in the document
+    W_INJECTION_SUSPICIOUS = 15.0  # injection phrasing in visible text only
+    W_HIDDEN_CONTENT = 15.0        # concealed text (hidden runs, invisible PDF text)
+    W_RTI = {                      # Office external relationships
+        "exploit_scheme": 90.0,          # ms-msdt:, search-ms:, mhtml: ...
+        "follina_style_ole": 90.0,       # external OLE link ending in '!'
+        "remote_template": 70.0,         # T1221 remote template injection
+        "external_ole": 70.0,
+        "unc_ntlm_leak": 70.0,           # T1187 forced NTLM authentication
+        "rtf_remote_template": 70.0,
+        "external_frame": 40.0,
+        "external_subdocument": 40.0,
+        "rtf_ole_autoupdate": 40.0,
+    }
+    W_RTI_EXTRA = 8.0              # each additional distinct relationship kind
+    W_ARCHIVE_SLIP = 80.0          # path traversal / symlink entries
+    W_ARCHIVE_BOMB = 60.0          # decompression bomb
+    W_ARCHIVE_DOUBLE_EXT = 60.0    # invoice.pdf.exe
+    W_ARCHIVE_RTLO = 60.0          # right-to-left-override filename spoof
+    W_ARCHIVE_EXECUTABLE = 35.0    # executable/script/shortcut inside an archive
+    W_ARCHIVE_ENCRYPTED = 20.0     # encrypted content the scanner could not open
 
     def score(self, signals: Dict) -> ScoreResult:
         contribs: List[Contribution] = []
@@ -196,6 +251,18 @@ class ScoringMatrix:
                     "macro_dropper_synergy", "technical", self.W_MACRO_DROPPER_SYNERGY,
                     "Auto-executing macro combined with an exec/download "
                     "primitive (classic dropper pattern)."))
+            if macro.get("vba_stomping"):
+                contribs.append(Contribution(
+                    "vba_stomping", "technical", self.W_VBA_STOMPING,
+                    "VBA stomping: compiled P-code differs from the visible macro "
+                    "source (deliberate evasion of source-based analysis)."))
+            if macro.get("xlm_macros"):
+                contribs.append(Contribution(
+                    "xlm_macros", "technical", self.W_XLM_MACROS,
+                    "Excel 4.0 (XLM) macro sheet present - a legacy macro language "
+                    "abused by loaders such as Emotet and Qakbot."))
+
+        contribs.extend(self._v4_technical(signals))
 
         # ---------------- REPUTATION ----------------
         vt = signals.get("virustotal") or {}
@@ -255,3 +322,85 @@ class ScoringMatrix:
             contributions=contribs,
             category_totals=category_totals,
         )
+
+    # ------------------------------------------------------------------ v4
+    def _v4_technical(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+
+        integ = signals.get("integrity") or {}
+        if integ.get("disguised_executable"):
+            out.append(Contribution(
+                "disguised_executable", "technical", self.W_DISGUISED_EXECUTABLE,
+                integ.get("detail") or "Executable content behind a document extension."))
+        elif integ.get("encrypted_likely"):
+            out.append(Contribution(
+                "encrypted_content", "technical", self.W_ENCRYPTED_CONTENT,
+                (integ.get("detail") or "Content looks encrypted.")
+                + " Possible ransomware impact (MITRE ATT&CK T1486)."))
+        elif integ.get("format_mismatch"):
+            out.append(Contribution(
+                "format_mismatch", "technical", self.W_FORMAT_MISMATCH,
+                integ.get("detail") or "Content does not match the file extension."))
+
+        guard = signals.get("prompt_guard") or {}
+        status = guard.get("injection_status", "none")
+        indicators = ", ".join(guard.get("indicators", []) or [])
+        if status == "confirmed":
+            out.append(Contribution(
+                "prompt_injection", "technical", self.W_INJECTION_CONFIRMED,
+                f"Prompt-injection attempt aimed at AI analysis ({indicators})."))
+        elif status == "suspicious":
+            out.append(Contribution(
+                "prompt_injection_phrasing", "technical", self.W_INJECTION_SUSPICIOUS,
+                f"Visible text addresses an AI analyst ({indicators})."))
+        if guard.get("hidden_text_found"):
+            reasons = ", ".join(guard.get("hidden_reasons", []) or []) or "concealed text"
+            out.append(Contribution(
+                "hidden_content", "technical", self.W_HIDDEN_CONTENT,
+                f"Concealed document content ({reasons})."))
+
+        rels = signals.get("relationships") or {}
+        kinds = [k for k in (rels.get("kinds") or []) if k in self.W_RTI]
+        if kinds:
+            top = max(kinds, key=lambda k: self.W_RTI[k])
+            pts = self.W_RTI[top] + max(0, len(kinds) - 1) * self.W_RTI_EXTRA
+            targets = ", ".join((rels.get("targets") or [])[:3])
+            out.append(Contribution(
+                "external_relationship", "technical", pts,
+                f"Office external relationship(s) [{', '.join(kinds)}]"
+                + (f" -> {targets}" if targets else "") + "."))
+
+        arc = signals.get("archive") or {}
+        reasons = arc.get("reasons") or {}
+        if arc.get("zip_slip"):
+            out.append(Contribution("archive_zip_slip", "technical", self.W_ARCHIVE_SLIP,
+                                    f"Archive path traversal / symlink entry. "
+                                    f"{reasons.get('zip_slip', '')}".strip()))
+        if arc.get("zip_bomb"):
+            out.append(Contribution("archive_zip_bomb", "technical", self.W_ARCHIVE_BOMB,
+                                    f"Decompression bomb. {reasons.get('zip_bomb', '')}".strip()))
+        if arc.get("double_extension_members"):
+            out.append(Contribution(
+                "archive_double_extension", "technical", self.W_ARCHIVE_DOUBLE_EXT,
+                "Executable disguised with a double extension: "
+                + ", ".join(arc["double_extension_members"][:3]) + "."))
+        if arc.get("rtlo_members"):
+            out.append(Contribution(
+                "archive_rtlo_spoof", "technical", self.W_ARCHIVE_RTLO,
+                "Right-to-left-override character used to spoof a file name: "
+                + ", ".join(arc["rtlo_members"][:3]) + "."))
+        if arc.get("executable_members"):
+            out.append(Contribution(
+                "archive_executable", "technical", self.W_ARCHIVE_EXECUTABLE,
+                "Executable/script/shortcut inside the archive: "
+                + ", ".join(arc["executable_members"][:3]) + "."))
+        if arc.get("encrypted_unreadable"):
+            out.append(Contribution(
+                "archive_encrypted", "technical", self.W_ARCHIVE_ENCRYPTED,
+                "Encrypted archive content the scanner could not open "
+                "(a common way to slip payloads past scanners)."))
+        worst = arc.get("worst_member") or {}
+        for c in worst.get("contributions", []) or []:
+            out.append(_prefixed(worst.get("name", "member"), c))
+        return out
+

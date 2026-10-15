@@ -4,18 +4,30 @@ detectors - modular detection engines for the Hybrid Ransomware Detection System
 Each engine is independent, optional, and degrades gracefully when its
 third-party dependency is not installed:
 
-    fuzzy_hash      TLSH + ssdeep structural/similarity hashing (polymorphic
-                    family detection)
-    macro_analysis  olevba VBA/XLM macro extraction + static triage
-    yara_engine     YARA pattern matching against a rules directory
-    llm_backends    pluggable LLM (local Ollama / cloud OpenAI / none)
-    scoring         transparent weighted scoring matrix
+    fuzzy_hash            TLSH + ssdeep structural/similarity hashing
+                          (polymorphic family detection)
+    macro_analysis        olevba VBA/XLM macro triage, VBA-stomping detection
+    yara_engine           YARA pattern matching against a rules directory
+    llm_backends          pluggable LLM (local Ollama / cloud OpenAI / none)
+                          with nonce-spotlighted prompts
+    file_integrity        format/magic validation, disguised executables,
+                          encrypted-content (ransomware impact) detection
+    prompt_guard          hidden-content + prompt-injection detection
+    relationship_scanner  Office external relationships (remote template
+                          injection, Follina-style OLE, UNC/NTLM leaks)
+    container_extractor   safe ZIP inspection (zip bomb / zip slip / lures)
+    scoring               transparent weighted scoring matrix
 """
 
 from .fuzzy_hash import FuzzyHasher, FuzzyResult, FUZZY_AVAILABLE
 from .macro_analysis import MacroAnalyzer, MacroResult, OLEVBA_AVAILABLE
 from .yara_engine import YaraEngine, YaraResult, YARA_AVAILABLE
 from .llm_backends import build_llm_backend, LLMBackend
+from .file_integrity import FileIntegrityAnalyzer, IntegrityResult, ransom_indicator
+from .prompt_guard import (PromptGuard, PromptGuardResult, DEFUSEDXML_AVAILABLE,
+                           wrap_untrusted_with_nonce)
+from .relationship_scanner import RelationshipScanner, RelationshipResult
+from .container_extractor import ContainerExtractor, ContainerResult
 from .scoring import ScoringMatrix, ScoreResult
 
 __all__ = [
@@ -23,5 +35,10 @@ __all__ = [
     "MacroAnalyzer", "MacroResult", "OLEVBA_AVAILABLE",
     "YaraEngine", "YaraResult", "YARA_AVAILABLE",
     "build_llm_backend", "LLMBackend",
+    "FileIntegrityAnalyzer", "IntegrityResult", "ransom_indicator",
+    "PromptGuard", "PromptGuardResult", "DEFUSEDXML_AVAILABLE",
+    "wrap_untrusted_with_nonce",
+    "RelationshipScanner", "RelationshipResult",
+    "ContainerExtractor", "ContainerResult",
     "ScoringMatrix", "ScoreResult",
 ]

@@ -65,7 +65,7 @@ rule Embedded_Executable_In_Document
 {
     meta:
         author      = "hybrid-ransomware-detector"
-        description = "Windows PE (MZ...PE) header bytes embedded inside a document"
+        description = "Windows PE executable (MZ header at offset 0) masquerading as a document"
         severity    = "high"
     strings:
         // MZ DOS header followed (loosely) by the PE signature.
