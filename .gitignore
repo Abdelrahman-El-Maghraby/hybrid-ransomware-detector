@@ -43,3 +43,10 @@ Thumbs.db
 *.docx
 *.dotx
 *.pptx
+
+# --- Builds (python build.py) ---
+/build/
+/dist/
+
+# --- Trained ML models (pickle files: never load one you didn't train) ---
+*.joblib
