@@ -1,0 +1,2 @@
+# Building standalone executables (python build.py). Not needed to run from source.
+pyinstaller>=6.6

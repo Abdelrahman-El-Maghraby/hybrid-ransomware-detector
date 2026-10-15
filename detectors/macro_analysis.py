@@ -24,15 +24,28 @@ It uses `oletools.olevba` (the industry-standard, pure-Python triage tool) to:
 `olevba` is optional. If it is not installed, the module degrades gracefully and
 reports that the layer was skipped, so the rest of the scanner still runs.
 
+v4 additions
+------------
+* **VBA stomping** (`detect_vba_stomping`, via pcodedmp): the readable VBA
+  *source* is replaced with something harmless while the compiled *P-code* that
+  Office actually runs keeps the malicious logic. Source-only scanners see a
+  clean macro; the mismatch between source and P-code is itself a strong
+  indicator of deliberate evasion.
+* **Excel 4.0 (XLM) macros**: legacy macro sheets (`EXEC`, `CALL`, `REGISTER`)
+  that never touch VBA and were a favourite of Emotet/Qakbot loaders. Detected
+  in BIFF .xls files via olevba and in OOXML workbooks by the presence of
+  `xl/macrosheets/` parts.
+
 NOTE: this is purely *static* analysis. No macro is ever executed.
 """
 
 from __future__ import annotations
 
 import logging
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logger = logging.getLogger("RansomwareScanner.macro")
 
@@ -70,6 +83,9 @@ class MacroResult:
     critical: List[str] = field(default_factory=list)      # exec/download primitives
     iocs: List[str] = field(default_factory=list)          # urls / ips / exe names
     vba_code_size: int = 0
+    vba_stomping: bool = False                             # P-code != source
+    xlm_macros: bool = False                               # Excel 4.0 macro sheets
+    xlm_evidence: List[str] = field(default_factory=list)
     detail: str = ""
 
     def as_dict(self) -> Dict:
@@ -81,6 +97,9 @@ class MacroResult:
             "critical": self.critical,
             "iocs": self.iocs,
             "vba_code_size": self.vba_code_size,
+            "vba_stomping": self.vba_stomping,
+            "xlm_macros": self.xlm_macros,
+            "xlm_evidence": self.xlm_evidence,
             "detail": self.detail,
         }
 
@@ -91,8 +110,8 @@ class MacroAnalyzer:
     # File types worth even attempting. olevba happily rejects others, but
     # short-circuiting avoids spurious warnings on PDFs etc.
     SUPPORTED_EXTS = {".doc", ".docm", ".dot", ".dotm",
-                      ".xls", ".xlsm", ".xlsb", ".xlm", ".xltm",
-                      ".ppt", ".pptm", ".potm",
+                      ".xls", ".xlsm", ".xlsb", ".xlm", ".xltm", ".xlam",
+                      ".ppt", ".pptm", ".potm", ".ppsm", ".ppam",
                       ".docx", ".xlsx", ".pptx"}  # OOXML can still embed a vbaProject.bin
 
     def analyze_file(self, file_path: str) -> MacroResult:
@@ -117,9 +136,17 @@ class MacroAnalyzer:
         parser = None
         try:
             parser = VBA_Parser(file_path)
-            if not parser.detect_vba_macros():
+            has_vba = bool(parser.detect_vba_macros())
+            xlm_evidence = self._detect_xlm(parser, file_path)
+            if not has_vba and not xlm_evidence:
                 return MacroResult(available=True, has_macros=False,
                                    detail="No VBA/XLM macros found.")
+            if not has_vba:
+                return MacroResult(
+                    available=True, has_macros=True, xlm_macros=True,
+                    xlm_evidence=xlm_evidence,
+                    detail="Excel 4.0 (XLM) macro sheet(s) present: "
+                           + ", ".join(xlm_evidence[:4]) + ".")
 
             # Force extraction so analyze_macros() has source to work with.
             code_size = 0
@@ -155,14 +182,26 @@ class MacroAnalyzer:
             critical = _dedup(critical)
             iocs = _dedup(iocs)
 
+            stomping = False
+            try:
+                stomping = bool(parser.detect_vba_stomping())
+            except Exception as e:  # pcodedmp can choke on damaged projects
+                logger.debug("VBA stomping check failed for %s: %s", file_path, e)
+
             detail = _summarise(autoexec, suspicious, critical)
+            if stomping:
+                detail += "; VBA STOMPING (P-code differs from the visible source)"
+            if xlm_evidence:
+                detail += "; Excel 4.0 (XLM) macro sheet(s) also present"
             return MacroResult(
                 available=True, has_macros=True,
                 autoexec=autoexec, suspicious=suspicious, critical=critical,
-                iocs=iocs, vba_code_size=code_size, detail=detail,
+                iocs=iocs, vba_code_size=code_size, vba_stomping=stomping,
+                xlm_macros=bool(xlm_evidence), xlm_evidence=xlm_evidence,
+                detail=detail,
             )
         except Exception as e:
-            logger.error("Macro analysis failed for %s: %s", file_path, e)
+            logger.warning("Macro analysis failed for %s: %s", file_path, e)
             return MacroResult(available=True, has_macros=False,
                                detail=f"Macro analysis error: {e}")
         finally:
@@ -171,6 +210,25 @@ class MacroAnalyzer:
                     parser.close()
                 except Exception:  # pragma: no cover
                     pass
+
+
+    @staticmethod
+    def _detect_xlm(parser, file_path: str) -> List[str]:
+        """Evidence of Excel 4.0 macro sheets (empty list if none)."""
+        evidence: List[str] = []
+        try:
+            if parser.detect_xlm_macros():           # BIFF (.xls) via plugin_biff
+                evidence.append("Excel 4.0 macro sheet (BIFF)")
+        except Exception as e:
+            logger.debug("XLM detection failed for %s: %s", file_path, e)
+        try:
+            if zipfile.is_zipfile(file_path):        # OOXML workbooks
+                with zipfile.ZipFile(file_path) as zf:
+                    evidence.extend(n for n in zf.namelist()
+                                    if n.lower().startswith("xl/macrosheets/"))
+        except Exception as e:  # pragma: no cover
+            logger.debug("OOXML macrosheet check failed for %s: %s", file_path, e)
+        return evidence
 
 
 def _dedup(items: List[str]) -> List[str]:

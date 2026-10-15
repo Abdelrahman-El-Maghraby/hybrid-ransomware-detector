@@ -51,9 +51,9 @@ except ImportError:  # pragma: no cover
 
 from dotenv import set_key
 
-APP_VERSION = "2.0"
+APP_VERSION = "4.1"
 SETTINGS_FILE = RS.APP_DIR / "gui_settings.json"
-ENV_FILE = Path(RS.__file__).resolve().parent / ".env"
+ENV_FILE = RS.ENV_FILE        # next to the script, or ~/RansomwareScanner in a build
 
 # --- Theme (matches the project's dark terminal aesthetic) -------------------
 
@@ -205,11 +205,50 @@ def layers_summary(result: dict) -> str:
         n = len(yara.get("matches", []) or [])
         parts.append(f"yara✓{n}" if yara.get("matched") else "yara–")
 
+    # v4 layers: only shown when they found something, to keep the row short.
+    integ = sr.get("file_integrity", {})
+    if integ.get("disguised_executable"):
+        parts.append("exe!")             # executable behind a document extension
+    elif integ.get("encrypted_likely"):
+        parts.append("enc!")             # content looks encrypted (impact)
+    elif integ.get("format_mismatch"):
+        parts.append("fmt?")
+
+    guard = sr.get("prompt_guard", {})
+    if guard.get("injection_status") == "confirmed":
+        parts.append("inj!")
+    elif guard.get("injection_status") == "suspicious":
+        parts.append("inj?")
+    elif guard.get("hidden_text_found"):
+        parts.append("hidden")
+
+    if sr.get("relationships", {}).get("suspicious"):
+        parts.append("ext!")             # remote template / OLE / UNC link
+
+    arc = sr.get("archive", {})
+    if arc:
+        bad = sum(1 for m in arc.get("member_results", []) or []
+                  if m.get("verdict", "Clean") != "Clean" or m.get("archive_flags"))
+        parts.append(f"zip{arc.get('member_count', 0)}" + (f"!{bad}" if bad else ""))
+
+    mail = sr.get("mail", {})
+    if mail:
+        bad = sum(1 for m in mail.get("attachment_results", []) or []
+                  if m.get("verdict", "Clean") != "Clean")
+        parts.append(f"mail{mail.get('attachment_count', 0)}" + (f"!{bad}" if bad else ""))
+        if (mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof"):
+            parts.append("spoof!")       # authentication failure / display-name spoof
+
+    if sr.get("ml_classifier", {}).get("label") == "suspicious":
+        parts.append(f"ml {float(sr['ml_classifier'].get('probability', 0)):.2f}")
+
     vt = sr.get("virustotal", {})
     if "not configured" in str(vt.get("details", "")):
         parts.append("VT off")
     elif vt.get("error"):
         parts.append("VT err")
+    elif vt.get("not_found"):
+        parts.append("VT new")
     elif vt.get("total_engines"):
         hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
         parts.append(f"VT {hits}/{vt.get('total_engines', 0)}")
@@ -337,7 +376,8 @@ class ScanController:
             cancelled = self.cancel_event.is_set()
             report_text = None
             if results and not cancelled:
-                report_text = scanner.generate_report(results)
+                impact = scanner.last_impact if mode != "file" else None
+                report_text = scanner.generate_report(results, impact=impact)
             bus.put(("scan_done", results, report_text, cancelled))
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").exception("Scan failed")
@@ -369,11 +409,11 @@ class StatCard(ctk.CTkFrame):
                                          font=master.app.font_small, anchor="w")
         self.status_label.pack(side="left")
 
-    def update_card(self, value: str, status: str, ok: bool):
+    def update_card(self, value: str, status: str, ok: bool, alert: bool = False):
         self.value_label.configure(text=value)
-        self.status_label.configure(text=status,
-                                    text_color=ACCENT_SOFT if ok else AMBER_SOFT)
-        self.dot.configure(text_color=ACCENT if ok else AMBER_SOFT)
+        color = RED if alert else (ACCENT_SOFT if ok else AMBER_SOFT)
+        self.status_label.configure(text=status, text_color=color)
+        self.dot.configure(text_color=RED if alert else (ACCENT if ok else AMBER_SOFT))
 
 
 class Section(ctk.CTkFrame):
@@ -402,6 +442,7 @@ class DetailWindow(ctk.CTkToplevel):
 
         outer = ctk.CTkScrollableFrame(self, fg_color=BG)
         outer.pack(fill="both", expand=True, padx=16, pady=16)
+        self.scroll_area = outer
 
         verdict = result_verdict(result)
         risk = result_risk(result)
@@ -514,6 +555,16 @@ class DetailWindow(ctk.CTkToplevel):
                     ctk.CTkLabel(body, text=f"{label}: " + ", ".join(map(str, items)),
                                  text_color=MUTED, font=app.font_small, anchor="w",
                                  wraplength=540, justify="left").pack(fill="x", padx=14)
+            if macro.get("vba_stomping"):
+                ctk.CTkLabel(body, text="VBA stomping: the compiled P-code differs from the "
+                                        "visible source (deliberate evasion).",
+                             text_color=RED_SOFT, font=app.font_small, anchor="w",
+                             wraplength=540, justify="left").pack(fill="x", padx=14)
+            if macro.get("xlm_macros"):
+                ctk.CTkLabel(body, text="Excel 4.0 (XLM) macro sheet(s): "
+                                        + ", ".join(macro.get("xlm_evidence") or []),
+                             text_color=RED_SOFT, font=app.font_small, anchor="w",
+                             wraplength=540, justify="left").pack(fill="x", padx=14)
             ctk.CTkLabel(body, text="").pack(pady=2)
 
         # --- Layer 4: YARA rules ---------------------------------------------
@@ -543,13 +594,124 @@ class DetailWindow(ctk.CTkToplevel):
                              justify="left").pack(fill="x", padx=14)
             ctk.CTkLabel(body, text="").pack(pady=2)
 
-        # --- Layer 5: VirusTotal ---------------------------------------------
+        def line(body, text, color=MUTED, font=None, pad=(0, 0)):
+            ctk.CTkLabel(body, text=text, text_color=color, font=font or app.font_small,
+                         anchor="w", wraplength=540, justify="left").pack(fill="x", padx=14,
+                                                                          pady=pad)
+
+        # --- Layer 5: file integrity -----------------------------------------
+        integ = sr.get("file_integrity")
+        if integ is not None:
+            body = info_section("Layer 5 — file integrity (disguise / encryption)")
+            flagged = (integ.get("disguised_executable") or integ.get("encrypted_likely")
+                       or integ.get("format_mismatch"))
+            line(body, integ.get("detail") or "—", RED_SOFT if flagged else ACCENT_SOFT,
+                 app.font_ui, (10, 2))
+            line(body, f"Detected format: {integ.get('detected_format', '?')}   ·   "
+                       f"entropy {float(integ.get('sample_entropy', 0) or 0):.3f} bits/byte   ·   "
+                       f"chi² {float(integ.get('sample_chi_square', 0) or 0):.0f}")
+            for note in integ.get("notes", []) or []:
+                line(body, note, AMBER_SOFT)
+            line(body, "", pad=(0, 4))
+
+        # --- Layer 6: hidden content / prompt injection ----------------------
+        guard = sr.get("prompt_guard")
+        if guard is not None:
+            body = info_section("Layer 6 — hidden content & prompt injection")
+            status = guard.get("injection_status", "none")
+            hit = status != "none" or guard.get("hidden_text_found")
+            line(body, guard.get("detail") or "—",
+                 RED_SOFT if status == "confirmed" else (AMBER_SOFT if hit else ACCENT_SOFT),
+                 app.font_ui, (10, 2))
+            for snippet in (guard.get("hidden_text_snippets") or [])[:4]:
+                line(body, f"hidden: “{snippet[:160]}”")
+            line(body, "", pad=(0, 4))
+
+        # --- Layer 7: Office external relationships --------------------------
+        rels = sr.get("relationships")
+        if rels is not None:
+            body = info_section("Layer 7 — Office external links (template / OLE / UNC)")
+            line(body, rels.get("detail") or "—",
+                 RED_SOFT if rels.get("suspicious") else ACCENT_SOFT, app.font_ui, (10, 2))
+            for f in (rels.get("findings") or [])[:6]:
+                line(body, f"•  {f.get('kind')}  →  {RS.defang(str(f.get('target', '')))}")
+            line(body, "", pad=(0, 4))
+
+        # --- Layer 8: archive contents ----------------------------------------
+        arc = sr.get("archive")
+        if arc:
+            body = info_section("Layer 8 — archive contents")
+            bad = (arc.get("zip_bomb") or arc.get("zip_slip") or arc.get("executable_members")
+                   or arc.get("encrypted_unreadable"))
+            line(body, arc.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                 app.font_ui, (10, 4))
+            for m in (arc.get("member_results") or [])[:30]:
+                v = m.get("verdict", "Clean")
+                name = str(m.get("name", "?")).split("!/", 1)[-1]
+                flags = m.get("archive_flags") or []
+                tag = f"   ← {', '.join(f.replace('_', ' ') for f in flags)}" if flags else ""
+                color = RED_SOFT if flags and v == "Clean" else verdict_color(v)
+                line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
+                     color, app.font_mono_small)
+            if arc.get("not_scanned_budget"):
+                line(body, f"+{arc['not_scanned_budget']} more member(s) listed but not "
+                           f"deep-scanned (per-archive budget).", AMBER_SOFT)
+            line(body, "", pad=(0, 4))
+        elif integ is not None:          # v4 result for a non-archive file
+            body = info_section("Layer 8 — archive contents")
+            line(body, "Not an archive.", ACCENT_SOFT, app.font_ui, (10, 10))
+
+        # --- v4.1: e-mail (MailGuard) -----------------------------------------
+        mail = sr.get("mail")
+        if mail:
+            body = info_section("E-mail — sender, links & attachments (MailGuard)")
+            auth = mail.get("auth") or {}
+            bad = (auth.get("failures") or mail.get("display_name_spoof")
+                   or mail.get("reply_to_mismatch") or mail.get("deceptive_links")
+                   or mail.get("executable_attachments"))
+            line(body, mail.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                 app.font_ui, (10, 4))
+            if mail.get("subject"):
+                line(body, f"Subject:  {mail['subject'][:140]}")
+            if auth.get("ignored_headers"):
+                line(body, f"{auth['ignored_headers']} lower authentication header(s) ignored "
+                           "(written by the sender, not your mail server).", AMBER_SOFT)
+            for link in (mail.get("deceptive_links") or [])[:4]:
+                line(body, f"•  {RS.defang(link)}", RED_SOFT)
+            for a in (mail.get("attachment_results") or [])[:30]:
+                v = a.get("verdict", "Clean")
+                name = str(a.get("name", "?")).split("!/", 1)[-1]
+                line(body, f"{v:<8}  {a.get('risk_score', 0):>3}/100   {name}",
+                     verdict_color(v), app.font_mono_small)
+            if mail.get("attachments_skipped") or mail.get("not_scanned_budget"):
+                line(body, f"{mail.get('attachments_skipped', 0) + mail.get('not_scanned_budget', 0)}"
+                           " attachment(s) not deep-scanned (limits / embedded objects).", AMBER_SOFT)
+            line(body, "", pad=(0, 4))
+
+        # --- v4.1: ML classifier --------------------------------------------
+        ml = sr.get("ml_classifier")
+        if ml:
+            body = info_section("ML classifier — byte & PE structure (statistical)")
+            susp = ml.get("label") == "suspicious"
+            line(body, f"{ml.get('label', '?').capitalize()}  ·  p(suspicious) = "
+                       f"{float(ml.get('probability', 0)):.2f}  ·  "
+                       f"{'trained model ' + str(ml.get('model')) if ml.get('model') != 'rules' else 'rule engine (no trained model)'}",
+                 RED_SOFT if susp else ACCENT_SOFT, app.font_ui, (10, 4))
+            for why in (ml.get("indicators") or [])[:4]:
+                line(body, f"•  {why}")
+            line(body, "", pad=(0, 4))
+
+        # --- Layer 9: VirusTotal ---------------------------------------------
         vt = sr.get("virustotal", {})
-        body = info_section("Layer 5 — VirusTotal reputation")
+        body = info_section("Layer 9 — VirusTotal reputation")
         if "not configured" in str(vt.get("details", "")):
             ctk.CTkLabel(body, text="Skipped — API key not configured (add it in Settings).",
                          text_color=AMBER_SOFT, font=app.font_ui,
                          anchor="w").pack(fill="x", padx=14, pady=10)
+        elif vt.get("not_found"):
+            ctk.CTkLabel(body, text=vt.get("details") or "Unknown to VirusTotal.",
+                         text_color=MUTED, font=app.font_ui, anchor="w", wraplength=540,
+                         justify="left").pack(fill="x", padx=14, pady=10)
         else:
             hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
             total = vt.get("total_engines", 0)
@@ -574,7 +736,7 @@ class DetailWindow(ctk.CTkToplevel):
 
         # --- Layer 6: LLM semantic analysis ----------------------------------
         ai = sr.get("chatgpt_analysis", {})
-        body = info_section("Layer 6 — LLM semantic analysis")
+        body = info_section("Layer 10 — LLM semantic analysis")
         if llm_skipped(ai):
             ctk.CTkLabel(body, text="Skipped — no LLM backend available "
                                     "(start a local Ollama or set an OpenAI key).",
@@ -631,10 +793,42 @@ class DetailWindow(ctk.CTkToplevel):
                       fg_color="transparent", hover_color=PANEL_2, border_width=1,
                       border_color=BORDER_2, text_color=TEXT,
                       command=self._copy_sha).pack(side="left", padx=8)
+        path = str(result.get("file_path", ""))
+        if "!/" not in path and os.path.isfile(path):
+            self.quarantine_button = ctk.CTkButton(
+                actions, text="Quarantine file", height=32, font=app.font_small,
+                fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                border_color=RED, text_color=RED_SOFT, command=self._quarantine)
+            self.quarantine_button.pack(side="right")
 
     def _copy_sha(self):
         self.clipboard_clear()
         self.clipboard_append(self.result.get("sha256_hash", ""))
+
+    def _quarantine(self, confirm: bool = True):
+        path = str(self.result.get("file_path", ""))
+        if confirm and not messagebox.askyesno(
+                "Quarantine file",
+                f"Move this file into the encrypted quarantine vault?\n\n{path}\n\n"
+                "It is encrypted with AES-256-GCM and removed from its folder. "
+                "You can restore it from the Protection page.", parent=self):
+            return
+        verdict = result_verdict(self.result)
+        try:
+            meta = self.app.scanner.quarantine_file(
+                path, reason=f"manual (GUI): {verdict}, risk {result_risk(self.result)}/100",
+                result=self.result)
+        except Exception as e:
+            messagebox.showerror("Quarantine failed", str(e), parent=self)
+            return
+        self.result["quarantine"] = {"id": meta["id"], "vault_file": meta["vault_file"],
+                                     "original_removed": meta["original_removed"]}
+        self.quarantine_button.configure(state="disabled", text=f"Quarantined · {meta['id']}")
+        self.app.gui_log.warning(f"Quarantined from GUI: {path} -> vault id {meta['id']}")
+        self.app.refresh_protection_views()
+        if confirm:
+            messagebox.showinfo("Quarantined", f"Moved to the vault (id {meta['id']}).",
+                                parent=self)
 
 
 # --- Pages ------------------------------------------------------------------------
@@ -692,6 +886,13 @@ class DashboardPage(BasePage):
         self.card_vt.grid(row=1, column=1, sticky="nsew", padx=4)
         self.card_ai = StatCard(cards, "LLM analysis")
         self.card_ai.grid(row=1, column=2, sticky="nsew", padx=(8, 0))
+        # Row 2 — v4 heuristics + host protection
+        self.card_heur = StatCard(cards, "Heuristic layers")
+        self.card_heur.grid(row=2, column=0, sticky="nsew", padx=(0, 8), pady=(8, 0))
+        self.card_canary = StatCard(cards, "Canary tripwires")
+        self.card_canary.grid(row=2, column=1, sticky="nsew", padx=4, pady=(8, 0))
+        self.card_vault = StatCard(cards, "Quarantine vault")
+        self.card_vault.grid(row=2, column=2, sticky="nsew", padx=(8, 0), pady=(8, 0))
 
         prog = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
                             border_width=1, border_color=BORDER)
@@ -727,9 +928,9 @@ class DashboardPage(BasePage):
         tree_holder.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.tree = ttk.Treeview(tree_holder, columns=("file", "layers", "risk", "verdict"),
                                  show="headings", style="RD.Treeview", selectmode="browse")
-        for col, label, width, stretch in [("file", "File", 200, True),
-                                           ("layers", "Layers", 300, False),
-                                           ("risk", "Risk", 150, False),
+        for col, label, width, stretch in [("file", "File", 180, True),
+                                           ("layers", "Layers", 380, False),
+                                           ("risk", "Risk", 180, False),
                                            ("verdict", "Verdict", 90, False)]:
             self.tree.heading(col, text=label, anchor="w")
             self.tree.column(col, width=width, stretch=stretch, anchor="w")
@@ -844,6 +1045,39 @@ class DashboardPage(BasePage):
         value, status, ok = self._llm_card_state(scanner)
         self.card_ai.update_card(value, status, ok)
 
+        # Heuristics: integrity, hidden content, external links, archives,
+        # e-mail and the ML classifier.
+        names = ["integrity"]
+        if RS.DEFUSEDXML_AVAILABLE:
+            names += ["hidden", "links"]
+        names += ["zip", "mail"]
+        ml = getattr(scanner, "ml", None)
+        if ml is not None:
+            names.append("ML model" if ml.has_model else "ML rules")
+        ok = RS.DEFUSEDXML_AVAILABLE
+        self.card_heur.update_card(f"{len(names)} active",
+                                   " · ".join(names) if ok else "install defusedxml", ok)
+
+        # Canaries: deployed count + last verification.
+        deployed = len(scanner.canaries.entries())
+        report = getattr(app, "last_canary_report", None)
+        if not deployed:
+            self.card_canary.update_card("—", "Not deployed", False)
+        elif report is not None and report.triggered:
+            self.card_canary.update_card(f"{deployed} files", "TRIGGERED", False, alert=True)
+        else:
+            self.card_canary.update_card(f"{deployed} files",
+                                         "Armed" if report is not None else "Armed · not checked",
+                                         True)
+
+        # Quarantine vault.
+        try:
+            items = len(scanner.quarantine_vault.list())
+            self.card_vault.update_card(f"{items} item" + ("s" if items != 1 else ""),
+                                        "AES-256-GCM", True)
+        except Exception:
+            self.card_vault.update_card("—", "install cryptography", False)
+
     @staticmethod
     def _llm_card_state(scanner):
         """Map the active LLM backend to (value, status, ok) for its card."""
@@ -878,13 +1112,14 @@ class ScanPage(BasePage):
         ext_row = ctk.CTkFrame(sec.body, fg_color="transparent")
         ext_row.pack(fill="x", padx=14, pady=12)
         self.ext_vars = {}
-        for ext in [".pdf", ".docx", ".doc"]:
+        for i, ext in enumerate(RS.SUPPORTED_EXTENSIONS):
             var = ctk.BooleanVar(value=ext in app.settings["file_extensions"])
             self.ext_vars[ext] = var
-            ctk.CTkCheckBox(ext_row, text=ext, variable=var, font=app.font_ui,
+            ctk.CTkCheckBox(ext_row, text=ext, variable=var, font=app.font_ui, width=90,
                             text_color=TEXT, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                             border_color=BORDER_2, checkmark_color="#E1F5EE",
-                            command=self._extensions_changed).pack(side="left", padx=(0, 18))
+                            command=self._extensions_changed
+                            ).grid(row=i // 7, column=i % 7, sticky="w", pady=3)
 
         sec = Section(self, "Run", app)
         sec.pack(fill="x", pady=(14, 0))
@@ -906,8 +1141,10 @@ class ScanPage(BasePage):
                                          state="disabled", command=app.stop_scan)
         self.stop_button.pack(side="left")
         ctk.CTkLabel(sec.body,
-                     text="Note: new files uploaded to VirusTotal can take up to ~2.5 minutes "
-                          "each. “Stop” takes effect after the file currently being scanned.",
+                     text="VirusTotal is queried by hash only (uploads are opt-in in Settings) and "
+                          "paced to the free API quota, so large first scans take a while; "
+                          "unchanged files are answered from the cache afterwards. "
+                          "“Stop” takes effect after the file currently being scanned.",
                      font=app.font_small, text_color=MUTED, anchor="w", justify="left",
                      wraplength=720).pack(fill="x", padx=14, pady=(0, 12))
 
@@ -964,13 +1201,241 @@ class ScanPage(BasePage):
     def _scan_single_file(self):
         chosen = filedialog.askopenfilename(
             title="Choose a document to scan",
-            filetypes=[("Documents", "*.pdf *.docx *.doc"), ("All files", "*.*")])
+            filetypes=[("Documents & archives",
+                        " ".join("*" + e for e in RS.SUPPORTED_EXTENSIONS)),
+                       ("All files", "*.*")])
         if chosen:
             self.app.start_scan(mode="file", target=chosen)
 
     def set_running(self, running: bool):
         self.scan_button.configure(state="disabled" if running else "normal")
         self.stop_button.configure(state="normal" if running else "disabled")
+
+
+AUTO_QUARANTINE_CHOICES = {"Off": "", "High and above": "high", "Critical only": "critical"}
+
+
+class ProtectionPage(BasePage):
+    """Canary tripwires, the encrypted quarantine vault, and the result cache."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        outer = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        outer.pack(fill="both", expand=True)
+        ctk.CTkLabel(outer, text="Protection", font=app.font_h1, text_color=TEXT,
+                     anchor="w").pack(fill="x")
+        ctk.CTkLabel(outer, text="Tripwires that catch ransomware in the act, and an "
+                                 "encrypted vault for anything you quarantine.",
+                     font=app.font_small, text_color=MUTED, anchor="w").pack(fill="x")
+
+        # -- canaries -------------------------------------------------------------
+        sec = Section(outer, "Canary tripwires", app)
+        sec.pack(fill="x", pady=(14, 0))
+        minutes = int(app.scanner.config.get("canary_check_minutes", 5))
+        ctk.CTkLabel(sec.body,
+                     text="Decoy documents (named !000_…) planted in your monitored folders. "
+                          "Nobody should ever open or change them: if one is deleted, "
+                          "rewritten, renamed or encrypted, ransomware is most likely running "
+                          f"right now. They are checked every {minutes} minute(s) while this "
+                          "window is open, and by the background scanner (--background).",
+                     font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
+                     justify="left").pack(fill="x", padx=14, pady=(12, 4))
+        self.canary_status = ctk.CTkLabel(sec.body, text="", font=app.font_bold, anchor="w",
+                                          wraplength=720, justify="left")
+        self.canary_status.pack(fill="x", padx=14, pady=(2, 6))
+        row = ctk.CTkFrame(sec.body, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkButton(row, text="Deploy to monitored folders", height=32, fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER, text_color="#E1F5EE", font=app.font_bold,
+                      command=self._deploy).pack(side="left")
+        ctk.CTkButton(row, text="Verify now", height=32, font=app.font_ui,
+                      fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                      border_color=BORDER_2, text_color=TEXT,
+                      command=app.check_canaries_now).pack(side="left", padx=10)
+        ctk.CTkButton(row, text="Remove canaries", height=32, font=app.font_ui,
+                      fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                      border_color=BORDER_2, text_color=MUTED,
+                      command=self._remove).pack(side="left")
+        self.canary_list = ctk.CTkTextbox(sec.body, height=96, fg_color=BG, text_color=MUTED,
+                                          font=app.font_mono_small, wrap="none",
+                                          border_width=0)
+        self.canary_list.pack(fill="x", padx=14, pady=(4, 12))
+
+        # -- quarantine -------------------------------------------------------------
+        sec = Section(outer, "Quarantine vault", app)
+        sec.pack(fill="x", pady=(14, 0))
+        ctk.CTkLabel(sec.body,
+                     text="Quarantined files are encrypted with AES-256-GCM (per-file keys, "
+                          "authenticated chunks) and removed from their folder only after the "
+                          "encrypted copy has been verified. Restore puts the original back.",
+                     font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
+                     justify="left").pack(fill="x", padx=14, pady=(12, 6))
+        auto_row = ctk.CTkFrame(sec.body, fg_color="transparent")
+        auto_row.pack(fill="x", padx=14, pady=(0, 8))
+        ctk.CTkLabel(auto_row, text="Quarantine automatically after a scan:",
+                     font=app.font_ui, text_color=TEXT).pack(side="left")
+        current = str(app.scanner.config.get("auto_quarantine") or "")
+        label = next((k for k, v in AUTO_QUARANTINE_CHOICES.items() if v == current), "Off")
+        self.auto_var = ctk.StringVar(value=label)
+        ctk.CTkSegmentedButton(auto_row, values=list(AUTO_QUARANTINE_CHOICES),
+                               variable=self.auto_var, command=self._auto_changed,
+                               selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
+                               font=app.font_small).pack(side="left", padx=10)
+        self.vault_rows = ctk.CTkFrame(sec.body, fg_color="transparent")
+        self.vault_rows.pack(fill="x", padx=10, pady=(2, 12))
+
+        # -- cache ------------------------------------------------------------------
+        sec = Section(outer, "Result cache", app)
+        sec.pack(fill="x", pady=(14, 24))
+        crow = ctk.CTkFrame(sec.body, fg_color="transparent")
+        crow.pack(fill="x", padx=14, pady=12)
+        self.cache_label = ctk.CTkLabel(crow, text="", font=app.font_small, text_color=MUTED,
+                                        anchor="w", justify="left", wraplength=560)
+        self.cache_label.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(crow, text="Clear cache", width=110, height=30, font=app.font_small,
+                      fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                      border_color=BORDER_2, text_color=TEXT,
+                      command=self._clear_cache).pack(side="right")
+
+    # -- refresh -------------------------------------------------------------------
+    def on_show(self):
+        self._refresh_canaries()
+        self._refresh_vault()
+        self._refresh_cache()
+
+    def _refresh_canaries(self):
+        entries = self.app.scanner.canaries.entries()
+        report = self.app.last_canary_report
+        if not entries:
+            text, color = "No canaries deployed yet.", AMBER_SOFT
+        elif report is not None and report.triggered:
+            text, color = report.summary(), RED
+        elif report is not None:
+            text = f"{len(entries)} canaries armed — last check {report.checked_at}: all intact."
+            color = ACCENT_SOFT
+        else:
+            text, color = f"{len(entries)} canaries armed — first check pending.", ACCENT_SOFT
+        self.canary_status.configure(text=text, text_color=color)
+        lines = [e["path"] for e in entries] or ["—"]
+        if report is not None and report.triggered:
+            lines += [""] + [f"[{f.status}] {f.path}" for f in report.findings]
+        self.canary_list.configure(state="normal")
+        self.canary_list.delete("1.0", "end")
+        self.canary_list.insert("1.0", "\n".join(lines))
+        self.canary_list.configure(state="disabled")
+
+    def _refresh_vault(self):
+        for child in self.vault_rows.winfo_children():
+            child.destroy()
+        try:
+            items = self.app.scanner.quarantine_vault.list()
+        except Exception as e:
+            ctk.CTkLabel(self.vault_rows, text=f"Unavailable: {e}", font=self.app.font_small,
+                         text_color=AMBER_SOFT, anchor="w").pack(fill="x", padx=4)
+            return
+        if not items:
+            ctk.CTkLabel(self.vault_rows, text="The vault is empty.", font=self.app.font_small,
+                         text_color=MUTED, anchor="w").pack(fill="x", padx=4, pady=2)
+            return
+        for item in items[:100]:
+            row = ctk.CTkFrame(self.vault_rows, fg_color=BG, corner_radius=8)
+            row.pack(fill="x", pady=3)
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True, padx=10, pady=6)
+            extra = item.get("extra") or {}
+            verdict = f"  ·  {extra['verdict']}" if extra.get("verdict") else ""
+            ctk.CTkLabel(info, text=f"{item.get('id')}  ·  {item.get('quarantined_at', '?')}"
+                                    f"{verdict}",
+                         font=self.app.font_mono_small, text_color=TEXT,
+                         anchor="w").pack(fill="x")
+            ctk.CTkLabel(info, text=f"{item.get('original_path', '?')}\n{item.get('reason', '')}",
+                         font=self.app.font_small, text_color=MUTED, anchor="w",
+                         justify="left", wraplength=540).pack(fill="x")
+            ctk.CTkButton(row, text="Delete", width=70, height=28, font=self.app.font_small,
+                          fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                          border_color=BORDER_2, text_color=MUTED,
+                          command=lambda i=item["id"]: self._delete(i)).pack(side="right",
+                                                                            padx=(4, 10))
+            ctk.CTkButton(row, text="Restore", width=80, height=28, font=self.app.font_small,
+                          fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                          border_color=BORDER_2, text_color=BLUE,
+                          command=lambda i=item["id"]: self._restore(i)).pack(side="right")
+
+    def _refresh_cache(self):
+        cache = self.app.scanner.cache
+        if cache is None or not cache.enabled:
+            self.cache_label.configure(text="Cache disabled.")
+            return
+        st = cache.stats()
+        self.cache_label.configure(
+            text=f"{st['entries']} cached VirusTotal/LLM answer(s) "
+                 f"({st['expired']} expired) · {st['hits']} hit(s) this session\n{st['path']}")
+
+    # -- actions ---------------------------------------------------------------------
+    def _deploy(self):
+        dirs = [d for d in self.app.settings["scan_directories"] if os.path.isdir(d)]
+        if not dirs:
+            messagebox.showinfo("No folders", "Add a monitored directory on the Scan page first.")
+            return
+        created = self.app.scanner.deploy_canaries(dirs)
+        self.app.gui_log.info(f"Deployed {len(created)} canary file(s) from GUI.")
+        messagebox.showinfo("Canaries deployed",
+                            f"{len(created)} new canary file(s) planted in {len(dirs)} folder(s).")
+        self.app.check_canaries_now()
+
+    def _remove(self):
+        if not messagebox.askyesno("Remove canaries", "Delete every canary file this tool planted?"):
+            return
+        removed = self.app.scanner.remove_canaries()
+        self.app.last_canary_report = None
+        self.app.gui_log.info(f"Removed {removed} canary file(s) from GUI.")
+        self.app.refresh_protection_views()
+        self.on_show()
+
+    def _restore(self, item_id: str, confirm: bool = True):
+        if confirm and not messagebox.askyesno(
+                "Restore file", "Decrypt this item and put it back where it was?\n\n"
+                                "Only do this if you are sure it is a false positive."):
+            return
+        try:
+            dest = self.app.scanner.quarantine_vault.restore(item_id)
+        except Exception as e:
+            messagebox.showerror("Restore failed", str(e))
+            return
+        self.app.gui_log.warning(f"Restored vault item {item_id} -> {dest}")
+        if confirm:
+            messagebox.showinfo("Restored", f"Restored to:\n{dest}")
+        self.app.refresh_protection_views()
+        self.on_show()
+
+    def _delete(self, item_id: str, confirm: bool = True):
+        if confirm and not messagebox.askyesno("Delete permanently",
+                                               "Permanently delete this quarantined item?"):
+            return
+        try:
+            self.app.scanner.quarantine_vault.delete(item_id)
+        except Exception as e:
+            messagebox.showerror("Delete failed", str(e))
+            return
+        self.app.refresh_protection_views()
+        self.on_show()
+
+    def _auto_changed(self, label: str):
+        value = AUTO_QUARANTINE_CHOICES.get(label, "")
+        try:
+            ENV_FILE.touch(exist_ok=True)
+            set_key(str(ENV_FILE), "AUTO_QUARANTINE", value)
+        except Exception as e:
+            self.app.gui_log.error(f"Could not save AUTO_QUARANTINE: {e}")
+        RS.CONFIG["auto_quarantine"] = value
+        self.app.scanner.config["auto_quarantine"] = value
+        self.app.gui_log.info(f"Automatic quarantine set to: {label}")
+
+    def _clear_cache(self):
+        if self.app.scanner.cache is not None:
+            removed = self.app.scanner.cache.clear()
+            self.app.gui_log.info(f"Cleared {removed} cached result(s).")
+        self._refresh_cache()
 
 
 class ReportsPage(BasePage):
@@ -1020,7 +1485,7 @@ class ReportsPage(BasePage):
         for child in self.list_frame.winfo_children():
             child.destroy()
         report_dir = Path(self.app.scanner.report_dir)
-        files = sorted(report_dir.glob("ransomware_scan_*"),
+        files = sorted([*report_dir.glob("ransomware_scan_*"), *report_dir.glob("canary_alert_*")],
                        key=lambda p: p.stat().st_mtime, reverse=True) if report_dir.exists() else []
         if not files:
             ctk.CTkLabel(self.list_frame, text="No reports yet.\nRun a scan first.",
@@ -1030,7 +1495,7 @@ class ReportsPage(BasePage):
             return
         for path in files[:120]:
             stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            kind = path.suffix.lstrip(".").upper()
+            kind = "ALERT" if path.name.startswith("canary_alert_") else path.suffix.lstrip(".").upper()
             text = f"{stamp}   ·  {kind}"
             ctk.CTkButton(self.list_frame, text=text, anchor="w", height=30,
                           font=self.app.font_mono_small, fg_color="transparent",
@@ -1231,7 +1696,7 @@ class SettingsPage(BasePage):
         sec = Section(outer, "API keys", app)
         sec.pack(fill="x", pady=(14, 0))
         ctk.CTkLabel(sec.body,
-                     text=f"Keys are stored only in {ENV_FILE.name} next to the scanner "
+                     text=f"Keys are stored only in {ENV_FILE} "
                           "(git-ignored, never committed). Leave a field empty to keep "
                           "the current value.",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
@@ -1255,6 +1720,13 @@ class SettingsPage(BasePage):
         ctk.CTkButton(sec.body, text="Save keys", height=32, fg_color=ACCENT,
                       hover_color=ACCENT_HOVER, text_color="#E1F5EE", font=app.font_bold,
                       command=self._save_keys).pack(anchor="w", padx=14, pady=(6, 4))
+        self.vt_upload_var = ctk.BooleanVar(
+            value=bool(app.scanner.config.get("virustotal_upload_unknown")))
+        ctk.CTkSwitch(sec.body, text="Upload files VirusTotal has never seen (shares their "
+                                     "full content with VirusTotal)",
+                      variable=self.vt_upload_var, font=app.font_ui, text_color=TEXT,
+                      progress_color=RED, button_color=TEXT, fg_color=BORDER_2,
+                      command=self._vt_upload_toggled).pack(anchor="w", padx=14, pady=(8, 2))
         self.keys_label = ctk.CTkLabel(sec.body, text="", font=app.font_small,
                                        text_color=MUTED, anchor="w")
         self.keys_label.pack(fill="x", padx=14, pady=(0, 12))
@@ -1320,6 +1792,20 @@ class SettingsPage(BasePage):
                 text="Could not change the autostart entry — see Logs for details.",
                 text_color=RED_SOFT)
 
+    def _vt_upload_toggled(self):
+        enabled = bool(self.vt_upload_var.get())
+        try:
+            ENV_FILE.touch(exist_ok=True)
+            set_key(str(ENV_FILE), "VT_UPLOAD_UNKNOWN", "true" if enabled else "false")
+        except Exception as e:
+            self.keys_label.configure(text=f"Could not save setting: {e}", text_color=RED_SOFT)
+        RS.CONFIG["virustotal_upload_unknown"] = enabled
+        self.app.scanner.config["virustotal_upload_unknown"] = enabled
+        self.keys_label.configure(
+            text=("VirusTotal uploads ON — unknown files will be shared with VirusTotal."
+                  if enabled else "VirusTotal uploads OFF — hash lookups only (private)."),
+            text_color=AMBER_SOFT if enabled else ACCENT_SOFT)
+
     def _save_keys(self):
         changed = []
         try:
@@ -1371,8 +1857,9 @@ def detect_autostart() -> bool:
 # --- Application ---------------------------------------------------------------------
 
 class App(ctk.CTk):
-    NAV = [("dashboard", "Dashboard"), ("scan", "Scan"), ("reports", "Reports"),
-           ("database", "Database"), ("logs", "Logs"), ("settings", "Settings")]
+    NAV = [("dashboard", "Dashboard"), ("scan", "Scan"), ("protection", "Protection"),
+           ("reports", "Reports"), ("database", "Database"), ("logs", "Logs"),
+           ("settings", "Settings")]
 
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -1415,6 +1902,9 @@ class App(ctk.CTk):
         self.next_scan_at = None
         self.last_scan_at = None
         self._scan_seen_progress = False
+        self.last_canary_report = None
+        self._canary_check_running = False
+        self._alerted_signature = None
 
         log_handler = QueueLogHandler(self.log_queue)
         logging.getLogger("RansomwareScanner").addHandler(log_handler)
@@ -1434,6 +1924,7 @@ class App(ctk.CTk):
         self.pages = {
             "dashboard": DashboardPage(self),
             "scan": ScanPage(self),
+            "protection": ProtectionPage(self),
             "reports": ReportsPage(self),
             "database": DatabasePage(self),
             "logs": LogsPage(self),
@@ -1447,6 +1938,7 @@ class App(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(120, self._poll)
         self.after(1000, self._tick)
+        self.after(4000, self._canary_tick)
         self.gui_log.info(f"GUI started (v{APP_VERSION}) on {platform.system()}")
 
     # -- construction helpers ---------------------------------------------------------
@@ -1633,6 +2125,59 @@ class App(ctk.CTk):
                                               text_color=RED_SOFT)
         elif kind == "autostart_done":
             self.pages["settings"].autostart_finished(event[1], event[2])
+        elif kind == "canary_report":
+            self._canary_check_running = False
+            self._on_canary_report(event[1])
+
+    # -- canary tripwires ---------------------------------------------------------------------
+
+    def check_canaries_now(self):
+        """Verify canaries in a worker thread; the result arrives on the bus."""
+        if self._canary_check_running or not self.scanner.canaries.entries():
+            self.refresh_protection_views()
+            return
+        self._canary_check_running = True
+
+        def work():
+            try:
+                report = self.scanner.check_canaries(notify=True)
+            except Exception:
+                self.gui_log.exception("Canary check failed")
+                report = None
+            self.bus.put(("canary_report", report))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _canary_tick(self):
+        self.check_canaries_now()
+        minutes = max(1, int(self.scanner.config.get("canary_check_minutes", 5)))
+        self.after(minutes * 60 * 1000, self._canary_tick)
+
+    def _on_canary_report(self, report):
+        if report is None:
+            return
+        self.last_canary_report = report
+        self.refresh_protection_views()
+        if report.triggered:
+            signature = tuple(sorted((f.path, f.status) for f in report.findings))
+            self.status_label.configure(text=f"CANARY: {report.summary()}")
+            if signature != self._alerted_signature:
+                self._alerted_signature = signature
+                details = "\n".join(f"[{f.status}] {f.path}" for f in report.findings[:8])
+                messagebox.showwarning(
+                    "Ransomware tripwire triggered",
+                    f"{report.summary()}\n\n{details}\n\nDisconnect from the network and "
+                    "investigate running processes before rebooting.")
+        else:
+            self._alerted_signature = None
+
+    def refresh_protection_views(self):
+        try:
+            self.pages["dashboard"].refresh_cards()
+            if self.current_page == "protection":
+                self.pages["protection"].on_show()
+        except Exception:
+            self.gui_log.exception("Could not refresh protection views")
 
     # -- schedule -----------------------------------------------------------------------------
 
