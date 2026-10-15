@@ -1,27 +1,74 @@
+#!/usr/bin/env python3
 """
-detectors - modular detection engines for the Hybrid Ransomware Detection System.
-
-Each engine is independent, optional, and degrades gracefully when its
-third-party dependency is not installed:
-
-    fuzzy_hash      TLSH + ssdeep structural/similarity hashing (polymorphic
-                    family detection)
-    macro_analysis  olevba VBA/XLM macro extraction + static triage
-    yara_engine     YARA pattern matching against a rules directory
-    llm_backends    pluggable LLM (local Ollama / cloud OpenAI / none)
-    scoring         transparent weighted scoring matrix
+detectors/__init__.py — Unified exports for all AEGIS SENTINEL v5.2.0 detectors.
 """
 
-from .fuzzy_hash import FuzzyHasher, FuzzyResult, FUZZY_AVAILABLE
-from .macro_analysis import MacroAnalyzer, MacroResult, OLEVBA_AVAILABLE
-from .yara_engine import YaraEngine, YaraResult, YARA_AVAILABLE
-from .llm_backends import build_llm_backend, LLMBackend
-from .scoring import ScoringMatrix, ScoreResult
+from .fuzzy_hash import FUZZY_AVAILABLE, FuzzyHasher, FuzzyMatch, FuzzyResult
+from .macro_analysis import OLEVBA_AVAILABLE, MacroAnalyzer, MacroResult
+from .yara_engine import YARA_AVAILABLE, YaraEngine, YaraMatch, YaraResult
+from .prompt_guard import HiddenTextResult, PromptGuard, PromptGuardResult, wrap_untrusted_with_nonce
+from .llm_backends import LLMBackend, NullLLMBackend, OllamaBackend, OpenAIBackend, build_llm_backend
+from .container_extractor import ContainerExtractionResult, ContainerExtractor
+from .relationship_scanner import RelationshipFinding, RelationshipScanResult, RelationshipScanner
+from .mail_analyzer import AuthMechanismResult, MailAnalysisResult, MailAnalyzer
+from .behavioral_monitor import BehavioralFinding, BehavioralMonitor, BehavioralReport, calculate_shannon_entropy
+from .multi_format_analyzer import MultiFormatAnalyzer, MultiFormatResult
+from .dynamic_sandbox import DynamicSandbox, SandboxReport
+from .memory_scanner import MemoryFinding, MemoryForensicsScanner, MemoryScanSummary, ProcessMemoryReport
+from .ml_classifier import FILE_FEATURE_NAMES, MLMalwareClassifier, MLPrediction
+from .llm_analyst import AnalystBriefing, LocalLLMThreatAnalyst
+from .ai_correlator import AIDetectionCorrelator, CorrelatedDecision
+from .scoring import Contribution, ScoreResult, ScoringMatrix
 
 __all__ = [
-    "FuzzyHasher", "FuzzyResult", "FUZZY_AVAILABLE",
-    "MacroAnalyzer", "MacroResult", "OLEVBA_AVAILABLE",
-    "YaraEngine", "YaraResult", "YARA_AVAILABLE",
-    "build_llm_backend", "LLMBackend",
-    "ScoringMatrix", "ScoreResult",
+    "FUZZY_AVAILABLE",
+    "FuzzyHasher",
+    "FuzzyMatch",
+    "FuzzyResult",
+    "OLEVBA_AVAILABLE",
+    "MacroAnalyzer",
+    "MacroResult",
+    "YARA_AVAILABLE",
+    "YaraEngine",
+    "YaraMatch",
+    "YaraResult",
+    "HiddenTextResult",
+    "PromptGuard",
+    "PromptGuardResult",
+    "wrap_untrusted_with_nonce",
+    "LLMBackend",
+    "NullLLMBackend",
+    "OllamaBackend",
+    "OpenAIBackend",
+    "build_llm_backend",
+    "ContainerExtractionResult",
+    "ContainerExtractor",
+    "RelationshipFinding",
+    "RelationshipScanResult",
+    "RelationshipScanner",
+    "AuthMechanismResult",
+    "MailAnalysisResult",
+    "MailAnalyzer",
+    "BehavioralFinding",
+    "BehavioralMonitor",
+    "BehavioralReport",
+    "calculate_shannon_entropy",
+    "MultiFormatAnalyzer",
+    "MultiFormatResult",
+    "DynamicSandbox",
+    "SandboxReport",
+    "MemoryFinding",
+    "MemoryForensicsScanner",
+    "MemoryScanSummary",
+    "ProcessMemoryReport",
+    "FILE_FEATURE_NAMES",
+    "MLMalwareClassifier",
+    "MLPrediction",
+    "AnalystBriefing",
+    "LocalLLMThreatAnalyst",
+    "AIDetectionCorrelator",
+    "CorrelatedDecision",
+    "Contribution",
+    "ScoreResult",
+    "ScoringMatrix",
 ]

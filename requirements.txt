@@ -1,40 +1,38 @@
-# All dependencies are pure-Python (architecture-independent) or ship prebuilt
-# wheels for x86_64 AND ARM64 on Windows, macOS, and Linux — so pip installs the
-# correct build automatically (incl. Apple Silicon). No CPU-arch pinning; no
-# source compilation required.
+# Core & Document Parsing
+requests>=2.31.0
+python-dotenv>=1.0.0
+schedule>=1.2.1
+PyPDF2>=3.0.1
+python-docx>=1.1.0
+pytesseract>=0.3.10
+pdf2image>=1.17.0
+defusedxml>=0.7.1
 
-# Core
-requests
-schedule
-python-dotenv
+# Cryptography, Quarantine & Ed25519 Signing
+cryptography>=42.0.0
 
-# Document parsing
-PyPDF2
-python-docx
-pdf2image           # also needs the system package "poppler"
-pytesseract         # also needs the system package "tesseract-ocr"
-Pillow              # ships x86_64 + arm64 wheels for all major OSes
+# Static Macro, YARA & Fuzzy Similarity Hashing
+oletools>=0.60.1
+yara-python>=4.5.0
+python-tlsh>=4.5.0
+ppdeep>=20200505
 
-# Graphical interface (gui.py / --gui)
-customtkinter       # pure-Python; needs Tkinter (bundled on Windows/macOS;
-                    # on Debian/Ubuntu: sudo apt-get install python3-tk)
+# Sandboxed Container Unpacking (.7z, .iso, .rar)
+py7zr>=0.21.0
+pycdlib>=1.14.0
+rarfile>=4.2
 
-# --- Detection layers (all optional; the scanner degrades gracefully if any
-#     are missing, so a minimal install still runs the hash + DB layers) -------
+# Aegis MailGuard (.msg, DKIM, SPF/DMARC DNS)
+extract-msg>=0.48.0
+dkimpy>=1.1.6
+dnspython>=2.6.1
 
-# Fuzzy / similarity hashing (polymorphic family detection)
-python-tlsh         # TLSH locality-sensitive hash; prebuilt wheels x86_64+arm64
-ppdeep              # pure-Python ssdeep; no libfuzzy/compiler needed
+# Real-Time Monitoring, Host Telemetry & Process Control
+watchdog>=4.0.0
+psutil>=5.9.8
 
-# VBA / XLM macro analysis for Office documents (dropper detection)
-oletools            # pure-Python; provides olevba
-
-# YARA structural pattern matching (IOCs)
-yara-python         # ships prebuilt wheels for x86_64 + arm64 on all major OSes
-
-# Local LLM backend for OPSEC (no extra Python dep — talks to a running Ollama
-# server over HTTP via 'requests', already listed above). Install Ollama itself
-# from https://ollama.com and pull a model, e.g.:  ollama pull llama3.1
-
-# Windows-only (optional — only needed for the --create-shortcut .lnk feature)
-# pywin32 ; sys_platform == "win32"
+# Optional Machine Learning, YAML Sigma Rules, GUI & Packaging
+scikit-learn>=1.4.0
+PyYAML>=6.0.1
+customtkinter>=5.2.2
+pyinstaller>=6.5.0

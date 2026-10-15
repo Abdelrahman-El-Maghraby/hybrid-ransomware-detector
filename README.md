@@ -1,376 +1,350 @@
-# 🛡️ Hybrid Ransomware Detection System
+# AEGIS SENTINEL v5.2.0 — Multi-Layer Endpoint Triage, MailGuard, Threat Intel & Hybrid AI Detection Platform
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
-![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Engine: v5.2.0](https://img.shields.io/badge/Engine-v5.2.0--aegis--sentinel-critical.svg)](config.py)
+[![SBOM: CycloneDX 1.5](https://img.shields.io/badge/SBOM-CycloneDX%201.5-informational.svg)](core/supply_chain.py)
 
-A multi-layered scanner that inspects **PDF and Microsoft Word documents** for ransomware and other malicious indicators. It fuses **seven independent detection signals** — cryptographic hashing, a local malware-hash dataset, **fuzzy/structural hashing**, **VBA macro analysis**, a **YARA rules engine**, multi-engine reputation via VirusTotal, and **local-first LLM** semantic analysis — through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a readable report showing *why* each file scored what it did.
-
-Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), including optional autostart-at-login on each platform.
-
-Originally built as my B.Sc. graduation project as a three-layer scanner, then extended with structural detection (fuzzy hashing, macros, YARA), an OPSEC-preserving local LLM option, and a weighted scoring matrix. It is intended for **defensive and educational use** — analysing suspicious documents, not creating malware.
+**AEGIS SENTINEL** is a cross-platform user-space endpoint detection, multi-format malware analysis, email security (**Aegis MailGuard**), deception tripwire, and local-first AI correlation platform. It combines deterministic cryptographic, structural, behavioral, and memory-level inspection with a calibrated machine learning classifier and a local Ollama LLM threat analyst—governed by strict mathematical category caps so that neither AI nor semantic heuristics can unilaterally quarantine a file or override hard technical detections.
 
 ---
 
-## 📖 Table of Contents
+## High-Level Architecture & Pipeline
 
-- [🧩 Why "hybrid"?](#-why-hybrid)
-- [🔬 Detection layers](#-detection-layers)
-- [✨ Features](#-features)
-- [📦 Requirements](#-requirements)
-- [🚀 Installation](#-installation)
-- [🔑 Configuration](#-configuration)
-- [💻 Usage](#-usage)
-- [🪟 Graphical interface](#-graphical-interface)
-- [📂 Project structure](#-project-structure)
-- [🌐 Cross-platform & architecture notes](#-cross-platform--architecture-notes)
-- [🧭 Roadmap](#-roadmap)
-- [🚨 Disclaimer](#-disclaimer)
-- [👤 Author](#-author)
-
----
-
-## 🧩 Why "hybrid"?
-
-Most lightweight scanners rely on a single technique (usually a hash lookup), which misses anything not already in a database. This tool layers seven complementary approaches — exact, structural, behavioural, reputational, and semantic — so a file flagged by **any** of them is surfaced, and the **weighted scoring matrix** ensures the verdict reflects *which kind* of evidence fired (a real exec primitive in a macro counts for far more than a phishing-flavoured sentence):
-
-```mermaid
-flowchart TD
-    A[PDF / Word file] --> B[1. MD5 / SHA-256<br/>chunked hashing]
-    A --> C[2. Local hash DB<br/>exact known-bad]
-    A --> D[3. Fuzzy hashing<br/>TLSH / ssdeep family match]
-    A --> E[4. VBA macro analysis<br/>olevba dropper triage]
-    A --> F[5. YARA rules<br/>structural IOCs]
-    A --> G[6. VirusTotal<br/>multi-engine reputation]
-    A --> H[7. LLM semantic<br/>local-first, OPSEC-safe]
-    B --> M[Weighted scoring matrix]
-    C --> M
-    D --> M
-    E --> M
-    F --> M
-    G --> M
-    H --> M
-    M --> N[Risk 0-100 + verdict band<br/>+ explainable JSON / TXT report]
+```text
+                         +---------------------------------------------------+
+                         |            AEGIS SENTINEL v5.2.0 CORE             |
+                         |   Ed25519 Self-Integrity Guard & TrustKeyRing     |
+                         +-------------------------+-------------------------+
+                                                   |
+                   +-------------------------------+-------------------------------+
+                   |                               |                               |
+                   v                               v                               v
+       +-----------------------+       +-----------------------+       +-----------------------+
+       |   Real-Time Watchdog  |       |  Deception Canaries   |       |  Scheduled / CLI /    |
+       |  (2.0s Settle Wait)   |       | (!00_* HMAC Decoys)   |       |   CustomTkinter GUI   |
+       +-----------+-----------+       +-----------+-----------+       +-----------+-----------+
+                   |                               |                               |
+                   +-------------------------------+-------------------------------+
+                                                   |
+                                                   v
+                         +---------------------------------------------------+
+                         |        SQLite WAL Dual-Table Scan Cache           |
+                         |  (file_stat_cache -> verdict_cache, 7-Day TTL)    |
+                         +-------------------------+-------------------------+
+                                                   | (Cache Miss)
+                                                   v
+   +-----------------------------------------------------------------------------------------------+
+   |                         STAGE 1: UNTRUSTED PARSING & DECONSTRUCTION                           |
+   |                                                                                               |
+   |  * 64 KB Chunked MD5/SHA-256 + 5 MB Capped ASCII/UTF-16LE String Generator                    |
+   |  * Sandboxed Recursive Container Unpacker (.zip/.7z/.rar/.iso) with Zip-Bomb & Zip-Slip Guard |
+   |  * Office Relationship Scanner (_rels/*.rels via defusedxml -> RTI / Follina ms-msdt:)        |
+   |  * Aegis MailGuard (.eml/.msg -> SPF/DKIM/DMARC Honesty Model, Lookalikes, URL Egress Filter) |
+   +-----------------------------------------------+-----------------------------------------------+
+                                                   |
+                                                   v
+   +-----------------------------------------------------------------------------------------------+
+   |                     STAGE 2: MULTI-LAYER STATIC, DYNAMIC & HOST SENSORS                       |
+   |                                                                                               |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   |  | Local Hash DB &     |  | VBA / XLM Macros &   |  | Multi-Format     |  | Namespaced     |  |
+   |  | Fuzzy (TLSH/ssdeep) |  | P-Code VBA Stomping  |  | PE/ELF/MachO/LNK |  | YARA Engine    |  |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   |  | Behavioral Monitor  |  | Dynamic Sandbox      |  | Live Memory      |  | Sigma Log &    |  |
+   |  | (Lineage & Entropy) |  | (bwrap / Emulation)  |  | Forensics (RWX)  |  | YARA-L Windows |  |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   |  | Threat Intel (TIP)  |  | VirusTotal / GSB /   |  | PromptGuard &    |  | Calibrated ML  |  |
+   |  | (STIX 2.1 / IOC DB) |  | IPQS / AbuseIPDB     |  | Nonce Spotlight  |  | & Local Ollama |  |
+   |  +---------------------+  +----------------------+  +------------------+  +----------------+  |
+   +-----------------------------------------------+-----------------------------------------------+
+                                                   |
+                                                   v
+   +-----------------------------------------------------------------------------------------------+
+   |                  STAGE 3: SCORING MATRIX, 6-PILLAR AI CORRELATOR & MITRE                      |
+   |                                                                                               |
+   |  * Category Caps: Technical <= 100 | Reputation <= 80 | Semantic <= 24 | ML Standalone <= 35  |
+   |  * Guardrail: Semantic-only / uncorroborated AI signals clamped at <= 49 (Medium)             |
+   |  * Supporting vs. Mitigating Evidence Enumeration + MITRE ATT&CK v15 / CAR Mapping            |
+   +-----------------------------------------------+-----------------------------------------------+
+                                                   |
+                                                   v
+   +-----------------------------------------------------------------------------------------------+
+   |                STAGE 4: ACTIVE CONTAINMENT, IR PLAYBOOKS & DURABLE TELEMETRY                  |
+   |                                                                                               |
+   |  * Pre-Quarantine Process Lock Termination (OS Safelist Enforced)                             |
+   |  * Atomic Move + 64 KB Chunked AES-256-GCM Quarantine Vault (AAD Bound) + Self-Test           |
+   |  * Evidence Locker, HITL Approval Queue, HMAC-SHA256 Chained Audit Ledger                     |
+   |  * Persistent SQLite WAL Telemetry Spooler -> TCP Syslog SIEM (CEF/JSON), SMTP & Cloud Sync   |
+   +-----------------------------------------------------------------------------------------------+
 ```
 
-The signals fall into three weight categories — **technical** (hash DB, fuzzy, macros, YARA), **reputation** (VirusTotal), and **semantic** (LLM) — and technical evidence is designed to mathematically outweigh semantic evidence.
+---
+
+## Key Capabilities Breakdown
+
+### 1. Memory-Safe I/O, Resilience & Caching (`core/resilience.py`, `core/cache.py`)
+* **64 KB Streaming I/O:** Cryptographic hashing (`MD5`, `SHA-256`) and fuzzy hashing (`TLSH`, `ssdeep`) stream files in 64 KB chunks so multi-gigabyte ISOs and archives never spike RAM.
+* **5 MB Capped String Generator:** Extracts ASCII and UTF-16LE strings lazily with a hard 5 MB ceiling.
+* **Exponential Backoff with Full Jitter:** `ResilientHttpClient` handles HTTP `429` (`Retry-After`) and `5xx` errors across VirusTotal, Google Safe Browsing, IPQualityScore, AbuseIPDB, OpenAI, and Cloud Sync endpoints.
+* **Dual-Table SQLite WAL Cache:** Maps `(file_path, mtime_ns, file_size)` to `(md5, sha256)` and `(sha256, ENGINE_VERSION)` to full scan verdicts with a 7-day TTL.
+
+### 2. Multi-Format & Untrusted Container Analysis (`detectors/`)
+* **Multi-Format Binary, Script & Web Parser (`multi_format_analyzer.py`):**
+  * **Windows (`PE` / `MSI`):** Inspects `.exe`, `.dll`, `.sys`, `.scr` headers, per-section Shannon entropy, `RWX` permissions, packer sections (`.upx`, `.vmp`, `.themida`), high-risk injection APIs (`VirtualAllocEx`, `WriteProcessMemory`, `CreateRemoteThread`), and `.msi` `CustomAction` streams.
+  * **Linux (`ELF`) & macOS (`Mach-O`):** Detects `PT_LOAD` `RWX` segments, `LD_PRELOAD` hooks, `ptrace` references, `DYLD_INSERT_LIBRARIES`, and `task_for_pid`.
+  * **Shortcuts (`LNK`), Scripts & Web:** Parses MS-SHLLINK `.lnk` arguments, PowerShell/JS/VBS/BAT obfuscation and AMSI bypasses, and HTML Smuggling (`Blob` + `URL.createObjectURL`) or SVG `<script>` payloads.
+* **Sandboxed Recursive Container Unpacker (`container_extractor.py`):** Extracts `.zip`, `.7z`, `.rar`, and `.iso` up to 3 levels deep inside an isolated temporary directory while enforcing a 200 MB cumulative byte cap, a 50-file ceiling, `os.path.commonpath` Zip-Slip traversal prevention, symlink refusal, and dictionary password recovery.
+* **Office RTI & Macro Stomping Defense (`relationship_scanner.py`, `macro_analysis.py`):** Uses `defusedxml` to parse `_rels/*.rels` for external template injection (`T1221`) and `ms-msdt:` Follina exploits, detects Excel 4.0 (XLM) macros, and flags **VBA Stomping** (`T1564.007`) by comparing raw `_VBA_PROJECT` P-Code identifiers against decompressed VBA source.
+
+### 3. Aegis MailGuard (`detectors/mail_analyzer.py`)
+* **Strict Authentication Honesty Model:** Evaluates `SPF`, `DKIM`, and `DMARC` and labels every mechanism as:
+  * `verified`: Cryptographically verified by AEGIS SENTINEL (`dkimpy` signature verification / live DNS policy lookup).
+  * `reported`: Parsed from an `Authentication-Results` or `Received-SPF` header emitted by an explicitly trusted `authserv-id` (`trusted_authserv`). Headers from untrusted servers are ignored for trust and flagged as `mail_untrusted_auth_header`.
+  * `unavailable`: Live verification disabled or DNS unreachable (logged under `inconclusive_notes` without arbitrary point penalties).
+* **Phishing & URL Egress Privacy:** Detects `From` / `Return-Path` / `Reply-To` spoofing, Punycode/homoglyph and Levenshtein lookalike domains, HTML credential-harvesting forms, and anchor href mismatches. All extracted URLs pass through `URLPrivacyFilter` (blocking internal domains/RFC1918 IPs and redacting secret query tokens) before querying external reputation APIs.
+
+### 4. Behavioral, Dynamic Sandbox, Memory Forensics, Sigma & Deception (`core/`, `detectors/`)
+* **Deception Canary Tripwires (`canary_manager.py`):** Deploys HMAC-watermarked decoy files (`!00_passwords_vault.docx`, `!00_prod_cluster_id_rsa.pem`) that sort first alphabetically; any modification, encryption, or deletion triggers an immediate `Critical (100/100)` alert.
+* **Behavioral Process & Burst Monitor (`behavioral_monitor.py`):** Detects document readers spawning command interpreters (`winword.exe -> powershell.exe`), shadow-copy deletion (`vssadmin delete shadows`), and high-entropy (`>= 7.35` bits/byte) file-modification bursts.
+* **Dynamic Sandbox (`dynamic_sandbox.py`):** Explicitly distinguishes between `"isolated_container"` execution (Linux `bwrap` unshared namespaces with `--unshare-all` and no network) and `"safe_emulation"` (multi-stage Base64 deobfuscation and behavioral IOC extraction).
+* **Live Process Memory Forensics (`memory_scanner.py`):** Scans live process memory on Linux (`/proc/<pid>/maps` + `mem`) and Windows (`VirtualQueryEx` + `ReadProcessMemory`) in 64 KB chunks for unbacked `RWX` pages, reflective PE/ELF headers, and AMSI bypass patches, explicitly reporting `"inspected"` vs. `"permission_denied"`.
+* **Sigma & YARA-L Engine (`sigma_engine.py`):** Evaluates single-event Sigma rules and sliding-window YARA-L temporal correlation rules.
+
+### 5. Calibrated ML, Local LLM Threat Analyst & 6-Pillar AI Correlator (`detectors/`)
+* **PromptGuard (`prompt_guard.py`):** Extracts hidden `.docx` (`w:vanish`, 1pt font, white-on-white) and HTML (`display:none`, `opacity:0`) text, detects prompt-injection attempts, and wraps untrusted content in randomized `<UNTRUSTED_DATA_{NONCE}>` delimiters using a 40%/30%/30% Head/Middle/Tail sampler.
+* **Calibrated ML Classifier (`ml_classifier.py`):** Evaluates a standardized 16-feature file vector and an 8-feature MailGuard phishing vector using Platt-scaled probability calibration.
+* **6-Pillar AI Correlator (`ai_correlator.py`):** Fuses Static, Behavioral/Sandbox, MailGuard, Threat Intelligence (STIX 2.1 TIP + VT), ML Classifier, and Local LLM signals, outputting explicit `supporting_evidence` and `opposing_evidence` lists.
 
 ---
 
-## 🔬 Detection layers
+## Unified Weighted Scoring Matrix
 
-1. **Cryptographic hashing (static).** Computes the file's MD5 **and SHA-256** using memory-efficient **chunked reads** (constant memory regardless of file size).
-2. **Local hash database (exact known-bad).** Checks the MD5 against a **streamed CSV** of known-malicious hashes loaded into an **O(1) lookup set**. Instant, offline detection of known samples.
-3. **Fuzzy / structural hashing (polymorphic families).** Computes **TLSH** and **ssdeep** (via the pure-Python `ppdeep`) digests and compares them against a signature database of *confirmed* malicious samples. Because these digests stay *similar* when a file stays *structurally similar*, this catches polymorphic variants whose exact SHA-256 has never been seen — exactly the gap an exact-hash blocklist leaves open. Match distance/similarity is reported as evidence.
-4. **VBA macro analysis (Office dropper mechanism).** Uses **`oletools` / `olevba`** to statically extract and triage embedded VBA/XLM macros **without ever executing them**. It buckets findings into auto-run triggers (`AutoOpen`, `Document_Open`, …), execution/download primitives (`Shell`, `CreateObject`, `URLDownloadToFile`, `powershell`, …), other suspicious calls, and extracted IOCs. An auto-run trigger **combined with** an exec primitive is the classic dropper pattern and is scored accordingly.
-5. **YARA rules engine (structural IOCs).** Compiles every `.yar` / `.yara` file in `rules/` (namespaced) and scans each file against them. Rules ship with a `severity` meta (`low`/`medium`/`high`/`critical`) that the scoring matrix reads. The bundled rules are original triage heuristics for ransom-note language, extortion + urgency combinations, Bitcoin-address-with-payment context, PowerShell download cradles, and Office dropper structures — drop in your own rules to extend coverage. Only matched **string identifiers** are recorded, never the raw matched bytes.
-6. **VirusTotal (threat intelligence).** Submits the file hash to the VirusTotal v3 API and reads how many engines flag it, producing a detection ratio.
-7. **LLM semantic analysis (local-first, OPSEC-preserving).** Extracts visible document text (PyPDF2 / python-docx, with **OCR fallback** via Tesseract + Poppler for scanned PDFs) plus raw printable strings, and asks an LLM whether the content looks like a phishing/ransomware lure, returning a confidence score and a list of suspicious elements.
-   - **OPSEC by default.** The backend is pluggable. With `LLM_PROVIDER=auto` (the default) the scanner prefers a **local Ollama** model if one is reachable, so **potentially sensitive documents never leave the machine**. It falls back to the cloud (OpenAI) only if no local model is available *and* an API key is set; every cloud call is logged as egress. Set `LLM_PROVIDER=ollama` to force local-only, or `none` to disable the layer.
-   - **Prompt-injection hardening.** The untrusted file content is passed in a separate **user** role from the **system** instructions and the model runs at `temperature = 0`, hardening this step against a malicious document trying to talk the model into a "safe" verdict.
-
-### Weighted scoring matrix
-
-The original hardcoded severity equation (`10·db + 5·llm + 5·vt`) gave a *semantic* signal the same weight as multi-engine reputation and could not express that a structural indicator is far more damning than a suspicious sentence. It has been replaced by a **transparent weighted matrix** (`detectors/scoring.py`). Every signal contributes through an explicit rule with a **category**, a **weight**, and a human-readable **detail**, governed by three principles:
-
-1. **Technical > semantic, mathematically.** Technical indicators (local-DB hit, YARA, macro exec primitives, fuzzy family match) carry the heaviest weights. The semantic (LLM) category is **capped low**, so a phishing lure can never by itself out-score a real structural indicator.
-2. **Semantic-alone cannot be "High".** If no technical or reputation signal fired, the verdict is clamped to at most **Medium**, no matter how confident the LLM was about the prose.
-3. **Explainability.** The result carries a full per-indicator breakdown, so the report shows exactly which signals drove the verdict and by how much.
-
-Two scores are produced: a granular **risk score (0–100)** with verdict bands, and the **legacy severity score (0–10)** (`risk / 10`) kept so existing reports, the GUI, and tests keep working — a pure local-DB hit still yields exactly `10.0`, a clean file `0.0`.
-
-| Risk score | Verdict |
-|-----------:|---------|
-| 0 | Clean |
-| 1–24 | Low |
-| 25–49 | Medium |
-| 50–79 | High |
-| 80–100 | Critical |
-
-A file is marked **malicious** if any layer fires. **Every optional layer degrades gracefully** — missing libraries (`python-tlsh`, `ppdeep`, `oletools`, `yara-python`), a missing local model, or missing API keys produce warnings, not crashes, and the remaining layers still run.
-
----
-
-## ✨ Features
-
-- Scans `.pdf`, `.docx`, and `.doc` files across one or more directories.
-- **Seven independent detection layers** fused through a transparent, **explainable weighted scoring matrix** (risk 0–100 + verdict band, with a full evidence trail per file).
-- **Structural detection** that survives polymorphism and obfuscation: fuzzy hashing (TLSH/ssdeep), static VBA macro triage (olevba), and a YARA engine you can extend with your own rules.
-- **OPSEC-preserving LLM layer** — local Ollama by default so sensitive documents stay on the machine, with a cloud fallback only when explicitly available; cloud egress is logged.
-- **Desktop GUI** (`gui.py`) — dark dashboard with live scan progress, per-layer result breakdown, report browser, dataset import, live logs, and settings. The CLI remains fully independent.
-- Single-file scan and a fuzzy-hash helper from the CLI (`--scan-file`, `--fuzzy-hash`) for quick triage and growing your signature DB.
-- OCR fallback so image-only / scanned PDFs are still analysed.
-- Detailed **JSON** report + human-readable **TXT** summary per scan, grouped by verdict band.
-- Scheduled background scanning (default: every 6 hours).
-- **Cross-platform autostart at login** — Windows (registry), macOS (launchd), Linux (systemd user service, with a cron fallback).
-- Optional desktop shortcut/launcher (Windows `.lnk`, Linux `.desktop`).
-- File + console logging.
-
----
-
-## 📦 Requirements
-
-**Python:** 3.9+ (see `requirements.txt` — all dependencies provide x86_64 and ARM64 wheels, so installation needs no compiler).
-
-**Detection-layer libraries (optional, recommended).** The structural layers use `python-tlsh` + `ppdeep` (fuzzy hashing), `oletools` (macro analysis), and `yara-python` (YARA). All ship prebuilt wheels (or are pure-Python) for x86_64 and ARM64 on Windows/macOS/Linux, so `pip install -r requirements.txt` pulls them with no compiler. If any are absent, that layer is simply skipped.
-
-**Local LLM (optional, for OPSEC).** To keep documents on-machine, install **[Ollama](https://ollama.com)** and pull a model, then the scanner uses it automatically:
-
-```bash
-ollama pull llama3.1          # or any chat model you prefer
-# the scanner auto-detects a running Ollama at http://localhost:11434
+```text
++-------------------------------------------------------------------------+
+|Indicator                                      Category     Max Weight   |
++-------------------------------------------------------------------------+
+|Local Malicious Hash DB Match                  technical    100.0        |
+|Canary Honeypot Tripwire Tampered/Deleted      technical    100.0        |
+|Zip-Bomb / Zip-Slip Archive Breach             technical    100.0        |
+|VBA Stomping (P-Code vs. Source Mismatch)      technical     90.0        |
+|Live Memory Reflective PE/ELF or Shellcode     technical     90.0        |
+|YARA Rule Match (critical/high/medium/low)     technical  90/65/40/18    |
+|Sigma / YARA-L Temporal Correlation Match      technical     90.0        |
+|Behavioral Shadow Copy Deletion                technical     85.0        |
+|Fuzzy Hash Match (TLSH / ssdeep * confidence)  technical     72.0        |
+|Remote Template Injection (RTI / Follina)      technical     70.0        |
+|Excel 4.0 (XLM) Macro Detection                technical     55.0        |
+|Confirmed LLM Prompt Injection                 technical     50.0        |
+|MailGuard DMARC Fail (verified=100%/rep=80%)   technical     45.0        |
+|MailGuard Lookalike Domain                     technical     45.0        |
+|Macro Critical Execution Primitive             technical     40.0 (+8)   |
+|Calibrated ML Classifier (Standalone Cap)      technical     35.0        |
+|Unreadable Password-Protected Archive          technical  25.0 - 35.0    |
+|Concealed / Hidden Document or HTML Text       technical     25.0        |
++-------------------------------------------------------------------------+
+|VirusTotal Multi-Engine Detections             reputation    80.0 (fl 35)|
+|Threat Intelligence Platform (TIP) IOC Hit     reputation    95.0 (cap80)|
+|MailGuard Malicious URL (VT/GSB/IPQS/AbuseIP)  reputation    65.0        |
++-------------------------------------------------------------------------+
+|Local LLM Semantic Lure Analysis               semantic      24.0        |
+|MailGuard Phishing Urgency Keywords            semantic      20.0        |
++-------------------------------------------------------------------------+
+|Category Caps: Technical = 100.0 | Reputation = 80.0 | Semantic = 24.0   |
+|Guardrail: If Technical == 0 and Reputation == 0 -> Max Score = 49 (Med) |
++-------------------------------------------------------------------------+
 ```
 
-No extra Python package is needed — the scanner talks to Ollama over HTTP. If Ollama isn't running and no OpenAI key is set, the semantic layer is skipped.
-
-**System packages — Tesseract OCR + Poppler.** These are external programs (not Python packages) that `pytesseract` and `pdf2image` call under the hood. They are required only for the **OCR fallback on scanned/image-only PDFs**; the rest of the scanner works without them.
-
-- **Windows:** install **Tesseract OCR** and **Poppler**, and add both to your `PATH`.
-- **macOS:** `brew install tesseract poppler`
-- **Linux (Debian/Ubuntu):** `sudo apt-get install tesseract-ocr poppler-utils`
-
-**For the GUI only — Tkinter.** Bundled with the official Python installers on Windows and macOS. On minimal Linux installs: `sudo apt-get install python3-tk`.
+**Verdict Bands:**
+* **0:** `Clean`
+* **1 – 24:** `Low`
+* **25 – 49:** `Medium`
+* **50 – 79:** `High`
+* **80 – 100:** `Critical`
 
 ---
 
-## 🚀 Installation
+## Installation
 
+### 1. System Prerequisites (Optional but Recommended)
 ```bash
-git clone https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector.git
-cd hybrid-ransomware-detector
+# Ubuntu / Debian
+sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils libfuzzy-dev unrar bubblewrap strace
 
-python -m venv .venv
-# Windows:        .venv\Scripts\activate
-# macOS / Linux:  source .venv/bin/activate
+# macOS (Homebrew)
+brew install tesseract poppler ssdeep
 
+# Windows (winget / Chocolatey)
+choco install tesseract poppler unrar
+```
+
+### 2. Python Environment Setup
+```bash
+git clone [https://github.com/your-org/aegis-sentinel.git](https://github.com/your-org/aegis-sentinel.git)
+cd aegis-sentinel
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## 🔑 Configuration
-
-API keys and the LLM backend are loaded from a local `.env` file and are **never** stored in the code.
-
+### 3. Local LLM Setup (Optional — Privacy-Preserving Default)
 ```bash
-cp .env.example .env        # Windows: copy .env.example .env
+ollama pull llama3.1
+ollama serve
 ```
-
-Then edit `.env`. The key settings:
-
-```
-LLM_PROVIDER=auto                      # auto | ollama | openai | none
-OLLAMA_HOST=http://localhost:11434     # used by auto/ollama
-OLLAMA_MODEL=llama3.1
-OPENAI_API_KEY=                         # leave blank to stay fully local
-VIRUSTOTAL_API_KEY=your-virustotal-api-key
-```
-
-> The cryptographic-hash, fuzzy, macro, and YARA layers work with **no keys at all**. VirusTotal needs a key; the LLM layer needs either a running Ollama (recommended, keeps data local) or an OpenAI key. Anything missing is skipped gracefully.
-
-### Malware-hash dataset
-
-The local database is a CSV with at least the columns `FileName`, `md5Hash`, and `Benign` (where `Benign = 0` marks a malicious entry). Import it with:
-
-```bash
-python RansomwareScanner.py --import-database /path/to/your/dataset.csv
-```
-
-A suitable dataset can be sourced from public malware-hash collections on Kaggle. (The dataset itself is intentionally **not** committed to this repo.)
-
-### Fuzzy signature database
-
-Fuzzy hashing matches files against the digests of *confirmed* malicious samples. To grow your own database, print a sample's digests and paste them into a signature entry:
-
-```bash
-python RansomwareScanner.py --fuzzy-hash /path/to/confirmed_sample
-```
-
-The signature file (`fuzzy_signatures.json`, format documented in the bundled `fuzzy_signatures.sample.json`) looks like:
-
-```json
-{
-  "version": 1,
-  "signatures": [
-    {"family": "Acme.Locker", "tlsh": "T1...", "ssdeep": "3:...", "note": "source / provenance"}
-  ]
-}
-```
-
-Point the scanner at it with `FUZZY_SIGNATURE_DB` in `.env` (it uses the bundled sample otherwise). **Never commit live malware** — only its fuzzy digests.
-
-### YARA rules
-
-Every `.yar` / `.yara` file in `rules/` is compiled automatically. Add your own files there (or point `YARA_RULES_DIR` elsewhere). Give each rule a `severity` meta (`low`/`medium`/`high`/`critical`) so the scoring matrix can weight it.
 
 ---
 
-## 💻 Usage
+## CLI Usage Reference
 
+### Core Scanning & Daemon Mode
 ```bash
-# Launch the graphical interface
-python gui.py
-# (equivalent)
+# Scan a single file (any format: PDF, Office, PE, ELF, Mach-O, LNK, Script, Archive, .eml, .msg)
+python RansomwareScanner.py --scan-file /path/to/suspicious.docm
+
+# Run an immediate directory scan across configured paths with 4 worker threads
+python RansomwareScanner.py --scan-now --workers 4 --enable-quarantine
+
+# Run real-time Watchdog monitoring daemon + scheduled background scans
+python RansomwareScanner.py --daemon --enable-quarantine --siem-host 10.0.0.50:514
+
+# Launch the CustomTkinter graphical XDR console
 python RansomwareScanner.py --gui
-
-# Run a one-off scan now
-python RansomwareScanner.py --scan-now
-
-# Scan a single file and print its full multi-layer verdict
-python RansomwareScanner.py --scan-file suspicious.docx
-
-# Override the LLM backend for one run (e.g. force local-only or disable it)
-python RansomwareScanner.py --scan-file suspicious.docx --llm-provider ollama
-python RansomwareScanner.py --scan-now --llm-provider none
-
-# Print a file's fuzzy digests (to add to your signature DB)
-python RansomwareScanner.py --fuzzy-hash confirmed_sample.bin
-
-# Run continuously in the background with scheduled scans
-python RansomwareScanner.py --background
-
-# Import / update the local hash dataset
-python RansomwareScanner.py --import-database dataset.csv
-
-# Autostart at login (auto-detects Windows / macOS / Linux)
-python RansomwareScanner.py --setup-autostart
-python RansomwareScanner.py --remove-autostart
-
-# Desktop shortcut / launcher (Windows & Linux)
-python RansomwareScanner.py --create-shortcut
 ```
 
-Scan directories, file extensions, and the scan interval are configured in the `CONFIG` block near the top of `RansomwareScanner.py`. All paths are derived from the user's home directory via `pathlib`, so they adapt automatically to the host OS.
+### Quarantine, Host Response & Incident Management
+```bash
+# Run the AES-256-GCM chunked quarantine tamper & restore self-test
+python RansomwareScanner.py --quarantine-self-test
+
+# List, restore, or purge quarantined artifacts
+python RansomwareScanner.py --list-quarantine
+python RansomwareScanner.py --restore <QUARANTINE_ID>
+python RansomwareScanner.py --purge-quarantine <QUARANTINE_ID>
+
+# Correlated incidents, timelines, and Local LLM incident narratives
+python RansomwareScanner.py --list-incidents
+python RansomwareScanner.py --incident-timeline <INCIDENT_ID>
+python RansomwareScanner.py --explain-incident <INCIDENT_ID>
+
+# Verify the HMAC-SHA256 chained IR audit ledger & manage HITL approvals
+python RansomwareScanner.py --ir-verify-audit
+python RansomwareScanner.py --ir-list-hitl
+python RansomwareScanner.py --ir-approve-hitl <REQUEST_ID>
+
+# Host-level containment (process tree termination & firewall network isolation)
+python RansomwareScanner.py --kill-pid <PID>
+sudo python RansomwareScanner.py --isolate-host 10.0.0.10
+sudo python RansomwareScanner.py --restore-network
+```
+
+### Deception Canaries, Memory Forensics, TIP & Supply Chain
+```bash
+# Deploy, audit, or remove cryptographic ransomware canary honeypots
+python RansomwareScanner.py --deploy-canaries
+python RansomwareScanner.py --verify-canaries
+python RansomwareScanner.py --remove-canaries
+
+# Scan live process memory for RWX pages & reflective PE/ELF injection
+sudo python RansomwareScanner.py --scan-memory
+
+# Import STIX 2.1 / JSON / CSV threat intelligence feeds & prune expired IOCs
+python RansomwareScanner.py --import-ioc-feed feeds/stix_ransomware_iocs.json
+python RansomwareScanner.py --prune-iocs
+
+# Verify Ed25519 self-integrity, sign/update YARA rules, and generate CycloneDX 1.5 SBOM
+python RansomwareScanner.py --verify-integrity
+python RansomwareScanner.py --sign-rules rules/ signed_rules_v2.json --rule-seq 2
+python RansomwareScanner.py --update-rules signed_rules_v2.json
+python RansomwareScanner.py --generate-sbom
+```
+
+### AI / ML Team Workflow & Evaluation Benchmarks
+```bash
+# Export 16-feature CSV & JSONL training datasets from a labeled corpus (benign/ and malicious/)
+python RansomwareScanner.py --export-ai-dataset /path/to/corpus data/ai_features.csv
+
+# Run the 3-way A/B ablation benchmark (Rules-Only vs. Rules+ML vs. Full Hybrid AI)
+python RansomwareScanner.py --ablation-benchmark
+
+# Run the Automated Malware Evaluation Lab & parser fuzzing regression suite
+python RansomwareScanner.py --eval-lab --eval-save-baseline
+python RansomwareScanner.py --fuzz 250
+python RansomwareScanner.py --run-regressions
+```
 
 ---
 
-## 🪟 Graphical interface
+## Standalone Executable Packaging (PyInstaller)
 
-A desktop front-end built with CustomTkinter that uses the scanner as a library — the CLI keeps working exactly as before, and both share the same configuration, reports, and hash database.
+Build a single-file executable (`dist/aegis-sentinel` or `dist/aegis-sentinel.exe`) that bundles `rules/`, `fuzzy_signatures.sample.json`, and `CustomTkinter` assets:
 
-![Dashboard](docs/screenshot-dashboard.png)
-
-**Dashboard.** Each detection layer gets a status card — hash database, fuzzy hashing (with signature count), macro analysis, YARA (with rule-file count), VirusTotal, and the LLM layer (showing its **LOCAL vs CLOUD** posture). Scans run with live per-file progress, and every result row shows a compact per-layer breakdown (e.g. `DB– fuzzy– macro! yara✓3 VT 14/72 AI 0.80`) next to a 0–100 risk bar and the verdict band. Double-click any row for the full breakdown on that file.
-
-![Result detail](docs/screenshot-detail.png)
-
-**Result detail.** The verdict band and risk score up top, then what each of the seven layers concluded — fuzzy digests and family match, macro auto-run/exec primitives, matched YARA rules with their severities, VirusTotal counts (with a link to the report), and the LLM's suspicious elements — followed by the **weighted score breakdown** showing exactly which signals drove the verdict and by how many points.
-
-![Scan page](docs/screenshot-scan.png)
-
-**Scan, Reports, Database, Logs, Settings.** Manage monitored directories and file types, browse past JSON/TXT reports, import the malware-hash dataset, follow the live log stream, schedule recurring scans, toggle start-at-login (same mechanism as `--setup-autostart`), and store API keys — keys are written only to the git-ignored `.env` file, never anywhere else.
-
-![Settings](docs/screenshot-settings.png)
-
-Engineering notes: scanning runs in a worker thread and communicates with the UI through queues (Tkinter is not thread-safe); *Stop* cancels cleanly after the file currently being scanned; results stream into the table as each file completes.
-
-### How autostart works per platform
-
-| OS | Mechanism | Where it lives |
-|----|-----------|----------------|
-| Windows | Registry `Run` key | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
-| macOS | launchd LaunchAgent | `~/Library/LaunchAgents/com.abdelrahman.ransomwarescanner.plist` |
-| Linux | systemd **user** service (cron `@reboot` fallback) | `~/.config/systemd/user/ransomware-scanner.service` |
-
-`--remove-autostart` cleanly reverses whichever mechanism was used.
-
-### Example report (summary)
-
+```bash
+python build.py --run-smoke-test
 ```
-Ransomware Scan Report
-======================
-Timestamp:              2026-06-14 09:59:08
-Total files scanned:    24
-Files flagged:          1
-Highest verdict:        Critical
-Detection layers used:  hashes, local-db, fuzzy, macro, yara, llm, virustotal
-LLM posture:            LOCAL (llama3.1)
-
-Verdict breakdown:  Critical: 1 | High: 0 | Medium: 0 | Low: 0
-
-============================================================
-CRITICAL (1)
-============================================================
-
-- File:     /home/me/Downloads/invoice.docm
-  Verdict:  Critical (risk 92/100, severity 9.2/10)
-  MD5:      9f2a...c41e
-  [Macro]     Auto-run trigger(s): AutoOpen.
-  [Macro]     Execution/download primitive(s): Shell, URLDownloadToFile.
-  [Macro]     -> Auto-exec + exec primitive = classic dropper pattern.
-  [YARA]      Rule(s) matched [Office_Macro_Payload_Download] (top severity 'high').
-  [VT]        14 malicious / 72 engines.
-  Score breakdown:
-    +  22.0  [technical] macro_autoexec
-    +  48.0  [technical] macro_exec_primitive
-    +  20.0  [technical] macro_dropper_synergy
-    +  65.0  [technical] yara_match
-    +  35.0  [reputation] virustotal
-    = category totals: technical=100.0, reputation=35.0
-```
-
-A full machine-readable `ransomware_scan_<timestamp>.json` (with the complete per-layer evidence trail) is written alongside the text summary.
 
 ---
 
-## 📂 Project structure
+## Repository Structure
 
-```
-hybrid-ransomware-detector/
-├── RansomwareScanner.py        # main scanner + CLI (cross-platform)
-├── gui.py                      # desktop GUI (uses the scanner as a library)
-├── test_smoke.py               # functional + scoring/regression smoke tests
-├── detectors/                  # modular, independently-optional detection engines
-│   ├── __init__.py
-│   ├── fuzzy_hash.py           # TLSH + ssdeep structural hashing
-│   ├── macro_analysis.py       # olevba VBA/XLM macro triage
-│   ├── yara_engine.py          # YARA rule compilation + scanning
-│   ├── llm_backends.py         # pluggable LLM (local Ollama / cloud OpenAI / none)
-│   └── scoring.py              # transparent weighted scoring matrix
-├── rules/                      # YARA rules (drop in your own .yar files)
-│   ├── ransomware_generic.yar
-│   └── office_dropper.yar
-├── fuzzy_signatures.sample.json # documented placeholder fuzzy signature DB
-├── docs/                       # screenshots + DETECTION_v3.md design doc
-├── requirements.txt
-├── CHANGELOG.md
-├── .env.example                # template for keys + LLM backend settings
-├── .gitignore
-├── LICENSE
-└── README.md
-```
-
-See [`docs/DETECTION_v3.md`](docs/DETECTION_v3.md) for a deep dive on each layer and the scoring design, and [`CHANGELOG.md`](CHANGELOG.md) for the version history.
-
----
-
-## 🌐 Cross-platform & architecture notes
-
-- **OS-aware paths:** all runtime paths (app dir, logs, reports, default scan folder) are built from `Path.home()`, so nothing is hardcoded to a single OS.
-- **No architecture lock-in:** dependencies are pure-Python or ship both x86_64 and ARM64 wheels (Windows/macOS/Linux), so `pip install` resolves the right build automatically — including Apple Silicon.
-- **Graceful degradation:** missing API keys, missing OCR binaries, or missing scan folders produce warnings, not crashes.
-
----
-
-## 🧭 Roadmap
-
-Delivered in v3.0.0: fuzzy hashing, macro analysis, a YARA engine, a local-first
-LLM backend, and a configurable weighted scoring matrix (see the
-[changelog](CHANGELOG.md)). Next on the list:
-
-- **Behavioural / static heuristics:** Shannon-entropy analysis (encryption indicator), NTFS Alternate Data Stream (ADS) detection, hidden-content detection, and file-integrity baselining.
-- **GUI controls for the new layers:** in-app LLM-provider selector and per-layer toggles (today the LLM backend is chosen via `.env` / `--llm-provider`).
-- **Richer detection content:** a broader bundled YARA rule set and a curated starter fuzzy-signature database.
-- **Optional dynamic analysis:** sandboxed macro detonation for higher-fidelity verdicts.
-
----
-
-## 🚨 Disclaimer
-
-This project is for **educational and defensive** purposes only — identifying potentially malicious documents. Do not use it to create or distribute malware. Always analyse untrusted files in an isolated environment.
-
-## 👤 Author
-
-**Abdelrahman El-Maghraby** — Cybersecurity Specialist
-[LinkedIn](https://www.linkedin.com/in/abdelrahman-el-maghraby/)
-
-Released under the [MIT License](LICENSE).
+```text
+aegis-sentinel/
+├── config.py                        # Central configuration, limits & PyInstaller _MEIPASS resolver
+├── scanner.py                       # Core AegisSentinelScanner orchestrator
+├── RansomwareScanner.py             # CLI entrypoint & backward-compatible shim
+├── gui.py                           # Threaded CustomTkinter desktop console
+├── build.py                         # PyInstaller build & smoke-verification script
+├── scanner.spec                     # PyInstaller single-file spec
+├── core/
+│   ├── resilience.py                # 64KB I/O, 5MB string generator, Backoff+Jitter HTTP client
+│   ├── cache.py                     # Dual-table SQLite WAL cache (7-day TTL + ENGINE_VERSION)
+│   ├── quarantine.py                # 64KB chunked AES-256-GCM vault with AAD binding
+│   ├── watchdog_service.py          # Real-time directory monitor with settle-wait debounce
+│   ├── siem_handler.py              # Non-blocking TCP Syslog forwarder (CEF & JSON)
+│   ├── notifier.py                  # Rate-limited SMTP/STARTTLS Critical alert dispatcher
+│   ├── cloud_sync.py                # AES-256-GCM encrypted report uploader
+│   ├── integrity.py                 # Ed25519 self-integrity guard & permission verifier
+│   ├── rule_updater.py              # Signed YARA rule bundle installer & LKG rollback
+│   ├── mitre_mapper.py              # MITRE ATT&CK v15+ mapper & gap catalog
+│   ├── incident_correlator.py       # Cross-layer incident correlator & microsecond timeline
+│   ├── eval_lab.py                  # Precision/Recall/F1/FPR & memory evaluation lab
+│   ├── threat_intel.py              # SQLite TIP with STIX 2.1 ingestion & TTL pruning
+│   ├── host_telemetry.py            # Process, sensitive file, auth & network snapshot collector
+│   ├── incident_response.py         # Evidence locker, playbooks, HITL queue & HMAC audit chain
+│   ├── central_console.py           # Multi-agent registry, RBAC & policy/rule distribution
+│   ├── sigma_engine.py              # Sigma log rules & YARA-L sliding-window correlation
+│   ├── canary_manager.py            # Cryptographic ransomware canary honeypot tripwires
+│   ├── host_response.py             # Process tree termination & OS firewall network isolation
+│   ├── telemetry_spooler.py         # Durable SQLite WAL disk spooler with idempotency keys
+│   ├── supply_chain.py              # CycloneDX v1.5 SBOM, TrustKeyRing & URLPrivacyFilter
+│   └── ai_dataset_exporter.py       # 16-feature CSV/JSONL exporter & 3-way ablation benchmark
+├── detectors/
+│   ├── fuzzy_hash.py                # 64KB-chunked TLSH + ssdeep similarity engine
+│   ├── macro_analysis.py            # Static VBA/XLM triage + P-Code VBA Stomping detector
+│   ├── yara_engine.py               # Namespaced YARA compiler & scanner
+│   ├── prompt_guard.py              # Concealed text extractor & nonce spotlighting guard
+│   ├── llm_backends.py              # Local Ollama & OpenAI semantic analyzers
+│   ├── container_extractor.py       # Sandboxed recursive archive unpacker
+│   ├── relationship_scanner.py      # defusedxml Office _rels/*.rels RTI & Follina scanner
+│   ├── mail_analyzer.py             # Aegis MailGuard (.eml/.msg, SPF/DKIM/DMARC honesty model)
+│   ├── behavioral_monitor.py        # Process lineage, shadow-copy & entropy burst detector
+│   ├── multi_format_analyzer.py     # PE, MSI, ELF, Mach-O, LNK, Script & Web parser
+│   ├── dynamic_sandbox.py           # Isolated bwrap container runner & safe behavioral emulator
+│   ├── memory_scanner.py            # Live process RWX & reflective injection scanner
+│   ├── ml_classifier.py             # Platt-calibrated Random Forest / Ensemble classifier
+│   ├── llm_analyst.py               # Local LLM threat briefing & incident narrative generator
+│   ├── ai_correlator.py             # 6-pillar consensus engine (supporting vs. opposing evidence)
+│   └── scoring.py                   # Unified category-capped scoring matrix
+├── rules/
+│   ├── ransomware_generic.yar       # Generic ransomware note & shadow-copy YARA rules
+│   └── office_dropper.yar           # Office macro + PowerShell cradle YARA rules
+├── tests/
+│   ├── fuzz_harnesses.py            # Atheris & structure-aware mutational fuzzing harnesses
+│   └── test_fuzz_regressions.py     # Deterministic parser fuzzing regression suite
+├── docs/
+│   ├── DETECTION_v5.md              # Deep-dive v5.2.0 detection & cryptographic specification
+│   └── CAPABILITY_MATRIX.md         # OS capability matrix, MITRE CAR specs & AI handoff guide
+└── test_smoke.py                    # End-to-end automated smoke test suite

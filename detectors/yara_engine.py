@@ -1,183 +1,129 @@
+#!/usr/bin/env python3
 """
-YARA scanning engine for the Hybrid Ransomware Detection System.
-
-WHY THIS EXISTS
----------------
-Hashes match one exact file; fuzzy hashes match one family by structure. YARA
-sits between and below both: it matches *patterns* - byte sequences, strings,
-and their logical combinations - so a single rule can flag a whole class of
-threats (e.g. "any file that contains a ransom-note vocabulary AND a Bitcoin
-address regex"). YARA is the lingua franca for sharing structural Indicators of
-Compromise (IOCs), which makes this layer the natural place to plug in
-community or in-house rule packs.
-
-This module compiles every `.yar` / `.yara` file found in a rules directory and
-scans candidate files against them. Each match is returned with the rule name,
-its tags, and a `severity` taken from the rule's `meta` (so analysts can tune
-weighting without touching code). To respect both privacy and copyright, we
-return *which* rule matched and the matched string identifiers - never raw dumps
-of the user's document bytes.
-
-`yara-python` is optional. Without it the layer degrades gracefully and the rest
-of the scanner still runs.
+detectors/yara_engine.py — Namespaced YARA rule compiler and identifier-only scanner.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger("RansomwareScanner.yara")
+logger = logging.getLogger("AegisSentinel.yara")
 
 try:
-    import yara as _yara  # yara-python
+    import yara as _yara  # type: ignore
     YARA_AVAILABLE = True
-except Exception:  # pragma: no cover - absence is a valid runtime state
+except ImportError:  # pragma: no cover
     _yara = None
     YARA_AVAILABLE = False
 
-# Severity strings ranked so we can pick the most serious match quickly.
-SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 @dataclass
 class YaraMatch:
     rule: str
-    severity: str = "medium"
-    tags: List[str] = field(default_factory=list)
-    description: str = ""
-    matched_strings: List[str] = field(default_factory=list)  # identifiers only, e.g. "$ransom_note"
+    namespace: str
+    severity: str
+    description: str
+    matched_identifiers: List[str] = field(default_factory=list)
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "rule": self.rule,
+            "namespace": self.namespace,
             "severity": self.severity,
-            "tags": self.tags,
             "description": self.description,
-            "matched_strings": self.matched_strings,
+            "matched_identifiers": self.matched_identifiers,
         }
 
 
 @dataclass
 class YaraResult:
-    available: bool
-    rules_loaded: int = 0
+    available: bool = YARA_AVAILABLE
     matched: bool = False
-    matches: List[YaraMatch] = field(default_factory=list)
     top_severity: Optional[str] = None
+    matches: List[YaraMatch] = field(default_factory=list)
+    rules_loaded: int = 0
     detail: str = ""
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "available": self.available,
-            "rules_loaded": self.rules_loaded,
             "matched": self.matched,
-            "matches": [m.as_dict() for m in self.matches],
             "top_severity": self.top_severity,
+            "matches": [m.as_dict() for m in self.matches],
+            "rules_loaded": self.rules_loaded,
             "detail": self.detail,
         }
 
 
 class YaraEngine:
-    """Compiles a directory of YARA rules and scans files against them."""
+    def __init__(self, rules_dir: Optional[str | Path] = None) -> None:
+        self.rules_dir = Path(rules_dir).resolve() if rules_dir else None
+        self._compiled: Any = None
+        self.rules_loaded: int = 0
+        self._compile_rules()
 
-    def __init__(self, rules_dir: Optional[str] = None):
-        self.rules_dir = rules_dir
-        self._rules = None          # compiled yara.Rules
-        self._rules_count = 0
-        if rules_dir:
-            self._compile_rules(rules_dir)
-
-    def _compile_rules(self, rules_dir: str) -> None:
-        if not YARA_AVAILABLE:
+    def _compile_rules(self) -> None:
+        if not YARA_AVAILABLE or _yara is None or not self.rules_dir or not self.rules_dir.exists():
             return
-        d = Path(rules_dir)
-        if not d.exists():
-            logger.info("YARA rules directory not found at %s.", rules_dir)
+        filepaths: Dict[str, str] = {}
+        for p in sorted([*self.rules_dir.glob("*.yar"), *self.rules_dir.glob("*.yara")]):
+            if p.is_file():
+                filepaths[p.stem] = str(p)
+        if not filepaths:
             return
-        rule_files = sorted([*d.glob("*.yar"), *d.glob("*.yara")])
-        if not rule_files:
-            logger.info("No .yar/.yara files in %s.", rules_dir)
-            return
-        # filepaths={namespace: path} lets multiple rule files coexist.
-        sources = {p.stem: str(p) for p in rule_files}
         try:
-            self._rules = _yara.compile(filepaths=sources)
-            self._rules_count = len(rule_files)
-            logger.info("Compiled %d YARA rule file(s) from %s.", self._rules_count, rules_dir)
-        except Exception as e:
-            # A syntax error in one rule file should be loud but non-fatal.
-            logger.error("YARA compilation failed (%s). Scanning will skip YARA.", e)
-            self._rules = None
-            self._rules_count = 0
+            self._compiled = _yara.compile(filepaths=filepaths)
+            self.rules_loaded = len(filepaths)
+        except Exception as exc:
+            logger.error("Failed compiling YARA rules: %s", exc)
 
-    def scan_file(self, file_path: str) -> YaraResult:
+    def scan_file(self, file_path: str | Path) -> YaraResult:
         if not YARA_AVAILABLE:
-            return YaraResult(available=False,
-                              detail="YARA scanning skipped: install 'yara-python'.")
-        if self._rules is None:
-            return YaraResult(available=True, rules_loaded=0,
-                              detail="No YARA rules loaded.")
+            return YaraResult(available=False, detail="yara-python not installed.")
+        if self._compiled is None:
+            return YaraResult(available=True, rules_loaded=0, detail="No YARA rules compiled.")
         try:
-            raw_matches = self._rules.match(filepath=file_path, timeout=60)
-        except Exception as e:
-            logger.error("YARA scan failed for %s: %s", file_path, e)
-            return YaraResult(available=True, rules_loaded=self._rules_count,
-                              detail=f"YARA scan error: {e}")
+            raw_matches = self._compiled.match(str(file_path), timeout=20)
+        except Exception as exc:
+            return YaraResult(available=True, rules_loaded=self.rules_loaded, detail=f"YARA error: {exc}")
 
         matches: List[YaraMatch] = []
+        top_sev: Optional[str] = None
+
         for m in raw_matches:
             meta = getattr(m, "meta", {}) or {}
-            severity = str(meta.get("severity", "medium")).lower()
-            if severity not in SEVERITY_ORDER:
-                severity = "medium"
-            # Collect only the string identifiers that fired (not the bytes).
-            ids = _matched_identifiers(m)
-            matches.append(YaraMatch(
-                rule=m.rule,
-                severity=severity,
-                tags=list(getattr(m, "tags", []) or []),
-                description=str(meta.get("description", "")),
-                matched_strings=ids,
-            ))
+            sev = str(meta.get("severity", "medium")).lower()
+            desc = str(meta.get("description", ""))
+            ids: List[str] = []
+            for s in getattr(m, "strings", []) or []:
+                ident = getattr(s, "identifier", None)
+                if ident is None and isinstance(s, tuple) and len(s) >= 2:
+                    ident = s[1]
+                if ident:
+                    ids.append(str(ident))
+            matches.append(
+                YaraMatch(
+                    rule=str(m.rule),
+                    namespace=str(getattr(m, "namespace", "default")),
+                    severity=sev,
+                    description=desc,
+                    matched_identifiers=sorted(set(ids)),
+                )
+            )
+            if top_sev is None or SEVERITY_RANK.get(sev, 2) > SEVERITY_RANK.get(top_sev, 2):
+                top_sev = sev
 
-        if not matches:
-            return YaraResult(available=True, rules_loaded=self._rules_count,
-                              matched=False, detail="No YARA rules matched.")
-
-        top = max(matches, key=lambda x: SEVERITY_ORDER.get(x.severity, 2)).severity
-        names = ", ".join(sorted({m.rule for m in matches}))
         return YaraResult(
-            available=True, rules_loaded=self._rules_count, matched=True,
-            matches=matches, top_severity=top,
-            detail=f"Matched rule(s): {names} (top severity: {top}).",
+            available=True,
+            matched=bool(matches),
+            top_severity=top_sev,
+            matches=matches,
+            rules_loaded=self.rules_loaded,
+            detail=f"Matched {len(matches)} YARA rule(s)." if matches else "No YARA matches.",
         )
-
-
-def _matched_identifiers(match) -> List[str]:
-    """Extract just the matched string identifiers across yara-python versions.
-
-    yara-python changed its match.strings shape between releases; this handles
-    both the legacy tuple form and the newer StringMatch objects, and never
-    returns the raw matched bytes (privacy + copyright hygiene).
-    """
-    ids: List[str] = []
-    try:
-        for s in getattr(match, "strings", []) or []:
-            ident = getattr(s, "identifier", None)
-            if ident is None and isinstance(s, (tuple, list)) and len(s) >= 2:
-                ident = s[1]  # legacy form: (offset, identifier, data)
-            if ident:
-                ids.append(str(ident))
-    except Exception:  # pragma: no cover
-        pass
-    # De-duplicate, keep order.
-    seen = set()
-    out = []
-    for i in ids:
-        if i not in seen:
-            seen.add(i)
-            out.append(i)
-    return out

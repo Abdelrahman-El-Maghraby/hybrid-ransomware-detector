@@ -1,38 +1,31 @@
-# --- Secrets (NEVER commit) ---
-.env
-*.key
-secrets.*
-
-# --- Datasets / large data (provide a link in the README instead) ---
-*.csv
-*.csv~
-data_file*
-/data/
-/datasets/
-
-# --- Scanner runtime output ---
-scan_reports/
-*.log
-
-# --- Python ---
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+
+# Virtual environments
 .venv/
 venv/
 env/
-.ipynb_checkpoints/
 
-# --- OS / editor ---
+# Environment variables & secrets
+.env
+keystore/
+*.key
+*.pub
+*.quar
+
+# Runtime databases, reports & build artifacts
+data/
+scan_reports/
+quarantine/
+rules_backups/
+build/
+dist/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.log
+# macOS
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/
-
-# --- Misc heavy/binary files that shouldn't live in a code repo ---
-*.mp4
-*.zip
-*.rar
-*.docx
-*.dotx
-*.pptx
+__MACOSX/

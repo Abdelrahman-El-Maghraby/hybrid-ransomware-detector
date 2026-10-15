@@ -1,101 +1,62 @@
+#!/usr/bin/env python3
 """
-Fuzzy / similarity hashing for the Hybrid Ransomware Detection System.
-
-WHY THIS EXISTS
----------------
-Cryptographic hashes (MD5, SHA-256) change completely if a single byte changes.
-That is exactly what polymorphic malware and ransomware *families* exploit: every
-victim receives a slightly different build, so its SHA-256 is never in any
-blocklist. Fuzzy hashing solves this by producing a digest that stays *similar*
-when the input stays *structurally similar*, letting us cluster a new sample into
-a known family even when its exact hash has never been seen before.
-
-Two complementary algorithms are used:
-
-* TLSH  (Trend Micro Locality Sensitive Hash) - robust, fixed-length digest.
-        Comparison returns a *distance* (0 = identical, larger = more different).
-        TLSH needs >= ~50 bytes of input with some byte variance, otherwise it
-        returns the sentinel "TNULL".
-* ssdeep (context-triggered piecewise hashing, via the pure-Python `ppdeep`).
-        Comparison returns a *similarity* score from 0 to 100 (100 = identical).
-        Pure-Python so it needs no C/libfuzzy build - important for the project's
-        "installs with no compiler on Windows/macOS/Linux, x86_64 + ARM64" goal.
-
-Both libraries are optional. If neither is installed the module degrades
-gracefully and reports that the layer was skipped, so the core scanner still runs.
-
-SIGNATURE DATABASE FORMAT  (JSON)
----------------------------------
-    {
-      "version": 1,
-      "signatures": [
-        {"family": "Acme.Locker", "tlsh": "T1<...>", "ssdeep": "3:<...>",
-         "note": "human-readable provenance"}
-      ]
-    }
-
-Populate it from the fuzzy hashes of *confirmed* malicious samples (run the
-scanner with `--fuzzy-hash <sample>` to print the digests to paste in here).
-Never ship live malware itself.
+detectors/fuzzy_hash.py — 64 KB chunked TLSH + ssdeep similarity hashing engine.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger("RansomwareScanner.fuzzy")
+from config import IO_CHUNK_SIZE
+from core.resilience import iter_file_chunks
 
-# --- Optional dependencies: import defensively -----------------------------
-try:
-    import tlsh as _tlsh  # python-tlsh
-except Exception:  # pragma: no cover - absence is a valid runtime state
-    _tlsh = None
+logger = logging.getLogger("AegisSentinel.fuzzy")
 
 try:
-    import ppdeep as _ppdeep  # pure-Python ssdeep
-except Exception:  # pragma: no cover
-    _ppdeep = None
+    import tlsh  # type: ignore
+    TLSH_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    tlsh = None
+    TLSH_AVAILABLE = False
 
-# A TLSH digest below this distance is treated as the *same family*.
-# 0 = identical; published guidance puts <50 as a strong match and <100 as
-# related. We default to 100 (inclusive) and report the raw distance so an
-# analyst can always see the evidence behind the verdict.
-DEFAULT_TLSH_THRESHOLD = 100
-TLSH_STRONG_DISTANCE = 50
+try:
+    import ppdeep  # type: ignore
+    SSDEEP_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    ppdeep = None
+    SSDEEP_AVAILABLE = False
 
-# An ssdeep similarity at or above this (out of 100) is treated as a match.
-DEFAULT_SSDEEP_THRESHOLD = 70
-
-FUZZY_AVAILABLE = (_tlsh is not None) or (_ppdeep is not None)
+FUZZY_AVAILABLE: bool = TLSH_AVAILABLE or SSDEEP_AVAILABLE
 
 
 @dataclass
 class FuzzyMatch:
-    """One signature-database hit for a scanned file."""
     family: str
-    algorithm: str          # "tlsh" or "ssdeep"
-    score: int              # tlsh: raw distance (lower=closer); ssdeep: 0-100 similarity
-    confidence: float       # normalised 0.0-1.0 for the scoring matrix
+    algorithm: str
+    score: float
+    confidence: float
+    reference_digest: str
     note: str = ""
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "family": self.family,
             "algorithm": self.algorithm,
-            "score": self.score,
+            "score": round(self.score, 2),
             "confidence": round(self.confidence, 3),
+            "reference_digest": self.reference_digest,
             "note": self.note,
         }
 
 
 @dataclass
 class FuzzyResult:
-    """Outcome of fuzzy-hashing a single file."""
-    available: bool
+    available: bool = FUZZY_AVAILABLE
     tlsh: Optional[str] = None
     ssdeep: Optional[str] = None
     matched: bool = False
@@ -103,7 +64,7 @@ class FuzzyResult:
     matches: List[FuzzyMatch] = field(default_factory=list)
     detail: str = ""
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "available": self.available,
             "tlsh": self.tlsh,
@@ -115,152 +76,101 @@ class FuzzyResult:
         }
 
 
-def _tlsh_confidence(distance: int, threshold: int) -> float:
-    """Map a TLSH distance to a 0-1 confidence.
-
-    distance <= TLSH_STRONG_DISTANCE  -> 1.0   (near-identical structure)
-    distance == threshold             -> 0.5   (boundary of "related")
-    linear in between; 0 outside the threshold.
-    """
-    if distance <= TLSH_STRONG_DISTANCE:
-        return 1.0
-    if distance > threshold:
-        return 0.0
-    # Linear from 1.0 at the strong line down to 0.5 at the threshold.
-    span = max(1, threshold - TLSH_STRONG_DISTANCE)
-    return 1.0 - 0.5 * (distance - TLSH_STRONG_DISTANCE) / span
-
-
 class FuzzyHasher:
-    """Computes fuzzy hashes and matches them against a signature database."""
+    TLSH_MAX_DISTANCE = 100
+    SSDEEP_MIN_SIMILARITY = 50
 
     def __init__(
         self,
-        signature_db_path: Optional[str] = None,
-        tlsh_threshold: int = DEFAULT_TLSH_THRESHOLD,
-        ssdeep_threshold: int = DEFAULT_SSDEEP_THRESHOLD,
-    ):
-        self.signature_db_path = signature_db_path
-        self.tlsh_threshold = tlsh_threshold
-        self.ssdeep_threshold = ssdeep_threshold
-        self.signatures: List[Dict] = []
-        if signature_db_path:
-            self._load_signatures(signature_db_path)
+        signature_db_path: Optional[str | Path] = None,
+        max_bytes: int = 20 * 1024 * 1024,
+    ) -> None:
+        self.max_bytes = int(max_bytes)
+        self.signatures: List[Dict[str, Any]] = []
+        if signature_db_path and os.path.exists(signature_db_path):
+            self._load_signatures(Path(signature_db_path))
 
-    # -- signature DB ------------------------------------------------------
-    def _load_signatures(self, path: str) -> None:
-        p = Path(path)
-        if not p.exists():
-            logger.info("Fuzzy signature DB not found at %s (no family matching).", path)
-            return
+    def _load_signatures(self, path: Path) -> None:
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            self.signatures = [s for s in data.get("signatures", []) if isinstance(s, dict)]
-            logger.info("Loaded %d fuzzy signatures from %s.", len(self.signatures), path)
-        except Exception as e:  # malformed DB must not crash a scan
-            logger.error("Failed to read fuzzy signature DB %s: %s", path, e)
-            self.signatures = []
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            items = raw.get("signatures", raw) if isinstance(raw, dict) else raw
+            if isinstance(items, list):
+                self.signatures = [s for s in items if isinstance(s, dict)]
+        except Exception as exc:
+            logger.warning("Could not load fuzzy signatures from %s: %s", path, exc)
 
-    # -- hashing -----------------------------------------------------------
-    @staticmethod
-    def hash_bytes(data: bytes) -> Dict[str, Optional[str]]:
-        """Return {'tlsh': ..., 'ssdeep': ...} for raw bytes (None where N/A)."""
-        result: Dict[str, Optional[str]] = {"tlsh": None, "ssdeep": None}
-        if _tlsh is not None:
-            try:
-                digest = _tlsh.hash(data)
-                # python-tlsh returns "TNULL" for inputs that are too short
-                # or too uniform to fingerprint meaningfully.
-                if digest and digest != "TNULL":
-                    result["tlsh"] = digest
-            except Exception as e:  # pragma: no cover
-                logger.debug("TLSH hashing failed: %s", e)
-        if _ppdeep is not None:
-            try:
-                result["ssdeep"] = _ppdeep.hash(data)
-            except Exception as e:  # pragma: no cover
-                logger.debug("ssdeep hashing failed: %s", e)
-        return result
+    def hash_file(self, file_path: str | Path) -> Dict[str, Optional[str]]:
+        tlsh_digest: Optional[str] = None
+        ssdeep_digest: Optional[str] = None
+        tlsh_hasher = tlsh.Tlsh() if TLSH_AVAILABLE and tlsh is not None else None
+        buf = bytearray() if SSDEEP_AVAILABLE else None
 
-    def hash_file(self, file_path: str) -> Dict[str, Optional[str]]:
-        """Fuzzy-hash a file on disk (reads it fully; callers cap by file size)."""
         try:
-            data = Path(file_path).read_bytes()
-        except Exception as e:
-            logger.error("Could not read %s for fuzzy hashing: %s", file_path, e)
-            return {"tlsh": None, "ssdeep": None}
-        return self.hash_bytes(data)
+            for chunk in iter_file_chunks(file_path, chunk_size=IO_CHUNK_SIZE, max_bytes=self.max_bytes):
+                if tlsh_hasher is not None:
+                    tlsh_hasher.update(chunk)
+                if buf is not None:
+                    buf.extend(chunk)
 
-    # -- matching ----------------------------------------------------------
-    def match(self, tlsh_digest: Optional[str], ssdeep_digest: Optional[str]) -> List[FuzzyMatch]:
-        """Compare a file's fuzzy hashes against every signature in the DB."""
-        matches: List[FuzzyMatch] = []
-        for sig in self.signatures:
-            family = sig.get("family", "unknown")
-            note = sig.get("note", "")
-
-            # TLSH distance comparison
-            sig_tlsh = sig.get("tlsh")
-            if tlsh_digest and sig_tlsh and _tlsh is not None:
+            if tlsh_hasher is not None:
                 try:
-                    distance = _tlsh.diff(tlsh_digest, sig_tlsh)
-                    if distance <= self.tlsh_threshold:
-                        matches.append(FuzzyMatch(
-                            family=family, algorithm="tlsh", score=distance,
-                            confidence=_tlsh_confidence(distance, self.tlsh_threshold),
-                            note=note,
-                        ))
-                        continue  # one match per signature is enough
-                except Exception as e:  # pragma: no cover
-                    logger.debug("TLSH diff failed for family %s: %s", family, e)
+                    tlsh_hasher.final()
+                    val = tlsh_hasher.hexdigest()
+                    if val and val != "TNULL":
+                        tlsh_digest = val
+                except Exception:
+                    tlsh_digest = None
 
-            # ssdeep similarity comparison
-            sig_ssdeep = sig.get("ssdeep")
-            if ssdeep_digest and sig_ssdeep and _ppdeep is not None:
+            if buf is not None and ppdeep is not None and len(buf) > 0:
                 try:
-                    similarity = _ppdeep.compare(ssdeep_digest, sig_ssdeep)
-                    if similarity >= self.ssdeep_threshold:
-                        matches.append(FuzzyMatch(
-                            family=family, algorithm="ssdeep", score=similarity,
-                            confidence=min(1.0, similarity / 100.0),
-                            note=note,
-                        ))
-                except Exception as e:  # pragma: no cover
-                    logger.debug("ssdeep compare failed for family %s: %s", family, e)
-        return matches
+                    ssdeep_digest = ppdeep.hash(bytes(buf))
+                except Exception:
+                    ssdeep_digest = None
+        except OSError:
+            pass
 
-    def analyze_file(self, file_path: str, precomputed: Optional[Dict] = None) -> FuzzyResult:
-        """Full pipeline: hash a file (or reuse precomputed hashes) and match it."""
+        return {"tlsh": tlsh_digest, "ssdeep": ssdeep_digest}
+
+    def analyze_file(self, file_path: str | Path) -> FuzzyResult:
         if not FUZZY_AVAILABLE:
-            return FuzzyResult(
-                available=False,
-                detail="Fuzzy hashing skipped: install 'python-tlsh' and/or 'ppdeep'.",
-            )
+            return FuzzyResult(available=False, detail="python-tlsh / ppdeep not installed.")
 
-        digests = precomputed or self.hash_file(file_path)
-        tlsh_digest = digests.get("tlsh")
-        ssdeep_digest = digests.get("ssdeep")
+        digests = self.hash_file(file_path)
+        tlsh_val = digests.get("tlsh")
+        ssdeep_val = digests.get("ssdeep")
+        matches: List[FuzzyMatch] = []
 
-        if not tlsh_digest and not ssdeep_digest:
-            return FuzzyResult(
-                available=True, tlsh=None, ssdeep=None,
-                detail="File too small or too uniform to fuzzy-hash.",
-            )
+        for sig in self.signatures:
+            fam = str(sig.get("family", "Unknown.Family"))
+            note = str(sig.get("note", ""))
+            ref_tlsh = str(sig.get("tlsh", "")).strip()
+            ref_ssdeep = str(sig.get("ssdeep", "")).strip()
 
-        matches = self.match(tlsh_digest, ssdeep_digest)
+            if tlsh_val and ref_tlsh and ref_tlsh != "TNULL" and TLSH_AVAILABLE and tlsh is not None:
+                try:
+                    dist = int(tlsh.diff(tlsh_val, ref_tlsh))
+                    if dist <= self.TLSH_MAX_DISTANCE:
+                        conf = max(0.1, 1.0 - (dist / 120.0))
+                        matches.append(FuzzyMatch(fam, "tlsh", float(dist), conf, ref_tlsh, note))
+                except Exception:
+                    pass
+
+            if ssdeep_val and ref_ssdeep and SSDEEP_AVAILABLE and ppdeep is not None:
+                try:
+                    sim = int(ppdeep.compare(ssdeep_val, ref_ssdeep))
+                    if sim >= self.SSDEEP_MIN_SIMILARITY:
+                        conf = min(1.0, sim / 100.0)
+                        matches.append(FuzzyMatch(fam, "ssdeep", float(sim), conf, ref_ssdeep, note))
+                except Exception:
+                    pass
+
         best = max((m.confidence for m in matches), default=0.0)
-        if matches:
-            fam = ", ".join(sorted({m.family for m in matches}))
-            detail = f"Structural match to known family/families: {fam}."
-        else:
-            detail = "No structural match in the fuzzy signature database."
-
         return FuzzyResult(
             available=True,
-            tlsh=tlsh_digest,
-            ssdeep=ssdeep_digest,
+            tlsh=tlsh_val,
+            ssdeep=ssdeep_val,
             matched=bool(matches),
             best_confidence=best,
             matches=matches,
-            detail=detail,
+            detail=f"Matched {len(matches)} family signature(s)." if matches else "No fuzzy family match.",
         )

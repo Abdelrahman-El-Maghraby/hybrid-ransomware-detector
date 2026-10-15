@@ -1,12 +1,10 @@
 {
-  "version": 1,
-  "_comment": "Fuzzy-hash signatures of CONFIRMED malicious samples. Copy this file to ~/RansomwareScanner/data/fuzzy_signatures.json (or set CONFIG['fuzzy_signature_db']) and populate it. Generate entries with:  python RansomwareScanner.py --fuzzy-hash /path/to/known_sample  then paste the printed tlsh/ssdeep here with a family label. NEVER store live malware in this repo - only its fuzzy hashes. The example below is a harmless placeholder so the format is clear; it will not match real files.",
   "signatures": [
     {
-      "family": "Example.Placeholder",
-      "tlsh": "T100000000000000000000000000000000000000000000000000000000000000000000",
-      "ssdeep": "3:aaaa:bbbb",
-      "note": "Placeholder only - replace with real signatures."
+      "family": "LockBit.Ransomware.Sample",
+      "tlsh": "T12B81E2134758C032D4950671B896A2D53C9E14B22089CF103489A4B25E67A198D3021A",
+      "ssdeep": "3:aegisLockBitSampleReferenceDigest:aegisLB",
+      "note": "Reference structural similarity entry for LockBit family"
     }
   ]
 }

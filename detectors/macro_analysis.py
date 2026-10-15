@@ -1,197 +1,165 @@
+#!/usr/bin/env python3
 """
-VBA / XLM macro analysis for the Hybrid Ransomware Detection System.
-
-WHY THIS EXISTS
----------------
-The original scanner only looked at *visible* document text. But weaponised
-Office documents rarely show their teeth in the body text - the malicious
-behaviour lives in embedded VBA (or legacy Excel 4.0 / XLM) macros that run
-automatically when the victim clicks "Enable Content". This module targets the
-actual dropper mechanism instead of the lure.
-
-It uses `oletools.olevba` (the industry-standard, pure-Python triage tool) to:
-  1. detect whether a file even contains macros,
-  2. extract the macro source (olevba also de-obfuscates common tricks such as
-     Chr()/StrReverse() string building and Hex/Base64 blobs), and
-  3. statically classify the findings into high-signal buckets:
-       - AUTOEXEC triggers  (AutoOpen, Document_Open, Workbook_Open, AutoExec ...)
-         => the macro runs without further user action,
-       - SUSPICIOUS calls   (Shell, ShellExecute, CreateObject, powershell,
-         WScript, URLDownloadToFile, environ ...)
-         => process execution / payload download primitives,
-       - IOCs               (URLs, IPv4s, executable names) pulled from the code.
-
-`olevba` is optional. If it is not installed, the module degrades gracefully and
-reports that the layer was skipped, so the rest of the scanner still runs.
-
-NOTE: this is purely *static* analysis. No macro is ever executed.
+detectors/macro_analysis.py — Static VBA / Excel 4.0 (XLM) macro analyzer
+and P-Code vs. source VBA Stomping detector.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List
 
-logger = logging.getLogger("RansomwareScanner.macro")
+logger = logging.getLogger("AegisSentinel.macro")
 
 try:
-    from oletools.olevba import VBA_Parser
+    from oletools.olevba import VBA_Parser  # type: ignore
     OLEVBA_AVAILABLE = True
-except Exception:  # pragma: no cover - absence is a valid runtime state
-    VBA_Parser = None  # type: ignore
+except ImportError:  # pragma: no cover
+    VBA_Parser = None
     OLEVBA_AVAILABLE = False
 
-# olevba's analyze_macros() tags each finding with one of these type strings.
-TYPE_AUTOEXEC = "AutoExec"
-TYPE_SUSPICIOUS = "Suspicious"
-TYPE_IOC = "IOC"
-
-# A subset of SUSPICIOUS keywords we consider *critical* execution/download
-# primitives. A hit on any of these is the single strongest macro signal: it
-# means the document can spawn a process or pull a remote payload. The scoring
-# matrix weights these far above any text-based phishing cue.
-CRITICAL_KEYWORDS = {
-    "shell", "shellexecute", "wscript.shell", "wscript shell",
-    "powershell", "cmd", "createobject", "urldownloadtofile",
-    "winhttp", "msxml2.xmlhttp", "xmlhttp", "createprocess",
-    "vba shell", "run", "exec",
+CRITICAL_PRIMITIVES = {
+    "shell", "wscript.shell", "createobject", "getobject", "urldownloadtofile",
+    "xmlhttp", "msxml2.xmlhttp", "winhttp.winhttprequest", "adodb.stream",
+    "powershell", "cmd.exe", "rundll32", "regsvr32", "virtualalloc",
+    "writeprocessmemory", "createremotethread", "callbyname",
 }
+
+XLM_INDICATORS = ("EXEC(", "CALL(", "FORMULA.FILL(", "REGISTER(", "HALT(", "AUTO_OPEN")
 
 
 @dataclass
 class MacroResult:
-    """Outcome of macro-analysing a single file."""
-    available: bool
+    available: bool = OLEVBA_AVAILABLE
     has_macros: bool = False
-    autoexec: List[str] = field(default_factory=list)      # auto-run triggers
-    suspicious: List[str] = field(default_factory=list)    # all suspicious keywords
-    critical: List[str] = field(default_factory=list)      # exec/download primitives
-    iocs: List[str] = field(default_factory=list)          # urls / ips / exe names
-    vba_code_size: int = 0
+    autoexec: List[str] = field(default_factory=list)
+    critical: List[str] = field(default_factory=list)
+    suspicious: List[str] = field(default_factory=list)
+    iocs: List[str] = field(default_factory=list)
+    vba_stomping_detected: bool = False
+    vba_stomping_evidence: str = ""
+    xlm_macros_detected: bool = False
+    xlm_evidence: List[str] = field(default_factory=list)
     detail: str = ""
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> Dict[str, Any]:
         return {
             "available": self.available,
             "has_macros": self.has_macros,
             "autoexec": self.autoexec,
-            "suspicious": self.suspicious,
             "critical": self.critical,
+            "suspicious": self.suspicious,
             "iocs": self.iocs,
-            "vba_code_size": self.vba_code_size,
+            "vba_stomping_detected": self.vba_stomping_detected,
+            "vba_stomping_evidence": self.vba_stomping_evidence,
+            "xlm_macros_detected": self.xlm_macros_detected,
+            "xlm_evidence": self.xlm_evidence,
             "detail": self.detail,
         }
 
 
 class MacroAnalyzer:
-    """Static VBA/XLM macro triage via olevba."""
+    OFFICE_EXTENSIONS = {
+        ".doc", ".docx", ".docm", ".dotm", ".xls", ".xlsx", ".xlsm",
+        ".xlsb", ".xlm", ".ppt", ".pptx", ".pptm", ".rtf",
+    }
 
-    # File types worth even attempting. olevba happily rejects others, but
-    # short-circuiting avoids spurious warnings on PDFs etc.
-    SUPPORTED_EXTS = {".doc", ".docm", ".dot", ".dotm",
-                      ".xls", ".xlsm", ".xlsb", ".xlm", ".xltm",
-                      ".ppt", ".pptm", ".potm",
-                      ".docx", ".xlsx", ".pptx"}  # OOXML can still embed a vbaProject.bin
-
-    def analyze_file(self, file_path: str) -> MacroResult:
-        if not OLEVBA_AVAILABLE:
-            return MacroResult(
-                available=False,
-                detail="Macro analysis skipped: install 'oletools' (olevba).",
-            )
-
-        # Only attempt macro analysis on Office document types. Without this
-        # gate, olevba's VBA_Parser treats an arbitrary file (e.g. a .txt or a
-        # plain .pdf) as candidate VBA *source* and detect_vba_macros() reports
-        # a false positive. Restricting to real Office containers keeps the
-        # layer accurate for the formats macros can actually live in.
-        ext = Path(file_path).suffix.lower()
-        if ext not in self.SUPPORTED_EXTS:
-            return MacroResult(
-                available=True, has_macros=False,
-                detail="Not an Office document; macro analysis skipped.",
-            )
-
-        parser = None
+    @staticmethod
+    def _detect_vba_stomping_and_xlm(file_path: Path, decompressed_source: str) -> tuple[bool, str, bool, List[str]]:
+        raw_bytes = b""
         try:
-            parser = VBA_Parser(file_path)
-            if not parser.detect_vba_macros():
-                return MacroResult(available=True, has_macros=False,
-                                   detail="No VBA/XLM macros found.")
+            if zipfile.is_zipfile(file_path):
+                with zipfile.ZipFile(file_path, "r") as zf:
+                    for name in zf.namelist():
+                        low = name.lower()
+                        if "vbaproject.bin" in low or "xl/macrosheets" in low or "xl/workbook.xml" in low:
+                            raw_bytes += zf.read(name)[: 2 * 1024 * 1024]
+            else:
+                raw_bytes = file_path.read_bytes()[: 4 * 1024 * 1024]
+        except Exception:
+            return False, "", False, []
 
-            # Force extraction so analyze_macros() has source to work with.
-            code_size = 0
+        raw_ascii = raw_bytes.decode("latin-1", errors="ignore")
+        src_lower = decompressed_source.lower()
+
+        # 1. Check P-Code identifiers in binary stream missing from decompressed source
+        pcode_only: List[str] = []
+        for tok in ("Shell", "CreateObject", "WScript.Shell", "VirtualAlloc", "URLDownloadToFile", "powershell"):
+            if tok.lower() in raw_ascii.lower() and tok.lower() not in src_lower:
+                pcode_only.append(tok)
+
+        stomped = bool(pcode_only)
+        stomp_ev = (
+            f"P-Code stream contains {pcode_only} absent from decompressed VBA source."
+            if stomped else ""
+        )
+
+        # 2. Check Excel 4.0 (XLM) macros
+        xlm_hits = [ind for ind in XLM_INDICATORS if ind.lower() in raw_ascii.lower()]
+        return stomped, stomp_ev, bool(xlm_hits), xlm_hits
+
+    def analyze_file(self, file_path: str | Path) -> MacroResult:
+        path = Path(file_path)
+        if path.suffix.lower() not in self.OFFICE_EXTENSIONS or not path.exists():
+            return MacroResult(available=OLEVBA_AVAILABLE, detail="Not an Office macro target.")
+
+        decompressed_parts: List[str] = []
+        autoexec: List[str] = []
+        critical: List[str] = []
+        suspicious: List[str] = []
+        iocs: List[str] = []
+        has_macros = False
+
+        if OLEVBA_AVAILABLE and VBA_Parser is not None:
+            vba_parser = None
             try:
-                for (_fname, _stream, _vba_name, vba_code) in parser.extract_all_macros():
-                    if vba_code:
-                        code_size += len(vba_code)
-            except Exception as e:  # extraction can fail on damaged streams
-                logger.debug("Macro extraction issue for %s: %s", file_path, e)
+                vba_parser = VBA_Parser(str(path))
+                if vba_parser.detect_vba_macros():
+                    has_macros = True
+                    for (_fn, _stream, _vba_fn, vba_code) in vba_parser.extract_all_macros():
+                        if vba_code:
+                            decompressed_parts.append(str(vba_code))
+                    for kw_type, keyword, description in vba_parser.analyze_macros():
+                        kw_str = str(keyword or "").strip()
+                        if not kw_str:
+                            continue
+                        if kw_type == "AutoExec":
+                            autoexec.append(kw_str)
+                        elif kw_type == "IOC":
+                            iocs.append(kw_str)
+                        elif kw_type == "Suspicious":
+                            if kw_str.lower() in CRITICAL_PRIMITIVES or any(c in kw_str.lower() for c in CRITICAL_PRIMITIVES):
+                                critical.append(kw_str)
+                            else:
+                                suspicious.append(kw_str)
+            except Exception as exc:
+                logger.debug("olevba parse note on %s: %s", path, exc)
+            finally:
+                if vba_parser is not None:
+                    try:
+                        vba_parser.close()
+                    except Exception:
+                        pass
 
-            autoexec: List[str] = []
-            suspicious: List[str] = []
-            critical: List[str] = []
-            iocs: List[str] = []
+        full_source = "\n".join(decompressed_parts)
+        stomped, stomp_ev, xlm_det, xlm_ev = self._detect_vba_stomping_and_xlm(path, full_source)
+        if stomped or xlm_det:
+            has_macros = True
 
-            # analyze_macros() returns (type, keyword, description) tuples.
-            for kind, keyword, _description in parser.analyze_macros():
-                kw = (keyword or "").strip()
-                if not kw:
-                    continue
-                if kind == TYPE_AUTOEXEC:
-                    autoexec.append(kw)
-                elif kind == TYPE_SUSPICIOUS:
-                    suspicious.append(kw)
-                    if kw.lower() in CRITICAL_KEYWORDS:
-                        critical.append(kw)
-                elif kind == TYPE_IOC:
-                    iocs.append(kw)
-
-            # De-duplicate while preserving order.
-            autoexec = _dedup(autoexec)
-            suspicious = _dedup(suspicious)
-            critical = _dedup(critical)
-            iocs = _dedup(iocs)
-
-            detail = _summarise(autoexec, suspicious, critical)
-            return MacroResult(
-                available=True, has_macros=True,
-                autoexec=autoexec, suspicious=suspicious, critical=critical,
-                iocs=iocs, vba_code_size=code_size, detail=detail,
-            )
-        except Exception as e:
-            logger.error("Macro analysis failed for %s: %s", file_path, e)
-            return MacroResult(available=True, has_macros=False,
-                               detail=f"Macro analysis error: {e}")
-        finally:
-            if parser is not None:
-                try:
-                    parser.close()
-                except Exception:  # pragma: no cover
-                    pass
-
-
-def _dedup(items: List[str]) -> List[str]:
-    seen = set()
-    out = []
-    for x in items:
-        key = x.lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(x)
-    return out
-
-
-def _summarise(autoexec: List[str], suspicious: List[str], critical: List[str]) -> str:
-    parts = []
-    if autoexec:
-        parts.append(f"auto-run trigger(s): {', '.join(autoexec)}")
-    if critical:
-        parts.append(f"execution/download primitive(s): {', '.join(critical)}")
-    elif suspicious:
-        parts.append(f"suspicious call(s): {', '.join(suspicious[:6])}")
-    if autoexec and critical:
-        parts.append("classic auto-executing dropper pattern")
-    return "; ".join(parts) if parts else "Macros present but no high-risk keywords flagged."
+        return MacroResult(
+            available=OLEVBA_AVAILABLE,
+            has_macros=has_macros,
+            autoexec=sorted(set(autoexec)),
+            critical=sorted(set(critical)),
+            suspicious=sorted(set(suspicious)),
+            iocs=sorted(set(iocs)),
+            vba_stomping_detected=stomped,
+            vba_stomping_evidence=stomp_ev,
+            xlm_macros_detected=xlm_det,
+            xlm_evidence=xlm_ev,
+            detail="Macros analyzed." if has_macros else "No macros detected.",
+        )
