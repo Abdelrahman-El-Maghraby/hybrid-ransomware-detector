@@ -4,6 +4,99 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.0.0] — 2026-10-15
+
+v4 moves the project from "is this document a weapon?" to "is this document a
+weapon, is it lying about what it is, and is ransomware already running?". Four
+new detection layers join the scoring matrix, two host-side protections are
+added, and the external layers get safer defaults. The v3 smoke test, the GUI,
+the JSON report shape and every v3 result key keep working unchanged.
+
+Design notes: [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md).
+
+### Added
+
+- **File-integrity layer** (`detectors/file_integrity.py`). Magic-byte format
+  detection vs. the extension; executables disguised as documents (validated
+  PE header, ELF, Mach-O, `.lnk`, shebang scripts); **encrypted-content
+  detection** (format signature missing + statistically random bytes, using
+  size-adjusted Shannon entropy and a chi-square uniformity test, including a
+  first-4-KiB check for intermittent encryption). Formats Office opens natively
+  under another extension (HTML-as-.xls, RTF-as-.doc, password-protected OOXML)
+  are noted, not scored.
+- **Hidden-content & prompt-injection layer** (`detectors/prompt_guard.py`).
+  Hidden runs, micro fonts and white text in Word files; invisible text (render
+  mode 3) in PDFs; injection phrasing aimed at AI analysis, classified as
+  *confirmed* (inside concealed content) or *suspicious* (visible text only).
+- **Office external-relationship layer** (`detectors/relationship_scanner.py`).
+  Remote template injection (T1221), external and Follina-style OLE links
+  (CVE-2022-30190), exploit URI schemes (`ms-msdt:`, `search-ms:`, `mhtml:` …),
+  NTLM-leaking UNC paths (T1187), RTF remote templates and auto-updating OLE
+  links. Reads relationship parts only; never contacts the URLs.
+- **Archive layer** (`detectors/container_extractor.py`). Sandboxed, bounded ZIP
+  extraction (nested and ZipCrypto-protected archives) with zip-bomb, zip-slip,
+  symlink, executable, double-extension and RTLO checks; up to 25 members per
+  archive go through the full pipeline and the archive is scored like its
+  worst member. `.zip` is now a default scan type.
+- **Macro analysis:** VBA-stomping detection (olevba + pcodedmp) and Excel 4.0
+  (XLM) macro sheets in BIFF and OOXML workbooks.
+- **YARA:** `rules/recovery_inhibition.yar` - shadow-copy deletion and boot
+  recovery tampering (T1490). Ten rules ship in total.
+- **Canary tripwires** (`core/canary.py`): decoy documents whose deletion,
+  modification, encryption or renaming fires an alert file, a CRITICAL log
+  entry and a desktop notification (macOS/Linux). Checked every 5 minutes by
+  `--background` and by the GUI. CLI: `--deploy-canaries`, `--verify-canaries`
+  (exit code 2 when tripped), `--remove-canaries`.
+- **Encrypted quarantine vault** (`core/quarantine.py`): chunked AES-256-GCM
+  with per-file HKDF keys, authenticated header/chunks/end-of-file frame,
+  verify-before-delete, non-clobbering restore. CLI: `--quarantine`,
+  `--list-quarantine`, `--restore [--restore-to]`. Optional
+  `AUTO_QUARANTINE=high|critical`.
+- **Ransomware-impact section** in reports: encrypted-looking files plus ransom
+  notes and ransomware extensions seen while walking folders.
+- **Result cache** (`core/cache.py`): VirusTotal and LLM answers cached by
+  SHA-256 in SQLite (WAL); `--no-cache`, `--clear-cache`.
+- **More file types:** `.docm`, `.dotm`, `.xlsx`, `.xlsm`, `.xls`, `.pptx`,
+  `.pptm`, `.ppt`, `.rtf`, `.zip`, with OOXML text extraction for the LLM.
+- **GUI:** Protection page (canaries, vault with restore/delete, automatic
+  quarantine, cache), a third row of dashboard cards, detail sections for every
+  new layer including per-member archive results, a *Quarantine file* button,
+  canary alerts while the window is open, the VirusTotal-upload switch, and all
+  file types on the Scan page.
+- **Test suite** (`tests/`, pytest): 145 tests plus an opt-in GUI test, all on
+  synthetic samples, passing on Python 3.9, 3.11, 3.12 and 3.13.
+- `--version` flag; `engine_version` in every result.
+
+### Changed
+
+- **VirusTotal is hash-lookup only by default.** v3 uploaded every unknown file,
+  which shares private documents with VirusTotal and its Enterprise
+  subscribers. Uploading is now opt-in (`VT_UPLOAD_UNKNOWN=true` or the GUI
+  switch).
+- **LLM prompts are spotlighted:** document content is wrapped in per-request
+  random delimiters, look-alike tags are neutralised, and model replies are
+  validated more strictly (confidence clamped to 0-1, non-object JSON rejected).
+- Default scan types now include the Office, RTF and ZIP formats above.
+  Existing GUI users keep their saved selection; tick the new types on the Scan
+  page.
+- OCR runs only when an LLM backend is active (it only feeds the LLM).
+- Text extraction failures return empty text instead of sending the error
+  message to the LLM as "document content".
+- String extraction is regex-based and bounded (it used to loop over every
+  byte in Python).
+- Office lock files (`~$*.docx`) and canary files are skipped during scans.
+- Expected-but-harmless conditions (non-PDF content under `.pdf`, non-Office
+  content under an Office extension) are logged as warnings, not errors.
+- `Embedded_Executable_In_Document` YARA rule description now matches what it
+  detects (a PE masquerading as a document).
+
+### Fixed
+
+- **External calls had no timeout.** A stalled VirusTotal request could hang a
+  scheduled scan (or the GUI worker thread) indefinitely. Every call now has a
+  timeout, GETs retry with backoff on 429/5xx, and requests are paced to the
+  API quota.
+
 ## [3.0.0] — 2026-06-14
 
 The detection engine grows from **three layers to seven**, all fused through a
