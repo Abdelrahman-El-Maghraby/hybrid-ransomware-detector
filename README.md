@@ -16,6 +16,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.1](#-whats-new-in-41)
 - [🆕 What's new in 4.0](#-whats-new-in-40)
 - [🧩 Why "hybrid"?](#-why-hybrid)
 - [🔬 Detection layers](#-detection-layers)
@@ -23,6 +24,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - [🛡️ Protection features](#️-protection-features)
 - [📦 Requirements](#-requirements)
 - [🚀 Installation](#-installation)
+- [📦 Standalone executables](#-standalone-executables)
 - [🔑 Configuration](#-configuration)
 - [💻 Usage](#-usage)
 - [🪟 Graphical interface](#-graphical-interface)
@@ -33,6 +35,17 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - [🧭 Roadmap](#-roadmap)
 - [🚨 Disclaimer](#-disclaimer)
 - [👤 Author](#-author)
+
+---
+
+## 🆕 What's new in 4.1
+
+![MailGuard result](docs/screenshot-v41-mail.png)
+
+- **MailGuard: `.eml` and Outlook `.msg` e-mails.** Reads the SPF / DKIM / DMARC verdicts your mail server recorded (only the *topmost* `Authentication-Results`: lower copies are written by the sender and can be forged), flags display-name spoofing, Reply-To diversion and links whose text shows one domain while the href goes to another, and unpacks every attachment (including attached e-mails and ZIPs) into a sandbox for the full pipeline. The message body feeds the prompt-injection and LLM layers. `.msg` files are read stream-by-stream with `olefile`, so no extra dependency is needed.
+- **Static ML classifier.** 15 explainable byte and PE features (entropy profile, packer section names, writable+executable sections, import count, …). Train a RandomForest on your own labelled folders with `--train-ml`, and it reports held-out precision, recall and false-positive rate. Without a model, a transparent rule engine runs. ML has its own small **statistical** score budget (≤ 20) and, like the LLM, can never push a file past Medium on its own.
+- **Standalone executables.** `python build.py` packages the CLI and the GUI with PyInstaller, then **smoke-tests the binary with real scans** before packaging it with a SHA-256 checksum.
+- **210 automated tests** (+1 opt-in GUI test), including real Outlook compound files built at test time, run on Python 3.9, 3.11, 3.12 and 3.13.
 
 ---
 
@@ -104,6 +117,17 @@ Signals fall into three weight categories: **technical** (everything structural)
     - **OPSEC by default.** With `LLM_PROVIDER=auto` the scanner prefers a **local Ollama** model if one is reachable, so sensitive documents never leave the machine. It falls back to OpenAI only if no local model is available *and* a key is set, and logs the egress.
     - **Prompt-injection hardening.** Instructions live in the system role, the document in the user role, temperature 0, JSON-only output, and (new) the document is wrapped in **per-request random delimiters** (`<UNTRUSTED_DATA_5F2C…>`). Look-alike tags inside the document are neutralised, so it cannot close the data block and talk to the model directly. Answers are cached by SHA-256.
 
+11. **E-mail: MailGuard (new in 4.1).** `.eml` (MIME) and Outlook `.msg` (compound file, read with `olefile`):
+    - **Sender authentication:** SPF, DKIM and DMARC as recorded by the receiving server. Only the topmost `Authentication-Results` / `Received-SPF` is trusted; copies further down were written by whoever sent the mail, so they are ignored and counted. One valid DKIM signature is enough. Nothing is re-checked against DNS, because a saved message can be years old.
+    - **Spoofing:** a display name that carries a different address or domain (`"billing@paypal.com" <x@evil.tld>`), and a Reply-To that diverts answers to another organisation (the business-e-mail-compromise set-up).
+    - **Deceptive links:** HTML anchors whose visible text shows one domain while the `href` goes to another.
+    - **Attachments:** executables, scripts and macro-enabled Office files; double extensions; RTLO names; attached e-mails (saved as `.eml` and scanned recursively). Every attachment goes through all the other layers in a sandbox that is deleted after the scan, and the mail is scored like its worst attachment. Containers are followed two levels deep (mail → ZIP → document).
+    - **Lure subjects** (payment, urgency, credential, delivery) are a *semantic* signal and are scored as such.
+12. **Static ML classifier (new in 4.1).** 15 features from the first 8 MiB: entropy, the share of high-entropy 1 KiB windows, head/tail entropy, PE section count/entropy, imported DLL count, packer section names, writable+executable sections, size, null/printable ratios, a *known compressed format* flag (ZIP, gzip, PNG, JPEG… are *expected* to look random), and extension risk.
+    - **With a trained model** (`--train-ml BENIGN_DIR MALICIOUS_DIR`, scikit-learn RandomForest), it outputs P(suspicious) plus the most important features. Training reports held-out accuracy, precision, recall and false-positive rate. Models are joblib files; load only models you trained.
+    - **Without a model**, a transparent rule engine runs: random-throughout content in a non-compressed format, packer sections, W+X sections, near-empty import tables.
+    - Scored in its own **statistical** category (max 20 points). If the file-integrity layer has already proved the content is encrypted, the ML opinion is not counted twice.
+
 Every optional layer **degrades gracefully**: a missing library, a missing local model, or a missing API key produces a warning, not a crash, and the remaining layers still run.
 
 ---
@@ -113,7 +137,7 @@ Every optional layer **degrades gracefully**: a missing library, a missing local
 The original hardcoded equation (`10·db + 5·llm + 5·vt`) gave a *semantic* guess the same weight as multi-engine reputation. `detectors/scoring.py` replaces it with a transparent matrix: every signal contributes through an explicit rule with a **category**, a **weight**, and a human-readable **detail**, under three principles:
 
 1. **Technical > semantic, mathematically.** The semantic (LLM) category is capped at 24, so a phishing lure can never by itself out-score a real structural indicator.
-2. **Semantic-alone cannot be "High".** If no technical or reputation signal fired, the verdict is clamped to at most **Medium**.
+2. **Semantic-alone cannot be "High".** If no technical or reputation signal fired, the verdict is clamped to at most **Medium**. The same holds for the 4.1 **statistical** (ML) category.
 3. **Explainability.** Each result carries a per-indicator breakdown, so the report shows exactly which signals drove the verdict and by how much.
 
 | Indicator | Category | Points |
@@ -134,12 +158,19 @@ The original hardcoded equation (`10·db + 5·llm + 5·vt`) gave a *semantic* gu
 | Macro: exec primitive / auto-run / dropper synergy / other suspicious call | technical | 40 (+8 each extra) / 22 / 20 / 10 |
 | Executable inside an archive | technical | 35 |
 | Encrypted archive the scanner could not open | technical | 20 |
+| Mail: double-extension / RTLO attachment | technical | 60 |
+| Mail: executable, script or macro-enabled attachment | technical | 45 |
+| Mail: DMARC failure (SPF/DKIM failure without DMARC failure) | technical | 35 (20) |
+| Mail: display-name spoof · deceptive link · Reply-To diversion | technical | 30 · 25 · 15 |
+| Worst mail attachment | its own categories | carried over |
 | Hidden content · suspicious injection phrasing · format mismatch | technical | 15 each |
 | Worst archive member | its own categories | carried over |
 | VirusTotal detections | reputation | max(35, 80 × ratio) |
 | LLM lure assessment | semantic | 24 × confidence |
+| Mail: lure subject | semantic | 8 |
+| ML classifier | statistical | 20 × P(suspicious) |
 
-Category caps: technical 100, reputation 80, semantic 24; the total is clamped to 100.
+Category caps: technical 100, reputation 80, semantic 24, statistical 20; the total is clamped to 100.
 
 | Risk score | Verdict |
 |-----------:|---------|
@@ -219,7 +250,35 @@ python -m venv .venv
 # macOS / Linux:  source .venv/bin/activate
 
 pip install -r requirements.txt
+pip install -r requirements-ml.txt     # optional: train / load ML models
 ```
+
+---
+
+## 📦 Standalone executables
+
+`build.py` turns the project into programs that run without a Python install:
+
+```bash
+pip install -r requirements.txt -r requirements-ml.txt -r requirements-build.txt
+python build.py              # folder build  -> dist/HybridRansomwareDetector/
+python build.py --onefile    # one file per program
+python build.py --no-ml      # leave scikit-learn out (~100 MB smaller)
+```
+
+| Program | What it is |
+|---|---|
+| `hrd-scanner` (`.exe` on Windows) | the CLI, with every flag shown under Usage |
+| `hrd-scanner-gui` | the desktop app (no console window); on macOS also `Hybrid Ransomware Detector.app` |
+
+After PyInstaller finishes, the script **runs the built CLI** in a throw-away home folder (`--version`, then real scans of a clean PDF and of an executable disguised as a PDF) and fails if a verdict is wrong. A binary that starts but can't find its YARA rules never gets packaged. The result is archived as `dist/hrd-scanner-<version>-<os>-<arch>.zip` / `.tar.gz` with a `SHA256SUMS` file.
+
+Notes:
+- **Build on each target OS.** PyInstaller doesn't cross-compile, so a CI matrix (Windows / macOS / Linux runners running `python build.py`) produces all three.
+- **UPX is off on purpose.** UPX-packed executables look like malware to AV engines, and to this scanner's own ML layer.
+- **Settings in a packaged build** live in `~/RansomwareScanner/.env` (the bundle folder is temporary or read-only). Autostart and shortcuts launch the executable directly.
+- **Unsigned:** Windows SmartScreen will warn, and macOS needs `xattr -dr com.apple.quarantine "Hybrid Ransomware Detector.app"` (or code signing and notarisation).
+- Tesseract/Poppler (OCR fallback) stay system packages and are not bundled.
 
 ## 🔑 Configuration
 
@@ -290,6 +349,8 @@ python gui.py                                   # or: python RansomwareScanner.p
 python RansomwareScanner.py --scan-now                       # all configured folders
 python RansomwareScanner.py --scan-file suspicious.docx      # one file, full verdict
 python RansomwareScanner.py --scan-file mail_attachment.zip  # archives: every member
+python RansomwareScanner.py --scan-file suspicious.eml       # e-mail: headers + attachments
+python RansomwareScanner.py --scan-file message.msg          # Outlook format too
 python RansomwareScanner.py --scan-file x.docx --llm-provider ollama   # force local LLM
 python RansomwareScanner.py --scan-now --llm-provider none --no-cache
 
@@ -309,6 +370,7 @@ python RansomwareScanner.py --remove-autostart
 python RansomwareScanner.py --import-database dataset.csv
 python RansomwareScanner.py --fuzzy-hash confirmed_sample.bin
 python RansomwareScanner.py --clear-cache
+python RansomwareScanner.py --train-ml clean_samples/ malware_samples/   # ML model
 python RansomwareScanner.py --create-shortcut      # Windows & Linux
 python RansomwareScanner.py --version
 ```
@@ -425,7 +487,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 145 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 210 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
@@ -438,7 +500,9 @@ The suite covers each detector and protection feature in isolation, the full sca
 - quarantine detects bit flips, truncation, chunk reordering and a wrong key, and never leaves partial files behind,
 - zip-slip members are never written, and the extraction sandbox is gone after the scan,
 - hostile XML (entity expansion) is refused rather than parsed,
-- VirusTotal is never asked to upload anything unless explicitly enabled.
+- VirusTotal is never asked to upload anything unless explicitly enabled,
+- forged lower `Authentication-Results` headers are ignored, and `.msg` parsing is tested on real compound files generated by the suite (`tests/msg_builder.py`),
+- a trained ML model round-trips through disk with identical predictions, and foreign or stale model files fall back to the rule engine.
 
 All test samples are **synthetic** and built at test time (a relationship pointing at a documentation IP, an `MZ` header, random bytes, a ZipCrypto archive). No live malware is stored or used.
 
@@ -459,6 +523,8 @@ hybrid-ransomware-detector/
 │   ├── prompt_guard.py          # hidden content + prompt-injection detection
 │   ├── relationship_scanner.py  # remote template / Follina / UNC / RTF links
 │   ├── container_extractor.py   # safe ZIP extraction (bomb / slip / lures)
+│   ├── mail_analyzer.py         # MailGuard: .eml/.msg auth, spoofing, links, attachments
+│   ├── ml_classifier.py         # 15 byte/PE features, RandomForest or rule engine
 │   ├── llm_backends.py          # local Ollama / cloud OpenAI / none, spotlighted prompts
 │   └── scoring.py               # transparent weighted scoring matrix
 ├── core/                        # host-side protection services
@@ -473,7 +539,11 @@ hybrid-ransomware-detector/
 ├── tests/                       # pytest suite (synthetic samples only)
 ├── docs/                        # screenshots + DETECTION_v3.md / DETECTION_v4.md
 ├── fuzzy_signatures.sample.json # documented placeholder fuzzy signature DB
+├── build.py                     # PyInstaller build + smoke test + packaging
+├── scanner.spec                 # PyInstaller recipe (CLI + GUI, UPX off)
 ├── requirements.txt
+├── requirements-ml.txt          # optional: scikit-learn / joblib / numpy
+├── requirements-build.txt       # optional: PyInstaller
 ├── CHANGELOG.md
 ├── .env.example                 # template for keys + settings
 ├── .gitignore
@@ -501,6 +571,8 @@ Being explicit about what the tool does *not* do:
 - **Static analysis only.** Nothing is executed; there is no sandbox detonation.
 - **Archives:** ZIP only (including nested and ZipCrypto-protected ZIPs). 7z, RAR and ISO are not unpacked yet; AES-encrypted ZIP members are reported as unreadable.
 - **Encrypted-content detection** needs at least 1 KiB of data, and a raw, headerless compressed stream can look as random as ciphertext. That is why it only runs once a document's own signature is already missing.
+- **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict. Embedded `.msg` items inside a `.msg` and OLE-object attachments are counted but not unpacked.
+- **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which includes legitimate encrypted files (KeePass, GPG). That's why the layer is capped at 20 points.
 - **Hidden-content detection** covers Word (`.docx/.docm`) and PDF. Excel/PowerPoint hidden content is not inspected.
 - **Canaries detect, they don't block.** They catch encryption in the folders where they are planted, at the check interval. This is a tripwire, not an EDR.
 - **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Back it up if you need to restore items on another machine.
@@ -510,12 +582,13 @@ Being explicit about what the tool does *not* do:
 
 ## 🧭 Roadmap
 
-Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
+Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
 
-- **More containers:** 7z / RAR / ISO / IMG, and `.eml` / `.msg` email files with their attachments.
+- **More containers:** 7z / RAR / ISO / IMG.
+- **A curated, labelled training corpus** and published ML evaluation numbers.
 - **Real-time file watching** (filesystem events) to complement the canary interval.
 - **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
-- **CI** running the test suite on Windows, macOS and Linux for every push.
+- **CI** running the test suite and `build.py` on Windows, macOS and Linux for every push, with the binaries attached to releases.
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
 
 ---

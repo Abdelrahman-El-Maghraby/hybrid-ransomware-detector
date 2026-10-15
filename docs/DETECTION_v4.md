@@ -1,4 +1,4 @@
-# Detection layers, protection & scoring design (v4.0.0)
+# Detection layers, protection & scoring design (v4.0.0 – v4.1.0)
 
 Like the [v3 document](DETECTION_v3.md), this explains *why* each v4 piece is
 designed the way it is, so every threshold and weight can be defended in a code
@@ -307,3 +307,108 @@ configured.
 
 Run `python -m pytest` after any change; `tests/` covers each layer, the full
 pipeline, the CLI and (opt-in) the GUI.
+
+---
+
+## v4.1 additions
+
+v4.1 adds e-mail as an input, a statistical layer, and packaged builds. The
+rules above still apply; this section explains the new choices.
+
+### 11. MailGuard — `detectors/mail_analyzer.py`
+
+**Why trust only the topmost authentication header?** Every hop *prepends*
+headers. The `Authentication-Results` your own server writes is therefore the
+first one in the file. Anything below it was already in the message when it
+arrived, which means the sender wrote it. Phishing kits do add a fake
+`spf=pass; dkim=pass; dmarc=pass` line, so taking "any pass" or "the last one"
+would let the attacker grade their own mail. MailGuard reads the first header,
+ignores the rest, and reports how many it ignored. (RFC 8601 recommends
+checking that the authserv-id is your own domain. A saved file doesn't say
+which domain that is, so the id is recorded for the analyst instead.)
+
+**Why not re-check SPF/DKIM against DNS?** A saved message can be months old.
+Keys rotate and SPF records change, so a fresh lookup tests today's DNS, not
+the delivery. The receiving server's verdict at delivery time is the right
+evidence.
+
+**Weights.** DMARC failure (35) is the strongest header signal: it means the
+visible From domain didn't align with anything that authenticated. SPF or DKIM
+failure alone (20) is weaker, because forwarding and mailing lists break both
+legitimately. A display-name spoof (30) and a deceptive link (25) have almost
+no benign explanation. Reply-To diversion (15) does (ticketing systems,
+assistants), so it only adds up with other signals. Attachments reuse the
+archive weights and logic, and the mail is scored like its worst attachment,
+exactly like a ZIP. The lure subject is *semantic* (8): wording is the
+weakest evidence there is.
+
+**Same organisation.** `alerts@paypal.com` shown for a mail from
+`mail.paypal.com` must not count as spoofing, so domains are compared by their
+registrable part (last two labels, three for `co.uk`-style suffixes). This is
+an approximation of the Public Suffix List, chosen so the module needs no data
+file. It can miss look-alikes on exotic suffixes, and it errs towards *not*
+flagging.
+
+**.msg without a parser library.** Outlook files are OLE compound files.
+`olefile` (already present via oletools) reads the MAPI property streams
+directly (`__substg1.0_<tag><type>`). The transport-headers property holds the
+original header block, so `.msg` gets the same authentication checks as `.eml`.
+The tests build real compound files (`tests/msg_builder.py`, with a mini-stream
+for small properties as the spec requires), so the parser is tested against the
+format itself, not a mock.
+
+**Nesting.** Containers are followed `max_nesting` = 2 levels (mail → ZIP →
+document). Deeper containers are still *inspected* (names, auth, flags) but not
+unpacked, which bounds the work an attacker can force with recursive
+attachments.
+
+### 12. ML classifier — `detectors/ml_classifier.py`
+
+**What it adds.** Every other layer looks for named evidence. This one asks
+whether the file's byte-level shape resembles packed or encrypted payloads, so
+it can react to things no rule names yet. That breadth is also its weakness,
+which is what the weights below are about.
+
+**Features, and the one that prevents most false positives.** Entropy alone
+flags every ZIP, JPEG and `.docx` (they're compressed, so they look random).
+`known_compressed_format` tells the model, and the rule engine, that high
+entropy is *expected* there. A 1 KiB window size is used because a window of
+*n* bytes can't exceed log2(*n*) bits of entropy: 64-byte windows top out at
+6 bits and could never cross a 7.5 threshold. The PE features (packer section
+names, writable+executable sections, almost-empty import tables) are the
+classic packer tells, read straight from the section table without `pefile`.
+
+**No bundled model, on purpose.** A model trained on synthetic data would
+score well on synthetic data and claim accuracy it doesn't have. `--train-ml`
+trains on *your* labelled folders and prints held-out precision, recall and
+false-positive rate, so the number you quote is one you measured. Without a
+model, the rule engine runs and every point it gives is explained.
+
+**Why the statistical category is capped at 20 and can't reach High alone.**
+The rule engine's strongest rule, "random from end to end", also fires on
+KeePass databases and GPG files. A learned model is only as good as its corpus.
+So the layer can lift a borderline file or add a reason, but it can't convict
+one. When the file-integrity layer has already proved encryption (chi-square
+plus a missing signature), the ML opinion about the same bytes is not counted
+again.
+
+**Model files are pickles.** Loading a joblib file executes code. The scanner
+only loads the path in `ML_MODEL_PATH`, refuses files without its format marker
+or with a different feature list, and the docs say to load only models you
+trained.
+
+### 13. Packaged builds — `build.py`, `scanner.spec`
+
+- **Smoke test, not just "it built".** The most common PyInstaller failure is a
+  binary that starts fine but silently lost its data files (here: the YARA
+  rules) or an optional C extension. `build.py` runs the built CLI on a clean
+  PDF and on a disguised executable and fails the build if either verdict is
+  wrong.
+- **Folder build by default, UPX off.** Onefile binaries unpack themselves to a
+  temp directory on every launch, and UPX packs executables. Both are behaviours
+  AV engines (and this project's own ML layer) treat as suspicious, which
+  matters for a security tool.
+- **Writable state outside the bundle.** In a build, the bundle directory is
+  temporary (onefile) or read-only (Program Files, a signed `.app`). Settings
+  go to `~/RansomwareScanner/.env` and autostart launches the executable
+  itself.
