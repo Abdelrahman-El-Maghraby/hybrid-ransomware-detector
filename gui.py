@@ -51,9 +51,9 @@ except ImportError:  # pragma: no cover
 
 from dotenv import set_key
 
-APP_VERSION = "4.0"
+APP_VERSION = "4.1"
 SETTINGS_FILE = RS.APP_DIR / "gui_settings.json"
-ENV_FILE = Path(RS.__file__).resolve().parent / ".env"
+ENV_FILE = RS.ENV_FILE        # next to the script, or ~/RansomwareScanner in a build
 
 # --- Theme (matches the project's dark terminal aesthetic) -------------------
 
@@ -230,6 +230,17 @@ def layers_summary(result: dict) -> str:
         bad = sum(1 for m in arc.get("member_results", []) or []
                   if m.get("verdict", "Clean") != "Clean" or m.get("archive_flags"))
         parts.append(f"zip{arc.get('member_count', 0)}" + (f"!{bad}" if bad else ""))
+
+    mail = sr.get("mail", {})
+    if mail:
+        bad = sum(1 for m in mail.get("attachment_results", []) or []
+                  if m.get("verdict", "Clean") != "Clean")
+        parts.append(f"mail{mail.get('attachment_count', 0)}" + (f"!{bad}" if bad else ""))
+        if (mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof"):
+            parts.append("spoof!")       # authentication failure / display-name spoof
+
+    if sr.get("ml_classifier", {}).get("label") == "suspicious":
+        parts.append(f"ml {float(sr['ml_classifier'].get('probability', 0)):.2f}")
 
     vt = sr.get("virustotal", {})
     if "not configured" in str(vt.get("details", "")):
@@ -650,6 +661,46 @@ class DetailWindow(ctk.CTkToplevel):
             body = info_section("Layer 8 — archive contents")
             line(body, "Not an archive.", ACCENT_SOFT, app.font_ui, (10, 10))
 
+        # --- v4.1: e-mail (MailGuard) -----------------------------------------
+        mail = sr.get("mail")
+        if mail:
+            body = info_section("E-mail — sender, links & attachments (MailGuard)")
+            auth = mail.get("auth") or {}
+            bad = (auth.get("failures") or mail.get("display_name_spoof")
+                   or mail.get("reply_to_mismatch") or mail.get("deceptive_links")
+                   or mail.get("executable_attachments"))
+            line(body, mail.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                 app.font_ui, (10, 4))
+            if mail.get("subject"):
+                line(body, f"Subject:  {mail['subject'][:140]}")
+            if auth.get("ignored_headers"):
+                line(body, f"{auth['ignored_headers']} lower authentication header(s) ignored "
+                           "(written by the sender, not your mail server).", AMBER_SOFT)
+            for link in (mail.get("deceptive_links") or [])[:4]:
+                line(body, f"•  {RS.defang(link)}", RED_SOFT)
+            for a in (mail.get("attachment_results") or [])[:30]:
+                v = a.get("verdict", "Clean")
+                name = str(a.get("name", "?")).split("!/", 1)[-1]
+                line(body, f"{v:<8}  {a.get('risk_score', 0):>3}/100   {name}",
+                     verdict_color(v), app.font_mono_small)
+            if mail.get("attachments_skipped") or mail.get("not_scanned_budget"):
+                line(body, f"{mail.get('attachments_skipped', 0) + mail.get('not_scanned_budget', 0)}"
+                           " attachment(s) not deep-scanned (limits / embedded objects).", AMBER_SOFT)
+            line(body, "", pad=(0, 4))
+
+        # --- v4.1: ML classifier --------------------------------------------
+        ml = sr.get("ml_classifier")
+        if ml:
+            body = info_section("ML classifier — byte & PE structure (statistical)")
+            susp = ml.get("label") == "suspicious"
+            line(body, f"{ml.get('label', '?').capitalize()}  ·  p(suspicious) = "
+                       f"{float(ml.get('probability', 0)):.2f}  ·  "
+                       f"{'trained model ' + str(ml.get('model')) if ml.get('model') != 'rules' else 'rule engine (no trained model)'}",
+                 RED_SOFT if susp else ACCENT_SOFT, app.font_ui, (10, 4))
+            for why in (ml.get("indicators") or [])[:4]:
+                line(body, f"•  {why}")
+            line(body, "", pad=(0, 4))
+
         # --- Layer 9: VirusTotal ---------------------------------------------
         vt = sr.get("virustotal", {})
         body = info_section("Layer 9 — VirusTotal reputation")
@@ -994,11 +1045,18 @@ class DashboardPage(BasePage):
         value, status, ok = self._llm_card_state(scanner)
         self.card_ai.update_card(value, status, ok)
 
-        # Heuristics: integrity, hidden content, external links, archives.
+        # Heuristics: integrity, hidden content, external links, archives,
+        # e-mail and the ML classifier.
+        names = ["integrity"]
         if RS.DEFUSEDXML_AVAILABLE:
-            self.card_heur.update_card("4 active", "integrity · hidden · links · zip", True)
-        else:
-            self.card_heur.update_card("2 active", "install defusedxml", False)
+            names += ["hidden", "links"]
+        names += ["zip", "mail"]
+        ml = getattr(scanner, "ml", None)
+        if ml is not None:
+            names.append("ML model" if ml.has_model else "ML rules")
+        ok = RS.DEFUSEDXML_AVAILABLE
+        self.card_heur.update_card(f"{len(names)} active",
+                                   " · ".join(names) if ok else "install defusedxml", ok)
 
         # Canaries: deployed count + last verification.
         deployed = len(scanner.canaries.entries())
@@ -1638,7 +1696,7 @@ class SettingsPage(BasePage):
         sec = Section(outer, "API keys", app)
         sec.pack(fill="x", pady=(14, 0))
         ctk.CTkLabel(sec.body,
-                     text=f"Keys are stored only in {ENV_FILE.name} next to the scanner "
+                     text=f"Keys are stored only in {ENV_FILE} "
                           "(git-ignored, never committed). Leave a field empty to keep "
                           "the current value.",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,

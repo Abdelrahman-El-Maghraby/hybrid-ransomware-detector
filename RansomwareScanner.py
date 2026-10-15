@@ -69,6 +69,8 @@ from detectors import (
     PromptGuard, DEFUSEDXML_AVAILABLE,
     RelationshipScanner,
     ContainerExtractor,
+    MailAnalyzer, MSG_AVAILABLE,
+    MLClassifier, SKLEARN_AVAILABLE,
     ransom_indicator,
 )
 from detectors.relationship_scanner import defang
@@ -78,7 +80,7 @@ from core import (
 )
 from core.canary import desktop_notify
 
-ENGINE_VERSION = "4.0.0"
+ENGINE_VERSION = "4.1.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()
@@ -90,7 +92,9 @@ QUARANTINE_DIR = APP_DIR / "quarantine"
 KEYSTORE_DIR = APP_DIR / "keystore"
 
 # Repo-relative assets that ship with the scanner (YARA rules, sample signatures).
-SCRIPT_DIR = Path(__file__).resolve().parent
+# In a PyInstaller build they are unpacked to sys._MEIPASS instead.
+FROZEN = bool(getattr(sys, "frozen", False))
+SCRIPT_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 BUNDLED_RULES_DIR = SCRIPT_DIR / "rules"
 BUNDLED_FUZZY_SIGS = SCRIPT_DIR / "fuzzy_signatures.sample.json"
 
@@ -112,8 +116,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RansomwareScanner")
 
-# Load API keys from a local .env file (NEVER commit real keys to source control)
-load_dotenv()
+# Load API keys from a local .env file (NEVER commit real keys to source control).
+# From source it sits next to this script; a packaged build keeps it in the
+# per-user app folder, because the bundle directory is temporary or read-only.
+ENV_FILE = (APP_DIR / ".env") if FROZEN else (SCRIPT_DIR / ".env")
+load_dotenv(ENV_FILE)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -132,7 +139,7 @@ def _env_float(name: str, default: float) -> float:
 
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
-                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip"]
+                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".eml", ".msg"]
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
 CONFIG = {
@@ -182,6 +189,19 @@ CONFIG = {
     "archive_max_total_mb": 100,
     "archive_max_members": 500,
     "archive_scan_members": 25,       # members that get the full pipeline
+    # Containers inside containers (mail -> zip -> document) are followed this
+    # many levels deep; deeper ones are still inspected but not unpacked.
+    "max_nesting": 2,
+
+    # --- E-mail (MailGuard) -------------------------------------------------
+    "mail_max_attachments": 50,
+    "mail_scan_attachments": 25,      # attachments that get the full pipeline
+
+    # --- ML classifier ------------------------------------------------------
+    # Without a trained model the transparent rule engine is used. Train one
+    # with --train-ml BENIGN_DIR MALICIOUS_DIR (needs requirements-ml.txt).
+    "ml_enabled": _env_bool("ML_ENABLED", True),
+    "ml_model_path": os.getenv("ML_MODEL_PATH", str(DATA_DIR / "ml_model.joblib")),
 
     # --- Quarantine ---------------------------------------------------------
     "quarantine_dir": str(QUARANTINE_DIR),
@@ -287,6 +307,16 @@ class RansomwareScanner:
             max_members=int(config.get("archive_max_members", 500)),
         )
         self.archive_scan_members = int(config.get("archive_scan_members", 25))
+        self.max_nesting = int(config.get("max_nesting", 2))
+
+        # v4.1 layers.
+        self.mail_analyzer = MailAnalyzer(
+            max_attachments=int(config.get("mail_max_attachments", 50)),
+            max_total_bytes=int(float(config.get("archive_max_total_mb", 100)) * 1024 * 1024),
+        )
+        self.mail_scan_attachments = int(config.get("mail_scan_attachments", 25))
+        self.ml: Optional[MLClassifier] = (
+            MLClassifier(config.get("ml_model_path")) if config.get("ml_enabled", True) else None)
 
         # Weighted scoring matrix that fuses every layer's signals.
         self.scoring = ScoringMatrix()
@@ -313,13 +343,16 @@ class RansomwareScanner:
         logger.info(
             "Detection layers -> fuzzy:%s  macro:%s  yara:%s(%d rule files)  "
             "integrity:on  prompt-guard:%s  relationships:%s  archives:on  "
-            "llm:%s%s  virustotal:%s  cache:%s",
+            "mail:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
             "on" if FUZZY_AVAILABLE else "off (install python-tlsh/ppdeep)",
             "on" if OLEVBA_AVAILABLE else "off (install oletools)",
             "on" if YARA_AVAILABLE else "off (install yara-python)",
             getattr(self.yara_engine, "_rules_count", 0),
             "on" if DEFUSEDXML_AVAILABLE else "partial (install defusedxml)",
             "on" if DEFUSEDXML_AVAILABLE else "rtf-only (install defusedxml)",
+            "on" if MSG_AVAILABLE else "eml-only (install oletools)",
+            ("off" if self.ml is None else
+             f"model ({self.ml.model_name})" if self.ml.has_model else "rules"),
             self.llm_backend.name,
             " [LOCAL]" if getattr(self.llm_backend, "is_local", False) else
             (" [CLOUD]" if self.llm_backend.name == "openai" else ""),
@@ -718,8 +751,22 @@ class RansomwareScanner:
         # 7. Hidden content + prompt-injection attempts (text extracted once
         #    and shared with the LLM layer)
         is_archive = self.container_extractor.is_container(file_path)
+        is_mail = self.mail_analyzer.is_mail(file_path)
         llm_on = getattr(self.llm_backend, "available", True)
-        text = "" if is_archive else self._extract_text_from_file(file_path, allow_ocr=llm_on)
+
+        # 6b. E-mail: judge the envelope, unpack + scan every attachment. The
+        #     message body becomes the text the prompt-guard / LLM layers read.
+        mail_signals: Dict = {}
+        mail_body = ""
+        if is_mail:
+            mail_signals, mail_body = self._scan_mail(file_path, display, _depth, result)
+
+        if is_archive:
+            text = ""
+        elif is_mail:
+            text = mail_body
+        else:
+            text = self._extract_text_from_file(file_path, allow_ocr=llm_on)
         strings = "" if is_archive else extract_suspicious_strings(file_path)
         hidden = self.prompt_guard.inspect_hidden_content(file_path)
         guard = self.prompt_guard.analyze(text, strings, hidden)
@@ -733,6 +780,15 @@ class RansomwareScanner:
         archive_signals: Dict = {}
         if is_archive:
             archive_signals = self._scan_archive(file_path, display, _depth, result)
+
+        # 9b. Static ML classifier over the byte structure (containers are
+        #     judged through their members instead)
+        ml_signals: Dict = {}
+        if self.ml is not None and not (is_archive or is_mail):
+            ml_res = self.ml.classify(file_path)
+            result["scan_results"]["ml_classifier"] = ml_res.as_dict()
+            ml_signals = {"suspicious": ml_res.suspicious, "probability": ml_res.probability,
+                          "model": ml_res.model, "indicators": ml_res.indicators}
 
         # 10. LLM semantic analysis (local-first for OPSEC; cached by SHA-256)
         if is_archive:
@@ -797,6 +853,8 @@ class RansomwareScanner:
                 "targets": [defang(f.target) for f in rels.findings[:3]],
             },
             "archive": archive_signals,
+            "mail": mail_signals,
+            "ml": ml_signals,
         }
         score = self.scoring.score(signals)
 
@@ -817,7 +875,7 @@ class RansomwareScanner:
         member_results: List[Dict] = []
         with self.container_extractor.open(file_path) as arc:
             skipped_for_budget = 0
-            if depth == 0:
+            if depth < self.max_nesting:
                 for member in arc.members:
                     if not member.extracted or not member.path:
                         continue
@@ -867,6 +925,54 @@ class RansomwareScanner:
                 "contributions": worst.get("score_breakdown", {}).get("contributions", []),
             }
         return signals
+
+    def _scan_mail(self, file_path: str, display: str, depth: int,
+                   result: Dict) -> Tuple[Dict, str]:
+        """Analyse an e-mail, scan its attachments, return (signals, body text)."""
+        attachment_results: List[Dict] = []
+        skipped_for_budget = 0
+        with self.mail_analyzer.open(file_path) as mail:
+            if depth < self.max_nesting:
+                for att in mail.attachments:
+                    if not att.path:
+                        continue
+                    if len(attachment_results) >= self.mail_scan_attachments:
+                        skipped_for_budget += 1
+                        continue
+                    try:
+                        attachment_results.append(self.scan_file(
+                            att.path, _depth=depth + 1,
+                            _display_name=f"{display}!/{att.filename}"))
+                    except Exception as e:
+                        logger.error(f"Error scanning attachment {att.filename}: {e}")
+            mail_dict = mail.as_dict()
+            body = mail.body_text
+
+        mail_dict["deep_scanned"] = len(attachment_results)
+        mail_dict["not_scanned_budget"] = skipped_for_budget
+        mail_dict["attachment_results"] = [self._member_summary(r) for r in attachment_results]
+        result["scan_results"]["mail"] = mail_dict
+
+        signals = {
+            "from_domain": mail_dict["from_domain"],
+            "reply_to_domain": mail_dict["reply_to_domain"],
+            "auth_failures": mail_dict["auth"]["failures"],
+            "display_name_spoof": mail_dict["display_name_spoof"],
+            "display_name_spoof_reason": mail_dict["display_name_spoof_reason"],
+            "reply_to_mismatch": mail_dict["reply_to_mismatch"],
+            "deceptive_links": mail_dict["deceptive_links"],
+            "executable_attachments": mail_dict["executable_attachments"],
+            "double_extension_attachments": mail_dict["double_extension_attachments"],
+            "rtlo_attachments": mail_dict["rtlo_attachments"],
+            "lure_subject": mail_dict["lure_subject"],
+        }
+        worst = max(attachment_results, key=lambda r: r.get("risk_score", 0), default=None)
+        if worst and worst.get("risk_score", 0) > 0:
+            signals["worst_attachment"] = {
+                "name": worst.get("file_name", "attachment"),
+                "contributions": worst.get("score_breakdown", {}).get("contributions", []),
+            }
+        return signals, body
 
     @staticmethod
     def _member_summary(r: Dict) -> Dict:
@@ -1253,6 +1359,25 @@ LLM posture:            {self._llm_posture_label()}
                     lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
                                  f"(risk {m.get('risk_score', 0)}/100)")
 
+        # E-mail envelope + attachments
+        mail = sr.get("mail", {})
+        if mail:
+            lines.append(f"  [Mail]      {mail.get('detail', '')}")
+            if mail.get("subject"):
+                lines.append(f"              Subject: {mail['subject'][:120]}")
+            for link in (mail.get("deceptive_links") or [])[:3]:
+                lines.append(f"              ! deceptive link: {defang(link)}")
+            for a in mail.get("attachment_results", []) or []:
+                if a.get("verdict", "Clean") != "Clean":
+                    lines.append(f"              - {a.get('name')}: {a.get('verdict')} "
+                                 f"(risk {a.get('risk_score', 0)}/100)")
+
+        # ML classifier
+        ml = sr.get("ml_classifier", {})
+        if ml.get("label") == "suspicious":
+            lines.append(f"  [ML]        {ml.get('model')} p={ml.get('probability', 0):.2f}: "
+                         f"{'; '.join((ml.get('indicators') or [])[:3])}")
+
         # VirusTotal reputation
         vt = sr.get("virustotal", {})
         if vt.get("is_malicious"):
@@ -1310,7 +1435,9 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "prompt-guard", "relationships", "archives"]
+        layers += ["integrity", "prompt-guard", "relationships", "archives", "mail"]
+        if getattr(self, "ml", None) is not None:
+            layers.append("ml")
         layers.append("llm")
         layers.append("virustotal")
         return ", ".join(layers)
@@ -1348,10 +1475,21 @@ CRON_MARKER = "# RansomwareScanner autostart"           # Linux/macOS cron marke
 
 
 def _resolve_python_and_script() -> Tuple[str, str]:
-    """Return absolute paths to the current Python interpreter and this script."""
+    """Return (program, script) used to relaunch the scanner.
+
+    From source that is the interpreter plus this file. In a PyInstaller build
+    the executable *is* the program, so the script part is empty.
+    """
+    if FROZEN:
+        return sys.executable, ""
     python_exe = sys.executable or "python3"
     script_path = str(Path(__file__).resolve())
     return python_exe, script_path
+
+
+def _q(script_path: str) -> str:
+    """' "script"' when running from source, '' for a frozen executable."""
+    return f' "{script_path}"' if script_path else ""
 
 
 def setup_windows_autostart() -> bool:
@@ -1362,7 +1500,7 @@ def setup_windows_autostart() -> bool:
     try:
         python_exe, script_path = _resolve_python_and_script()
         pythonw = python_exe.replace("python.exe", "pythonw.exe")  # no console window
-        command = f'"{pythonw}" "{script_path}" --background'
+        command = f'"{pythonw}"{_q(script_path)} --background'
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE) as key:
             winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, command)
@@ -1382,6 +1520,7 @@ def setup_macos_autostart() -> bool:
         agents_dir = Path.home() / "Library" / "LaunchAgents"
         agents_dir.mkdir(parents=True, exist_ok=True)
         plist_path = agents_dir / f"{AUTOSTART_LABEL}.plist"
+        script_line = f"\n        <string>{script_path}</string>" if script_path else ""
         plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1390,8 +1529,7 @@ def setup_macos_autostart() -> bool:
     <string>{AUTOSTART_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{python_exe}</string>
-        <string>{script_path}</string>
+        <string>{python_exe}</string>{script_line}
         <string>--background</string>
     </array>
     <key>RunAtLoad</key>
@@ -1434,7 +1572,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart={python_exe} {script_path} --background
+ExecStart="{python_exe}"{_q(script_path)} --background
 Restart=on-failure
 
 [Install]
@@ -1461,7 +1599,7 @@ def _setup_cron_autostart(python_exe: str, script_path: str) -> bool:
     if not shutil.which("crontab"):
         return False
     try:
-        cron_line = f'@reboot {python_exe} "{script_path}" --background  {CRON_MARKER}'
+        cron_line = f'@reboot "{python_exe}"{_q(script_path)} --background  {CRON_MARKER}'
         existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         current = existing.stdout if existing.returncode == 0 else ""
         if CRON_MARKER in current:
@@ -1571,8 +1709,8 @@ def create_desktop_shortcut() -> bool:
             shortcut_path = os.path.join(desktop, "Ransomware Scanner.lnk")
             shortcut = shell.CreateShortCut(shortcut_path)
             shortcut.TargetPath = python_exe
-            shortcut.Arguments = f'"{script_path}" --scan-now'
-            shortcut.WorkingDirectory = os.path.dirname(script_path)
+            shortcut.Arguments = f'{_q(script_path).strip()} --scan-now'.strip()
+            shortcut.WorkingDirectory = os.path.dirname(script_path or python_exe)
             shortcut.IconLocation = python_exe + ",0"
             shortcut.Description = "Run Ransomware Scanner"
             shortcut.Save()
@@ -1592,7 +1730,7 @@ def create_desktop_shortcut() -> bool:
                 "[Desktop Entry]\n"
                 "Type=Application\n"
                 "Name=Ransomware Scanner\n"
-                f'Exec={python_exe} "{script_path}" --scan-now\n'
+                f'Exec="{python_exe}"{_q(script_path)} --scan-now\n'
                 "Terminal=true\n"
                 "Categories=Utility;Security;\n"
             )
@@ -1702,6 +1840,39 @@ def _print_quarantine_list(scanner: "RansomwareScanner") -> None:
             print(f"      reason: {item['reason']}")
 
 
+def _train_ml_cli(benign_dir: str, malicious_dir: str, out_path: str) -> int:
+    """--train-ml: fit the RandomForest on two folders and report honest metrics."""
+    from detectors.ml_classifier import collect_files
+    for d in (benign_dir, malicious_dir):
+        if not Path(d).is_dir():
+            print(f"❌ Not a directory: {d}")
+            return 2
+    if not SKLEARN_AVAILABLE:
+        print("❌ Training needs scikit-learn and joblib:  pip install -r requirements-ml.txt")
+        return 2
+    benign, malicious = collect_files(benign_dir), collect_files(malicious_dir)
+    print(f"Extracting features: {len(benign)} benign, {len(malicious)} malicious file(s)...")
+    clf = MLClassifier()
+    try:
+        metrics = clf.train(benign, malicious)
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 2
+    clf.save(out_path)
+    c = metrics["confusion"]
+    print(f"✅ Model saved to {out_path}")
+    print(f"   Held-out set ({metrics['holdout_size']} files): "
+          f"accuracy {metrics['accuracy']:.1%}, precision {metrics['precision']:.1%}, "
+          f"recall {metrics['recall']:.1%}, false-positive rate "
+          f"{metrics['false_positive_rate']:.1%}  (tn={c['tn']} fp={c['fp']} "
+          f"fn={c['fn']} tp={c['tp']})")
+    top = sorted(clf.model_info["feature_importances"].items(),
+                 key=lambda kv: kv[1], reverse=True)[:5]
+    print("   Most informative features: " + ", ".join(f"{k} ({v:.2f})" for k, v in top))
+    print("   Note: metrics are only as representative as the folders you trained on.")
+    return 0
+
+
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
@@ -1752,6 +1923,11 @@ def main():
                         help="Don't use or update the VirusTotal/LLM result cache this run")
     parser.add_argument("--clear-cache", action="store_true",
                         help="Delete all cached VirusTotal/LLM results, then exit")
+    parser.add_argument("--train-ml", nargs=2, metavar=("BENIGN_DIR", "MALICIOUS_DIR"),
+                        help="Train the ML classifier on two labelled folders and save it "
+                             "to ML_MODEL_PATH (needs requirements-ml.txt)")
+    parser.add_argument("--ml-model-out", metavar="PATH",
+                        help="Where --train-ml saves the model (default: ML_MODEL_PATH)")
 
     args = parser.parse_args()
 
@@ -1760,6 +1936,10 @@ def main():
         CONFIG["llm_provider"] = args.llm_provider
     if args.no_cache:
         CONFIG["cache_enabled"] = False
+
+    if args.train_ml:
+        sys.exit(_train_ml_cli(args.train_ml[0], args.train_ml[1],
+                               args.ml_model_out or CONFIG["ml_model_path"]))
 
     # --fuzzy-hash is a standalone utility: it needs no DB, no API keys, no banner.
     if args.fuzzy_hash:
@@ -1805,6 +1985,12 @@ def main():
         print(f"  Hidden content / injection . {'enabled' if DEFUSEDXML_AVAILABLE else 'PDF only (pip install defusedxml)'}")
         print(f"  Office external links ...... {'enabled' if DEFUSEDXML_AVAILABLE else 'RTF only (pip install defusedxml)'}")
         print("  ZIP archive inspection ..... enabled")
+        print(f"  E-mail (.eml/.msg) ......... {'enabled' if MSG_AVAILABLE else '.eml only (pip install oletools)'}")
+        _ml_model = Path(CONFIG.get("ml_model_path", ""))
+        print("  ML classifier .............. " + (
+            "disabled (ML_ENABLED=0)" if not CONFIG.get("ml_enabled", True) else
+            f"trained model ({_ml_model.name})" if _ml_model.is_file() and SKLEARN_AVAILABLE
+            else "rule engine (no trained model)"))
         print(f"  LLM semantic analysis ...... provider='{CONFIG.get('llm_provider', 'auto')}'")
         print(f"  VirusTotal reputation ...... {'key set' if CONFIG.get('virustotal_api_key') else 'no key (layer skipped)'}")
         print("=" * 56)

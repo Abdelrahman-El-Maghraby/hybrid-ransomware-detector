@@ -48,3 +48,8 @@ cryptography
 
 # Windows-only (optional — only needed for the --create-shortcut .lnk feature)
 # pywin32 ; sys_platform == "win32"
+
+# --- v4.1 ----------------------------------------------------------------------
+# .msg (Outlook) e-mails are read with olefile, which oletools already installs.
+# ML classifier training/model loading:  pip install -r requirements-ml.txt
+# Standalone executables:               pip install -r requirements-build.txt
