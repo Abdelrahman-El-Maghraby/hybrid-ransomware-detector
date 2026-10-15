@@ -32,6 +32,16 @@ oletools            # pure-Python; provides olevba
 # YARA structural pattern matching (IOCs)
 yara-python         # ships prebuilt wheels for x86_64 + arm64 on all major OSes
 
+# --- v4 layers & protection features ------------------------------------------
+# Safe XML parsing for hostile Office files (hidden-content + external-link
+# layers). Pure-Python. Without it those two layers fall back to PDF/RTF only.
+defusedxml
+# AES-256-GCM quarantine vault. Prebuilt wheels for x86_64 + arm64 everywhere.
+# Without it scanning still works; only quarantine is unavailable.
+cryptography
+
+# Tests (optional):  pip install pytest   then   python -m pytest
+
 # Local LLM backend for OPSEC (no extra Python dep — talks to a running Ollama
 # server over HTTP via 'requests', already listed above). Install Ollama itself
 # from https://ollama.com and pull a model, e.g.:  ollama pull llama3.1

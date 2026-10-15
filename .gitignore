@@ -13,6 +13,12 @@ data_file*
 # --- Scanner runtime output ---
 scan_reports/
 *.log
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.quar
+keystore/
+quarantine/
 
 # --- Python ---
 __pycache__/
@@ -22,6 +28,7 @@ __pycache__/
 venv/
 env/
 .ipynb_checkpoints/
+.pytest_cache/
 
 # --- OS / editor ---
 .DS_Store
