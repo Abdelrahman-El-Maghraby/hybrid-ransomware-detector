@@ -1,16 +1,16 @@
 # 🛡️ Hybrid Ransomware Detection System
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.0.0-informational)
+![Version](https://img.shields.io/badge/version-4.1.0-informational)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
 
-A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents and ZIP archives** for ransomware and other malicious indicators. It fuses **ten independent detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
+A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, ZIP archives and e-mails (.eml / Outlook .msg)** for ransomware and other malicious indicators. It fuses **twelve independent detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
 
-Originally built as my B.Sc. graduation project as a three-layer scanner. v3 added structural detection (fuzzy hashing, macros, YARA), a local-first LLM, and the weighted scoring matrix. v4 adds file-integrity and ransomware-impact detection, prompt-injection defence for the LLM layer, Office external-link analysis, safe archive inspection, canaries, and quarantine. It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner. v3 added structural detection (fuzzy hashing, macros, YARA), a local-first LLM, and the weighted scoring matrix. v4 adds file-integrity and ransomware-impact detection, prompt-injection defence for the LLM layer, Office external-link analysis, safe archive inspection, canaries, and quarantine. v4.1 adds e-mail analysis (MailGuard), a static ML classifier, and standalone executables. It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
 ---
 
@@ -72,23 +72,27 @@ Most lightweight scanners rely on a single technique (usually a hash lookup), wh
 
 ```mermaid
 flowchart TD
-    A[PDF / Office / RTF / ZIP] --> B[1. Hashes + local DB<br/>exact known-bad]
+    A[PDF / Office / RTF / ZIP / EML / MSG] --> B[1. Hashes + local DB<br/>exact known-bad]
     A --> C[2. Fuzzy hashing<br/>TLSH / ssdeep families]
     A --> D[3. Macro analysis<br/>VBA, XLM, stomping]
     A --> E[4. YARA rules<br/>structural IOCs]
     A --> F[5. File integrity<br/>disguise / encryption]
     A --> G[6. Hidden content<br/>prompt injection]
     A --> H[7. External links<br/>RTI / Follina / UNC]
-    A --> I[8. Archive inspection<br/>members re-scanned]
+    A --> I[8. Archive inspection<br/>zip bomb / slip / lures]
     A --> J[9. VirusTotal<br/>hash reputation]
     A --> K[10. LLM semantic<br/>local-first, spotlighted]
-    B & C & D & E & F & G & H & I & J & K --> M[Weighted scoring matrix]
+    A --> L[11. MailGuard<br/>SPF / DKIM / DMARC, spoofing]
+    A --> P[12. ML classifier<br/>byte + PE structure]
+    I -. members re-scanned .-> A
+    L -. attachments re-scanned .-> A
+    B & C & D & E & F & G & H & I & J & K & L & P --> M[Weighted scoring matrix]
     M --> N[Risk 0-100 + verdict band<br/>+ explainable JSON / TXT report]
     M --> Q[Optional auto-quarantine<br/>AES-256-GCM vault]
     T[Canary tripwires] --> R[Alert file + desktop notification]
 ```
 
-Signals fall into three weight categories: **technical** (everything structural), **reputation** (VirusTotal), and **semantic** (LLM). Technical evidence is designed to mathematically outweigh semantic evidence.
+Signals fall into four weight categories: **technical** (everything structural, including MailGuard), **reputation** (VirusTotal), **semantic** (LLM and lure wording), and **statistical** (ML classifier). Technical evidence is designed to mathematically outweigh the others: semantic and statistical signals together can never push a file past Medium. Archives and e-mails send every member or attachment back through all layers (dotted arrows), and the container is scored like its most dangerous member.
 
 ---
 
