@@ -525,7 +525,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 336 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 345 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
