@@ -58,8 +58,10 @@ OPTIONAL = ("customtkinter", "oletools", "yara", "tlsh", "ppdeep", "defusedxml",
 def engine_version() -> str:
     """Read ENGINE_VERSION without importing the scanner (import has side effects)."""
     m = re.search(r'^ENGINE_VERSION\s*=\s*"([^"]+)"',
-                  (ROOT / "RansomwareScanner.py").read_text(encoding="utf-8"), re.M)
-    return m.group(1) if m else "0.0.0"
+                  (ROOT / "engine" / "config.py").read_text(encoding="utf-8"), re.M)
+    if not m:
+        sys.exit("Could not read ENGINE_VERSION from engine/config.py")
+    return m.group(1)
 
 
 def platform_tag() -> str:

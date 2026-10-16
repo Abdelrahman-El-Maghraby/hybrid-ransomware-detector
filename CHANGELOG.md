@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Engine refactor, no behaviour change.** The 2,128-line `RansomwareScanner.py`
+  is split into an `engine/` package: configuration, the scanner, the scan
+  pipeline, containers, LLM/VirusTotal lookups, text extraction and reports.
+  `RansomwareScanner.py` stays the CLI entry point and keeps exporting every
+  name the GUI and older callers use.
+- **The scan is now an explicit pipeline.** `scan_file` went from 286 lines to
+  about 20: it runs an ordered list of small layer classes
+  (`engine/layers.py`), each recording its result and its scoring signals.
+  A new layer is one class plus one line in `default_pipeline()`.
+- **One loop for every container.** ZIP and e-mail scanning shared most of
+  their code in two copies; both now use `scan_container()` with a small
+  handler for what differs (`engine/containers.py`). New container types
+  (7z, ISO, nested Outlook items) need only a handler.
+- `build.py` reads the version from `engine/config.py` and fails loudly if
+  it cannot, instead of silently packaging `0.0.0`.
+
+### Verified
+
+- A fixed corpus of 13 files (documents, a disguised executable, an encrypted
+  workbook, a ZIP with zip-slip and double-extension members, `.eml` with a
+  nested ZIP, `.msg`) produces byte-identical JSON results and report text
+  before and after the refactor.
+- All 210 existing tests pass unchanged; 34 new tests cover the pipeline order,
+  adding a layer, adding a container type, and the entry point's exports.
+  244 passed on Python 3.12; 240 on 3.9, 3.11 and 3.13, where the 4
+  scikit-learn tests skip. The Linux binary builds and passes its smoke test.
+
 ## [4.1.0] — 2026-10-15
 
 Three additions that were in the v5 plan but never actually built: e-mail
