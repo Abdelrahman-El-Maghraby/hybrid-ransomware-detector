@@ -28,6 +28,8 @@ FEATURES (all computed from the first 8 MiB, pure standard library)
   null_ratio                share of 0x00 bytes
   printable_ratio           share of printable ASCII bytes
   known_compressed_format   ZIP/OOXML, gzip, 7z, RAR, PNG, JPEG, GIF, MP4 ...
+                            and encrypted vaults whose header AND extension
+                            agree: KeePass .kdbx, OpenPGP .gpg/.pgp, age .age
                             (high entropy is *expected* there)
   ext_risk                  0 none, 1 other, 2 document/container, 3 executable
 
@@ -58,6 +60,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
+from .file_integrity import trusted_vault
 
 logger = logging.getLogger("RansomwareScanner.ml")
 
@@ -240,7 +244,8 @@ def extract_features(file_path: PathLike) -> Dict[str, float]:
         "null_ratio": data.count(0) / n,
         "printable_ratio": sum(1 for b in data if 32 <= b < 127 or b in (9, 10, 13)) / n,
         "known_compressed_format": float(any(data[o:o + len(m)] == m
-                                             for o, m in _COMPRESSED_MAGIC)),
+                                             for o, m in _COMPRESSED_MAGIC)
+                                         or bool(trusted_vault(data[:64], ext))),
         "ext_risk": (3.0 if ext in _EXECUTABLE_EXT else 2.0 if ext in _DOCUMENT_EXT
                      else 1.0 if ext else 0.0),
     })
@@ -260,9 +265,10 @@ def rule_score(f: Dict[str, float]) -> Tuple[float, List[str]]:
     score, why = 0.0, []
     if not f["known_compressed_format"]:
         if f["entropy_full"] > 7.5 and f["high_entropy_window_ratio"] > 0.8:
-            # Random from end to end and not a known compressed container:
-            # encrypted data (ransomware output - or a password vault / GPG
-            # file, which is why this layer's score is capped low).
+            # Random from end to end and not a known compressed or encrypted
+            # container (KeePass, OpenPGP and age headers are recognised
+            # above): encrypted data. Header-less volumes such as VeraCrypt
+            # still match, which is one reason this layer is capped low.
             score += 0.55
             why.append(f"content is statistically random throughout "
                        f"(entropy {f['entropy_full']:.2f}, "

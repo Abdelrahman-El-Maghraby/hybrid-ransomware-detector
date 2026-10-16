@@ -51,7 +51,7 @@ except ImportError:  # pragma: no cover
 
 from dotenv import set_key
 
-APP_VERSION = "4.1"
+APP_VERSION = "4.2"
 SETTINGS_FILE = RS.APP_DIR / "gui_settings.json"
 ENV_FILE = RS.ENV_FILE        # next to the script, or ~/RansomwareScanner in a build
 
@@ -1236,8 +1236,13 @@ class ProtectionPage(BasePage):
                      text="Decoy documents (named !000_…) planted in your monitored folders. "
                           "Nobody should ever open or change them: if one is deleted, "
                           "rewritten, renamed or encrypted, ransomware is most likely running "
-                          f"right now. They are checked every {minutes} minute(s) while this "
-                          "window is open, and by the background scanner (--background).",
+                          "right now. "
+                          + ("They are watched in real time, and also checked every "
+                             f"{minutes} minute(s), " if RS.WATCHDOG_AVAILABLE else
+                             f"They are checked every {minutes} minute(s) (install "
+                             "'watchdog' for real-time watching) ")
+                          + "while this window is open, and by the background scanner "
+                            "(--background).",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
                      justify="left").pack(fill="x", padx=14, pady=(12, 4))
         self.canary_status = ctk.CTkLabel(sec.body, text="", font=app.font_bold, anchor="w",
@@ -1905,6 +1910,9 @@ class App(ctk.CTk):
         self.last_canary_report = None
         self._canary_check_running = False
         self._alerted_signature = None
+        # Real-time tripwire watching (watchdog thread -> bus -> UI thread).
+        self.canary_watcher = RS.CanaryWatcher(self.scanner.canaries,
+                                               lambda: self.bus.put(("canary_event",)))
 
         log_handler = QueueLogHandler(self.log_queue)
         logging.getLogger("RansomwareScanner").addHandler(log_handler)
@@ -2128,11 +2136,14 @@ class App(ctk.CTk):
         elif kind == "canary_report":
             self._canary_check_running = False
             self._on_canary_report(event[1])
+        elif kind == "canary_event":
+            self.check_canaries_now()
 
     # -- canary tripwires ---------------------------------------------------------------------
 
     def check_canaries_now(self):
         """Verify canaries in a worker thread; the result arrives on the bus."""
+        self.canary_watcher.refresh()          # follows canaries deployed / removed
         if self._canary_check_running or not self.scanner.canaries.entries():
             self.refresh_protection_views()
             return
@@ -2227,6 +2238,12 @@ class App(ctk.CTk):
             self.controller.stop()
         self.gui_log.info("GUI closed.")
         self.destroy()
+
+    def destroy(self):
+        watcher = getattr(self, "canary_watcher", None)
+        if watcher is not None:
+            watcher.stop()
+        super().destroy()
 
 
 def main():

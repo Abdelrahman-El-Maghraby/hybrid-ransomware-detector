@@ -59,7 +59,7 @@ from detectors import (  # noqa: F401
     SKLEARN_AVAILABLE, YARA_AVAILABLE, FuzzyHasher, MLClassifier,
 )
 from detectors.relationship_scanner import defang  # noqa: F401
-from core import QuarantineError  # noqa: F401
+from core import WATCHDOG_AVAILABLE, CanaryWatcher, QuarantineError  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +438,18 @@ def _print_quarantine_list(scanner: "RansomwareScanner") -> None:
             print(f"      reason: {item['reason']}")
 
 
+def _ask_passphrase(confirm: bool) -> str:
+    """Passphrase for key backups: HRD_KEY_PASSPHRASE, or asked without echo."""
+    env = os.getenv("HRD_KEY_PASSPHRASE")
+    if env:
+        return env
+    import getpass
+    phrase = getpass.getpass("Key backup passphrase: ")
+    if confirm and getpass.getpass("Repeat passphrase: ") != phrase:
+        raise QuarantineError("The passphrases did not match.")
+    return phrase
+
+
 def _train_ml_cli(benign_dir: str, malicious_dir: str, out_path: str) -> int:
     """--train-ml: fit the RandomForest on two folders and report honest metrics."""
     from detectors.ml_classifier import collect_files
@@ -517,6 +529,14 @@ def main():
                         help="Restore a quarantined item (full id or unique prefix)")
     parser.add_argument("--restore-to", metavar="PATH",
                         help="Destination for --restore (default: original location)")
+    parser.add_argument("--export-key", metavar="PATH",
+                        help="Back up the quarantine key to PATH, encrypted with a passphrase "
+                             "(asked for, or HRD_KEY_PASSPHRASE)")
+    parser.add_argument("--import-key", metavar="PATH",
+                        help="Install a quarantine key backup (e.g. on a new machine)")
+    parser.add_argument("--replace-key", action="store_true",
+                        help="With --import-key: replace a DIFFERENT existing key "
+                             "(the old one is kept as quarantine.key.bak-<time>)")
     parser.add_argument("--no-cache", action="store_true",
                         help="Don't use or update the VirusTotal/LLM result cache this run")
     parser.add_argument("--clear-cache", action="store_true",
@@ -559,7 +579,8 @@ def main():
                     or args.create_shortcut or args.import_database
                     or args.deploy_canaries is not None or args.verify_canaries
                     or args.remove_canaries or args.quarantine or args.list_quarantine
-                    or args.restore or args.clear_cache)
+                    or args.restore or args.clear_cache or args.export_key
+                    or args.import_key)
 
     # Display a welcome banner for interactive use
     if not utility_mode:
@@ -657,6 +678,25 @@ def main():
         print(f"✅ Removed {scanner.remove_canaries()} canary file(s).")
         return
 
+    if args.export_key or args.import_key:
+        try:
+            vault = scanner.quarantine_vault
+            if args.export_key:
+                phrase = _ask_passphrase(confirm=True)
+                dest = vault.export_key(args.export_key, phrase)
+                print(f"✅ Quarantine key backed up to {dest}")
+                print(f"   fingerprint {vault.key_fingerprint()} - keep the file and the "
+                      "passphrase in separate places.")
+            if args.import_key:
+                status = vault.import_key(args.import_key, _ask_passphrase(confirm=False),
+                                          replace=args.replace_key)
+                print(f"✅ Quarantine key {status.replace('-', ' ')} "
+                      f"(fingerprint {vault.key_fingerprint()}).")
+        except (QuarantineError, OSError) as e:
+            print(f"❌ {e}")
+            sys.exit(1)
+        return
+
     if args.quarantine or args.list_quarantine or args.restore:
         try:
             if args.quarantine:
@@ -707,9 +747,17 @@ def main():
         # Always scheduled: with no canaries deployed the check is a no-op, and
         # canaries deployed later (from the GUI or CLI) are picked up live.
         minutes = max(1, int(CONFIG.get("canary_check_minutes", 5)))
+        watcher = CanaryWatcher(scanner.canaries, scanner.check_canaries)
         if scanner.canaries.entries():
-            logger.info(f"Canary tripwires armed: checking every {minutes} minute(s).")
+            realtime = watcher.start()
+            logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
+                        "watched in real time" if realtime else
+                        ("no real-time watching (pip install watchdog)"
+                         if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
+                        minutes)
         schedule.every(minutes).minutes.do(scanner.check_canaries)
+        # Canaries deployed or removed later (GUI or CLI) are picked up here.
+        schedule.every(minutes).minutes.do(watcher.refresh)
 
         if not args.scan_now:
             scanner.run_scan()
@@ -720,6 +768,8 @@ def main():
                 time.sleep(30)
         except KeyboardInterrupt:
             logger.info("Scanner stopped by user.")
+        finally:
+            watcher.stop()
 
 
 if __name__ == "__main__":

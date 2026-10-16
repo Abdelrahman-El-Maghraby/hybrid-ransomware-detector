@@ -58,6 +58,9 @@ hiddenimports = [
     "tlsh", "ppdeep", "yara", "oletools.olevba", "olefile", "defusedxml",
     "cryptography.hazmat.primitives.ciphers.aead",
     "PyPDF2", "docx", "pytesseract", "pdf2image", "PIL",
+    # v4.2
+    "pyzipper", "py7zr", "pycdlib", "watchdog.observers", "watchdog.events",
+    "cryptography.hazmat.primitives.kdf.scrypt",
 ]
 excludes = ["pytest", "tests", "IPython", "matplotlib", "pandas", "notebook", "jupyter"]
 if WITH_ML:

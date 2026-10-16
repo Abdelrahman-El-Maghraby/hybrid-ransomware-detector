@@ -30,9 +30,11 @@ def _utf16(text: str) -> bytes:
     return text.encode("utf-16-le") + b"\x00\x00"
 
 
-def build_msg(path: Path, subject: str = "", sender_name: str = "", sender_email: str = "",
-              transport_headers: str = "", body: str = "", html: Optional[str] = None,
-              attachments: Tuple[Tuple[str, bytes], ...] = ()) -> Path:
+def msg_tree(subject: str = "", sender_name: str = "", sender_email: str = "",
+             transport_headers: str = "", body: str = "", html: Optional[str] = None,
+             attachments: Tuple[Tuple[str, Union[bytes, Tree]], ...] = ()) -> Tree:
+    """The MAPI property streams of one message. An attachment whose data is a
+    dict (another msg_tree) is an embedded Outlook item (PR_ATTACH_DATA_OBJ)."""
     root: Tree = {}
     if subject:
         root["__substg1.0_0037001F"] = _utf16(subject)
@@ -47,11 +49,19 @@ def build_msg(path: Path, subject: str = "", sender_name: str = "", sender_email
     if html is not None:
         root["__substg1.0_10130102"] = html.encode("utf-8")
     for i, (name, data) in enumerate(attachments):
-        root[f"__attach_version1.0_#{i:08X}"] = {
-            "__substg1.0_3707001F": _utf16(name),
-            "__substg1.0_37010102": data,
-        }
-    path.write_bytes(write_cfb(root))
+        storage: Tree = {"__substg1.0_3001001F": _utf16(name)}       # PR_DISPLAY_NAME
+        if isinstance(data, dict):
+            storage["__substg1.0_3701000D"] = data                   # embedded message
+        else:
+            storage["__substg1.0_3707001F"] = _utf16(name)
+            storage["__substg1.0_37010102"] = data
+        root[f"__attach_version1.0_#{i:08X}"] = storage
+    return root
+
+
+def build_msg(path: Path, attachments: Tuple[Tuple[str, Union[bytes, Tree]], ...] = (),
+              **props) -> Path:
+    path.write_bytes(write_cfb(msg_tree(attachments=attachments, **props)))
     return path
 
 

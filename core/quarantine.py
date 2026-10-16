@@ -70,6 +70,7 @@ try:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
     QUARANTINE_AVAILABLE = True
 except Exception:  # pragma: no cover - absence is a valid runtime state
     InvalidTag = ValueError  # type: ignore[misc,assignment]
@@ -79,6 +80,12 @@ PathLike = Union[str, Path]
 
 MAGIC = b"HRDQV1\x00\x00"
 KEY_FILE_NAME = "quarantine.key"
+# Passphrase-protected key backup (--export-key / --import-key):
+#   KEY_MAGIC(8) | salt(16) | scrypt n, r, p (3 x uint32 BE) | nonce(12) | AES-GCM(key) + tag
+# The whole header is authenticated as AAD, so a tampered parameter is rejected.
+KEY_MAGIC = b"HRDQK1\x00\x00"
+_SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 15, 8, 1
+MIN_PASSPHRASE = 10
 DEFAULT_CHUNK_SIZE = 64 * 1024
 _HKDF_INFO = b"hybrid-ransomware-detector/quarantine/v1"
 _HEADER = struct.Struct(">II")      # chunk_size, meta_len
@@ -165,6 +172,90 @@ class QuarantineVault:
             pass
         logger.info("Created quarantine master key at %s", key_path)
         return key
+
+    # ------------------------------------------------------- key backup
+    def key_fingerprint(self) -> str:
+        """Short, non-secret identifier of the master key (compare across machines)."""
+        return hashlib.sha256(b"hrd-key-fingerprint" + self._master_key).hexdigest()[:16]
+
+    @staticmethod
+    def _key_cipher(passphrase: str, salt: bytes, n: int, r: int, p: int) -> "AESGCM":
+        kdf = Scrypt(salt=salt, length=32, n=n, r=r, p=p)
+        return AESGCM(kdf.derive(passphrase.encode("utf-8")))
+
+    def export_key(self, destination: PathLike, passphrase: str) -> Path:
+        """Write the master key, encrypted with `passphrase`, to a new file.
+
+        Creates the key if this vault has never been used, so a backup can be
+        taken up front. Never overwrites an existing file.
+        """
+        if len(passphrase or "") < MIN_PASSPHRASE:
+            raise QuarantineError(f"Use a passphrase of at least {MIN_PASSPHRASE} characters.")
+        dest = Path(destination)
+        salt, nonce = os.urandom(16), os.urandom(12)
+        header = KEY_MAGIC + salt + struct.pack(">III", _SCRYPT_N, _SCRYPT_R, _SCRYPT_P)
+        blob = header + nonce + self._key_cipher(passphrase, salt, _SCRYPT_N, _SCRYPT_R,
+                                                 _SCRYPT_P).encrypt(nonce, self._master_key,
+                                                                    header)
+        try:
+            fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise QuarantineError(f"{dest} already exists; choose another file name.") from None
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(blob)
+        logger.info("Exported quarantine key (fingerprint %s) to %s", self.key_fingerprint(), dest)
+        return dest
+
+    @staticmethod
+    def read_key_backup(source: PathLike, passphrase: str) -> bytes:
+        """Decrypt a key backup; raises QuarantineError on a wrong passphrase or tampering."""
+        data = Path(source).read_bytes()
+        head_len = len(KEY_MAGIC) + 16 + 12
+        if not data.startswith(KEY_MAGIC) or len(data) != head_len + 12 + 32 + 16:
+            raise QuarantineError("Not a quarantine key backup file.")
+        header, nonce, sealed = data[:head_len], data[head_len:head_len + 12], data[head_len + 12:]
+        salt = header[len(KEY_MAGIC):len(KEY_MAGIC) + 16]
+        n, r, p = struct.unpack(">III", header[len(KEY_MAGIC) + 16:])
+        if not (2 ** 14 <= n <= 2 ** 20 and n & (n - 1) == 0 and 1 <= r <= 32 and 1 <= p <= 16):
+            raise QuarantineError("Key backup has unsupported scrypt parameters.")
+        try:
+            return QuarantineVault._key_cipher(passphrase, salt, n, r, p).decrypt(nonce, sealed, header)
+        except InvalidTag:
+            raise QuarantineError("Wrong passphrase, or the key backup was modified.") from None
+
+    def import_key(self, source: PathLike, passphrase: str, replace: bool = False) -> str:
+        """Install a key from a backup. Returns 'installed' | 'already-present' | 'replaced'.
+
+        A DIFFERENT existing key is never overwritten silently: items encrypted
+        with it would become unreadable. With replace=True it is first copied to
+        quarantine.key.bak-<timestamp> next to it.
+        """
+        key = self.read_key_backup(source, passphrase)
+        self.keystore_dir.mkdir(parents=True, exist_ok=True)
+        key_path = self.keystore_dir / KEY_FILE_NAME
+        status = "installed"
+        if key_path.exists():
+            current = key_path.read_bytes()
+            if current == key:
+                self._key = key
+                return "already-present"
+            if not replace:
+                raise QuarantineError(
+                    "A different quarantine key is already installed. Items it encrypted "
+                    "would become unreadable if it were replaced; back it up first, then "
+                    "import with --replace-key.")
+            backup = key_path.with_name(f"{KEY_FILE_NAME}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+            fd = os.open(str(backup), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(current)
+            key_path.unlink()
+            status = "replaced"
+        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(key)
+        self._key = key
+        logger.info("Imported quarantine key (fingerprint %s): %s", self.key_fingerprint(), status)
+        return status
 
     def _file_cipher(self, salt: bytes) -> "AESGCM":
         hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=_HKDF_INFO)

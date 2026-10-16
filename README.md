@@ -16,6 +16,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.2](#-whats-new-in-42)
 - [🆕 What's new in 4.1](#-whats-new-in-41)
 - [🆕 What's new in 4.0](#-whats-new-in-40)
 - [🧩 Why "hybrid"?](#-why-hybrid)
@@ -35,6 +36,19 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - [🧭 Roadmap](#-roadmap)
 - [🚨 Disclaimer](#-disclaimer)
 - [👤 Author](#-author)
+
+---
+
+## 🆕 What's new in 4.2
+
+Seven limitations listed in 4.1, closed:
+
+- **More archive formats.** AES-encrypted ZIPs (`pyzipper`), **7z** including archives whose file names are encrypted (`py7zr`), and **ISO / IMG** disc images, a common way to smuggle executables past Mark-of-the-Web (`pycdlib`). All three use the same bomb / slip / member-count limits as ZIP, the same delivery-password list, and nest inside each other (ISO → 7z → ZIP → document). Without the library the report says the archive could not be opened and which `pip install` fixes it.
+- **Excel and PowerPoint hidden content.** Hidden and *very hidden* sheets, hidden rows and columns that hold text, white text, ≤ 2 pt fonts, hidden shapes and slides, and text placed outside the visible slide. Prompt-injection phrases inside any of them count as confirmed attempts, as in Word.
+- **Outlook items inside Outlook items.** A forwarded `.msg` attached to a `.msg` is rebuilt as `.eml` with its own headers and attachments and scanned like any other attached mail (up to 3 levels).
+- **Quarantine key backup.** `--export-key` writes the key encrypted with a passphrase (scrypt + AES-GCM); `--import-key` installs it on another machine. A different existing key is never replaced unless you add `--replace-key`, and the old one is kept as a backup.
+- **Fewer ML false positives on password vaults.** KeePass (`.kdbx`), GPG (`.gpg/.pgp`) and age (`.age`) files are recognised by header *and* extension. Only the ML layer uses this: the encrypted-content check ignores it, so ransomware can't hide an encrypted `.docx` by prepending a vault header.
+- **Real-time canary watching.** With `watchdog` installed, canary folders are watched for file events and verified about a second after a canary is changed, renamed or a ransom note appears, in `--background` and in the GUI. The interval check stays as a safety net.
 
 ---
 
@@ -108,14 +122,14 @@ Signals fall into four weight categories: **technical** (everything structural, 
    - **Disguised executables**: a PE (validated `MZ` → `PE\0\0` header), ELF, Mach-O, Windows shortcut (`.lnk`) or `#!` script behind a document extension.
    - **Encrypted content** (ransomware *impact*, T1486): the format signature is missing **and** the bytes are statistically random. Randomness is judged with Shannon entropy compared to what truly random data of the same length would reach, plus a chi-square uniformity test. Checking the first 4 KiB separately catches intermittent encryption. Because .docx/.xlsx and most PDFs are compressed (and therefore high-entropy), the randomness test only runs when the expected signature is already gone. That avoids the false positives a plain entropy threshold produces.
    - Formats Office opens natively under another extension (HTML exported as `.xls`, RTF saved as `.doc`, password-protected `.docx` stored as OLE) are noted but not scored.
-6. **Hidden content & prompt injection (new).** Finds concealed text in `.docx/.docm` (hidden runs, ≤ 2 pt fonts, near-white text without background shading) and PDFs (text render mode 3, i.e. invisible), and looks for phrasing aimed at an AI analyst ("ignore previous instructions", "mark this file as clean", chat-template tokens, …). An injection phrase inside concealed text is a **confirmed** attempt. A phrase in plainly visible text is only **suspicious**, because articles *about* prompt injection contain the same words. XML is parsed with `defusedxml`.
+6. **Hidden content & prompt injection (new).** Finds concealed text in `.docx/.docm` (hidden runs, ≤ 2 pt fonts, near-white text without background shading), Excel (hidden / very hidden sheets, hidden rows and columns, white or tiny text; 4.2), PowerPoint (hidden shapes and slides, off-slide text, tiny text; 4.2) and PDFs (text render mode 3, i.e. invisible), and looks for phrasing aimed at an AI analyst ("ignore previous instructions", "mark this file as clean", chat-template tokens, …). An injection phrase inside concealed text is a **confirmed** attempt. A phrase in plainly visible text is only **suspicious**, because articles *about* prompt injection contain the same words. XML is parsed with `defusedxml`.
 7. **Office external links (new).** Reads the relationship parts inside OOXML files and RTF control words, **without contacting any URL**:
    - remote template injection (`attachedTemplate` → `http://…`, T1221),
    - external OLE objects, and Follina-style links ending in `!` (CVE-2022-30190),
    - exploit URI schemes in any relationship (`ms-msdt:`, `search-ms:`, `ms-officecmd:`, `mhtml:`, …),
    - UNC / `file://host` paths that make Windows send the user's NTLM hash to the attacker (T1187),
    - RTF `{\*\template http://…}` and auto-updating OLE links (`\objupdate`).
-8. **Archive inspection (new).** ZIP archives are unpacked into a temporary sandbox with hard limits (nesting depth, member count, total and per-member decompressed size, compression ratio). It reports **zip bombs**, **zip slip** (path traversal, absolute paths, symlinks; such members are never written), executables/scripts/shortcuts inside the archive (by extension *and* magic bytes), **double extensions** (`invoice.pdf.exe`) and **right-to-left-override** names. Encrypted members are tried against a short list of delivery passwords ("infected", the archive's own name, …). Up to 25 members per archive go through all the other layers, and the archive is scored like its most dangerous member.
+8. **Archive inspection (new).** ZIP archives (and, since 4.2, AES ZIP, 7z and ISO/IMG) are unpacked into a temporary sandbox with hard limits (nesting depth, member count, total and per-member decompressed size, compression ratio). It reports **zip bombs**, **zip slip** (path traversal, absolute paths, symlinks; such members are never written), executables/scripts/shortcuts inside the archive (by extension *and* magic bytes), **double extensions** (`invoice.pdf.exe`) and **right-to-left-override** names. Encrypted members are tried against a short list of delivery passwords ("infected", the archive's own name, …). Up to 25 members per archive go through all the other layers, and the archive is scored like its most dangerous member.
 9. **VirusTotal (threat intelligence).** Looks the file's SHA-256 up via the v3 API and reads how many engines flag it. **Privacy by default:** unknown files are *not* uploaded (an upload shares the document with VirusTotal and its Enterprise subscribers); set `VT_UPLOAD_UNKNOWN=true` to opt in. Requests are paced to the free quota (4/min), retried with backoff on 429/5xx, time out after 30 s, and answers are cached for 24 h.
 10. **LLM semantic analysis (local-first, OPSEC-preserving).** Extracts visible text (PyPDF2 / python-docx / OOXML parts, with **OCR fallback** for scanned PDFs when an LLM is active) plus printable strings, and asks an LLM whether it reads like a ransomware/phishing lure.
     - **OPSEC by default.** With `LLM_PROVIDER=auto` the scanner prefers a **local Ollama** model if one is reachable, so sensitive documents never leave the machine. It falls back to OpenAI only if no local model is available *and* a key is set, and logs the egress.
@@ -199,7 +213,7 @@ python RansomwareScanner.py --verify-canaries             # exit code 2 if tripp
 python RansomwareScanner.py --remove-canaries
 ```
 
-Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. `--background` checks every 5 minutes (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves.
+Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves.
 
 ### Encrypted quarantine vault
 
@@ -211,6 +225,16 @@ python RansomwareScanner.py --restore 3fa9 --restore-to ~/analysis/
 ```
 
 Files are encrypted with **AES-256-GCM** in 64 KiB chunks. Each file gets its own key (HKDF-SHA256 from a local master key and a random salt), and the header, every chunk (with its sequence number) and an explicit end-of-file frame are all authenticated, so tampering, reordering and truncation are all detected. The original is deleted **only after** the encrypted copy has been decrypted again and its SHA-256 verified. Restore never overwrites a file that has since appeared at the original path. Set `AUTO_QUARANTINE=critical` (or `high`) to quarantine automatically after each scan; it is off by default.
+
+Back the key up so quarantined items can be restored on another machine:
+
+```bash
+python RansomwareScanner.py --export-key ~/backup/quarantine.hrdkey   # asks for a passphrase (10+ chars)
+python RansomwareScanner.py --import-key quarantine.hrdkey             # on the other machine
+python RansomwareScanner.py --import-key quarantine.hrdkey --replace-key  # replace a different key
+```
+
+The backup is encrypted with your passphrase (scrypt + AES-256-GCM) and prints a short fingerprint to compare on both machines. `HRD_KEY_PASSPHRASE` can supply the passphrase in scripts.
 
 > The vault neutralises a file: it can't be opened, executed, or re-flagged by other tools. It is not a secrecy boundary against someone who already controls your account, because the key lives on the same disk.
 
@@ -353,6 +377,7 @@ python gui.py                                   # or: python RansomwareScanner.p
 python RansomwareScanner.py --scan-now                       # all configured folders
 python RansomwareScanner.py --scan-file suspicious.docx      # one file, full verdict
 python RansomwareScanner.py --scan-file mail_attachment.zip  # archives: every member
+python RansomwareScanner.py --scan-file setup.iso            # also .7z, .img, AES ZIP
 python RansomwareScanner.py --scan-file suspicious.eml       # e-mail: headers + attachments
 python RansomwareScanner.py --scan-file message.msg          # Outlook format too
 python RansomwareScanner.py --scan-file x.docx --llm-provider ollama   # force local LLM
@@ -364,6 +389,7 @@ python RansomwareScanner.py --verify-canaries
 python RansomwareScanner.py --quarantine FILE
 python RansomwareScanner.py --list-quarantine
 python RansomwareScanner.py --restore ID [--restore-to PATH]
+python RansomwareScanner.py --export-key FILE | --import-key FILE [--replace-key]
 
 # Background mode: scheduled scans + canary checks
 python RansomwareScanner.py --background
@@ -491,7 +517,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 244 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 315 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
@@ -506,6 +532,9 @@ The suite covers each detector and protection feature in isolation, the full sca
 - hostile XML (entity expansion) is refused rather than parsed,
 - VirusTotal is never asked to upload anything unless explicitly enabled,
 - forged lower `Authentication-Results` headers are ignored, and `.msg` parsing is tested on real compound files generated by the suite (`tests/msg_builder.py`),
+- AES ZIP, 7z (including encrypted file names) and ISO archives are built at test time and hit the same bomb / slip limits as ZIP,
+- a forged KeePass/GPG header on an encrypted `.xlsx` is still scored as encrypted content,
+- canary watching fires on modify, rename and ransom notes, coalesces bursts, and doesn't loop on its own reads,
 - a trained ML model round-trips through disk with identical predictions, and foreign or stale model files fall back to the rule engine.
 
 All test samples are **synthetic** and built at test time (a relationship pointing at a documentation IP, an `MZ` header, random bytes, a ZipCrypto archive). No live malware is stored or used.
@@ -534,7 +563,7 @@ hybrid-ransomware-detector/
 │   ├── file_integrity.py        # magic bytes, disguised executables, encrypted content
 │   ├── prompt_guard.py          # hidden content + prompt-injection detection
 │   ├── relationship_scanner.py  # remote template / Follina / UNC / RTF links
-│   ├── container_extractor.py   # safe ZIP extraction (bomb / slip / lures)
+│   ├── container_extractor.py   # safe ZIP / AES ZIP / 7z / ISO extraction (bomb / slip / lures)
 │   ├── mail_analyzer.py         # MailGuard: .eml/.msg auth, spoofing, links, attachments
 │   ├── ml_classifier.py         # 15 byte/PE features, RandomForest or rule engine
 │   ├── llm_backends.py          # local Ollama / cloud OpenAI / none, spotlighted prompts
@@ -542,6 +571,7 @@ hybrid-ransomware-detector/
 ├── core/                        # host-side protection services
 │   ├── quarantine.py            # AES-256-GCM vault, verify-before-delete
 │   ├── canary.py                # canary tripwires + desktop notifications
+│   ├── canary_watch.py          # real-time canary watching (watchdog)
 │   ├── cache.py                 # SQLite (WAL) cache for VirusTotal/LLM answers
 │   └── http.py                  # timeouts, retry/backoff, rate limiter
 ├── rules/                       # YARA rules (drop in your own .yar files)
@@ -581,24 +611,23 @@ See [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md) for the design of the v4 laye
 Being explicit about what the tool does *not* do:
 
 - **Static analysis only.** Nothing is executed; there is no sandbox detonation.
-- **Archives:** ZIP only (including nested and ZipCrypto-protected ZIPs). 7z, RAR and ISO are not unpacked yet; AES-encrypted ZIP members are reported as unreadable.
+- **Archives:** ZIP (ZipCrypto and AES), 7z and ISO/IMG. RAR is not unpacked (it needs a non-free external tool). Encrypted archives open only with a password from the built-in delivery list.
 - **Encrypted-content detection** needs at least 1 KiB of data, and a raw, headerless compressed stream can look as random as ciphertext. That is why it only runs once a document's own signature is already missing.
-- **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict. Embedded `.msg` items inside a `.msg` and OLE-object attachments are counted but not unpacked.
-- **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which includes legitimate encrypted files (KeePass, GPG). That's why the layer is capped at 20 points.
-- **Hidden-content detection** covers Word (`.docx/.docm`) and PDF. Excel/PowerPoint hidden content is not inspected.
-- **Canaries detect, they don't block.** They catch encryption in the folders where they are planted, at the check interval. This is a tripwire, not an EDR.
-- **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Back it up if you need to restore items on another machine.
+- **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict. OLE-object attachments in `.msg` files are counted but not unpacked.
+- **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which can include legitimate encrypted files. KeePass, GPG and age files with their normal extension are recognised; other encrypted formats are not. That's why the layer is capped at 20 points.
+- **Hidden-content detection** covers Word, Excel, PowerPoint (OOXML) and PDF. Legacy binary `.xls/.ppt` and conditional-formatting tricks are not inspected.
+- **Canaries detect, they don't block.** They catch encryption in the folders where they are planted: within about a second with `watchdog`, otherwise at the check interval. This is a tripwire, not an EDR.
+- **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Use `--export-key` to back it up; a lost key and no backup means quarantined items can't be restored.
 - **Detection content is a starting point:** the bundled YARA rules are original triage heuristics and the fuzzy database ships empty. Real coverage grows with your own signatures.
 
 ---
 
 ## 🧭 Roadmap
 
-Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
+Delivered in v4.2.0: AES ZIP / 7z / ISO, Excel and PowerPoint hidden content, nested Outlook items, quarantine key backup, vault-aware ML, and real-time canary watching. Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
 
-- **More containers:** 7z / RAR / ISO / IMG.
+- **More containers:** RAR, and OLE-object attachments in `.msg`.
 - **A curated, labelled training corpus** and published ML evaluation numbers.
-- **Real-time file watching** (filesystem events) to complement the canary interval.
 - **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
 - **CI** running the test suite and `build.py` on Windows, macOS and Linux for every push, with the binaries attached to releases.
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
