@@ -111,7 +111,7 @@ def scan_container(scanner: "RansomwareScanner", handler: ContainerHandler,
 
 
 class ArchiveHandler(ContainerHandler):
-    """ZIP / 7z / ISO archives (nested archives are expanded by the extractor itself)."""
+    """ZIP / 7z / RAR / ISO archives (nested archives are expanded by the extractor itself)."""
 
     result_key = signal_key = "archive"
     members_key = "member_results"

@@ -58,6 +58,7 @@ import logging
 import quopri
 import re
 import shutil
+import struct
 import tempfile
 from dataclasses import dataclass, field
 from email.message import Message
@@ -65,6 +66,7 @@ from email.utils import getaddresses, parseaddr
 from pathlib import Path, PurePosixPath
 from typing import Dict, Iterator, List, Optional, Tuple, Union
 
+from .cfb_writer import MAX_TREE_BYTES, write_cfb
 from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, visible_name
 
 logger = logging.getLogger("RansomwareScanner.mail")
@@ -117,6 +119,17 @@ _P_ATTACH_NAME = "3704"
 _P_ATTACH_MIME = "370E"
 _P_DISPLAY_NAME = "3001"
 _EMBEDDED_MSG = "__substg1.0_3701000D"   # PR_ATTACH_DATA_OBJ: an Outlook item inside
+_PR_ATTACH_METHOD = 0x37050003           # PT_LONG in the attachment's property stream
+_ATTACH_OLE = 6                          # (5 = ATTACH_EMBEDDED_MSG)
+# An OLE object's storage, by the stream that identifies what it holds.
+_OLE_DOCUMENT_STREAMS = (("WordDocument", ".doc"), ("Workbook", ".xls"), ("Book", ".xls"),
+                         ("PowerPoint Document", ".ppt"))
+_PROGID_EXTENSIONS = {
+    "word.document.12": ".docx", "word.documentmacroenabled.12": ".docm",
+    "excel.sheet.12": ".xlsx", "excel.sheetmacroenabled.12": ".xlsm",
+    "excel.sheetbinarymacroenabled.12": ".xlsb",
+    "powerpoint.show.12": ".pptx", "powerpoint.showmacroenabled.12": ".pptm",
+}
 _MAX_EMBEDDED_DEPTH = 3
 
 
@@ -362,15 +375,26 @@ class MailAnalyzer:
                 mime = prop(_P_ATTACH_MIME, storage) or ""
                 if data is None:
                     embedded = f"{storage}/{_EMBEDDED_MSG}"
-                    if ole.exists(embedded):
+                    if not ole.exists(embedded):
+                        res.attachments_skipped += 1      # by reference / unknown method
+                    elif _is_ole_object(ole, storage, embedded):
+                        # A file or document embedded as an OLE object (Packager
+                        # "invoice.pdf" icons hiding an .exe are the classic case).
+                        title = (prop(_P_ATTACH_LONG_NAME, storage)
+                                 or prop(_P_ATTACH_NAME, storage)
+                                 or prop(_P_DISPLAY_NAME, storage) or "embedded-object")
+                        payload = _ole_object_payload(ole, embedded, title)
+                        if payload is None:
+                            res.attachments_skipped += 1
+                        else:
+                            self._add_attachment(payload[1], payload[0], "", sandbox, res)
+                    else:
                         # An Outlook item attached to an Outlook item: rebuilt as
                         # .eml so it is scanned like any attached e-mail.
                         eml = _embedded_msg_to_eml(ole, embedded, 1)
                         title = (prop(_P_DISPLAY_NAME, storage)
                                  or _msg_string(ole, _P_SUBJECT, embedded) or "attached-message")
                         self._add_attachment(eml, _eml_name(title), "message/rfc822", sandbox, res)
-                    else:
-                        res.attachments_skipped += 1      # OLE object: noted, not unpacked
                     continue
                 self._add_attachment(data, name, mime, sandbox, res)
 
@@ -591,6 +615,136 @@ def _attachment_storages(ole, base: str) -> List[str]:
     return sorted(found)
 
 
+def _stream_names(ole, storage: str) -> List[List[str]]:
+    """Every stream path below `storage`, relative to it."""
+    prefix = storage.split("/")
+    return [entry[len(prefix):] for entry in ole.listdir(streams=True, storages=False)
+            if len(entry) > len(prefix) and entry[:len(prefix)] == prefix]
+
+
+def _attach_method(ole, storage: str) -> Optional[int]:
+    """PR_ATTACH_METHOD from the attachment's fixed-size property stream."""
+    path = storage.split("/") + ["__properties_version1.0"]
+    if not ole.exists("/".join(path)):
+        return None
+    raw = ole.openstream(path).read()
+    for off in range(8, len(raw) - 15, 16):          # 8-byte header, 16-byte entries
+        if struct.unpack_from("<I", raw, off)[0] == _PR_ATTACH_METHOD:
+            return struct.unpack_from("<I", raw, off + 8)[0]
+    return None
+
+
+def _is_ole_object(ole, storage: str, obj: str) -> bool:
+    """True for an embedded OLE object, False for an embedded Outlook item (both
+    live in the same PR_ATTACH_DATA_OBJ storage)."""
+    method = _attach_method(ole, storage)
+    if method is not None:
+        return method == _ATTACH_OLE
+    # No method recorded: a message has MAPI property streams, an object doesn't.
+    return not any(len(n) == 1 and (n[0].startswith("__substg1.0_")
+                                    or n[0] == "__properties_version1.0")
+                   for n in _stream_names(ole, obj))
+
+
+def parse_ole10native(raw: bytes) -> Optional[Tuple[str, str, bytes]]:
+    """Decode a Packager "\\x01Ole10Native" stream: (label, real file name, data).
+
+    The label is what the document shows under the icon; the file name (from
+    the temp / source path) is what actually runs when it is double-clicked.
+    """
+    def cstr(pos: int) -> Tuple[str, int]:
+        end = raw.index(b"\x00", pos)
+        return raw[pos:end].decode("latin-1"), end + 1
+    try:
+        pos = 4 + 2                                    # total size, type (2)
+        label, pos = cstr(pos)
+        src_path, pos = cstr(pos)
+        pos += 4                                       # flags (0x0000, 0x0003)
+        temp_len = struct.unpack_from("<I", raw, pos)[0]
+        pos += 4
+        temp_path = raw[pos:pos + temp_len].split(b"\x00")[0].decode("latin-1")
+        pos += temp_len
+        size = struct.unpack_from("<I", raw, pos)[0]
+        pos += 4
+    except (ValueError, struct.error):
+        return None
+    data = raw[pos:pos + size]
+    if len(data) != size:
+        return None
+    real = next((p.replace("\\", "/").rsplit("/", 1)[-1] for p in (temp_path, src_path, label)
+                 if p.replace("\\", "/").rsplit("/", 1)[-1]), "")
+    return label, real or "packaged-object.bin", data
+
+
+def _compobj_progid(raw: Optional[bytes]) -> str:
+    """The ProgID recorded in a "\\x01CompObj" stream ('' if unreadable)."""
+    if not raw:
+        return ""
+    try:
+        pos = 28                                       # CompObjHeader
+        n = struct.unpack_from("<I", raw, pos)[0]      # AnsiUserType
+        pos += 4 + n
+        marker = struct.unpack_from("<I", raw, pos)[0] # AnsiClipboardFormat
+        pos += 4
+        if marker in (0xFFFFFFFF, 0xFFFFFFFE):
+            pos += 4
+        elif marker:
+            pos += marker
+        n = struct.unpack_from("<I", raw, pos)[0]      # ProgID
+        if not 0 < n < 256:
+            return ""
+        return raw[pos + 4:pos + 4 + n].split(b"\x00")[0].decode("latin-1")
+    except struct.error:
+        return ""
+
+
+def _ole_object_payload(ole, obj: str, title: str) -> Optional[Tuple[str, bytes]]:
+    """The file inside an OLE object attachment as (file name, bytes), or None."""
+    parts = obj.split("/")
+
+    def stream(name: str) -> Optional[bytes]:
+        path = parts + [name]
+        return ole.openstream(path).read() if ole.exists("/".join(path)) else None
+
+    stem = PurePosixPath(title.replace("\\", "/")).stem or "embedded-object"
+    native = stream("\x01Ole10Native")
+    if native is not None:
+        decoded = parse_ole10native(native)
+        if decoded is not None:
+            _label, real, data = decoded
+            return real, data
+    progid = _compobj_progid(stream("\x01CompObj")).lower()
+    package = stream("Package")                        # an embedded OOXML file
+    if package is not None:
+        ext = _PROGID_EXTENSIONS.get(progid) or (".zip" if package[:2] == b"PK" else ".bin")
+        return stem + ext, package
+    contents = stream("CONTENTS")                      # e.g. an embedded PDF
+    if contents is not None:
+        return stem + (".pdf" if contents.lstrip()[:5] == b"%PDF-" else ".bin"), contents
+    names = _stream_names(ole, obj)
+    top = {n[0] for n in names if len(n) == 1}
+    for marker, ext in _OLE_DOCUMENT_STREAMS:
+        if marker in top:
+            # A legacy Office document is itself a storage: repack it as a
+            # standalone compound file so the macro and YARA layers can read it.
+            tree: Dict = {}
+            total = 0
+            for rel in names:
+                data = ole.openstream(parts + rel).read()
+                total += len(data)
+                if total > MAX_TREE_BYTES:
+                    return None
+                node = tree
+                for d in rel[:-1]:
+                    node = node.setdefault(d, {})
+                node[rel[-1]] = data
+            try:
+                return stem + ext, write_cfb(tree)
+            except ValueError:
+                return None
+    return None
+
+
 def _eml_name(title: str) -> str:
     title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", title).strip() or "attached-message"
     return title[:100] + ("" if title.lower().endswith(".eml") else ".eml")
@@ -633,7 +787,13 @@ def _embedded_msg_to_eml(ole, base: str, depth: int) -> bytes:
     for storage in _attachment_storages(ole, base):
         data = _msg_binary(ole, _P_ATTACH_DATA, storage)
         nested = f"{storage}/{_EMBEDDED_MSG}"
-        if data is None and depth < _MAX_EMBEDDED_DEPTH and ole.exists(nested):
+        name = (prop(_P_ATTACH_LONG_NAME, storage) or prop(_P_ATTACH_NAME, storage)
+                or prop(_P_DISPLAY_NAME, storage) or "attachment.bin")
+        if data is None and ole.exists(nested) and _is_ole_object(ole, storage, nested):
+            payload = _ole_object_payload(ole, nested, name)
+            if payload is not None:
+                name, data = payload
+        elif data is None and depth < _MAX_EMBEDDED_DEPTH and ole.exists(nested):
             inner = email.message_from_bytes(_embedded_msg_to_eml(ole, nested, depth + 1),
                                              policy=email.policy.compat32)
             part = MIMEMessage(inner)
@@ -643,8 +803,6 @@ def _embedded_msg_to_eml(ole, base: str, depth: int) -> bytes:
             continue
         if data is None:
             continue
-        name = (prop(_P_ATTACH_LONG_NAME, storage) or prop(_P_ATTACH_NAME, storage)
-                or "attachment.bin")
         part = MIMEApplication(data, Name=name)
         part.add_header("Content-Disposition", "attachment", filename=name)
         out.attach(part)

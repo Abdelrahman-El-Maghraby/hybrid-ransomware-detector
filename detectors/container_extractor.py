@@ -1,5 +1,5 @@
 """
-Safe archive inspection (ZIP, 7z, ISO): unpack into a throw-away sandbox,
+Safe archive inspection (ZIP, 7z, RAR, ISO): unpack into a throw-away sandbox,
 defend against archive attacks, and hand every member to the full scan
 pipeline.
 
@@ -26,8 +26,8 @@ All formats go through the same checks:
   archive (by extension *and* by magic bytes), double extensions like
   `invoice.pdf.exe`, and the right-to-left-override trick (`invoice\\u202Efdp.exe`
   displays as `invoiceexe.pdf`).
-* **Encryption** - encrypted members (ZipCrypto, WinZip AES, 7z AES, including
-  7z archives whose file names are encrypted) are tried against a short list of
+* **Encryption** - encrypted members (ZipCrypto, WinZip AES, 7z AES, RAR, including
+  7z and RAR archives whose file names are encrypted) are tried against a short list of
   passwords commonly used for malware delivery ("infected", the archive's own
   name, ...). If none works the archive is reported as unreadable, because an
   archive the scanner cannot open is a classic evasion technique.
@@ -37,9 +37,18 @@ FORMATS AND LIBRARIES (all optional, pure Python or prebuilt wheels)
   .zip            standard library; AES members need `pyzipper`
   .7z             `py7zr`
   .iso / .img     `pycdlib` (ISO 9660 images, with Joliet / Rock Ridge names)
-No external unrar/7z binaries are ever spawned. A recognised archive whose
-library is missing is reported as unreadable, with the package to install.
-RAR is not supported.
+  .rar            `rarfile` + one decompressor already on the machine: 7-Zip,
+                  unrar, unar or bsdtar (RAR's compression is proprietary, so
+                  no pure-Python decoder exists)
+A recognised archive whose library is missing is reported as unreadable, with
+the package to install.
+
+RAR is the only format that runs an external program. It is only ever asked to
+decompress ONE member to stdout (`7z e -so`, `unrar p`), never to write files,
+so its own path handling (the source of past unrar traversal bugs) is never
+used: every byte comes back through the same bounded writer and the sandbox
+naming as the other formats. Member names, sizes, encryption and symlinks are
+read by `rarfile` in Python, so the name checks work even with no tool installed.
 """
 
 from __future__ import annotations
@@ -80,6 +89,13 @@ except ImportError:  # pragma: no cover
     _pycdlib = None
     ISO_AVAILABLE = False
 
+try:
+    import rarfile as _rarfile  # type: ignore
+    RAR_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _rarfile = None
+    RAR_AVAILABLE = False
+
 PathLike = Union[str, Path]
 
 DEFAULT_PASSWORDS = ("infected", "malware", "virus", "password", "123456", "1234", "123")
@@ -98,9 +114,39 @@ _EXEC_MAGIC = ((b"MZ", "pe"), (b"\x7fELF", "elf"), (b"\x4c\x00\x00\x00\x01\x14\x
 RTLO = "‮"   # right-to-left override (escaped on purpose: never put it in source)
 _STREAM_CHUNK = 64 * 1024
 _SEVENZIP_MAGIC = b"7z\xbc\xaf\x27\x1c"
+_RAR_MAGICS = (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")      # RAR 1.5-4.x, RAR 5
 _ISO_DESCRIPTOR_OFFSETS = (0x8001, 0x8801, 0x9001)
-_FORMAT_EXTENSIONS = {"zip": {".zip"}, "7z": {".7z"}, "iso": {".iso", ".img"}}
-_MISSING_LIBRARY = {"7z": "py7zr", "iso": "pycdlib"}
+_FORMAT_EXTENSIONS = {"zip": {".zip"}, "7z": {".7z"}, "iso": {".iso", ".img"},
+                      "rar": {".rar"}}
+_MISSING_LIBRARY = {"7z": "py7zr", "iso": "pycdlib", "rar": "rarfile",
+                    "rar-tool": "7-Zip, unrar or unar (a RAR decompressor)"}
+# Where the RAR decompressors live on Windows when they are not on PATH.
+_WINDOWS_RAR_TOOLS = (("SEVENZIP_TOOL", r"7-Zip\7z.exe"), ("UNRAR_TOOL", r"WinRAR\UnRAR.exe"))
+_rar_tool_state: Optional[bool] = None
+
+
+def rar_tool_available() -> bool:
+    """True if rarfile can find a program to decompress RAR members (cached)."""
+    global _rar_tool_state
+    if not RAR_AVAILABLE:
+        return False
+    if _rar_tool_state is None:
+        if os.name == "nt":
+            for setting, rel in _WINDOWS_RAR_TOOLS:
+                if shutil.which(getattr(_rarfile, setting)):
+                    continue
+                for base in filter(None, (os.environ.get("ProgramFiles"),
+                                          os.environ.get("ProgramFiles(x86)"))):
+                    candidate = os.path.join(base, rel)
+                    if os.path.isfile(candidate):
+                        setattr(_rarfile, setting, candidate)
+                        break
+        try:
+            _rarfile.tool_setup(force=True)
+            _rar_tool_state = True
+        except Exception:
+            _rar_tool_state = False
+    return _rar_tool_state
 
 _BAD_ZIP_ERRORS = (zipfile.BadZipFile,) + (
     (_pyzipper.BadZipFile,) if AES_ZIP_AVAILABLE and _pyzipper.BadZipFile is not zipfile.BadZipFile
@@ -197,7 +243,7 @@ def _unsafe_member_path(name: str) -> Optional[str]:
 
 
 def detect_container(file_path: PathLike) -> Optional[str]:
-    """'zip' | '7z' | 'iso' when the extension AND the content agree, else None."""
+    """'zip' | '7z' | 'rar' | 'iso' when the extension AND the content agree, else None."""
     path = Path(file_path)
     ext = path.suffix.lower()
     try:
@@ -206,6 +252,10 @@ def detect_container(file_path: PathLike) -> Optional[str]:
         if ext in _FORMAT_EXTENSIONS["7z"]:
             with open(path, "rb") as fh:
                 return "7z" if fh.read(6) == _SEVENZIP_MAGIC else None
+        if ext in _FORMAT_EXTENSIONS["rar"]:
+            with open(path, "rb") as fh:
+                head = fh.read(8)
+            return "rar" if head.startswith(_RAR_MAGICS) else None
         if ext in _FORMAT_EXTENSIONS["iso"]:
             with open(path, "rb") as fh:
                 for off in _ISO_DESCRIPTOR_OFFSETS:
@@ -278,6 +328,8 @@ class ContainerExtractor:
         fmt = detect_container(archive) or "zip"
         if fmt == "7z":
             self._walk_7z(archive, display, sandbox, depth, res)
+        elif fmt == "rar":
+            self._walk_rar(archive, display, sandbox, depth, res)
         elif fmt == "iso":
             self._walk_iso(archive, display, sandbox, depth, res)
         else:
@@ -287,13 +339,14 @@ class ContainerExtractor:
         stem = Path(archive.name).stem
         return list(dict.fromkeys([*self.passwords, stem, stem.lower()]))
 
-    def _missing(self, fmt: str, res: ContainerResult) -> None:
-        res.unreadable_members += 1
+    def _missing(self, fmt: str, res: ContainerResult, count: int = 1) -> None:
+        res.unreadable_members += count
         lib = _MISSING_LIBRARY[fmt]
         if lib not in res.missing_support:
             res.missing_support.append(lib)
-            logger.warning("Cannot look inside this %s archive: pip install %s "
-                           "(its contents were NOT scanned).", fmt, lib)
+            how = f"install {lib}" if fmt == "rar-tool" else f"pip install {lib}"
+            logger.warning("Cannot look inside this %s archive: %s "
+                           "(its contents were NOT scanned).", fmt.split("-")[0], how)
 
     # ---------- shared member handling
     def _admit(self, name: str, size: int, csize: int, is_link: bool, shown: str,
@@ -529,6 +582,83 @@ class ContainerExtractor:
                 break
         shutil.rmtree(raw, ignore_errors=True)
 
+    # ---------- RAR (rarfile + an external decompressor)
+    def _walk_rar(self, archive: Path, display: str, sandbox: Path, depth: int,
+                  res: ContainerResult) -> None:
+        if not RAR_AVAILABLE:
+            self._missing("rar", res)
+            return
+        try:
+            rf = _rarfile.RarFile(str(archive), errors="strict")
+            listing_pwd: Optional[str] = None
+            if rf.needs_password() and not rf.infolist():
+                # RAR5 "encrypt file names": nothing is listed until a password opens it.
+                for pwd in self._candidates(archive):
+                    try:
+                        rf = _rarfile.RarFile(str(archive), errors="strict")
+                        rf.setpassword(pwd)
+                        rf.infolist()
+                        listing_pwd = pwd
+                        break
+                    except Exception:
+                        continue
+                if listing_pwd is None:
+                    res.unreadable_members += 1
+                    res.members.append(ArchiveMember(f"{display}!/(encrypted file names)",
+                                                     encrypted=True,
+                                                     skipped_reason="encrypted - password unknown"))
+                    return
+            infos = [i for i in rf.infolist() if not i.is_dir()]
+        except Exception as e:                   # corrupt, or a later volume of a set
+            res.unreadable_members += 1
+            logger.debug("Unreadable RAR %s: %s", display, e)
+            return
+        with contextlib.closing(rf):
+            if not self._limits_ok(len(infos), sum(int(i.file_size or 0) for i in infos), res):
+                return
+            for info in infos:
+                if res.zip_bomb:
+                    return
+                self._rar_member(rf, info, archive, display, sandbox, depth, listing_pwd, res)
+
+    def _rar_member(self, rf, info, archive: Path, display: str, sandbox: Path, depth: int,
+                    listing_pwd: Optional[str], res: ContainerResult) -> None:
+        name = info.filename
+        shown = f"{display}!/{visible_name(name)}"
+        size, csize = int(info.file_size or 0), int(info.compress_size or 0)
+        if not self._admit(name, size, csize, info.is_symlink(), shown, res):
+            return
+        member = self._new_member(name, size, csize, bool(info.needs_password()), shown, res)
+        target = self._target(name, sandbox, res)
+        rar_tool_available()                     # also locates 7-Zip / WinRAR on Windows
+        candidates: List[Optional[str]] = [None]
+        if member.encrypted:
+            candidates = [listing_pwd] if listing_pwd else self._candidates(archive)
+        for pwd in candidates:
+            try:
+                with rf.open(info, pwd=pwd) as src:
+                    outcome = self._stream_into(
+                        target, iter(lambda: src.read(_STREAM_CHUNK), b""), res)
+            except _rarfile.RarCannotExec:
+                # No decompressor installed. Stored members don't need one, so this
+                # is per member; the name checks above were still applied.
+                target.unlink(missing_ok=True)
+                member.skipped_reason = "needs a RAR decompressor (7-Zip, unrar or unar)"
+                self._missing("rar-tool", res, count=0)
+                break
+            except Exception as e:               # wrong password, CRC error, tool failure
+                target.unlink(missing_ok=True)
+                logger.debug("RAR member %s failed: %s", shown, e)
+                continue
+            if outcome == "bomb":
+                res.members.append(member)
+                return
+            member.extracted, member.path = True, str(target)
+            if pwd:
+                res.password_used = pwd
+            break
+        self._finish(member, target, sandbox, depth, res)
+
     # ---------- ISO 9660 (pycdlib)
     def _walk_iso(self, archive: Path, display: str, sandbox: Path, depth: int,
                   res: ContainerResult) -> None:
@@ -621,5 +751,6 @@ class ContainerExtractor:
         elif res.password_used:
             bits.append(f"opened with password '{res.password_used}'")
         for lib in res.missing_support:
-            bits.append(f"could not be opened: pip install {lib}")
+            how = f"install {lib}" if lib == _MISSING_LIBRARY["rar-tool"] else f"pip install {lib}"
+            bits.append(f"could not be opened: {how}")
         return "; ".join(bits) + "."

@@ -51,7 +51,7 @@ except ImportError:  # pragma: no cover
 
 from dotenv import set_key
 
-APP_VERSION = "4.2"
+APP_VERSION = "4.3"
 SETTINGS_FILE = RS.APP_DIR / "gui_settings.json"
 ENV_FILE = RS.ENV_FILE        # next to the script, or ~/RansomwareScanner in a build
 

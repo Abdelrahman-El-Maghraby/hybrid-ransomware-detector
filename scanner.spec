@@ -60,6 +60,7 @@ hiddenimports = [
     "PyPDF2", "docx", "pytesseract", "pdf2image", "PIL",
     # v4.2
     "pyzipper", "py7zr", "pycdlib", "watchdog.observers", "watchdog.events",
+    "rarfile",                                                  # v4.3
     "cryptography.hazmat.primitives.kdf.scrypt",
 ]
 excludes = ["pytest", "tests", "IPython", "matplotlib", "pandas", "notebook", "jupyter"]

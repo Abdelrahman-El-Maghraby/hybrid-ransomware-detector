@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ENGINE_VERSION = "4.2.0"
+ENGINE_VERSION = "4.3.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()
@@ -68,7 +68,7 @@ def _env_float(name: str, default: float) -> float:
 
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
-                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".iso", ".img",
+                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img",
                         ".eml", ".msg"]
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
