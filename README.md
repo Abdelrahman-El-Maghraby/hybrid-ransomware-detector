@@ -1,16 +1,16 @@
 # 🛡️ Hybrid Ransomware Detection System
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.1.0-informational)
+![Version](https://img.shields.io/badge/version-4.3.0-informational)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
 
-A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, ZIP archives and e-mails (.eml / Outlook .msg)** for ransomware and other malicious indicators. It fuses **twelve independent detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
+A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, archives (ZIP, 7z, RAR, ISO) and e-mails (.eml / Outlook .msg)** for ransomware and other malicious indicators. It fuses **twelve independent detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
 
-Originally built as my B.Sc. graduation project as a three-layer scanner. v3 added structural detection (fuzzy hashing, macros, YARA), a local-first LLM, and the weighted scoring matrix. v4 adds file-integrity and ransomware-impact detection, prompt-injection defence for the LLM layer, Office external-link analysis, safe archive inspection, canaries, and quarantine. v4.1 adds e-mail analysis (MailGuard), a static ML classifier, and standalone executables. It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner. v3 added structural detection (fuzzy hashing, macros, YARA), a local-first LLM, and the weighted scoring matrix. v4 adds file-integrity and ransomware-impact detection, prompt-injection defence for the LLM layer, Office external-link analysis, safe archive inspection, canaries, and quarantine. v4.1 adds e-mail analysis (MailGuard), a static ML classifier, and standalone executables. v4.2 refactors the engine into an explicit pipeline and adds 7z/ISO/AES-ZIP, Excel and PowerPoint hidden content, quarantine key backup and real-time canary watching; v4.3 adds RAR and OLE objects in Outlook messages. It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
 ---
 
