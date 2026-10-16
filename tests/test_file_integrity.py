@@ -110,9 +110,32 @@ def test_real_documents_pass(tmp_path):
 def test_random_header_never_looks_like_an_executable():
     # 'MZ' / '#!' / zlib headers occur by chance in ciphertext; they must not
     # turn an encrypted file into a "disguised executable".
-    assert detect_format(b"MZ" + os.urandom(4094)) == "unknown"
-    assert detect_format(b"#!" + os.urandom(100)) == "unknown"
-    assert detect_format(b"\x78\x9c" + os.urandom(4094)) == "unknown"
+    # Seeded, and many samples: a single os.urandom() draw made this test fail
+    # about once in 900 runs, because the old shebang rule accepted "#!/s".
+    rnd = random.Random(20261017)
+    for _ in range(3000):
+        noise = bytes(rnd.getrandbits(8) for _ in range(120))
+        assert detect_format(b"MZ" + noise) == "unknown"
+        assert detect_format(b"#!" + noise) == "unknown"
+        assert detect_format(b"\x78\x9c" + noise) == "unknown"
+
+
+@pytest.mark.parametrize("head", [
+    b"#!/sG\x91\xa2\xa9\xcc7*\xd8",                 # the sample that failed in CI-like runs
+    b"#!/usr/bin/env python3",                      # no line end: not proven to be a script
+    b"#!/bin/sh \x00\x91 -c\n",                    # binary bytes in the "arguments"
+    b"#!" + b"/a" * 200 + b"\n",                     # line longer than any real interpreter line
+])
+def test_shebang_needs_a_real_interpreter_line(head):
+    assert detect_format(head) != "script"
+
+
+@pytest.mark.parametrize("head", [
+    b"#!/bin/sh\n", b"#!/usr/bin/env python3\nprint(1)\n", b"#! /bin/bash -e\r\n",
+    b"#!/usr/bin/perl -w\nuse strict;\n", b"#!/opt/node-20/bin/node\n",
+])
+def test_real_shebangs_are_still_scripts(head):
+    assert detect_format(head) == "script"
 
 
 @pytest.mark.parametrize("name,head,kind", [

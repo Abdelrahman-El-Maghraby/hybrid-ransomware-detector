@@ -6,6 +6,16 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **False "disguised executable" on encrypted documents.** The shebang rule
+  accepted `#!/` followed by a single path character, so ciphertext that
+  happened to start with `#!/s…` was classified as a script and, behind a
+  document extension, scored 90 points. A script now needs a complete
+  interpreter line (absolute path, printable arguments, line end within 256
+  bytes). On random data the misclassification rate fell from about 1 in 900
+  to 0 in 20,000. This was also the cause of an occasional test failure.
+
 ### Changed
 
 - The integrity layer validates `.7z` and `.rar` signatures, so a 7z/RAR file
