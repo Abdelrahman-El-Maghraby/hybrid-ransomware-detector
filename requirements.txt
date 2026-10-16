@@ -59,3 +59,9 @@ pyzipper            # AES-encrypted (WinZip) ZIP members. Pure-Python.
 py7zr               # .7z archives, including encrypted file names. Pure-Python.
 pycdlib             # .iso / .img disc images (ISO 9660, Joliet, Rock Ridge). Pure-Python.
 watchdog            # real-time canary watching; prebuilt wheels x86_64 + arm64.
+
+# --- v4.3 ----------------------------------------------------------------------
+rarfile             # .rar archives. Pure-Python reader; decompression also needs
+                    # one program already on the machine: 7-Zip (Windows: found in
+                    # Program Files automatically), unrar, unar or bsdtar.
+                    # Linux: sudo apt-get install 7zip   macOS: brew install sevenzip

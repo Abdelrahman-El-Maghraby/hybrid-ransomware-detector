@@ -501,3 +501,51 @@ debounced (1 s) into one verification, which runs the normal `verify()` and its
 alerting. The CLI `--background` mode and the GUI both use it and refresh the
 watched folders when canaries are deployed or removed; the interval check stays
 as a safety net.
+
+---
+
+## v4.3 additions
+
+### 20. RAR — `detectors/container_extractor.py`
+
+RAR's compression is proprietary and has no pure-Python decoder, so this is the
+one format that runs an external program. The split keeps that program's role
+as small as possible:
+
+* `rarfile` parses the headers in Python (`errors="strict"`: a header that fails
+  its CRC makes the archive unreadable rather than silently shorter). Names,
+  symlinks (Unix mode bits), declared sizes and encryption flags feed the same
+  `_admit` / `_limits_ok` / name checks as ZIP, before any program runs, and
+  even when none is installed.
+* Each admitted member is opened with `rf.open()`, which streams it from the
+  decompressor's stdout (`7z e -so`, `unrar p`) into the bounded writer and the
+  sandbox name. The decompressor never writes to disk, so traversal bugs in it
+  (CVE-2022-30333 in unrar) cannot place files anywhere.
+* Stored members need no decompressor. If none is installed, compressed members
+  are recorded as "needs a RAR decompressor" and the report says what to install.
+* RAR 5 archives with encrypted names list nothing until a password works; the
+  delivery list is tried, and a placeholder member is recorded otherwise.
+
+Tests write stored RAR 4 archives with `tests/rar_builder.py` (any name, mode or
+content) and use two encrypted RAR 5 fixtures from rarfile's own suite, because
+encrypted RAR 5 can only be produced with WinRAR.
+
+### 21. OLE objects in Outlook messages — `detectors/mail_analyzer.py`
+
+An attachment with `PR_ATTACH_METHOD = 6` stores an OLE object in the same
+`__substg1.0_3701000D` storage that an attached Outlook item uses. The method
+property decides; without it, a storage holding MAPI property streams is a
+message and anything else is an object.
+
+| Object storage holds | Extracted as |
+|---|---|
+| `\x01Ole10Native` (Packager) | the packaged file, named after its temp / source path |
+| `Package` | the OOXML file; extension from the `\x01CompObj` ProgID |
+| `CONTENTS` | e.g. a PDF (by magic bytes) |
+| `WordDocument` / `Workbook` / `PowerPoint Document` | the whole storage repacked as `.doc` / `.xls` / `.ppt` (`cfb_writer.py`, up to 6 MB) |
+| anything else | counted as not unpacked |
+
+The Packager name matters: the document shows the *label* under the icon
+(`invoice.pdf`), while double-clicking runs the file at the temp path
+(`invoice.pdf.exe`). Using the real name lets the existing executable and
+double-extension checks fire.

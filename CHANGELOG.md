@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.3.0] — 2026-10-16
+
+The two items left open by 4.2.
+
+### Added
+
+- **RAR archives** (RAR 4 / RAR 5, encrypted members and encrypted file names)
+  through the optional `rarfile` plus any installed decompressor (7-Zip, unrar,
+  unar, bsdtar; 7-Zip and WinRAR are located in Program Files on Windows). The
+  decompressor only streams one member to stdout; names, symlinks, sizes and
+  limits are handled in Python as for every other format. Headers are parsed
+  strictly, so a corrupted header makes the archive unreadable instead of
+  looking empty.
+- **OLE objects in `.msg` files** (`PR_ATTACH_METHOD = ATTACH_OLE`): packaged
+  files (`\x01Ole10Native`) are extracted under the name that actually runs,
+  not the icon label; embedded OOXML (`Package`) and PDF (`CONTENTS`) objects
+  get their extension from the ProgID or magic bytes; legacy Word/Excel/
+  PowerPoint storages are repacked as standalone compound files. Also inside
+  forwarded Outlook items.
+- `detectors/cfb_writer.py`: the compound-file writer, moved out of the test
+  helpers because MailGuard now uses it.
+
+### Changed
+
+- Embedded Outlook items and OLE objects share a storage name; they are now
+  told apart by `PR_ATTACH_METHOD`, or by content when it is missing.
+- `.rar` is scanned by default.
+
+### Verified
+
+- Golden corpus byte-identical to 4.1.0 / 4.2.0 apart from the version.
+- 336 tests (21 new): 335 passed + 1 opt-in GUI test on 3.12; 331 + 5 skipped
+  on 3.9 / 3.11 / 3.13. The Linux binary unpacks an encrypted, compressed RAR 5
+  with 7-Zip and flags a packaged executable in a `.msg`.
+
 ## [4.2.0] — 2026-10-16
 
 Seven items from the 4.1 limitations list, plus the engine refactor below.

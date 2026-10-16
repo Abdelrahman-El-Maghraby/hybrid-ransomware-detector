@@ -50,3 +50,4 @@ Thumbs.db
 
 # --- Trained ML models (pickle files: never load one you didn't train) ---
 *.joblib
+!tests/data/rar/*.rar
