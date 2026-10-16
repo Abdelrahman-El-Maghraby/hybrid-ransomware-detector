@@ -491,7 +491,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 210 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 244 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
@@ -516,9 +516,17 @@ All test samples are **synthetic** and built at test time (a relationship pointi
 
 ```
 hybrid-ransomware-detector/
-├── RansomwareScanner.py         # scanner engine + CLI (cross-platform)
+├── RansomwareScanner.py         # CLI entry point, autostart, shortcuts, hash-DB import
 ├── gui.py                       # desktop GUI (uses the scanner as a library)
 ├── test_smoke.py                # original v3 smoke test (still passing)
+├── engine/                      # the scanner itself
+│   ├── config.py                # version, per-user paths, logging, .env, CONFIG
+│   ├── scanner.py               # RansomwareScanner: runs the pipeline, folders, vault, canaries
+│   ├── layers.py                # the ordered detection layers (the scan pipeline)
+│   ├── containers.py            # ZIP / e-mail: one loop, members re-scanned recursively
+│   ├── external.py              # LLM + VirusTotal lookups (cached)
+│   ├── text.py                  # text and string extraction
+│   └── report.py                # text + JSON reports
 ├── detectors/                   # independently-optional detection engines
 │   ├── fuzzy_hash.py            # TLSH + ssdeep structural hashing
 │   ├── macro_analysis.py        # olevba VBA/XLM triage + VBA stomping

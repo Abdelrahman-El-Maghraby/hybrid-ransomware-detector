@@ -297,6 +297,15 @@ configured.
 
 ## 10. Extending it
 
+- **A new detection layer:** write a `Layer` subclass in `engine/layers.py`
+  (record its result under `ctx.scan_results`, its signals under
+  `ctx.signals`) and add it to `default_pipeline()` where it belongs; give its
+  signals a weight in `detectors/scoring.py`.
+- **A new container type** (7z, ISO, an Outlook item inside an Outlook item):
+  write a `ContainerHandler` in `engine/containers.py` (open, which members
+  to scan, which findings become signals) and add a `ContainerLayer` for it.
+  The scanning loop, the depth limit, the member budget and the
+  worst-member scoring are shared.
 - **New relationship patterns:** add a scheme to `EXPLOIT_SCHEMES` or a type to
   `RISKY_TYPES` in `relationship_scanner.py`, and a weight in
   `ScoringMatrix.W_RTI`.
