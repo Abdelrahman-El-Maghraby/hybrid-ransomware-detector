@@ -53,3 +53,9 @@ cryptography
 # .msg (Outlook) e-mails are read with olefile, which oletools already installs.
 # ML classifier training/model loading:  pip install -r requirements-ml.txt
 # Standalone executables:               pip install -r requirements-build.txt
+
+# --- v4.2 (all optional; without them the feature reports what to install) ----
+pyzipper            # AES-encrypted (WinZip) ZIP members. Pure-Python.
+py7zr               # .7z archives, including encrypted file names. Pure-Python.
+pycdlib             # .iso / .img disc images (ISO 9660, Joliet, Rock Ridge). Pure-Python.
+watchdog            # real-time canary watching; prebuilt wheels x86_64 + arm64.

@@ -421,3 +421,83 @@ trained.
   temporary (onefile) or read-only (Program Files, a signed `.app`). Settings
   go to `~/RansomwareScanner/.env` and autostart launches the executable
   itself.
+
+---
+
+## v4.2 additions
+
+Seven items from the 4.1 limitations list. Each degrades gracefully: without its
+optional library the feature says what to install instead of failing.
+
+### 14. More archive formats — `detectors/container_extractor.py`
+
+- **Detection** uses the extension *and* the magic bytes (`PK\3\4`, `7z\xBC\xAF\x27\x1C`,
+  `CD001` at sector 16 of an ISO), so a renamed archive is still opened.
+- **AES ZIP** (WinZip AE-1/AE-2) is read with `pyzipper`, which also handles plain
+  and ZipCrypto members, so it replaces `zipfile` when installed.
+- **7z** with `py7zr`. An archive with encrypted *headers* hides its member names;
+  the delivery-password list is tried, and if none works a placeholder member
+  "(encrypted file names)" is recorded so the archive is never reported empty.
+  Members are extracted into a raw directory first, then admitted one by one
+  through the same slip / symlink / ratio checks, with a size check after the
+  write because 7z declares sizes the attacker controls.
+- **ISO / IMG** with `pycdlib`. Names come from Rock Ridge, then Joliet, then
+  plain ISO 9660. Every copy goes through a bounded writer, so a lying directory
+  record cannot exceed the per-member or total limits.
+- All formats share `_admit`, `_limits_ok` and `_finish`: the same bomb, slip,
+  executable-magic and nesting rules, and each nested archive (of any format) is
+  recursed into, so `iso → 7z → zip → docm` is followed to the document.
+
+### 15. Excel and PowerPoint hidden content — `detectors/prompt_guard.py`
+
+| Reason | Where |
+|---|---|
+| `hidden_sheet`, `very_hidden_sheet` | `workbook.xml` sheet `state` (very hidden can only be unhidden from VBA) |
+| `hidden_rows`, `hidden_columns` | rows / `<col>` ranges with `hidden="1"` that contain text |
+| `white_text`, `microscopic_font` | cell styles (`styles.xml`) with a white font and no fill, or ≤ 2 pt |
+| `hidden_shape`, `hidden_slide` | `<p:cNvPr hidden="1">`, `<p:sld show="0">` |
+| `text_outside_slide` | shape offset beyond the slide size in `presentation.xml` |
+
+Hidden text that carries an injection phrase is a confirmed attempt, the same
+rule as Word. Plain hidden data (a hidden lookup sheet) scores the same 15
+technical points as concealed Word text, which is Low on its own: spreadsheets
+hide helper data legitimately, so it only matters next to other evidence.
+
+### 16. Outlook items inside Outlook items — `detectors/mail_analyzer.py`
+
+An attached Outlook item is stored as a sub-storage (`__substg1.0_3701000D`)
+rather than as bytes. It is rebuilt as an RFC 822 message (its transport headers,
+body, HTML and attachments) and attached as `<subject>.eml`, so the existing
+attached-mail path scans it with its own SPF/DKIM/DMARC verdicts. Rebuilding
+stops at 3 levels; deeper items are dropped rather than recursed into.
+
+### 17. Quarantine key backup — `core/quarantine.py`
+
+`HRDQK1` header + scrypt (N=2^15, r=8, p=1) salt and parameters + AES-256-GCM over
+the key, with the whole header as associated data, so a changed parameter is a
+failed tag, not a weaker key. Passphrases under 10 characters are refused, the
+backup is written with `O_EXCL` and mode 0600, and a fingerprint
+(`SHA-256("hrd-key-fingerprint" ‖ key)[:16]`) lets you compare machines without
+showing the key. Import never silently replaces a different key: it needs
+`--replace-key`, and the old key is saved as `quarantine.key.bak-<time>`.
+
+### 18. Password vaults and the ML layer — `detectors/file_integrity.py`
+
+KeePass (`.kdbx`), OpenPGP (`.gpg/.pgp`, packet tag and version validated) and age
+headers are recognised, but **only when the extension matches** (`trusted_vault`),
+and **only the ML layer** uses them, to treat the file like a known compressed
+format. The integrity layer deliberately ignores them: four forged bytes in
+front of an encrypted `.docx` must not turn a Critical into a Low, and random
+data matches a loose OpenPGP header about once in 2,500 files.
+
+### 19. Real-time canary watching — `core/canary_watch.py`
+
+`watchdog` watches the folders that hold canaries (not recursively). Only events
+that change something count (created, deleted, modified, moved, closed after a
+write); open and read events are ignored because `verify()` reads every canary
+and would otherwise trigger itself forever. A relevant event is a canary path,
+a canary path with an appended extension, or a ransom-note name. Events are
+debounced (1 s) into one verification, which runs the normal `verify()` and its
+alerting. The CLI `--background` mode and the GUI both use it and refresh the
+watched folders when canaries are deployed or removed; the interval check stays
+as a safety net.

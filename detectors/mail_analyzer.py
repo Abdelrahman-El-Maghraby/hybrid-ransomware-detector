@@ -115,6 +115,9 @@ _P_ATTACH_DATA = "3701"
 _P_ATTACH_LONG_NAME = "3707"
 _P_ATTACH_NAME = "3704"
 _P_ATTACH_MIME = "370E"
+_P_DISPLAY_NAME = "3001"
+_EMBEDDED_MSG = "__substg1.0_3701000D"   # PR_ATTACH_DATA_OBJ: an Outlook item inside
+_MAX_EMBEDDED_DEPTH = 3
 
 
 # ---------------------------------------------------------------------------
@@ -352,16 +355,22 @@ class MailAnalyzer:
                 html_body = raw_html.decode("utf-8", errors="replace")
             self._judge_body(prop(_P_BODY) or "", html_body, res)
 
-            storages = sorted({e[0] for e in ole.listdir(streams=True, storages=False)
-                               if len(e) > 1 and e[0].lower().startswith("__attach_version1.0_")})
-            for storage in storages:
+            for storage in _attachment_storages(ole, ""):
                 data = _msg_binary(ole, _P_ATTACH_DATA, storage)
                 name = (prop(_P_ATTACH_LONG_NAME, storage) or prop(_P_ATTACH_NAME, storage)
                         or "attachment.bin")
                 mime = prop(_P_ATTACH_MIME, storage) or ""
                 if data is None:
-                    # Embedded .msg (PT_OBJECT) or OLE object: not unpacked, but noted.
-                    res.attachments_skipped += 1
+                    embedded = f"{storage}/{_EMBEDDED_MSG}"
+                    if ole.exists(embedded):
+                        # An Outlook item attached to an Outlook item: rebuilt as
+                        # .eml so it is scanned like any attached e-mail.
+                        eml = _embedded_msg_to_eml(ole, embedded, 1)
+                        title = (prop(_P_DISPLAY_NAME, storage)
+                                 or _msg_string(ole, _P_SUBJECT, embedded) or "attached-message")
+                        self._add_attachment(eml, _eml_name(title), "message/rfc822", sandbox, res)
+                    else:
+                        res.attachments_skipped += 1      # OLE object: noted, not unpacked
                     continue
                 self._add_attachment(data, name, mime, sandbox, res)
 
@@ -549,8 +558,9 @@ def _parse_auth(msg: Message, auth: AuthResult) -> None:
 
 
 def _msg_stream(ole, tag: str, types: Tuple[str, ...], storage: str) -> Optional[bytes]:
+    """`storage` is a '/'-separated storage path ('' = the message root)."""
     for t in types:
-        parts = ([storage] if storage else []) + [f"__substg1.0_{tag}{t}"]
+        parts = (storage.split("/") if storage else []) + [f"__substg1.0_{tag}{t}"]
         if ole.exists("/".join(parts)):
             return ole.openstream(parts).read()
     return None
@@ -568,6 +578,77 @@ def _msg_string(ole, tag: str, storage: str = "") -> Optional[str]:
 
 def _msg_binary(ole, tag: str, storage: str = "") -> Optional[bytes]:
     return _msg_stream(ole, tag, ("0102",), storage)
+
+
+def _attachment_storages(ole, base: str) -> List[str]:
+    """Attachment storages directly under `base`, as '/'-joined paths."""
+    prefix = base.split("/") if base else []
+    found = set()
+    for entry in ole.listdir(streams=True, storages=False):
+        if (len(entry) > len(prefix) + 1 and entry[:len(prefix)] == prefix
+                and entry[len(prefix)].lower().startswith("__attach_version1.0_")):
+            found.add("/".join(entry[:len(prefix) + 1]))
+    return sorted(found)
+
+
+def _eml_name(title: str) -> str:
+    title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", title).strip() or "attached-message"
+    return title[:100] + ("" if title.lower().endswith(".eml") else ".eml")
+
+
+def _embedded_msg_to_eml(ole, base: str, depth: int) -> bytes:
+    """Rebuild an embedded Outlook item as RFC 822 bytes (headers, bodies,
+    attachments; deeper embedded items recursively, up to a fixed depth)."""
+    from email.mime.application import MIMEApplication
+    from email.mime.message import MIMEMessage
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    def prop(tag: str, storage: str = base) -> Optional[str]:
+        return _msg_string(ole, tag, storage)
+
+    out = MIMEMultipart("mixed")
+    headers_text = prop(_P_TRANSPORT_HEADERS) or ""
+    if headers_text.strip():
+        parsed = email.message_from_string(headers_text.strip() + "\n\n",
+                                           policy=email.policy.compat32)
+        for key, value in parsed.items():
+            if key.lower() not in ("content-type", "mime-version", "content-transfer-encoding"):
+                out[key] = value
+    if not out.get("Subject") and prop(_P_SUBJECT):
+        out["Subject"] = prop(_P_SUBJECT)
+    if not out.get("From"):
+        addr = prop(_P_SENDER_SMTP) or prop(_P_SENDER_EMAIL) or ""
+        name = prop(_P_SENDER_NAME) or ""
+        if addr and "@" in addr:
+            out["From"] = f'"{name}" <{addr}>' if name else addr
+        elif name:
+            out["From"] = name
+    body = MIMEMultipart("alternative")
+    body.attach(MIMEText(prop(_P_BODY) or "", "plain", "utf-8"))
+    raw_html = _msg_binary(ole, _P_BODY_HTML, base)
+    if raw_html:
+        body.attach(MIMEText(raw_html.decode("utf-8", errors="replace"), "html", "utf-8"))
+    out.attach(body)
+    for storage in _attachment_storages(ole, base):
+        data = _msg_binary(ole, _P_ATTACH_DATA, storage)
+        nested = f"{storage}/{_EMBEDDED_MSG}"
+        if data is None and depth < _MAX_EMBEDDED_DEPTH and ole.exists(nested):
+            inner = email.message_from_bytes(_embedded_msg_to_eml(ole, nested, depth + 1),
+                                             policy=email.policy.compat32)
+            part = MIMEMessage(inner)
+            title = prop(_P_DISPLAY_NAME, storage) or inner.get("Subject") or "attached-message"
+            part.add_header("Content-Disposition", "attachment", filename=_eml_name(title))
+            out.attach(part)
+            continue
+        if data is None:
+            continue
+        name = (prop(_P_ATTACH_LONG_NAME, storage) or prop(_P_ATTACH_NAME, storage)
+                or "attachment.bin")
+        part = MIMEApplication(data, Name=name)
+        part.add_header("Content-Disposition", "attachment", filename=name)
+        out.attach(part)
+    return out.as_bytes()
 
 
 def _summary(res: MailResult) -> str:

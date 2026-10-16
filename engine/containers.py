@@ -111,7 +111,7 @@ def scan_container(scanner: "RansomwareScanner", handler: ContainerHandler,
 
 
 class ArchiveHandler(ContainerHandler):
-    """ZIP archives (nested ZIPs are expanded by the extractor itself)."""
+    """ZIP / 7z / ISO archives (nested archives are expanded by the extractor itself)."""
 
     result_key = signal_key = "archive"
     members_key = "member_results"
@@ -135,7 +135,7 @@ class ArchiveHandler(ContainerHandler):
         for member in view.members:
             if not member.extracted or not member.path:
                 continue
-            if member.path.lower().endswith(".zip"):
+            if member.nested:
                 continue       # nested archives are already expanded
             yield member.path, member.name.replace(prefix, ctx.display + "!", 1), member.name
 

@@ -147,6 +147,58 @@ def looks_encrypted(head: bytes) -> bool:
 
 
 # --------------------------------------------------------------- formats
+# Legitimate encrypted containers: their bytes are random by design, but each
+# starts with a recognisable header. Headers can be forged, so detect_format()
+# deliberately does NOT use these: a document whose signature is gone stays
+# "unknown" (and can be flagged as encrypted) even if it starts with one. The
+# ML layer uses them only when the file's extension agrees (VAULT_EXTENSIONS).
+KDBX_MAGIC = (b"\x03\xd9\xa2\x9a\x67\xfb\x4b\xb5",   # KeePass 2.x (.kdbx)
+              b"\x03\xd9\xa2\x9a\x65\xfb\x4b\xb5")   # KeePass 1.x (.kdb)
+AGE_MAGIC = b"age-encryption.org/v1\n"
+
+
+def is_openpgp_message(head: bytes) -> bool:
+    """A binary OpenPGP message: first packet is a public-key (tag 1) or
+    symmetric-key (tag 3) encrypted session key with a valid version byte.
+    Validating the structure (not just one byte) keeps a fake 1-byte prefix
+    from hiding ransomware output."""
+    if len(head) < 4 or not head[0] & 0x80:
+        return False
+    b0 = head[0]
+    if b0 & 0x40:                                   # new packet format
+        tag, l1 = b0 & 0x3F, head[1]
+        lenlen = 1 if l1 < 192 else 2 if l1 < 224 else 5 if l1 == 255 else 1
+    else:                                           # old packet format
+        tag = (b0 >> 2) & 0x0F
+        lenlen = {0: 1, 1: 2, 2: 4, 3: 0}[b0 & 0x03]
+    if 1 + lenlen >= len(head):
+        return False
+    version = head[1 + lenlen]
+    return (tag == 1 and version in (3, 6)) or (tag == 3 and version in (4, 5, 6))
+
+
+VAULT_EXTENSIONS = {"kdbx": frozenset({".kdbx", ".kdb"}),
+                    "pgp": frozenset({".gpg", ".pgp"}),
+                    "age": frozenset({".age"})}
+
+
+def encrypted_container_format(head: bytes) -> str:
+    """'kdbx' | 'pgp' | 'age' for a known encrypted container, else ''."""
+    if head.startswith(KDBX_MAGIC):
+        return "kdbx"
+    if head.startswith(AGE_MAGIC):
+        return "age"
+    if is_openpgp_message(head):
+        return "pgp"
+    return ""
+
+
+def trusted_vault(head: bytes, extension: str) -> str:
+    """The vault kind when BOTH the header and the extension say so, else ''."""
+    kind = encrypted_container_format(head)
+    return kind if kind and extension.lower() in VAULT_EXTENSIONS[kind] else ""
+
+
 def detect_format(head: bytes) -> str:
     """Identify a file's real format from its first bytes."""
     if not head:

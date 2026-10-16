@@ -4,7 +4,42 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.2.0] — 2026-10-16
+
+Seven items from the 4.1 limitations list, plus the engine refactor below.
+Design notes: [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md#v42-additions).
+
+### Added
+
+- **AES-encrypted ZIP, 7z and ISO/IMG archives** (optional `pyzipper`, `py7zr`,
+  `pycdlib`), with the same bomb / slip / member limits and delivery-password
+  list as ZIP, and nesting across formats. 7z archives with encrypted file names
+  are tried against the password list and never reported as empty.
+- **Excel and PowerPoint hidden content:** hidden and very hidden sheets, hidden
+  rows and columns with text, white and ≤ 2 pt text, hidden shapes and slides,
+  text placed off the slide.
+- **Outlook items attached to Outlook items** are rebuilt as `.eml` and scanned
+  with their own headers and attachments (3 levels).
+- **`--export-key` / `--import-key` / `--replace-key`:** passphrase-protected
+  backup of the quarantine key (scrypt + AES-256-GCM) with a fingerprint, and
+  no silent replacement of a different key.
+- **Real-time canary watching** (optional `watchdog`) in `--background` and the
+  GUI; verification about a second after a canary is touched.
+
+### Changed
+
+- The ML layer treats KeePass, GPG and age files with a matching extension as a
+  known format instead of suspicious random data. The encrypted-content check is
+  unchanged on purpose (a forged header must not hide ransomware output).
+- Container members are recursed into by type, not by `.zip` suffix.
+- `.7z`, `.iso` and `.img` are scanned by default.
+
+### Verified
+
+- The 13-file golden corpus gives byte-identical results to 4.1.0.
+- 315 tests (71 new); see the test count per Python version in the PR.
+
+## [4.2.0] — engine refactor (same release)
 
 ### Changed
 
