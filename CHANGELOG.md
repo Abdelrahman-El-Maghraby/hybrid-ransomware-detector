@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The integrity layer validates `.7z` and `.rar` signatures, so a 7z/RAR file
+  that ransomware has encrypted in place is reported as encrypted content
+  instead of "extension not validated". Archive extensions are never treated as
+  a document disguise.
+- GUI labels say "archives" / `arc` instead of "zip", since the layer covers
+  ZIP, 7z, RAR and ISO.
+- README screenshots retaken on v4.3.
+
 ## [4.3.0] — 2026-10-16
 
 The two items left open by 4.2.

@@ -63,7 +63,7 @@ _OOXML = (".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm"
           ".xlsb", ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm")
 _OLE = (".doc", ".dot", ".xls", ".xlt", ".ppt", ".pot", ".pps", ".msg")
 EXPECTED_FORMATS: Dict[str, Sequence[str]] = {".pdf": ("pdf",), ".rtf": ("rtf",),
-                                              ".zip": ("zip",)}
+                                              ".zip": ("zip",), ".7z": ("7z",), ".rar": ("rar",)}
 EXPECTED_FORMATS.update({e: ("zip",) for e in _OOXML})
 EXPECTED_FORMATS.update({e: ("ole",) for e in _OLE})
 
@@ -78,7 +78,7 @@ BENIGN_ALTERNATES: Dict[str, Sequence[str]] = {
 # A password-protected .docx/.xlsx is stored as an OLE "EncryptedPackage".
 BENIGN_ALTERNATES.update({e: ("ole",) for e in _OOXML})
 
-DOCUMENT_EXTENSIONS = frozenset(EXPECTED_FORMATS) - {".zip"}
+DOCUMENT_EXTENSIONS = frozenset(EXPECTED_FORMATS) - {".zip", ".7z", ".rar"}
 EXECUTABLE_FORMATS = {"pe": "Windows PE executable", "elf": "Linux ELF executable",
                       "macho": "macOS Mach-O executable", "lnk": "Windows shortcut (.lnk)",
                       "script": "shebang script"}

@@ -507,7 +507,7 @@ A desktop front-end built with CustomTkinter that uses the scanner as a library.
 
 ![Settings](docs/screenshot-settings.png)
 
-Engineering notes: scanning and canary checks run in worker threads and talk to the UI through queues (Tkinter is not thread-safe); *Stop* cancels cleanly after the current file. The result-detail and settings screenshots are from v3; the rest show v4.
+Engineering notes: scanning and canary checks run in worker threads and talk to the UI through queues (Tkinter is not thread-safe); *Stop* cancels cleanly after the current file. All screenshots show v4.3 (synthetic samples, no LLM or VirusTotal key configured).
 
 ### How autostart works per platform
 

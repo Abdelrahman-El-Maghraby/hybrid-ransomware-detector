@@ -229,7 +229,7 @@ def layers_summary(result: dict) -> str:
     if arc:
         bad = sum(1 for m in arc.get("member_results", []) or []
                   if m.get("verdict", "Clean") != "Clean" or m.get("archive_flags"))
-        parts.append(f"zip{arc.get('member_count', 0)}" + (f"!{bad}" if bad else ""))
+        parts.append(f"arc{arc.get('member_count', 0)}" + (f"!{bad}" if bad else ""))
 
     mail = sr.get("mail", {})
     if mail:
@@ -1050,7 +1050,7 @@ class DashboardPage(BasePage):
         names = ["integrity"]
         if RS.DEFUSEDXML_AVAILABLE:
             names += ["hidden", "links"]
-        names += ["zip", "mail"]
+        names += ["archives", "mail"]
         ml = getattr(scanner, "ml", None)
         if ml is not None:
             names.append("ML model" if ml.has_model else "ML rules")

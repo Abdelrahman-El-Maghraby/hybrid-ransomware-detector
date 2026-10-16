@@ -163,3 +163,16 @@ def test_scanner_scores_a_rar_like_its_worst_member(tmp_path):
     assert r["scan_results"]["archive"]["container_type"] == "rar"
     assert "archive_double_extension" in _indicators(r)
     assert r["verdict"] in ("High", "Critical")
+
+
+def test_integrity_validates_rar_and_7z_signatures(tmp_path):
+    from detectors.file_integrity import FileIntegrityAnalyzer
+    good = FileIntegrityAnalyzer().analyze_file(build_rar(tmp_path / "a.rar", [("x.txt", b"x")]))
+    assert good.magic_ok and "not validated" not in good.detail
+    encrypted = tmp_path / "b.rar"            # an archive ransomware has encrypted in place
+    encrypted.write_bytes(__import__("os").urandom(64 * 1024))
+    res = FileIntegrityAnalyzer().analyze_file(encrypted)
+    assert res.encrypted_likely and not res.disguised_executable
+    exe = tmp_path / "c.7z"                   # an archive extension is not a "document" disguise
+    exe.write_bytes(_pe_bytes(2048))
+    assert not FileIntegrityAnalyzer().analyze_file(exe).disguised_executable
