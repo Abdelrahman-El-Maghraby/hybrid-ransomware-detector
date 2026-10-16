@@ -94,24 +94,24 @@ Most lightweight scanners rely on a single technique (usually a hash lookup), wh
 
 ```mermaid
 flowchart TD
-    A[PDF / Office / RTF / ZIP / EML / MSG] --> B[1. Hashes + local DB<br/>exact known-bad]
+    A[PDF / Office / RTF<br/>ZIP / 7z / RAR / ISO<br/>EML / MSG] --> B[1. Hashes + local DB<br/>exact known-bad]
     A --> C[2. Fuzzy hashing<br/>TLSH / ssdeep families]
     A --> D[3. Macro analysis<br/>VBA, XLM, stomping]
     A --> E[4. YARA rules<br/>structural IOCs]
     A --> F[5. File integrity<br/>disguise / encryption]
     A --> G[6. Hidden content<br/>prompt injection]
     A --> H[7. External links<br/>RTI / Follina / UNC]
-    A --> I[8. Archive inspection<br/>zip bomb / slip / lures]
+    A --> I[8. Archive inspection<br/>ZIP, 7z, RAR, ISO<br/>bomb / slip / lures]
     A --> J[9. VirusTotal<br/>hash reputation]
     A --> K[10. LLM semantic<br/>local-first, spotlighted]
-    A --> L[11. MailGuard<br/>SPF / DKIM / DMARC, spoofing]
+    A --> L[11. MailGuard<br/>SPF / DKIM / DMARC, spoofing<br/>attachments, OLE objects]
     A --> P[12. ML classifier<br/>byte + PE structure]
     I -. members re-scanned .-> A
     L -. attachments re-scanned .-> A
     B & C & D & E & F & G & H & I & J & K & L & P --> M[Weighted scoring matrix]
     M --> N[Risk 0-100 + verdict band<br/>+ explainable JSON / TXT report]
     M --> Q[Optional auto-quarantine<br/>AES-256-GCM vault]
-    T[Canary tripwires] --> R[Alert file + desktop notification]
+    T[Canary tripwires<br/>watched in real time] --> R[Alert file + desktop notification]
 ```
 
 Signals fall into four weight categories: **technical** (everything structural, including MailGuard), **reputation** (VirusTotal), **semantic** (LLM and lure wording), and **statistical** (ML classifier). Technical evidence is designed to mathematically outweigh the others: semantic and statistical signals together can never push a file past Medium. Archives and e-mails send every member or attachment back through all layers (dotted arrows), and the container is scored like its most dangerous member.
