@@ -199,6 +199,15 @@ def trusted_vault(head: bytes, extension: str) -> str:
     return kind if kind and extension.lower() in VAULT_EXTENSIONS[kind] else ""
 
 
+# A real interpreter line: "#!", an absolute path of ordinary path characters,
+# optional printable arguments, then the end of the line, all within 256 bytes.
+# Requiring the whole line to be printable and terminated keeps ciphertext that
+# happens to start with "#!/" (about 1 in 16 million files) from being called a
+# script, and therefore from becoming a "disguised executable".
+_SHEBANG = re.compile(rb"#![ \t]*/[A-Za-z0-9_.+/-]+(?:[ \t][ -~]*)?\r?\n")
+_SHEBANG_MAX = 256
+
+
 def detect_format(head: bytes) -> str:
     """Identify a file's real format from its first bytes."""
     if not head:
@@ -215,7 +224,7 @@ def detect_format(head: bytes) -> str:
         return "macho"
     if h.startswith(b"\x4c\x00\x00\x00\x01\x14\x02\x00"):
         return "lnk"
-    if re.match(rb"#![ \t]*/[\w./-]+", h):
+    if _SHEBANG.match(h[:_SHEBANG_MAX]):
         return "script"
     if h.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
         return "zip"
