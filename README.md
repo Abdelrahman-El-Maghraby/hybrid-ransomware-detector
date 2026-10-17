@@ -2,6 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![Version](https://img.shields.io/badge/version-4.3.1-informational)
+[![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
@@ -532,6 +533,8 @@ python test_smoke.py             # the original v3 smoke test, still passing
 RUN_GUI_TESTS=1 xvfb-run -a python -m pytest tests/test_gui_smoke.py
 ```
 
+Every push and pull request runs the suite on **Windows, macOS and Linux** with Python 3.9 and 3.12 (GitHub Actions, `.github/workflows/tests.yml`).
+
 The suite covers each detector and protection feature in isolation, the full scan pipeline, the CLI commands, and the GUI flow (scan → quarantine → restore → canary trigger). Highlights:
 
 - the encrypted-content heuristic accepts 200 random samples at each size and rejects compressed Office files, gzip, and text,
@@ -640,7 +643,7 @@ Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered
 - **Optional sandbox integration** (e.g. a self-hosted CAPE): dynamic results as a separate, opt-in scoring category.
 - **A curated, labelled training corpus** and published ML evaluation numbers.
 - **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
-- **CI** running the test suite and `build.py` on Windows, macOS and Linux for every push, with the binaries attached to releases.
+- **Release builds in CI:** run `build.py` on Windows, macOS and Linux and attach the binaries to releases (the test suite already runs on all three).
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
 
 ---
