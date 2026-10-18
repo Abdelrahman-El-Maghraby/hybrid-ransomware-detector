@@ -28,7 +28,7 @@ def scanner(tmp_path):
 def test_default_pipeline_order():
     names = [layer.name for layer in default_pipeline()]
     assert names == ["hashes", "fuzzy", "local-db", "macro", "yara", "integrity", "mail",
-                     "prompt-guard", "relationships", "archive", "ml", "llm", "virustotal"]
+                     "prompt-guard", "relationships", "archive", "web", "ml", "llm", "virustotal"]
     # The mail container must run before the prompt guard: the guard reads the body.
     assert names.index("mail") < names.index("prompt-guard")
 
