@@ -68,7 +68,7 @@ def _env_float(name: str, default: float) -> float:
 
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
-                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img",
+                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
                         ".eml", ".msg", ".html", ".htm", ".svg",
                         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
 # Pictures are supported but not scanned in folder scans by default: a Downloads
