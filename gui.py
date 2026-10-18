@@ -18,6 +18,7 @@ import logging
 import os
 import platform
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -238,6 +239,18 @@ def layers_summary(result: dict) -> str:
         parts.append(f"mail{mail.get('attachment_count', 0)}" + (f"!{bad}" if bad else ""))
         if (mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof"):
             parts.append("spoof!")       # authentication failure / display-name spoof
+
+    web = sr.get("web", {})
+    if web:
+        if web.get("smuggling"):
+            parts.append("smuggle!")     # HTML smuggling with an embedded payload
+        elif web.get("svg_active") or web.get("credential_form") or web.get("payloads"):
+            parts.append("web!")
+        else:
+            parts.append("web")
+
+    if (sr.get("file_integrity") or {}).get("appended_payload"):
+        parts.append("img+payload!")
 
     if sr.get("ml_classifier", {}).get("label") == "suspicious":
         parts.append(f"ml {float(sr['ml_classifier'].get('probability', 0)):.2f}")
@@ -686,6 +699,24 @@ class DetailWindow(ctk.CTkToplevel):
             if mail.get("attachments_skipped") or mail.get("not_scanned_budget"):
                 line(body, f"{mail.get('attachments_skipped', 0) + mail.get('not_scanned_budget', 0)}"
                            " attachment(s) not deep-scanned (limits / embedded objects).", AMBER_SOFT)
+            line(body, "", pad=(0, 4))
+
+        # --- v4.4: web page (HTML smuggling, active SVG, phishing form) -------
+        web = sr.get("web")
+        if web:
+            body = info_section("Web page — HTML smuggling, active SVG, phishing")
+            bad = (web.get("smuggling") or web.get("payloads") or web.get("svg_active")
+                   or web.get("credential_form"))
+            detail = re.sub(r"https?://[^\s;,'\")]+", lambda m: RS.defang(m.group(0)),
+                            web.get("detail") or "—")
+            line(body, detail, RED_SOFT if bad else ACCENT_SOFT, app.font_ui, (10, 4))
+            for url in (web.get("redirects") or [])[:4]:
+                line(body, f"•  redirects to {RS.defang(url)}", AMBER_SOFT)
+            for m in (web.get("payload_results") or [])[:5]:
+                v = m.get("verdict", "Clean")
+                name = str(m.get("name", "?")).split("!/", 1)[-1]
+                line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}",
+                     verdict_color(v), app.font_mono_small)
             line(body, "", pad=(0, 4))
 
         # --- v4.1: ML classifier --------------------------------------------

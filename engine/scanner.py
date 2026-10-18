@@ -29,6 +29,8 @@ from detectors import (
     build_llm_backend, ransom_indicator,
 )
 
+from detectors.web_content import WebContentAnalyzer
+
 from .config import (
     BUNDLED_FUZZY_SIGS, DATA_DIR, ENGINE_VERSION, KEYSTORE_DIR, QUARANTINE_DIR, VERDICT_RANK,
 )
@@ -92,6 +94,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             max_total_bytes=int(float(config.get("archive_max_total_mb", 100)) * 1024 * 1024),
         )
         self.mail_scan_attachments = int(config.get("mail_scan_attachments", 25))
+        # v4.4: HTML smuggling / SVG / phishing pages.
+        self.web_analyzer = WebContentAnalyzer()
         self.ml: Optional[MLClassifier] = (
             MLClassifier(config.get("ml_model_path")) if config.get("ml_enabled", True) else None)
 

@@ -26,9 +26,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List
 
 from detectors import FUZZY_AVAILABLE
+from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.relationship_scanner import defang
 
-from .containers import ArchiveHandler, MailHandler, scan_container
+from .containers import ArchiveHandler, MailHandler, WebHandler, scan_container
 from .text import extract_suspicious_strings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -46,6 +47,7 @@ class ScanContext:
     result: Dict
     is_archive: bool = False
     is_mail: bool = False
+    is_web: bool = False
     hashes: Dict = field(default_factory=dict)
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
@@ -65,7 +67,8 @@ class ScanContext:
         }
         return cls(path=path, display=display, depth=depth, result=result,
                    is_archive=scanner.container_extractor.is_container(path),
-                   is_mail=scanner.mail_analyzer.is_mail(path))
+                   is_mail=scanner.mail_analyzer.is_mail(path),
+                   is_web=scanner.web_analyzer.is_web(path))
 
     @property
     def scan_results(self) -> Dict:
@@ -166,6 +169,7 @@ class IntegrityLayer(Layer):
             "disguised_executable": res.disguised_executable,
             "encrypted_likely": res.encrypted_likely,
             "format_mismatch": res.format_mismatch,
+            "appended_payload": res.appended_payload,
             "detail": res.detail,
         }
 
@@ -240,6 +244,9 @@ class LLMLayer(Layer):
             llm = {"is_malicious": False, "confidence": 0, "suspicious_elements": [],
                    "details": "Archive: members are analysed individually; "
                               "LLM layer skipped for the container."}
+        elif os.path.splitext(ctx.path)[1].lower() in IMAGE_EXTENSIONS:
+            llm = {"is_malicious": False, "confidence": 0, "suspicious_elements": [],
+                   "details": "Image: no text to analyse; LLM layer skipped."}
         else:
             llm = scanner.analyze_with_llm(ctx.path, ctx.text, ctx.strings,
                                            sha256=ctx.hashes.get("sha256"))
@@ -279,6 +286,7 @@ def default_pipeline() -> List[Layer]:
         PromptGuardLayer(),
         RelationshipLayer(),
         ContainerLayer(ArchiveHandler()),
+        ContainerLayer(WebHandler()),        # HTML smuggling: payloads hidden in a page
         MLLayer(),
         LLMLayer(),
         VirusTotalLayer(),

@@ -11,6 +11,7 @@ import pytesseract
 from pdf2image import convert_from_path
 
 from detectors import DEFUSEDXML_AVAILABLE
+from detectors.web_content import WEB_EXTENSIONS, visible_text
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -66,6 +67,9 @@ class TextExtractionMixin:
         file_ext = os.path.splitext(file_path)[1].lower()
 
         try:
+            if file_ext in WEB_EXTENSIONS:
+                with open(file_path, "rb") as fh:
+                    return visible_text(fh.read(2 * 1024 * 1024))
             if file_ext == ".pdf":
                 text = self._extract_text_from_pdf(file_path)
                 if not text.strip() and allow_ocr:

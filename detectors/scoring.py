@@ -217,6 +217,16 @@ class ScoringMatrix:
     W_MAIL_RTLO = 60.0
     W_MAIL_LURE_SUBJECT = 8.0      # semantic: urgency/payment/credential phrasing
 
+    # ---- v4.4: web content + images ------------------------------------------------
+    W_HTML_SMUGGLING = 70.0        # Blob download construct + embedded payload (T1027.006)
+    W_WEB_PAYLOAD = 60.0           # executable / archive / disc image embedded in a page
+    W_WEB_DOWNLOAD_CONSTRUCT = 15.0  # the construct alone (web apps use it for exports)
+    W_SVG_ACTIVE = 40.0            # script / event handlers / foreignObject in an SVG
+    W_WEB_CREDENTIAL = 35.0        # password captured and sent out (phishing page)
+    W_WEB_REDIRECT = 20.0          # page forwards to an external URL
+    W_JS_OBFUSCATION = 15.0        # two or more obfuscation markers
+    W_IMAGE_APPENDED_PAYLOAD = 70.0  # executable / archive after the end of an image
+
     # ---- v4.1: ML classifier (statistical) --------------------------------------
     W_ML = 20.0                    # scaled by P(suspicious)
 
@@ -285,6 +295,7 @@ class ScoringMatrix:
 
         contribs.extend(self._v4_technical(signals))
         contribs.extend(self._mail(signals))
+        contribs.extend(self._web(signals))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -396,6 +407,12 @@ class ScoringMatrix:
                 "hidden_content", "technical", self.W_HIDDEN_CONTENT,
                 f"Concealed document content ({reasons})."))
 
+        if integ.get("appended_payload"):
+            out.append(Contribution(
+                "image_appended_payload", "technical", self.W_IMAGE_APPENDED_PAYLOAD,
+                f"{str(integ['appended_payload']).upper()} data appended after the end of an "
+                f"image: a payload hidden in a picture."))
+
         rels = signals.get("relationships") or {}
         kinds = [k for k in (rels.get("kinds") or []) if k in self.W_RTI]
         if kinds:
@@ -494,4 +511,44 @@ class ScoringMatrix:
         worst = mail.get("worst_attachment") or {}
         for c in worst.get("contributions", []) or []:
             out.append(_prefixed(worst.get("name", "attachment"), c, "mail_attachment"))
+        return out
+
+    # ------------------------------------------------------------------ v4.4
+    def _web(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        web = signals.get("web") or {}
+        if not web:
+            return out
+        if web.get("smuggling"):
+            out.append(Contribution(
+                "html_smuggling", "technical", self.W_HTML_SMUGGLING,
+                "HTML smuggling (T1027.006): " + "; ".join(web.get("smuggling_reasons") or [])
+                + "."))
+        elif web.get("smuggling_construct"):
+            out.append(Contribution(
+                "web_download_construct", "technical", self.W_WEB_DOWNLOAD_CONSTRUCT,
+                "Page builds a file in the browser and saves it (no embedded payload found)."))
+        if web.get("payloads"):
+            out.append(Contribution(
+                "web_embedded_payload", "technical", self.W_WEB_PAYLOAD,
+                "File embedded in the page: " + ", ".join(web["payloads"][:3]) + "."))
+        if web.get("svg_active"):
+            out.append(Contribution(
+                "svg_active_content", "technical", self.W_SVG_ACTIVE,
+                "SVG image carries active content: " + ", ".join(web["svg_active"]) + "."))
+        if web.get("credential_form"):
+            out.append(Contribution(
+                "web_credential_capture", "technical", self.W_WEB_CREDENTIAL,
+                "Credential capture: " + "; ".join(web.get("credential_reasons") or []) + "."))
+        if web.get("redirects"):
+            out.append(Contribution(
+                "web_redirect", "technical", self.W_WEB_REDIRECT,
+                f"Redirects to {len(web['redirects'])} external URL(s)."))
+        if len(web.get("obfuscation") or []) >= 2:
+            out.append(Contribution(
+                "js_obfuscation", "technical", self.W_JS_OBFUSCATION,
+                "Obfuscated script: " + ", ".join(web["obfuscation"]) + "."))
+        worst = web.get("worst_payload") or {}
+        for c in worst.get("contributions", []) or []:
+            out.append(_prefixed(worst.get("name", "payload"), c, "web_payload"))
         return out

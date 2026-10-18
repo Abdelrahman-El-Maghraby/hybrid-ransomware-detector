@@ -69,7 +69,13 @@ def _env_float(name: str, default: float) -> float:
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
                         ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img",
-                        ".eml", ".msg"]
+                        ".eml", ".msg", ".html", ".htm", ".svg",
+                        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
+# Pictures are supported but not scanned in folder scans by default: a Downloads
+# folder can hold thousands, and each one would cost a VirusTotal lookup. Images
+# inside archives and e-mails are always checked; tick them in the GUI to add them.
+IMAGE_SCAN_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
+DEFAULT_EXTENSIONS = [e for e in SUPPORTED_EXTENSIONS if e not in IMAGE_SCAN_EXTENSIONS]
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
 CONFIG = {
@@ -77,7 +83,7 @@ CONFIG = {
         str(USER_HOME / "Downloads"),
         # Add more folders to scan as needed
     ],
-    "file_extensions": list(SUPPORTED_EXTENSIONS),
+    "file_extensions": list(DEFAULT_EXTENSIONS),
     "kaggle_database_path": str(DATA_DIR / "data_file.csv"),
 
     # --- LLM semantic layer -------------------------------------------------

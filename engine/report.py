@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -253,6 +254,19 @@ LLM posture:            {self._llm_posture_label()}
                     lines.append(f"              - {a.get('name')}: {a.get('verdict')} "
                                  f"(risk {a.get('risk_score', 0)}/100)")
 
+        # Web page (HTML smuggling, active SVG, phishing form)
+        web = sr.get("web", {})
+        if web:
+            detail = re.sub(r"https?://[^\s;,'\")]+", lambda m: defang(m.group(0)),
+                            web.get("detail", ""))
+            lines.append(f"  [Web]       {detail}")
+            for url in (web.get("redirects") or [])[:3]:
+                lines.append(f"              ! redirects to {defang(url)}")
+            for m in web.get("payload_results", []) or []:
+                if m.get("verdict", "Clean") != "Clean":
+                    lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
+                                 f"(risk {m.get('risk_score', 0)}/100)")
+
         # ML classifier
         ml = sr.get("ml_classifier", {})
         if ml.get("label") == "suspicious":
@@ -316,7 +330,7 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "prompt-guard", "relationships", "archives", "mail"]
+        layers += ["integrity", "prompt-guard", "relationships", "archives", "mail", "web"]
         if getattr(self, "ml", None) is not None:
             layers.append("ml")
         layers.append("llm")

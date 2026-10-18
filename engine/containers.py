@@ -9,7 +9,8 @@ carry the most dangerous member's evidence over to the container's score.
 Only the parts that genuinely differ live in a `ContainerHandler`: how to
 open the container, which members to scan and under what display name, and
 which of its own findings become scoring signals. Supporting a new container
-type (7z, ISO, an Outlook item inside an Outlook item) means writing one
+type (7z, ISO, an Outlook item inside an Outlook item, a payload smuggled
+inside a web page) means writing one
 handler, not another copy of the scanning loop.
 """
 
@@ -157,6 +158,44 @@ class ArchiveHandler(ContainerHandler):
             "double_extension_members": d["double_extension_members"],
             "rtlo_members": d["rtlo_members"],
             "reasons": {"zip_slip": d["zip_slip_reason"], "zip_bomb": d["zip_bomb_reason"]},
+        }
+
+
+class WebHandler(ContainerHandler):
+    """HTML / SVG pages: payloads decoded from base64 strings and data: URIs are
+    the members (HTML smuggling); the page's own findings are its signals."""
+
+    result_key = signal_key = "web"
+    members_key = "payload_results"
+    worst_key = "worst_payload"
+    worst_default_name = "payload"
+    error_label = "embedded payload"
+
+    def applies(self, ctx):
+        return ctx.is_web
+
+    def open(self, scanner, path):
+        return scanner.web_analyzer.open(path)
+
+    def budget(self, scanner):
+        return 5
+
+    def items(self, view, ctx):
+        for payload in view.payloads:
+            if payload.path:
+                yield payload.path, f"{ctx.display}!/{payload.name}", payload.name
+
+    def signals(self, d):
+        return {
+            "smuggling": d["smuggling"],
+            "smuggling_construct": d["smuggling_construct"],
+            "smuggling_reasons": d["smuggling_reasons"],
+            "payloads": [p["name"] + " (" + p["format"] + ")" for p in d["payloads"]],
+            "svg_active": d["svg_active"],
+            "credential_form": d["credential_form"],
+            "credential_reasons": d["credential_reasons"],
+            "redirects": d["redirects"],
+            "obfuscation": d["obfuscation"],
         }
 
 
