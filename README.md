@@ -1,7 +1,7 @@
 # 🛡️ Hybrid Ransomware Detection System
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.3.1-informational)
+![Version](https://img.shields.io/badge/version-4.4.0--beta.1-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
@@ -16,6 +16,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 
 ## 📖 Table of Contents
 
+- [🧪 What's new in 4.4 (beta)](#-whats-new-in-44-beta)
 - [🆕 What's new in 4.3](#-whats-new-in-43)
 - [🆕 What's new in 4.2](#-whats-new-in-42)
 - [🆕 What's new in 4.1](#-whats-new-in-41)
@@ -40,7 +41,15 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 
 ---
 
-## 🆕 What's new in 4.3
+## 🧪 What's new in 4.4 (beta)
+
+> **Pre-release.** These checks are new and are being validated on real samples. The stable release is 4.3.1; nothing below changes how the file types 4.3.1 already supported are scored (the regression corpus gives identical verdicts).
+
+- **HTML and SVG attachments.** HTML smuggling (a payload hidden in the page as base64 and rebuilt in the browser with `Blob` + an object URL / download link) is detected, and the hidden payload is decoded and scanned through the whole pipeline. Also flagged: SVG images with active content (scripts, event handlers, embedded HTML), password forms posting to an external host, redirects and script obfuscation. Nothing is executed or fetched.
+- **Images.** A payload appended after the end of a PNG, JPEG, GIF, BMP or WEBP image, and an executable renamed to an image extension. Pictures are supported but not part of folder scans by default; inside archives and e-mails they are always checked.
+- **macOS installers.** `.pkg` packages are read in Python (install scripts and payload unpacked); `.dmg` disk images are opened through 7-Zip when it is installed. An installer's programs and scripts are listed and each one is scanned, but they are not scored just for being there, and a large app image is reported as not unpacked rather than as a decompression bomb.
+- **Known gap:** the HTML-smuggling detection has no automated tests yet; it was checked by hand. Image, SVG and installer handling are covered by 62 new tests.
+
 
 - **RAR archives** (RAR 4 and RAR 5, including encrypted members and encrypted file names). Names, sizes, symlinks and encryption are read in Python by `rarfile`, so the lure, slip and limit checks always run. Decompressing needs a program that is usually already installed: 7-Zip (found in Program Files on Windows automatically), `unrar`, `unar` or `bsdtar`. The tool is only asked to stream one member to stdout, never to write files, so its own path handling is never trusted.
 - **OLE objects in Outlook messages.** A file pasted into a mail as an icon (the Packager trick: the icon says `invoice.pdf`, double-clicking runs `invoice.pdf.exe`) is unpacked under its **real** name and scanned. Embedded Word/Excel/PowerPoint files and PDFs are extracted too; legacy `.doc/.xls/.ppt` objects are repacked as standalone files so the macro layer can read them. This also works inside forwarded Outlook items.
@@ -525,7 +534,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 345 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 407 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)

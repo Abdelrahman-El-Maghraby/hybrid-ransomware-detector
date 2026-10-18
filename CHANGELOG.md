@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.4.0-beta.1] — 2026-10-18 (pre-release)
+
+### Added
+
+- **Web content (HTML / SVG):** HTML smuggling (MITRE ATT&CK T1027.006): the
+  Blob + object-URL / download construct, with base64 strings and `data:`
+  URIs decoded and any executable, archive, disc image or Office payload
+  scanned through the full pipeline. Active SVG content, credential forms
+  posting to external hosts, external redirects and obfuscation markers.
+- **Images:** payloads appended after the image data (PNG, JPEG, GIF, BMP,
+  WEBP) and executables renamed to image extensions. Images are supported
+  but excluded from folder scans by default.
+- **macOS installers:** `.pkg` (XAR + gzip/pbzx cpio, pure Python) and `.dmg`
+  (UDIF, through 7-Zip). Installer contents are scanned individually and not
+  scored for merely containing programs; oversized content is reported as
+  not unpacked instead of as a bomb.
+- 62 tests for images, SVG and installers (407 in total).
+
+### Changed
+
+- The random-bytes calibration test tolerates one miss in 200 samples: the
+  threshold rejects about 1 in 100,000 random 1 KiB blocks (measured on
+  300,000), which made the strict assertion fail about once in 500 runs.
+
+### Known limitations
+
+- HTML-smuggling detection has no automated tests yet (verified manually).
+- `.dmg` needs a 7-Zip executable; without it the image is reported as not
+  unpacked.
+
 ## [4.3.1] — 2026-10-17
 
 ### Fixed
