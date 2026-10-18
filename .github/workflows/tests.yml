@@ -52,7 +52,16 @@ jobs:
         env:
           LLM_PROVIDER: none
           PYTHONIOENCODING: utf-8
-        run: python -m pytest -q -rs
+        # Each failing test is also reported as an annotation, so it shows on the
+        # pull request without opening the log.
+        # (bash runs with -e -o pipefail here: capture the status instead of exiting.)
+        run: |
+          status=0
+          python -m pytest -q -rfs --tb=short 2>&1 | tee pytest.log || status=$?
+          { grep -E '^(FAILED|ERROR) ' pytest.log || true; } | head -20 | while read -r line; do
+            echo "::error title=${{ runner.os }} / Python ${{ matrix.python }}::$line"
+          done
+          exit $status
 
       - name: Original v3 smoke test
         env:
