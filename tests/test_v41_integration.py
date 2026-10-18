@@ -193,7 +193,7 @@ def test_cli_train_ml_then_scan_uses_the_model(tmp_path):
                LLM_PROVIDER="none", ML_MODEL_PATH=str(model))
     out = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"),
                           "--train-ml", str(benign), str(malicious)],
-                         capture_output=True, text=True, env=env, timeout=300)
+                         capture_output=True, encoding="utf-8", errors="replace", env=env, timeout=300)
     assert out.returncode == 0, out.stdout + out.stderr
     assert model.is_file() and "Held-out set" in out.stdout and "precision" in out.stdout
 
@@ -208,7 +208,7 @@ def test_cli_train_ml_rejects_missing_dirs(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), LLM_PROVIDER="none")
     out = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"),
                           "--train-ml", str(tmp_path / "nope"), str(tmp_path / "nope2")],
-                         capture_output=True, text=True, env=env, timeout=120)
+                         capture_output=True, encoding="utf-8", errors="replace", env=env, timeout=120)
     assert out.returncode == 2 and "Not a directory" in out.stdout
 
 

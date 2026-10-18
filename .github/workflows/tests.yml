@@ -33,9 +33,11 @@ jobs:
             requirements.txt
             requirements-ml.txt
 
+      # unar reads every RAR method; Homebrew's 7-Zip is built without the RAR
+      # codec, so compressed RAR members fail with it ("Unsupported Method").
       - name: RAR decompressor (macOS)
         if: runner.os == 'macOS'
-        run: brew install sevenzip || true
+        run: brew install unar || true
 
       - name: Install dependencies
         # Every detection layer is optional and the suite skips what is missing,

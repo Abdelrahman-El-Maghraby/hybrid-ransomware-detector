@@ -251,7 +251,7 @@ def _cli(tmp_path, *args):
     env = dict(os.environ, HOME=str(tmp_path / "home"), USERPROFILE=str(tmp_path / "home"),
                LLM_PROVIDER="none", VIRUSTOTAL_API_KEY="", OPENAI_API_KEY="")
     return subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), *args],
-                          capture_output=True, text=True, env=env, timeout=120)
+                          capture_output=True, encoding="utf-8", errors="replace", env=env, timeout=120)
 
 
 def test_cli_canary_and_quarantine_workflow(tmp_path):

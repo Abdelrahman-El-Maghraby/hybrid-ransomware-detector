@@ -485,6 +485,13 @@ def _train_ml_cli(benign_dir: str, malicious_dir: str, out_path: str) -> int:
 
 def main():
     """Main entry point for the script."""
+    # Output redirected to a file on Windows uses the ANSI code page (cp1252),
+    # which cannot encode characters such as "→": replace them rather than crash.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(
         description="Cross-platform ransomware & malicious-document scanner "
                     "(PDF, Office, RTF, ZIP)")
