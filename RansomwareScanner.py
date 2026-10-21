@@ -554,6 +554,8 @@ def main():
     parser.add_argument("--fuzzy-hash", metavar="PATH",
                         help="Print a file's TLSH and ssdeep digests (use these to "
                              "populate your fuzzy signature DB), then exit")
+    parser.add_argument("--jsonl", metavar="FILE",
+                        help="Also append each result as one JSON line to FILE (for SIEM ingestion)")
     parser.add_argument("--allow", metavar="PATH",
                         help="Add a known-good file's SHA-256 to the allowlist (it is still "
                              "scanned and reported, but not scored), then exit")
@@ -598,6 +600,8 @@ def main():
                         help="Where --train-ml saves the model (default: ML_MODEL_PATH)")
 
     args = parser.parse_args()
+    if args.jsonl:
+        CONFIG["jsonl_path"] = args.jsonl
 
     # An explicit --llm-provider overrides config/env for this process.
     if args.llm_provider:
@@ -776,6 +780,8 @@ def main():
             return
         result = scanner.scan_file(args.scan_file)
         print(scanner.generate_report([result]))
+        from core.outputs import deliver
+        deliver([result], CONFIG)
         return
 
     if args.scan_now:

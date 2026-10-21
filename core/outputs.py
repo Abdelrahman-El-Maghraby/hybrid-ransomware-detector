@@ -1,0 +1,85 @@
+"""Machine-readable outputs for SIEM / SOC pipelines.
+
+* JSON Lines: one result per line (schema api/scan_result.schema.json), appended,
+  so a log shipper (Filebeat, Fluent Bit, Splunk UF ...) can tail the file.
+* Webhook: a compact alert per file at or above a verdict, POSTed as JSON. With a
+  shared secret the body is signed (header X-Aegis-Signature: sha256=<hex HMAC>),
+  so the receiver can reject forged alerts. Only metadata is sent - never file
+  content.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Union
+
+logger = logging.getLogger("RansomwareScanner")
+
+RANK = {"Clean": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+
+
+def write_jsonl(results: Iterable[Dict], path: Union[str, Path]) -> int:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with open(p, "a", encoding="utf-8") as fh:
+        for r in results:
+            fh.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+            n += 1
+    return n
+
+
+def alert_payload(r: Dict) -> Dict:
+    contribs = sorted((r.get("score_breakdown") or {}).get("contributions") or [],
+                      key=lambda c: -float(c.get("points", 0) or 0))
+    return {
+        "schema_version": r.get("schema_version"), "source": "aegis-sentinel",
+        "engine_version": r.get("engine_version"), "scan_time": r.get("scan_time"),
+        "file_path": r.get("file_path"), "sha256": r.get("sha256_hash"),
+        "verdict": r.get("verdict"), "risk_score": r.get("risk_score"),
+        "indicators": [c.get("indicator") for c in contribs[:8]],
+        "top_reason": contribs[0].get("detail", "") if contribs else "",
+    }
+
+
+def sign(body: bytes, secret: str) -> str:
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdict: str = "High",
+                 session=None, timeout: float = 10) -> List[str]:
+    """POST one alert per qualifying result; returns the file paths that were sent."""
+    import requests
+    http = session or requests
+    floor = RANK.get(min_verdict, 3)
+    sent: List[str] = []
+    for r in results:
+        if RANK.get(r.get("verdict", "Clean"), 0) < floor:
+            continue
+        body = json.dumps(alert_payload(r), ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if secret:
+            headers["X-Aegis-Signature"] = sign(body, secret)
+        try:
+            resp = http.post(url, data=body, headers=headers, timeout=timeout)
+            if 200 <= getattr(resp, "status_code", 0) < 300:
+                sent.append(r.get("file_path", ""))
+            else:
+                logger.warning("Webhook returned %s for %s", resp.status_code, r.get("file_path"))
+        except Exception as e:
+            logger.warning("Webhook delivery failed for %s: %s", r.get("file_path"), e)
+    return sent
+
+
+def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None) -> None:
+    """Send results to every configured output (JSONL file, webhook)."""
+    path = jsonl_path or config.get("jsonl_path")
+    if path:
+        write_jsonl(results, path)
+    if config.get("webhook_url"):
+        send_webhook(results, config["webhook_url"], config.get("webhook_secret", ""),
+                     config.get("webhook_min_verdict", "High"))

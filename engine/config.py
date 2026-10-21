@@ -113,6 +113,11 @@ CONFIG = {
     "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
     "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
     "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
+    # Machine-readable outputs (SIEM / SOC): JSON Lines file and alert webhook
+    "jsonl_path": os.getenv("JSONL_PATH", ""),
+    "webhook_url": os.getenv("WEBHOOK_URL", ""),
+    "webhook_secret": os.getenv("WEBHOOK_SECRET", ""),
+    "webhook_min_verdict": os.getenv("WEBHOOK_MIN_VERDICT", "High"),
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),

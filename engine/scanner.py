@@ -525,6 +525,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         results = self.scan_all_directories()
         report = self.generate_report(results, impact=self.last_impact,
                                       canary_report=canary_report)
+        from core.outputs import deliver
+        deliver(results, self.config)
         logger.info("Scan complete.")
         return report
 

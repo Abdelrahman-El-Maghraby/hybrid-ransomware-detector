@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+from api import SCHEMA_VERSION
 from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
 from detectors.embedded_content import sniff as embedded_sniff
@@ -81,6 +82,7 @@ class ScanContext:
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
               engine_version: str) -> ScanContext:
         result = {
+            "schema_version": SCHEMA_VERSION,
             "file_path": display,
             "file_name": os.path.basename(display.replace("!/", "/")),
             "file_size": os.path.getsize(path),

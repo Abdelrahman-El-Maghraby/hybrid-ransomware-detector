@@ -137,7 +137,9 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
     except Exception:
         hashes = {}
     score = scanner.scoring.score({"scan_failed": reason})
+    from api import SCHEMA_VERSION
     return {
+        "schema_version": SCHEMA_VERSION,
         "file_path": path, "file_name": _os.path.basename(path),
         "file_size": _os.path.getsize(path) if _os.path.exists(path) else 0,
         "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
