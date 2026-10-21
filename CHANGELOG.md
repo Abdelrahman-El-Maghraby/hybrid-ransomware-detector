@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.4.0-beta.2] — 2026-10-21 (pre-release)
+
+### Added
+
+- **QR codes (quishing):** QR codes in images, PDF pages, Office documents and
+  e-mail attachments are decoded and their links judged (bare IP, punycode,
+  user-info trick, URL shortener, script scheme; weaker hints such as plain
+  HTTP, throw-away TLDs and lure words only count in pairs). Links are defanged
+  in reports. Needs an optional decoder: `pyzbar` (plus the zbar library) or
+  OpenCV; without one the layer says QR codes were not checked.
+- **Linux ELF triage:** header (bits, machine, type, static/dynamic), UPX or
+  near-random packing, a removed section table, and behaviour strings (ransom
+  note, cryptominer, reverse shell, download-and-run, log/firewall tampering,
+  persistence). Checked against 2,388 system binaries with no findings.
+- `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
+  into one `.eml` per message, skipping duplicates.
+- 37 new tests (ELF, QR, mbox tool, staged pipeline, RAR codec); 444 in total.
+
+### Changed
+
+- **Staged pipeline:** the slow layers (ML, LLM, VirusTotal) run last. When the
+  local layers already give the maximum score they are skipped (the verdict
+  cannot change) and the report lists them under `[Skipped]`; otherwise they
+  run concurrently. Scores are identical to beta.1 on the regression corpus; a
+  benchmark with simulated 0.4 s LLM/VirusTotal latency went from 16.6 s to
+  6.4 s. Switches: `SKIP_HEAVY_WHEN_SATURATED`, `PARALLEL_HEAVY_LAYERS`.
+- **RAR:** when the only extractor is a 7-Zip build without the RAR codec
+  (common with `p7zip` on Linux), members are reported as "no RAR codec"
+  instead of as encrypted.
+- **GUI:** shown as **Aegis Sentinel**; calmer palette, one engine-status panel
+  instead of separate cards, and a "Main reasons" column in the results table.
+  The repository and package names are unchanged.
+
+### Known limitations
+
+- JavaScript / VBScript / HTA attachments are not analysed yet, and
+  HTML-smuggling detection still has no automated tests.
+
 ## [4.4.0-beta.1] — 2026-10-18 (pre-release)
 
 ### Added

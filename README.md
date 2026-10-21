@@ -1,7 +1,9 @@
 # 🛡️ Hybrid Ransomware Detection System
 
+*Desktop app name: **Aegis Sentinel**.*
+
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.4.0--beta.1-orange)
+![Version](https://img.shields.io/badge/version-4.4.0--beta.2-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
@@ -48,7 +50,12 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - **HTML and SVG attachments.** HTML smuggling (a payload hidden in the page as base64 and rebuilt in the browser with `Blob` + an object URL / download link) is detected, and the hidden payload is decoded and scanned through the whole pipeline. Also flagged: SVG images with active content (scripts, event handlers, embedded HTML), password forms posting to an external host, redirects and script obfuscation. Nothing is executed or fetched.
 - **Images.** A payload appended after the end of a PNG, JPEG, GIF, BMP or WEBP image, and an executable renamed to an image extension. Pictures are supported but not part of folder scans by default; inside archives and e-mails they are always checked.
 - **macOS installers.** `.pkg` packages are read in Python (install scripts and payload unpacked); `.dmg` disk images are opened through 7-Zip when it is installed. An installer's programs and scripts are listed and each one is scanned, but they are not scored just for being there, and a large app image is reported as not unpacked rather than as a decompression bomb.
-- **Known gap:** the HTML-smuggling detection has no automated tests yet; it was checked by hand. Image, SVG and installer handling are covered by 62 new tests.
+- Image, SVG and installer handling are covered by 62 tests.
+- **QR codes (beta.2).** Phishing links hidden in QR codes ("quishing") in images, PDF pages, Office documents and e-mail attachments are decoded and judged: bare IP addresses, punycode, `user@host` tricks, URL shorteners and script schemes are suspicious on their own; plain HTTP, throw-away TLDs and lure words count only in pairs. Links are defanged in reports. Decoding needs `pip install pyzbar` plus the zbar library (`brew install zbar`, `sudo apt-get install libzbar0`; the Windows wheel includes it) or `opencv-python-headless`; without either, the report says QR codes were not checked.
+- **Linux ELF files (beta.2).** Header, packing (UPX or near-random content), a stripped section table, and behaviour strings: ransom notes, cryptominer pools, reverse shells, download-and-run one-liners, log/firewall tampering and persistence. Nothing is executed.
+- **Faster scans (beta.2).** The slow layers (ML, LLM, VirusTotal) run last and in parallel, and are skipped when the local layers already reach 100 (the verdict cannot change; the report lists them under `[Skipped]`). Set `SKIP_HEAVY_WHEN_SATURATED=false` or `PARALLEL_HEAVY_LAYERS=false` to turn either off.
+- **Tools (beta.2).** `python tools/mbox_to_eml.py OUT_DIR corpus.mbox` splits mbox mailboxes into `.eml` files for scanning and evaluation.
+- **Known gap:** the HTML-smuggling detection has no automated tests yet; it was checked by hand. JavaScript / VBScript / HTA attachments are not analysed yet.
 
 
 - **RAR archives** (RAR 4 and RAR 5, including encrypted members and encrypted file names). Names, sizes, symlinks and encryption are read in Python by `rarfile`, so the lure, slip and limit checks always run. Decompressing needs a program that is usually already installed: 7-Zip (found in Program Files on Windows automatically), `unrar`, `unar` or `bsdtar`. The tool is only asked to stream one member to stdout, never to write files, so its own path handling is never trusted.
@@ -346,6 +353,9 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `AUTO_QUARANTINE` | empty (off) | `high` or `critical` |
 | `CANARY_CHECK_MINUTES` | `5` | canary verification interval |
 | `FUZZY_SIGNATURE_DB`, `YARA_RULES_DIR` | bundled | custom signature/rule locations |
+| `SKIP_HEAVY_WHEN_SATURATED` | `true` | skip ML/LLM/VirusTotal when the local layers already score 100 |
+| `PARALLEL_HEAVY_LAYERS` | `true` | run ML/LLM/VirusTotal concurrently |
+| `QR_SCAN_ENABLED` | `true` | decode QR codes (needs pyzbar or OpenCV) |
 
 > The local layers (hashes, fuzzy, macros, YARA, integrity, hidden content, external links, archives) need **no keys at all**. VirusTotal needs a key; the LLM layer needs a running Ollama (recommended) or an OpenAI key.
 
@@ -494,7 +504,7 @@ A machine-readable `ransomware_scan_<timestamp>.json` with the complete per-laye
 
 ## 🪟 Graphical interface
 
-A desktop front-end built with CustomTkinter that uses the scanner as a library. The CLI keeps working on its own, and both share the same configuration, reports, hash database, canaries and vault.
+**Aegis Sentinel**, a desktop front-end built with CustomTkinter that uses the scanner as a library. The CLI keeps working on its own, and both share the same configuration, reports, hash database, canaries and vault.
 
 **Dashboard** (screenshot at the [top of this page](#-whats-new-in-40)). A status card per layer: hash database, fuzzy hashing (signature count), macro analysis, YARA (rule-file count), VirusTotal, the LLM (**LOCAL vs CLOUD**), and in v4 the heuristic layers, canary tripwires and quarantine vault. Scans run with live per-file progress; each row shows a compact per-layer summary (e.g. `DB– fuzzy– macro! yara✓3 exe! VT 14/72 AI 0.80`) next to a 0–100 risk bar and the verdict. Double-click a row for the full breakdown.
 
@@ -534,7 +544,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 407 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 444 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
