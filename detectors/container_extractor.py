@@ -59,6 +59,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import tempfile
 import zipfile
 import zlib
@@ -136,14 +137,20 @@ _FORMAT_EXTENSIONS = {"zip": {".zip"}, "7z": {".7z"}, "iso": {".iso", ".img"},
                       "rar": {".rar"}, "pkg": {".pkg", ".mpkg"}, "dmg": {".dmg"}}
 _MISSING_LIBRARY = {"7z": "py7zr", "iso": "pycdlib", "rar": "rarfile", "pkg": "defusedxml",
                     "rar-tool": "7-Zip, unrar or unar (a RAR decompressor)",
+                    "rar-codec": "unrar or unar (this 7-Zip build has no RAR codec)",
                     "dmg-tool": "7-Zip (to open DMG disk images)"}
 # Programs, not Python packages: the advice is "install", not "pip install".
-_MISSING_TOOLS = {_MISSING_LIBRARY["rar-tool"], _MISSING_LIBRARY["dmg-tool"]}
+_MISSING_TOOLS = {_MISSING_LIBRARY["rar-tool"], _MISSING_LIBRARY["rar-codec"],
+                  _MISSING_LIBRARY["dmg-tool"]}
 # Installers carry programs and scripts by design: listed, scanned, not scored as such.
 _INSTALLER_FORMATS = ("pkg", "dmg")
 # Where the RAR decompressors live on Windows when they are not on PATH.
 _WINDOWS_RAR_TOOLS = (("SEVENZIP_TOOL", r"7-Zip\7z.exe"), ("UNRAR_TOOL", r"WinRAR\UnRAR.exe"))
 _rar_tool_state: Optional[bool] = None
+_rar_codec_state: Optional[str] = None
+RAR_NO_CODEC = ("the installed 7-Zip has no RAR codec, so it cannot decompress RAR members "
+                "(install unrar or unar)")
+_RAR_CODEC_NAME = re.compile(r"\bRar[1-5]?\b")
 
 
 def rar_tool_available() -> bool:
@@ -168,6 +175,38 @@ def rar_tool_available() -> bool:
         except Exception:
             _rar_tool_state = False
     return _rar_tool_state
+
+def sevenzip_lacks_rar_codec(info_output: str) -> bool:
+    """True when `7z i` output lists codecs but none of them is a RAR codec.
+
+    Some 7-Zip builds (distribution packages, Homebrew's `sevenzip`) recognise the
+    RAR format but leave out the RAR decompression codec. They list the archive and
+    then fail on every compressed member, which used to be reported as "encrypted".
+    """
+    codecs = info_output.partition("Codecs:")[2].partition("Hashers:")[0]
+    return bool(codecs.strip()) and not _RAR_CODEC_NAME.search(codecs)
+
+
+def rar_codec_problem() -> str:
+    """Why RAR members cannot be decompressed here, or "" if nothing is known to be wrong.
+
+    Only a 7-Zip without the RAR codec is detected (cached); unrar, unar and bsdtar
+    always decompress RAR when they are present.
+    """
+    global _rar_codec_state
+    if _rar_codec_state is None:
+        _rar_codec_state = ""
+        try:
+            if rar_tool_available():
+                tool = _rarfile.tool_setup().setup.get("open_cmd", ("",))[0]
+                if tool in ("SEVENZIP_TOOL", "SEVENZIP2_TOOL"):
+                    out = subprocess.run([getattr(_rarfile, tool), "i"], capture_output=True,
+                                         text=True, errors="replace", timeout=15).stdout
+                    if sevenzip_lacks_rar_codec(out):
+                        _rar_codec_state = RAR_NO_CODEC
+        except Exception as e:                   # never let the probe break a scan
+            logger.debug("RAR codec probe failed: %s", e)
+    return _rar_codec_state
 
 _BAD_ZIP_ERRORS = (zipfile.BadZipFile,) + (
     (_pyzipper.BadZipFile,) if AES_ZIP_AVAILABLE and _pyzipper.BadZipFile is not zipfile.BadZipFile
@@ -685,6 +724,12 @@ class ContainerExtractor:
             except Exception as e:               # wrong password, CRC error, tool failure
                 target.unlink(missing_ok=True)
                 logger.debug("RAR member %s failed: %s", shown, e)
+                if rar_codec_problem():
+                    # The tool cannot decompress RAR at all: say so instead of
+                    # blaming a password, and stop trying passwords.
+                    member.skipped_reason = rar_codec_problem()
+                    self._missing("rar-codec", res, count=0)
+                    break
                 continue
             if outcome == "bomb":
                 res.members.append(member)
