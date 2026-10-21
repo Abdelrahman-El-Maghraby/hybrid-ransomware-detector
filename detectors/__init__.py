@@ -20,6 +20,10 @@ third-party dependency is not installed:
                           deceptive links, attachment extraction
     ml_classifier         static byte/PE features + RandomForest (or a
                           transparent rule engine when no model is trained)
+    elf_analysis          Linux ELF triage: packing, removed section table,
+                          hostile-only strings (miners, reverse shells...)
+    qr_scanner            QR codes in images / PDF / Office files and the
+                          links they carry (quishing)
     scoring               transparent weighted scoring matrix
 """
 
@@ -35,6 +39,8 @@ from .container_extractor import ContainerExtractor, ContainerResult
 from .mail_analyzer import MailAnalyzer, MailResult, MSG_AVAILABLE
 from .ml_classifier import MLClassifier, MLResult, SKLEARN_AVAILABLE
 from .scoring import ScoringMatrix, ScoreResult
+from .elf_analysis import ElfAnalyzer, ElfResult
+from .qr_scanner import QRScanner, QRResult, QR_AVAILABLE
 
 __all__ = [
     "FuzzyHasher", "FuzzyResult", "FUZZY_AVAILABLE",
@@ -49,4 +55,5 @@ __all__ = [
     "MailAnalyzer", "MailResult", "MSG_AVAILABLE",
     "MLClassifier", "MLResult", "SKLEARN_AVAILABLE",
     "ScoringMatrix", "ScoreResult",
+    "ElfAnalyzer", "ElfResult", "QRScanner", "QRResult", "QR_AVAILABLE",
 ]

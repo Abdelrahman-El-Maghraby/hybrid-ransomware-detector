@@ -227,6 +227,17 @@ class ScoringMatrix:
     W_JS_OBFUSCATION = 15.0        # two or more obfuscation markers
     W_IMAGE_APPENDED_PAYLOAD = 70.0  # executable / archive after the end of an image
 
+    # ---- 4.4.0-beta.2: Linux ELF triage and QR codes ------------------------------
+    W_ELF_BEHAVIOUR = {             # hostile-only strings in an ELF, by category
+        "ransom_note": 60.0, "miner": 45.0, "reverse_shell": 45.0,
+        "download_exec": 35.0, "evasion": 25.0, "persistence": 20.0,
+    }
+    W_ELF_BEHAVIOUR_EXTRA = 8.0     # each additional category
+    W_ELF_PACKED = 20.0             # UPX or near-random content with few sections
+    W_ELF_NO_SECTIONS = 10.0        # runnable ELF with its section table removed
+    W_QR_SUSPICIOUS_URL = 35.0      # QR code leads to an IP / shortener / punycode / lure URL
+    W_QR_URL = 8.0                  # semantic: a QR code carries a web link (quishing pattern)
+
     # ---- v4.1: ML classifier (statistical) --------------------------------------
     W_ML = 20.0                    # scaled by P(suspicious)
 
@@ -296,6 +307,7 @@ class ScoringMatrix:
         contribs.extend(self._v4_technical(signals))
         contribs.extend(self._mail(signals))
         contribs.extend(self._web(signals))
+        contribs.extend(self._elf_and_qr(signals))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -514,6 +526,39 @@ class ScoringMatrix:
         return out
 
     # ------------------------------------------------------------------ v4.4
+    def _elf_and_qr(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        elf = signals.get("elf") or {}
+        cats = [c for c in (elf.get("categories") or {}) if c in self.W_ELF_BEHAVIOUR]
+        if cats:
+            cats.sort(key=lambda c: -self.W_ELF_BEHAVIOUR[c])
+            pts = (self.W_ELF_BEHAVIOUR[cats[0]]
+                   + max(0, len(cats) - 1) * self.W_ELF_BEHAVIOUR_EXTRA)
+            examples = "; ".join(f"{c}: {elf['categories'][c][0]}" for c in cats[:3])
+            out.append(Contribution(
+                "elf_behaviour", "technical", pts,
+                f"Linux executable contains hostile-only strings ({examples})."))
+        if elf.get("packed"):
+            out.append(Contribution(
+                "elf_packed", "technical", self.W_ELF_PACKED,
+                f"Linux executable is packed ({elf.get('packer') or 'unknown packer'})."))
+        if elf.get("no_section_table"):
+            out.append(Contribution(
+                "elf_no_section_table", "technical", self.W_ELF_NO_SECTIONS,
+                "Linux executable has its section table removed (anti-analysis)."))
+        qr = signals.get("qr") or {}
+        if qr.get("suspicious"):
+            first = qr["suspicious"][0]
+            out.append(Contribution(
+                "qr_code_suspicious_url", "technical", self.W_QR_SUSPICIOUS_URL,
+                f"QR code leads to {first['url']} ({'; '.join(first['reasons'][:3])})."))
+        elif qr.get("urls"):
+            out.append(Contribution(
+                "qr_code_url", "semantic", self.W_QR_URL,
+                f"QR code carries a web link ({qr['urls'][0]}); "
+                "links in QR codes bypass text filters."))
+        return out
+
     def _web(self, signals: Dict) -> List[Contribution]:
         out: List[Contribution] = []
         web = signals.get("web") or {}

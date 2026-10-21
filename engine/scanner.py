@@ -29,6 +29,8 @@ from detectors import (
     build_llm_backend, ransom_indicator,
 )
 
+from detectors.elf_analysis import ElfAnalyzer
+from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
 from detectors.web_content import WebContentAnalyzer
 
 from .config import (
@@ -96,6 +98,10 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         self.mail_scan_attachments = int(config.get("mail_scan_attachments", 25))
         # v4.4: HTML smuggling / SVG / phishing pages.
         self.web_analyzer = WebContentAnalyzer()
+        # 4.4.0-beta.2: Linux ELF triage and QR codes (quishing).
+        self.elf_analyzer = ElfAnalyzer()
+        self.qr_scanner: Optional[QRScanner] = (
+            QRScanner() if config.get("qr_scan_enabled", True) else None)
         self.ml: Optional[MLClassifier] = (
             MLClassifier(config.get("ml_model_path")) if config.get("ml_enabled", True) else None)
 
@@ -126,7 +132,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         logger.info(
             "Detection layers -> fuzzy:%s  macro:%s  yara:%s(%d rule files)  "
             "integrity:on  prompt-guard:%s  relationships:%s  archives:on  "
-            "mail:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
+            "mail:%s  elf:on  qr:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
             "on" if FUZZY_AVAILABLE else "off (install python-tlsh/ppdeep)",
             "on" if OLEVBA_AVAILABLE else "off (install oletools)",
             "on" if YARA_AVAILABLE else "off (install yara-python)",
@@ -134,6 +140,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             "on" if DEFUSEDXML_AVAILABLE else "partial (install defusedxml)",
             "on" if DEFUSEDXML_AVAILABLE else "rtf-only (install defusedxml)",
             "on" if MSG_AVAILABLE else "eml-only (install oletools)",
+            ("off" if self.qr_scanner is None else
+             QR_BACKEND if QR_AVAILABLE else "off (install pyzbar or opencv)"),
             ("off" if self.ml is None else
              f"model ({self.ml.model_name})" if self.ml.has_model else "rules"),
             self.llm_backend.name,

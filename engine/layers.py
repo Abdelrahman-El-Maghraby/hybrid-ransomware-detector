@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List
 
 from detectors import FUZZY_AVAILABLE
+from detectors.elf_analysis import is_elf
 from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.relationship_scanner import defang
 
@@ -174,6 +175,20 @@ class IntegrityLayer(Layer):
         }
 
 
+class ElfLayer(Layer):
+    """Linux ELF triage: header, packing, removed section table, hostile strings.
+    Only ELF files get an `elf_analysis` entry."""
+    name = "elf"
+
+    def run(self, scanner, ctx):
+        if ctx.is_archive or ctx.is_mail or not is_elf(ctx.path):
+            return
+        res = scanner.elf_analyzer.analyze_file(ctx.path)
+        ctx.scan_results["elf_analysis"] = res.as_dict()
+        ctx.signals["elf"] = {"categories": res.categories, "packed": res.packed,
+                              "packer": res.packer, "no_section_table": res.no_section_table}
+
+
 class ContainerLayer(Layer):
     """Unpack a container and send every member through the whole pipeline."""
 
@@ -219,6 +234,26 @@ class RelationshipLayer(Layer):
         ctx.signals["relationships"] = {
             "kinds": rels.kinds,
             "targets": [defang(f.target) for f in rels.findings[:3]],
+        }
+
+
+class QRLayer(Layer):
+    """QR codes in images, PDFs and Office documents; the links they carry are judged.
+    Only files that can hold images get a `qr_codes` entry."""
+    name = "qr"
+
+    def run(self, scanner, ctx):
+        if (scanner.qr_scanner is None or ctx.is_archive or ctx.is_mail
+                or not scanner.qr_scanner.applies(ctx.path)):
+            return
+        res = scanner.qr_scanner.analyze_file(ctx.path)
+        if res.available and not res.images_checked:
+            return                      # nothing that could hold a QR code
+        ctx.scan_results["qr_codes"] = res.as_dict()
+        ctx.signals["qr"] = {
+            "urls": [defang(u) for u in res.urls],
+            "suspicious": [{"url": defang(c.payload), "reasons": c.suspicious_reasons}
+                           for c in res.suspicious],
         }
 
 
@@ -282,9 +317,11 @@ def default_pipeline() -> List[Layer]:
         MacroLayer(),
         YaraLayer(),
         IntegrityLayer(),
+        ElfLayer(),
         ContainerLayer(MailHandler()),       # before the prompt guard: it reads the body
         PromptGuardLayer(),
         RelationshipLayer(),
+        QRLayer(),
         ContainerLayer(ArchiveHandler()),
         ContainerLayer(WebHandler()),        # HTML smuggling: payloads hidden in a page
         MLLayer(),

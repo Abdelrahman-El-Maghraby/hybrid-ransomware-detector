@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from detectors import FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE
+from detectors.qr_scanner import QR_AVAILABLE
 from detectors.relationship_scanner import defang
 
 from .config import ENGINE_VERSION
@@ -220,6 +221,20 @@ LLM posture:            {self._llm_posture_label()}
             lines.append(f"  [Injection] {guard['injection_status']} prompt-injection attempt: "
                          f"{', '.join(guard.get('injection_indicators', []) or [])}.")
 
+        # Linux ELF triage
+        elf = sr.get("elf_analysis", {})
+        if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
+            lines.append(f"  [ELF]       {elf.get('detail', '')}")
+
+        # QR codes (quishing)
+        qr = sr.get("qr_codes", {})
+        for c in (qr.get("codes") or [])[:3]:
+            if c.get("is_url"):
+                why = "; ".join(c.get("suspicious_reasons") or []) or "ordinary link"
+                lines.append(f"  [QR]        {defang(c.get('payload', ''))} ({why})")
+        if qr and not qr.get("available"):
+            lines.append(f"  [QR]        {qr.get('detail', '')}")
+
         # Office external relationships
         rels = sr.get("relationships", {})
         for f in (rels.get("findings") or [])[:3]:
@@ -330,7 +345,10 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "prompt-guard", "relationships", "archives", "mail", "web"]
+        layers += ["integrity", "elf", "prompt-guard", "relationships", "archives", "mail", "web"]
+        qr = getattr(self, "qr_scanner", None)
+        if qr is not None and QR_AVAILABLE:
+            layers.append("qr")
         if getattr(self, "ml", None) is not None:
             layers.append("ml")
         layers.append("llm")

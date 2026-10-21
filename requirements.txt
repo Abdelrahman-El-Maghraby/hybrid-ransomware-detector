@@ -40,7 +40,7 @@ defusedxml
 # Without it scanning still works; only quarantine is unavailable.
 cryptography
 
-# Tests (optional):  pip install pytest   then   python -m pytest
+# Tests (optional):  pip install pytest qrcode   then   python -m pytest
 
 # Local LLM backend for OPSEC (no extra Python dep — talks to a running Ollama
 # server over HTTP via 'requests', already listed above). Install Ollama itself
@@ -65,3 +65,9 @@ rarfile             # .rar archives. Pure-Python reader; decompression also need
                     # one program already on the machine: 7-Zip (Windows: found in
                     # Program Files automatically), unrar, unar or bsdtar.
                     # Linux: sudo apt-get install 7zip   macOS: brew install sevenzip
+
+# --- v4.4 (optional) -------------------------------------------------------------
+pyzbar              # QR codes in images / PDFs / Office files (quishing). Windows
+                    # wheels include zbar; Linux: sudo apt-get install libzbar0
+                    # macOS: brew install zbar. Alternative decoder:
+                    # pip install opencv-python-headless
