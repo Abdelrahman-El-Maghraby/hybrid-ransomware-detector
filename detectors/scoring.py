@@ -237,6 +237,13 @@ class ScoringMatrix:
     W_ELF_NO_SECTIONS = 10.0        # runnable ELF with its section table removed
     W_QR_SUSPICIOUS_URL = 35.0      # QR code leads to an IP / shortener / punycode / lure URL
     W_QR_URL = 8.0                  # semantic: a QR code carries a web link (quishing pattern)
+    W_SCRIPT_BEHAVIOUR = {          # script attachments (JS / VBS / HTA / PS1 / BAT), by category
+        "recovery": 70.0, "dropper": 65.0, "ransom_note": 60.0, "defence_evasion": 40.0,
+        "persistence": 25.0, "download": 20.0, "execute": 20.0,
+    }
+    W_SCRIPT_BEHAVIOUR_EXTRA = 8.0  # each additional category
+    W_SCRIPT_ENCODED = 30.0         # Script Encoder output (.vbe / .jse): hides the source
+    W_SCRIPT_OBFUSCATION = 20.0     # two or more obfuscation markers
 
     # ---- v4.1: ML classifier (statistical) --------------------------------------
     W_ML = 20.0                    # scaled by P(suspicious)
@@ -308,6 +315,7 @@ class ScoringMatrix:
         contribs.extend(self._mail(signals))
         contribs.extend(self._web(signals))
         contribs.extend(self._elf_and_qr(signals))
+        contribs.extend(self._script(signals))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -557,6 +565,34 @@ class ScoringMatrix:
                 "qr_code_url", "semantic", self.W_QR_URL,
                 f"QR code carries a web link ({qr['urls'][0]}); "
                 "links in QR codes bypass text filters."))
+        return out
+
+    def _script(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        sc = signals.get("script") or {}
+        if not sc:
+            return out
+        cats = dict(sc.get("categories") or {})
+        if "download" in cats and "execute" in cats:      # the combination is the dropper
+            cats["dropper"] = cats.pop("download") + cats.pop("execute")
+        names = sorted((c for c in cats if c in self.W_SCRIPT_BEHAVIOUR),
+                       key=lambda c: -self.W_SCRIPT_BEHAVIOUR[c])
+        if names:
+            pts = (self.W_SCRIPT_BEHAVIOUR[names[0]]
+                   + max(0, len(names) - 1) * self.W_SCRIPT_BEHAVIOUR_EXTRA)
+            examples = "; ".join(f"{c}: {cats[c][0]}" for c in names[:3])
+            out.append(Contribution(
+                "script_behaviour", "technical", pts,
+                f"{sc.get('language') or 'Script'} ({examples})."))
+        if sc.get("encoded"):
+            out.append(Contribution(
+                "script_encoded", "technical", self.W_SCRIPT_ENCODED,
+                "Script is encoded with the Windows Script Encoder (source hidden)."))
+        obf = [o for o in (sc.get("obfuscation") or []) if not o.startswith("Script Encoder")]
+        if len(obf) >= 2:
+            out.append(Contribution(
+                "script_obfuscation", "technical", self.W_SCRIPT_OBFUSCATION,
+                "Obfuscated script: " + ", ".join(obf[:4]) + "."))
         return out
 
     def _web(self, signals: Dict) -> List[Contribution]:

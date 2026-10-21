@@ -70,6 +70,7 @@ def _env_float(name: str, default: float) -> float:
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
                         ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
                         ".eml", ".msg", ".html", ".htm", ".svg",
+                        ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta", ".ps1", ".bat", ".cmd",
                         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
 # Pictures are supported but not scanned in folder scans by default: a Downloads
 # folder can hold thousands, and each one would cost a VirusTotal lookup. Images

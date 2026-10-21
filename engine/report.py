@@ -226,6 +226,13 @@ LLM posture:            {self._llm_posture_label()}
         if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
             lines.append(f"  [ELF]       {elf.get('detail', '')}")
 
+        # Script files (JS / VBS / HTA / PS1 / BAT)
+        sc = sr.get("script_analysis", {})
+        if sc.get("behaviour") or sc.get("encoded") or len(sc.get("obfuscation") or []) >= 2:
+            lines.append(f"  [Script]    {sc.get('detail', '')}")
+            for url in (sc.get("urls") or [])[:3]:
+                lines.append(f"              - {defang(url)}")
+
         # QR codes (quishing)
         qr = sr.get("qr_codes", {})
         for c in (qr.get("codes") or [])[:3]:
@@ -349,7 +356,7 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "elf", "prompt-guard", "relationships", "archives", "mail", "web"]
+        layers += ["integrity", "elf", "script", "prompt-guard", "relationships", "archives", "mail", "web"]
         qr = getattr(self, "qr_scanner", None)
         if qr is not None and QR_AVAILABLE:
             layers.append("qr")

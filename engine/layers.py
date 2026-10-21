@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
+from detectors.script_analysis import is_script
 from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.relationship_scanner import defang
 
@@ -198,6 +199,20 @@ class ElfLayer(Layer):
                               "packer": res.packer, "no_section_table": res.no_section_table}
 
 
+class ScriptLayer(Layer):
+    """Windows script files (JS / VBS / HTA / WSF / PS1 / BAT): download, execute,
+    recovery tampering, defence evasion, persistence and obfuscation markers."""
+    name = "script"
+
+    def run(self, scanner, ctx):
+        if ctx.is_archive or ctx.is_mail or not is_script(ctx.path):
+            return
+        res = scanner.script_analyzer.analyze_file(ctx.path)
+        ctx.scan_results["script_analysis"] = res.as_dict()
+        ctx.signals["script"] = {"language": res.language, "categories": res.categories,
+                                 "encoded": res.encoded, "obfuscation": res.obfuscation}
+
+
 class ContainerLayer(Layer):
     """Unpack a container and send every member through the whole pipeline."""
 
@@ -330,6 +345,7 @@ def default_pipeline() -> List[Layer]:
         YaraLayer(),
         IntegrityLayer(),
         ElfLayer(),
+        ScriptLayer(),
         ContainerLayer(MailHandler()),       # before the prompt guard: it reads the body
         PromptGuardLayer(),
         RelationshipLayer(),

@@ -32,6 +32,7 @@ from detectors import (
 )
 
 from detectors.elf_analysis import ElfAnalyzer
+from detectors.script_analysis import ScriptAnalyzer
 from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
 from detectors.web_content import WebContentAnalyzer
 
@@ -102,6 +103,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         self.web_analyzer = WebContentAnalyzer()
         # 4.4.0-beta.2: Linux ELF triage and QR codes (quishing).
         self.elf_analyzer = ElfAnalyzer()
+        self.script_analyzer = ScriptAnalyzer()
         self.qr_scanner: Optional[QRScanner] = (
             QRScanner() if config.get("qr_scan_enabled", True) else None)
         self.ml: Optional[MLClassifier] = (

@@ -54,8 +54,9 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - **QR codes (beta.2).** Phishing links hidden in QR codes ("quishing") in images, PDF pages, Office documents and e-mail attachments are decoded and judged: bare IP addresses, punycode, `user@host` tricks, URL shorteners and script schemes are suspicious on their own; plain HTTP, throw-away TLDs and lure words count only in pairs. Links are defanged in reports. Decoding needs `pip install pyzbar` plus the zbar library (`brew install zbar`, `sudo apt-get install libzbar0`; the Windows wheel includes it) or `opencv-python-headless`; without either, the report says QR codes were not checked.
 - **Linux ELF files (beta.2).** Header, packing (UPX or near-random content), a stripped section table, and behaviour strings: ransom notes, cryptominer pools, reverse shells, download-and-run one-liners, log/firewall tampering and persistence. Nothing is executed.
 - **Faster scans (beta.2).** The slow layers (ML, LLM, VirusTotal) run last and in parallel, and are skipped when the local layers already reach 100 (the verdict cannot change; the report lists them under `[Skipped]`). Set `SKIP_HEAVY_WHEN_SATURATED=false` or `PARALLEL_HEAVY_LAYERS=false` to turn either off.
+- **Script attachments (beta.2).** `.js`, `.vbs`, `.hta`, `.wsf`, `.ps1`, `.bat` and their encoded variants: download and execute primitives, shadow-copy deletion and other recovery tampering, Defender/AMSI tampering, persistence and obfuscation. PowerShell `-EncodedCommand` payloads are decoded. Download *plus* execute (a dropper) is High; either one alone, as in many admin scripts, stays Low.
 - **Tools (beta.2).** `python tools/mbox_to_eml.py OUT_DIR corpus.mbox` splits mbox mailboxes into `.eml` files for scanning and evaluation.
-- **Known gap:** the HTML-smuggling detection has no automated tests yet; it was checked by hand. JavaScript / VBScript / HTA attachments are not analysed yet.
+- HTML smuggling now has automated tests (embedded ZIP and executable payloads, split strings, `msSaveOrOpenBlob`, data-URI anchors, phishing forms).
 
 
 - **RAR archives** (RAR 4 and RAR 5, including encrypted members and encrypted file names). Names, sizes, symlinks and encryption are read in Python by `rarfile`, so the lure, slip and limit checks always run. Decompressing needs a program that is usually already installed: 7-Zip (found in Program Files on Windows automatically), `unrar`, `unar` or `bsdtar`. The tool is only asked to stream one member to stdout, never to write files, so its own path handling is never trusted.
@@ -544,7 +545,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 444 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 485 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)

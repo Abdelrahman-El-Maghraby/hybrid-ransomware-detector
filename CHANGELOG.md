@@ -18,9 +18,18 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   near-random packing, a removed section table, and behaviour strings (ransom
   note, cryptominer, reverse shell, download-and-run, log/firewall tampering,
   persistence). Checked against 2,388 system binaries with no findings.
+- **Script attachments (JS / JSE / VBS / VBE / WSF / HTA / PS1 / BAT / CMD):**
+  download, execute, recovery tampering (T1490), ransom-note wording, Defender /
+  AMSI tampering and persistence markers; Script Encoder output; obfuscation
+  (Chr/fromCharCode chains, eval/Execute, backticks, -join [char]). PowerShell
+  `-EncodedCommand` and `FromBase64String` payloads are decoded one level. A
+  download plus an execute (a dropper) scores High; either alone stays Low.
+  Run over 16,475 scripts on the build machine: 15 High, all of them the same
+  browser-installer scripts that really do download and run an installer.
 - `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
   into one `.eml` per message, skipping duplicates.
-- 37 new tests (ELF, QR, mbox tool, staged pipeline, RAR codec); 444 in total.
+- 78 new tests (ELF, QR, scripts, HTML smuggling, mbox tool, staged pipeline,
+  RAR codec); 485 in total. HTML-smuggling detection now has automated tests.
 
 ### Changed
 
@@ -39,8 +48,8 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Known limitations
 
-- JavaScript / VBScript / HTA attachments are not analysed yet, and
-  HTML-smuggling detection still has no automated tests.
+- Scripts are judged statically: a legitimate installer script that downloads
+  and runs an installer looks like a dropper.
 
 ## [4.4.0-beta.1] — 2026-10-18 (pre-release)
 

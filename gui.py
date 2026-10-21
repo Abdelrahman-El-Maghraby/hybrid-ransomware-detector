@@ -195,6 +195,8 @@ _REASON_LABELS = {
     "elf_packed": "packed Linux program", "elf_no_section_table": "stripped Linux program",
     "qr_code_suspicious_url": "QR code to a risky link", "qr_code_url": "QR code with a link",
     "ml_classifier": "ML model", "virustotal": "VirusTotal engines", "llm_semantic": "LLM opinion",
+    "script_behaviour": "script downloads / runs code", "script_encoded": "encoded script",
+    "script_obfuscation": "obfuscated script",
 }
 
 

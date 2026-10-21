@@ -40,6 +40,7 @@ from .mail_analyzer import MailAnalyzer, MailResult, MSG_AVAILABLE
 from .ml_classifier import MLClassifier, MLResult, SKLEARN_AVAILABLE
 from .scoring import ScoringMatrix, ScoreResult
 from .elf_analysis import ElfAnalyzer, ElfResult
+from .script_analysis import ScriptAnalyzer, ScriptResult
 from .qr_scanner import QRScanner, QRResult, QR_AVAILABLE
 
 __all__ = [
@@ -55,5 +56,5 @@ __all__ = [
     "MailAnalyzer", "MailResult", "MSG_AVAILABLE",
     "MLClassifier", "MLResult", "SKLEARN_AVAILABLE",
     "ScoringMatrix", "ScoreResult",
-    "ElfAnalyzer", "ElfResult", "QRScanner", "QRResult", "QR_AVAILABLE",
+    "ElfAnalyzer", "ElfResult", "ScriptAnalyzer", "ScriptResult", "QRScanner", "QRResult", "QR_AVAILABLE",
 ]
