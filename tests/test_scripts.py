@@ -212,3 +212,57 @@ def test_encoded_vbe_dropper_is_decoded_and_scored(tmp_path):
     ind = {c.indicator for c in score_of(r).contributions}
     assert ind == {"script_behaviour", "script_encoded"}
     assert score_of(r).verdict == "Critical"
+
+
+# ------------------------------------------------------------------ layered encodings
+from detectors.script_analysis import deobfuscate  # noqa: E402
+
+
+def _chr_chain(s):
+    return " & ".join(f"Chr({ord(c)})" for c in s)
+
+
+@pytest.mark.parametrize("wrapped", [
+    '"hel" + "lo wor" + "ld message"',                                   # split strings
+    "String.fromCharCode(" + ",".join(str(ord(c)) for c in "hello world message") + ")",
+    "x = " + _chr_chain("hello world message"),
+    "[char[]](" + ",".join(str(ord(c)) for c in "hello world message") + ") -join ''",
+    '"' + "".join(f"\\x{ord(c):02x}" for c in "hello world message") + '"',
+    "unescape('" + "".join(f"%{ord(c):02x}" for c in "hello world message") + "')",
+    'StrReverse("' + "hello world message"[::-1] + '")',
+    "'egassem dlrow olleh'.split('').reverse().join('')",
+    '"heXXllo woXXrld message".replace("XX", "")',
+    "atob('" + base64.b64encode(b"hello world message").decode() + "')",
+])
+def test_each_encoding_is_unwound(wrapped):
+    found, depth = deobfuscate(wrapped)
+    assert any("hello world message" in f for f in found) and depth >= 1
+
+
+def test_nested_layers_are_unwound_and_counted():
+    inner = "vssadmin delete shadows /all /quiet"
+    layer1 = _chr_chain(inner)                                           # Chr() chain
+    layer2 = base64.b64encode(layer1.encode()).decode()                  # base64 of it
+    layer3 = f"[Convert]::FromBase64String('{layer2}')"
+    found, depth = deobfuscate(layer3)
+    assert inner in found and depth == 2
+
+
+def test_layered_script_scores_its_hidden_behaviour(tmp_path):
+    inner = "vssadmin delete shadows /all /quiet"
+    b64 = base64.b64encode(_chr_chain(inner).encode()).decode()
+    r = analyze(tmp_path, "upd.ps1", f"$a = [Convert]::FromBase64String('{b64}')")
+    assert "recovery" in r.categories and r.decoded_layers == 2
+    assert "nested encoding (2 layers)" in r.obfuscation
+
+
+def test_depth_and_size_are_bounded():
+    text = "hello world message"
+    for _ in range(9):                                                   # 9 nested base64 layers
+        text = f"atob('{base64.b64encode(text.encode()).decode()}')"
+    found, depth = deobfuscate(text)
+    assert depth == 5 and not any(f == "hello world message" for f in found)
+
+
+def test_plain_text_yields_nothing():
+    assert deobfuscate("Write-Host 'Backup finished'") == ([], 0)

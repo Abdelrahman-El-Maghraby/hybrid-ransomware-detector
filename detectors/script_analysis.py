@@ -42,7 +42,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 PathLike = Union[str, Path]
 
@@ -154,12 +154,133 @@ def decode_script_encoder(text: str) -> str:
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------- deobfuscation
+# Each transform takes a text and returns the texts it can recover from it. The
+# analyzer applies every transform to every recovered text again, so layered
+# obfuscation (base64 of a Chr() chain of a reversed string ...) is unwound up to
+# MAX_LAYERS deep. Nothing is evaluated: only literal patterns are decoded.
+MAX_LAYERS = 5
+MAX_FRAGMENTS = 64
+MAX_TOTAL_DECODED = 4 * 1024 * 1024
+
+_STR = r"(?:\"((?:[^\"\\\n]|\\.){1,20000})\"|'((?:[^'\\\n]|\\.){1,20000})')"
+_CONCAT = re.compile(r"([\"'])\s*(?:\+|&)\s*(?:_\s*\r?\n\s*)?\1")
+_B64_LITERAL = re.compile(r"[\"']([A-Za-z0-9+/]{40,}={0,2})[\"']")
+_ATOB = re.compile(r"\batob\s*\(\s*" + _STR, re.I)
+_CHR_RUN = re.compile(r"(?:chrw?\s*\(\s*\d{1,5}\s*\)\s*(?:&|\+)?\s*(?:_\s*\r?\n\s*)?){4,}", re.I)
+_CHR_ONE = re.compile(r"chrw?\s*\(\s*(\d{1,5})\s*\)", re.I)
+_FROMCC = re.compile(r"fromcharcode\s*\(\s*((?:\d{1,5}\s*,\s*){3,}\d{1,5})\s*\)", re.I)
+_PSCHAR_ARR = re.compile(r"\[char\[\]\]\s*\(\s*((?:\d{1,5}\s*,\s*){3,}\d{1,5})\s*\)", re.I)
+_PSCHAR_RUN = re.compile(r"(?:\[char\]\s*\(?\s*\d{1,5}\s*\)?\s*\+?\s*){4,}", re.I)
+_PSCHAR_ONE = re.compile(r"\[char\]\s*\(?\s*(\d{1,5})", re.I)
+_HEX_RUN = re.compile(r"(?:\\x[0-9a-f]{2}|\\u[0-9a-f]{4}){8,}", re.I)
+_PCT_RUN = re.compile(r"(?:%[0-9a-f]{2}|%u[0-9a-f]{4}){8,}", re.I)
+_REVERSE_VB = re.compile(r"strreverse\s*\(\s*" + _STR, re.I)
+_REVERSE_JS = re.compile(_STR + r"\s*\.split\(\s*(?:\"\"|'')\s*\)\s*\.reverse\(\s*\)\s*\.join\(", re.I)
+_REPLACE_DOT = re.compile(_STR + r"\s*\.replace\s*\(\s*" + _STR + r"\s*,\s*(?:\"\"|'')\s*\)", re.I)
+_REPLACE_VB = re.compile(r"\breplace\s*\(\s*" + _STR + r"\s*,\s*" + _STR + r"\s*,\s*\"\"\s*\)", re.I)
+_BACKTICK = re.compile(r"`(?=[a-z])", re.I)
+
+
+def _lit(m, i=1) -> str:
+    return m.group(i) if m.group(i) is not None else (m.group(i + 1) or "")
+
+
+def _codes_to_text(codes) -> str:
+    try:
+        return "".join(chr(int(c)) for c in codes if 0 < int(c) < 0x110000)
+    except ValueError:
+        return ""
+
+
+def _t_concat(text):
+    joined = _CONCAT.sub("", text)
+    return [joined] if len(joined) < len(text) - 8 else []
+
+
+def _t_backticks(text):
+    if text.count("`") < 4:
+        return []
+    clean = _BACKTICK.sub("", text)
+    return [clean] if clean != text else []
+
+
+def _t_base64(text):
+    out = []
+    for m in _PS_ENC.finditer(text):
+        out.append(_decode_b64_text(m.group(1), utf16=True))
+    for rx in (_FROM_B64, _B64_LITERAL):
+        for m in rx.finditer(text):
+            out.append(_decode_b64_text(m.group(1), utf16=False))
+    for m in _ATOB.finditer(text):
+        out.append(_decode_b64_text(_lit(m), utf16=False))
+    return out
+
+
+def _t_char_codes(text):
+    out = [_codes_to_text(_CHR_ONE.findall(m.group(0))) for m in _CHR_RUN.finditer(text)]
+    out += [_codes_to_text(re.split(r"\s*,\s*", m.group(1))) for m in _FROMCC.finditer(text)]
+    out += [_codes_to_text(re.split(r"\s*,\s*", m.group(1))) for m in _PSCHAR_ARR.finditer(text)]
+    out += [_codes_to_text(_PSCHAR_ONE.findall(m.group(0))) for m in _PSCHAR_RUN.finditer(text)]
+    return out
+
+
+def _t_escapes(text):
+    out = []
+    for m in _HEX_RUN.finditer(text):
+        out.append(re.sub(r"\\x([0-9a-f]{2})|\\u([0-9a-f]{4})",
+                          lambda e: chr(int(e.group(1) or e.group(2), 16)), m.group(0), flags=re.I))
+    for m in _PCT_RUN.finditer(text):
+        out.append(re.sub(r"%u([0-9a-f]{4})|%([0-9a-f]{2})",
+                          lambda e: chr(int(e.group(1) or e.group(2), 16)), m.group(0), flags=re.I))
+    return out
+
+
+def _t_reverse_replace(text):
+    out = [_lit(m)[::-1] for m in _REVERSE_VB.finditer(text)]
+    out += [_lit(m)[::-1] for m in _REVERSE_JS.finditer(text)]
+    out += [_lit(m, 1).replace(_lit(m, 3), "") for m in _REPLACE_DOT.finditer(text) if _lit(m, 3)]
+    out += [_lit(m, 1).replace(_lit(m, 3), "") for m in _REPLACE_VB.finditer(text) if _lit(m, 3)]
+    return out
+
+
+_TRANSFORMS = (_t_concat, _t_backticks, _t_base64, _t_char_codes, _t_escapes, _t_reverse_replace)
+
+
+def deobfuscate(text: str, max_layers: int = MAX_LAYERS) -> Tuple[List[str], int]:
+    """Texts recovered from `text` (not including it) and the deepest layer reached."""
+    if _SE_BLOCK.search(text):
+        first = decode_script_encoder(text)
+        seeds = [first] if first else []
+    else:
+        seeds = []
+    found: List[str] = []
+    seen = {hash(text)}
+    frontier = [(t, 1) for t in seeds]
+    frontier += [(t, 1) for tf in _TRANSFORMS for t in tf(text)]
+    depth = total = 0
+    while frontier and len(found) < MAX_FRAGMENTS:
+        cand, level = frontier.pop(0)
+        if not cand or len(cand) < 4 or hash(cand) in seen or level > max_layers:
+            continue
+        seen.add(hash(cand))
+        total += len(cand)
+        if total > MAX_TOTAL_DECODED:
+            break
+        found.append(cand)
+        depth = max(depth, level)
+        for tf in _TRANSFORMS:
+            frontier.extend((t, level + 1) for t in tf(cand))
+    return found, depth
+
+
 @dataclass
 class ScriptResult:
     is_script: bool = False
     language: str = ""
     encoded: bool = False                    # Script Encoder output (.vbe / .jse style)
-    decoded_layers: int = 0                  # base64 / -EncodedCommand payloads decoded
+    decoded_layers: int = 0                  # deepest layer of encoding unwound
+    decoded_fragments: int = 0               # texts recovered across all layers
     categories: Dict[str, List[str]] = field(default_factory=dict)
     obfuscation: List[str] = field(default_factory=list)
     urls: List[str] = field(default_factory=list)
@@ -172,7 +293,8 @@ class ScriptResult:
 
     def as_dict(self) -> Dict:
         return {"language": self.language, "encoded": self.encoded,
-                "decoded_layers": self.decoded_layers, "behaviour": self.categories,
+                "decoded_layers": self.decoded_layers,
+                "decoded_fragments": self.decoded_fragments, "behaviour": self.categories,
                 "dropper": self.dropper, "obfuscation": self.obfuscation,
                 "urls": self.urls[:10], "truncated": self.truncated, "detail": self.detail}
 
@@ -225,22 +347,10 @@ class ScriptAnalyzer:
         else:
             text = raw.decode("utf-8", errors="replace")
 
-        # one level of embedded payloads: Script Encoder blocks, powershell -enc <utf16
-        # b64>, FromBase64String('...')
-        inner = []
-        if res.encoded:
-            plain = decode_script_encoder(text)
-            if plain:
-                inner.append(plain)
-        for m in _PS_ENC.finditer(text):
-            dec = _decode_b64_text(m.group(1), utf16=True)
-            if dec:
-                inner.append(dec)
-        for m in _FROM_B64.finditer(text):
-            dec = _decode_b64_text(m.group(1), utf16=False)
-            if dec:
-                inner.append(dec)
-        res.decoded_layers = len(inner)
+        # unwind layered encodings (Script Encoder, base64 / -enc, char codes, escapes,
+        # split strings, reversal, junk replacement) and analyse every layer
+        inner, res.decoded_layers = deobfuscate(text)
+        res.decoded_fragments = len(inner)
         full = "\n".join([text] + inner)
 
         for cat, pats in _COMPILED:
@@ -250,6 +360,8 @@ class ScriptAnalyzer:
         res.obfuscation = [label for label, rx in _OBFUSCATION if rx.search(text)]
         if res.encoded:
             res.obfuscation.insert(0, "Script Encoder output (#@~^)")
+        if res.decoded_layers >= 2:
+            res.obfuscation.append(f"nested encoding ({res.decoded_layers} layers)")
         seen = []
         for u in _URL.findall(full):
             if u not in seen:
@@ -266,7 +378,7 @@ class ScriptAnalyzer:
         if res.categories:
             bits.append("behaviour: " + ", ".join(sorted(res.categories)))
         if res.decoded_layers:
-            bits.append(f"{res.decoded_layers} encoded payload(s) decoded")
+            bits.append(f"{res.decoded_layers} layer(s) of encoding unwound")
         if res.obfuscation:
             bits.append("obfuscation: " + ", ".join(res.obfuscation[:4]))
         if res.urls:
