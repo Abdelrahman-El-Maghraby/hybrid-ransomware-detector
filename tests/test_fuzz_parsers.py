@@ -13,6 +13,8 @@ import time
 import zipfile
 
 import pytest
+
+pytest.importorskip("hypothesis")
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

@@ -19,6 +19,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 ## 📖 Table of Contents
 
 - [🧪 What's new in 4.4 (beta)](#-whats-new-in-44-beta)
+- [🏗️ Engineering](#️-engineering)
 - [🆕 What's new in 4.3](#-whats-new-in-43)
 - [🆕 What's new in 4.2](#-whats-new-in-42)
 - [🆕 What's new in 4.1](#-whats-new-in-41)
@@ -555,8 +556,10 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 ## 🧪 Testing
 
 ```bash
-pip install pytest
-python -m pytest                 # 548 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+pip install -e ".[dev]"          # or: pip install -r requirements.lock pytest hypothesis qrcode
+python -m pytest                 # 647 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
+python -m pytest --cov           # coverage report; CI fails under 85 %
+ruff check . && mypy             # lint and type checks run in CI too
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
@@ -586,56 +589,69 @@ All test samples are **synthetic** and built at test time (a relationship pointi
 
 ```
 hybrid-ransomware-detector/
-├── RansomwareScanner.py         # CLI entry point, autostart, shortcuts, hash-DB import
-├── gui.py                       # desktop GUI (uses the scanner as a library)
-├── test_smoke.py                # original v3 smoke test (still passing)
+├── RansomwareScanner.py         # CLI entry point (scan, protection, --allow, --update-rules, --jsonl)
+├── gui.py                       # desktop app entry point (Aegis Sentinel)
+├── aegis_gui/                   # the desktop app: common, formatting, state, widgets, detail, pages/, app
 ├── engine/                      # the scanner itself
 │   ├── config.py                # version, per-user paths, logging, .env, CONFIG
-│   ├── scanner.py               # RansomwareScanner: runs the pipeline, folders, vault, canaries
-│   ├── layers.py                # the ordered detection layers (the scan pipeline)
-│   ├── containers.py            # ZIP / e-mail: one loop, members re-scanned recursively
+│   ├── scanner.py               # RansomwareScanner: pipeline runner, layer guard, heavy-layer gate
+│   ├── layers.py                # the ordered detection layers; ScanContext (file read once)
+│   ├── workers.py               # isolated, parallel folder scans (timeout, memory limit)
+│   ├── containers.py            # mail / archive / web / embedded content, re-scanned recursively
 │   ├── external.py              # LLM + VirusTotal lookups (cached)
 │   ├── text.py                  # text and string extraction
 │   └── report.py                # text + JSON reports
 ├── detectors/                   # independently-optional detection engines
-│   ├── fuzzy_hash.py            # TLSH + ssdeep structural hashing
-│   ├── macro_analysis.py        # olevba VBA/XLM triage + VBA stomping
-│   ├── yara_engine.py           # YARA rule compilation + scanning
+│   ├── indicators.yaml          # THE registry: weights, caps, categories, labels
+│   ├── registry.py, scoring.py  # loads the registry; transparent weighted scoring matrix
 │   ├── file_integrity.py        # magic bytes, disguised executables, encrypted content
+│   ├── macro_analysis.py        # olevba VBA/XLM triage + VBA stomping
+│   ├── yara_engine.py, fuzzy_hash.py
 │   ├── prompt_guard.py          # hidden content + prompt-injection detection
 │   ├── relationship_scanner.py  # remote template / Follina / UNC / RTF links
-│   ├── container_extractor.py   # safe ZIP / AES ZIP / 7z / RAR / ISO extraction (bomb / slip / lures)
-│   ├── mail_analyzer.py         # MailGuard: .eml/.msg auth, spoofing, links, attachments
-│   ├── cfb_writer.py            # minimal OLE compound-file writer (repacks embedded documents)
-│   ├── ml_classifier.py         # 15 byte/PE features, RandomForest or rule engine
-│   ├── llm_backends.py          # local Ollama / cloud OpenAI / none, spotlighted prompts
-│   └── scoring.py               # transparent weighted scoring matrix
-├── core/                        # host-side protection services
+│   ├── container_extractor.py   # ZIP / AES ZIP / 7z / RAR / ISO, bomb / slip / lures
+│   ├── mail_analyzer.py         # MailGuard: auth, spoofing, links, attachments, archive passwords
+│   ├── web_content.py           # HTML smuggling, SVG, phishing forms
+│   ├── script_analysis.py       # JS / VBS / HTA / PS1 / BAT, layered deobfuscation
+│   ├── embedded_content.py      # OneNote / CHM / MSI / XLL / password-protected Office
+│   ├── elf_analysis.py, qr_scanner.py, macos_packages.py
+│   ├── ml_classifier.py, llm_backends.py, cfb_writer.py
+├── core/                        # host-side services
 │   ├── quarantine.py            # AES-256-GCM vault, verify-before-delete
-│   ├── canary.py                # canary tripwires + desktop notifications
-│   ├── canary_watch.py          # real-time canary watching (watchdog)
-│   ├── cache.py                 # SQLite (WAL) cache for VirusTotal/LLM answers
-│   └── http.py                  # timeouts, retry/backoff, rate limiter
-├── rules/                       # YARA rules (drop in your own .yar files)
-│   ├── ransomware_generic.yar
-│   ├── office_dropper.yar
-│   └── recovery_inhibition.yar
-├── tests/                       # pytest suite (synthetic samples only)
-├── docs/                        # screenshots + DETECTION_v3.md / DETECTION_v4.md
-├── fuzzy_signatures.sample.json # documented placeholder fuzzy signature DB
-├── build.py                     # PyInstaller build + smoke test + packaging
-├── scanner.spec                 # PyInstaller recipe (CLI + GUI, UPX off)
-├── requirements.txt
-├── requirements-ml.txt          # optional: scikit-learn / joblib / numpy
-├── requirements-build.txt       # optional: PyInstaller
-├── CHANGELOG.md
-├── .env.example                 # template for keys + settings
-├── .gitignore
-├── LICENSE
-└── README.md
+│   ├── canary.py, canary_watch.py
+│   ├── allowlist.py             # known-good SHA-256 hashes
+│   ├── rulepack.py              # signed rule-pack verify / install
+│   ├── sandbox.py               # optional CAPEv2 client
+│   ├── outputs.py               # JSON Lines + signed webhook
+│   ├── cache.py, http.py
+├── api/                         # result JSON schema + optional REST API (FastAPI)
+├── rules/                       # YARA rules (21 original rules in five files)
+├── tools/                       # evaluate*, calibrate_weights, build_fuzzy_db, rulepack, mbox_to_eml
+├── tests/                       # pytest suite (synthetic samples only), incl. fuzz + regression corpus
+├── fuzz/                        # atheris harness for long coverage-guided fuzzing
+├── docs/                        # ARCHITECTURE.md, THREAT_MODEL.md, DETECTION_v3/v4.md, screenshots
+├── .github/workflows/           # quality gates (lint, types, coverage, audit, regression), release
+├── pyproject.toml               # package metadata, extras, tool configuration
+├── requirements.txt             # loose requirements; requirements.lock = pinned versions
+├── build.py, scanner.spec       # PyInstaller build + smoke test + packaging
+└── CHANGELOG.md, .env.example, LICENSE, README.md
 ```
 
 See [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md) for the design of the v4 layers (and [`docs/DETECTION_v3.md`](docs/DETECTION_v3.md) for the earlier ones), and [`CHANGELOG.md`](CHANGELOG.md) for the version history.
+
+---
+
+## 🏗️ Engineering
+
+How the project is built to be trusted, not only to detect. Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+
+- **One indicator registry.** Every weight, category cap and label lives in `detectors/indicators.yaml`; scoring, the desktop app and the calibration tool read it. Reports record the registry version. Reviewed changes can be applied as an override file (`WEIGHTS_OVERRIDE`) without editing code.
+- **Isolation.** Folder and API scans run each file in a worker process with a time limit and (Linux) a memory limit; a file that hangs or kills a worker is reported as `scan_failed`. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
+- **Fuzzed parsers.** Every parser is fuzzed in the suite (Hypothesis) and can be fuzzed for hours with atheris (`fuzz/`). Fuzzing found a ZIP that ended a scan (fixed); `pip-audit` found a parser hang in PyPDF2 (CVE-2023-36464), fixed by moving to `pypdf`.
+- **Quality gates in CI.** ruff (lint, import order, bug and security patterns), mypy, an 85 % coverage floor, `pip-audit` on the pinned lock file, and a 13-file regression corpus whose verdicts, scores and indicators must not change unintentionally.
+- **Integration.** A versioned JSON schema for results (`api/scan_result.schema.json`), JSON Lines output (`--jsonl`), HMAC-signed webhook alerts (`WEBHOOK_URL`), and an optional REST API (`aegis-api`, token-protected, size-limited, isolated scans).
+- **Signed detection content.** Rules and fuzzy signatures can be updated without a new release: `tools/rulepack.py` builds and Ed25519-signs a pack; `--update-rules` installs it only if the signature, manifest hashes, version and rule compilation all check out.
+- **Releases.** Pushing a `v*` tag builds and smoke-tests binaries on Windows, macOS and Linux, then publishes them with SHA-256 sums, a CycloneDX SBOM and keyless Sigstore signatures (pre-release for `-beta` tags).
 
 ---
 

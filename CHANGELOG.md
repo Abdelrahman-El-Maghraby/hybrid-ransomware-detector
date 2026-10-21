@@ -73,7 +73,36 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - 141 new tests (ELF, QR, scripts and layered encodings, HTML smuggling, mail
   archive passwords, Script Encoder, OneNote / CHM / MSI / XLL / encrypted
   Office, allowlist, sandbox, calibration and fuzzy-DB tools, mbox tool, staged
-  pipeline, RAR codec); 548 in total. HTML-smuggling detection now has automated tests.
+  pipeline, RAR codec, registry, workers, fuzzing, schema, API, rule packs);
+  647 in total (+1 opt-in GUI test). HTML-smuggling detection now has automated tests.
+
+### Engineering
+
+- **Indicator registry** (`detectors/indicators.yaml`): weights, caps, categories
+  and labels in one versioned file; reviewed overrides via `WEIGHTS_OVERRIDE`;
+  the calibration tool writes override files.
+- **Isolated, parallel folder scans** (`engine/workers.py`): per-file time and
+  memory limits; hangs and crashes become `scan_failed` findings; workers never
+  re-run the caller's main script. Every layer runs in a guard (`layer_errors`).
+  Files are read once and shared by the layers.
+- **GUI split** into the `aegis_gui` package (one module per page).
+- **Packaging and gates:** `pyproject.toml` with extras, pinned
+  `requirements.lock`, quality workflow (ruff, mypy, 85 % coverage floor,
+  pip-audit, regression corpus as a test). PyPDF2 replaced by `pypdf`
+  (CVE-2023-36464, a parser hang reported by pip-audit).
+- **Fuzzing** of every parser (Hypothesis in the suite, atheris harness).
+- **Integration:** versioned result schema, JSON Lines (`--jsonl`), HMAC-signed
+  webhook, optional REST API (`aegis-api`).
+- **Signed rule packs** (`tools/rulepack.py`, `--update-rules`).
+- **Release workflow:** three-OS builds, SHA-256 sums, CycloneDX SBOM, Sigstore
+  signatures.
+- **Threat model** of the scanner itself (`docs/THREAT_MODEL.md`) and an
+  architecture overview (`docs/ARCHITECTURE.md`).
+
+### Fixed
+
+- A mutated ZIP (unsupported "version needed" field) made pyzipper raise out of
+  the archive layer and ended the scan of that file (found by fuzzing).
 
 ### Changed
 
