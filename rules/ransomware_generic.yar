@@ -53,11 +53,15 @@ rule Crypto_Ransom_Extortion_Combo
         $y2 = "your data"        nocase wide ascii
         $y3 = "your network"     nocase wide ascii
         $y4 = "your documents"   nocase wide ascii
+        $r1 = "decrypt"          nocase wide ascii
+        $r2 = "bitcoin"          nocase wide ascii
+        $r3 = "monero"           nocase wide ascii
+        $r4 = ".onion"           nocase wide ascii
     condition:
         // 4.4.0-beta.2: addressed to the victim ("your files ...") and note-sized;
         // dictionaries and licences contain every one of the other words.
         filesize < 2MB and (any of ($e*)) and (any of ($p*)) and (any of ($u*))
-        and (any of ($y*))
+        and (any of ($y*)) and ($p3 or any of ($r*))   // translation bundles have the rest
 }
 
 rule Bitcoin_Address_With_Payment_Context

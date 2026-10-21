@@ -35,6 +35,12 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Encoded scripts are decoded:** Windows Script Encoder blocks (`.vbe`,
   `.jse`, encoded blocks in `.hta` / `.wsf`) are decoded and the real source is
   analysed (decoding tables from Didier Stevens' public-domain decode-vbe.py).
+- **YARA: 11 new original rules** (21 in total, five files): shortcuts that
+  start a script host, HTML Applications, Script Encoder output, OneNote
+  notebooks with embedded scripts, LOLBin downloads, Defender tampering, bulk
+  stopping of database/backup services, Safe Mode boot, event-log clearing,
+  encryptor binaries and Tor ransom notes. Run over 258,666 benign files on the
+  build machine: no matches.
 - `tools/build_fuzzy_db.py`: build the fuzzy-signature database inside the
   analysis VM from a folder of confirmed samples (family = sub-folder or a
   labels CSV). Near-duplicates are kept once, and with `--benign` every
@@ -42,11 +48,20 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   only.
 - `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
   into one `.eml` per message, skipping duplicates.
-- 78 new tests (ELF, QR, scripts, HTML smuggling, mbox tool, staged pipeline,
-  RAR codec); 485 in total. HTML-smuggling detection now has automated tests.
+- 98 new tests (ELF, QR, scripts, HTML smuggling, mail archive passwords,
+  Script Encoder, fuzzy-DB tool, mbox tool, staged pipeline, RAR codec); 505 in total. HTML-smuggling detection now has automated tests.
 
 ### Changed
 
+- **Generic YARA rules tightened.** The same benign run showed the original
+  rules firing on documentation, dictionaries and binaries (1,183 matches,
+  outside the PE rule). Ransom-note/extortion rules now need wording addressed
+  to the victim plus ransom vocabulary, the Bitcoin rule needs the currency
+  named, the PowerShell cradle needs an encoded blob or download + execute, and
+  the macro rules only apply to Office binaries, VBA source or small files.
+  Matches on the benign set: 1,183 -> about 180, mostly security tools that
+  quote these strings (oletools, pygments) and Chromium translation files.
+  Regression corpus unchanged.
 - **Staged pipeline:** the slow layers (ML, LLM, VirusTotal) run last. When the
   local layers already give the maximum score they are skipped (the verdict
   cannot change) and the report lists them under `[Skipped]`; otherwise they
