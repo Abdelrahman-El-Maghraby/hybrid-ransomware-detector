@@ -54,12 +54,12 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - **Generic YARA rules tightened.** The same benign run showed the original
-  rules firing on documentation, dictionaries and binaries (1,183 matches,
+  rules firing on documentation, dictionaries and binaries (1,128 matches,
   outside the PE rule). Ransom-note/extortion rules now need wording addressed
   to the victim plus ransom vocabulary, the Bitcoin rule needs the currency
   named, the PowerShell cradle needs an encoded blob or download + execute, and
   the macro rules only apply to Office binaries, VBA source or small files.
-  Matches on the benign set: 1,183 -> about 180, mostly security tools that
+  Matches on the benign set: 1,128 -> under 180, mostly security tools that
   quote these strings (oletools, pygments) and Chromium translation files.
   Regression corpus unchanged.
 - **Staged pipeline:** the slow layers (ML, LLM, VirusTotal) run last. When the
