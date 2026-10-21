@@ -57,6 +57,7 @@ from detectors.web_content import WebContentAnalyzer
 
 from .config import (
     BUNDLED_FUZZY_SIGS,
+    BUNDLED_RULES_DIR,
     DATA_DIR,
     ENGINE_VERSION,
     KEYSTORE_DIR,
@@ -90,7 +91,14 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
         # --- Initialise the modular detection engines -----------------------
         # Fuzzy hashing: prefer a per-user signature DB, else the bundled sample.
+        # An installed, signed rule pack (core/rulepack.py) replaces the bundled
+        # rules and signatures, unless the user pointed at their own folders.
+        from core.rulepack import FUZZY_NAME, active_pack
+        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR)
         fuzzy_db = config.get("fuzzy_signature_db")
+        if (not (fuzzy_db and os.path.exists(fuzzy_db)) and self.rulepack
+                and self.rulepack.get("has_fuzzy")):
+            fuzzy_db = os.path.join(self.rulepack["path"], FUZZY_NAME)
         if not (fuzzy_db and os.path.exists(fuzzy_db)) and BUNDLED_FUZZY_SIGS.exists():
             fuzzy_db = str(BUNDLED_FUZZY_SIGS)
         self.fuzzy_hasher = FuzzyHasher(signature_db_path=fuzzy_db)
@@ -100,7 +108,12 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         self.macro_analyzer = MacroAnalyzer()
 
         # YARA engine over the configured rules directory.
-        self.yara_engine = YaraEngine(rules_dir=config.get("yara_rules_dir"))
+        rules_dir = config.get("yara_rules_dir")
+        if self.rulepack and (not rules_dir
+                              or os.path.abspath(rules_dir) == os.path.abspath(BUNDLED_RULES_DIR)):
+            rules_dir = os.path.join(self.rulepack["path"], "rules")
+            logger.info("YARA rules from signed rule pack %s.", self.rulepack["version"])
+        self.yara_engine = YaraEngine(rules_dir=rules_dir)
 
         # LLM backend (local Ollama by default; cloud OpenAI optional).
         self.llm_backend = build_llm_backend(config)

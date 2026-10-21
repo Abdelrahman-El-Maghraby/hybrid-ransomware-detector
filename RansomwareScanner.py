@@ -554,6 +554,11 @@ def main():
     parser.add_argument("--fuzzy-hash", metavar="PATH",
                         help="Print a file's TLSH and ssdeep digests (use these to "
                              "populate your fuzzy signature DB), then exit")
+    parser.add_argument("--update-rules", metavar="PACK",
+                        help="Install a signed rule pack (PACK + PACK.sig), verified against "
+                             "RULEPACK_PUBLIC_KEYS, then exit")
+    parser.add_argument("--allow-downgrade", action="store_true",
+                        help="With --update-rules: accept a pack that is not newer (roll back)")
     parser.add_argument("--jsonl", metavar="FILE",
                         help="Also append each result as one JSON line to FILE (for SIEM ingestion)")
     parser.add_argument("--allow", metavar="PATH",
@@ -615,6 +620,18 @@ def main():
 
     if args.allow:
         _allow_file(args.allow, args.note, CONFIG["allowlist_path"])
+        return
+
+    if args.update_rules:
+        from core.rulepack import RulePackError, install_pack
+        try:
+            info = install_pack(args.update_rules, CONFIG["data_dir"], CONFIG["rulepack_public_keys"],
+                                ENGINE_VERSION, allow_downgrade=args.allow_downgrade)
+        except (RulePackError, OSError, ValueError) as e:
+            print(f"❌ Rule pack rejected: {e}")
+            sys.exit(1)
+        print(f"✅ Rule pack {info['version']} installed ({info['files']} file(s)); "
+              "used from the next scan.")
         return
 
     # --fuzzy-hash is a standalone utility: it needs no DB, no API keys, no banner.

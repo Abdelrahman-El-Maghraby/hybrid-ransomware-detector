@@ -118,6 +118,9 @@ CONFIG = {
     "webhook_url": os.getenv("WEBHOOK_URL", ""),
     "webhook_secret": os.getenv("WEBHOOK_SECRET", ""),
     "webhook_min_verdict": os.getenv("WEBHOOK_MIN_VERDICT", "High"),
+    # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
+    "rulepack_public_keys": [k for k in os.getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
+    "data_dir": str(DATA_DIR),
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
