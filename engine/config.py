@@ -139,6 +139,14 @@ CONFIG = {
     "ml_enabled": _env_bool("ML_ENABLED", True),
     "ml_model_path": os.getenv("ML_MODEL_PATH", str(DATA_DIR / "ml_model.joblib")),
 
+    # --- Pipeline staging (4.4.0-beta.2) ------------------------------------
+    # The slow layers (ML, LLM, VirusTotal) run last. They are skipped when the
+    # earlier layers already put the file at 100/100, where nothing can change the
+    # verdict, and otherwise run at the same time instead of one after another.
+    "skip_heavy_when_saturated": _env_bool("SKIP_HEAVY_WHEN_SATURATED", True),
+    "parallel_heavy_layers": _env_bool("PARALLEL_HEAVY_LAYERS", True),
+    "qr_scan_enabled": _env_bool("QR_SCAN_ENABLED", True),
+
     # --- Quarantine ---------------------------------------------------------
     "quarantine_dir": str(QUARANTINE_DIR),
     "keystore_dir": str(KEYSTORE_DIR),

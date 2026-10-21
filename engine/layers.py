@@ -14,8 +14,10 @@ LLM cache; the e-mail body feeds the prompt guard and the LLM), and the order
 of keys in the JSON report follows it.
 
 Adding a layer = writing a small class here and placing it in
-`default_pipeline()`. Layers run one after another; a layer never raises for a
-hostile file (each detector degrades to "not checked").
+`default_pipeline()`. Fast layers run one after another; slow ones (`heavy =
+True`: ML, LLM, VirusTotal) run as a group at the end, concurrently, and are
+skipped when the fast layers already put the file at the maximum score. A layer
+never raises for a hostile file (each detector degrades to "not checked").
 """
 
 from __future__ import annotations
@@ -77,9 +79,16 @@ class ScanContext:
 
 
 class Layer:
-    """One detection step. Subclasses set `name` and implement `run`."""
+    """One detection step. Subclasses set `name` and implement `run`.
+
+    `heavy` layers are slow (a model, a network call). The scanner runs them after
+    the fast ones, skips them when the fast layers already reached the maximum
+    score, and runs a group of them concurrently (each on its own copy of the
+    context, merged back in pipeline order).
+    """
 
     name = ""
+    heavy = False
 
     def run(self, scanner: "RansomwareScanner", ctx: ScanContext) -> None:
         raise NotImplementedError
@@ -260,6 +269,7 @@ class QRLayer(Layer):
 class MLLayer(Layer):
     """Byte/PE-structure classifier; containers are judged through their members."""
     name = "ml"
+    heavy = True
 
     def run(self, scanner, ctx):
         if scanner.ml is None or ctx.is_archive or ctx.is_mail:
@@ -273,6 +283,7 @@ class MLLayer(Layer):
 class LLMLayer(Layer):
     """Semantic opinion on the text (local-first; cached by SHA-256)."""
     name = "llm"
+    heavy = True
 
     def run(self, scanner, ctx):
         if ctx.is_archive:
@@ -296,6 +307,7 @@ class LLMLayer(Layer):
 class VirusTotalLayer(Layer):
     """Multi-engine reputation by hash (uploads are opt-in; cached)."""
     name = "virustotal"
+    heavy = True
 
     def run(self, scanner, ctx):
         vt = scanner.scan_file_with_virustotal(ctx.path, ctx.hashes)

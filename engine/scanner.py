@@ -9,10 +9,12 @@ report writing come from the mixins in engine/external.py, engine/text.py and
 engine/report.py.
 """
 
+import copy
 import csv
 import hashlib
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -109,6 +111,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         # ordered list of layers that produce them (engine/layers.py).
         self.scoring = ScoringMatrix()
         self.pipeline: List[Layer] = default_pipeline()
+        self._heavy_pool: Optional[ThreadPoolExecutor] = None
 
         # External calls: shared session (timeouts + retry/backoff), VT pacing,
         # and a SHA-256-keyed cache so re-scans don't burn the API quota.
@@ -226,8 +229,15 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         display = _display_name or file_path
         logger.info(f"Scanning file: {display}")
         ctx = ScanContext.start(self, file_path, _depth, display, ENGINE_VERSION)
+        heavy: List[Layer] = []
         for layer in self.pipeline:
+            if getattr(layer, "heavy", False):
+                heavy.append(layer)
+                continue
+            self._run_heavy(heavy, ctx)          # a fast layer after slow ones keeps its order
+            heavy = []
             layer.run(self, ctx)
+        self._run_heavy(heavy, ctx)
 
         # Fuse every signal through the weighted scoring matrix
         score = self.scoring.score(ctx.signals)
@@ -243,6 +253,45 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             display, result["verdict"], result["risk_score"], result["severity_score"],
         )
         return result
+
+    def _run_heavy(self, layers: List[Layer], ctx: ScanContext) -> None:
+        """Run a group of slow layers: skipped at a saturated score, else concurrently."""
+        if not layers:
+            return
+        if (self.config.get("skip_heavy_when_saturated", True)
+                and self.scoring.score(ctx.signals).risk_score >= 100):
+            ctx.scan_results["skipped_layers"] = {
+                "layers": [layer.name for layer in layers],
+                "reason": "Earlier layers already scored 100/100; these layers cannot "
+                          "change the verdict.",
+            }
+            return
+        if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
+            for layer in layers:
+                layer.run(self, ctx)
+            return
+
+        def run_on_copy(layer: Layer) -> ScanContext:
+            sub = copy.copy(ctx)
+            sub.result = {**ctx.result, "scan_results": {}}
+            sub.signals = dict(ctx.signals)
+            layer.run(self, sub)
+            return sub
+
+        if self._heavy_pool is None:
+            self._heavy_pool = ThreadPoolExecutor(max_workers=4,
+                                                  thread_name_prefix="heavy-layer")
+        before_signals, before_result = dict(ctx.signals), dict(ctx.result)
+        futures = [self._heavy_pool.submit(run_on_copy, layer) for layer in layers]
+        for fut in futures:                      # merge in pipeline order: same report order
+            sub = fut.result()
+            ctx.scan_results.update(sub.scan_results)
+            for key, value in sub.signals.items():     # only what this layer changed
+                if value is not before_signals.get(key):
+                    ctx.signals[key] = value
+            for key, value in sub.result.items():
+                if key != "scan_results" and value is not before_result.get(key):
+                    ctx.result[key] = value
 
     # ------------------------------------------------------- directory walks
     @staticmethod

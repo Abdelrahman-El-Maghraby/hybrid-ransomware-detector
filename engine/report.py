@@ -309,6 +309,10 @@ LLM posture:            {self._llm_posture_label()}
             if elems:
                 lines.append(f"              Elements: {', '.join(map(str, elems))}.")
 
+        skipped = sr.get("skipped_layers") or {}
+        if skipped.get("layers"):
+            lines.append(f"  [Skipped]   {', '.join(skipped['layers'])}: score already 100/100.")
+
         quarantine = result.get("quarantine") or {}
         if quarantine.get("id"):
             lines.append(f"  [Quarantine] Moved to the encrypted vault (id {quarantine['id']}).")
