@@ -58,6 +58,11 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - **Password in the e-mail (beta.2).** "Password: 4471" in the subject or body (eleven languages) is tried on the mail's encrypted ZIP / 7z / RAR attachments before the built-in list, so the contents are scanned; using it adds a 30-point technical signal.
 - **Encoded scripts (beta.2).** `.vbe` / `.jse` (Windows Script Encoder) are decoded and the real source is analysed.
 - **Fuzzy database builder (beta.2).** `python tools/build_fuzzy_db.py SAMPLES_DIR --out fuzzy_signatures.json --benign BENIGN_DIR`, run inside the analysis VM, turns confirmed samples into TLSH/ssdeep signatures, drops near-duplicates and any signature that matches a benign file. Only digests leave the VM.
+- **Layered obfuscation (beta.2).** Scripts are unwound up to five nested encodings (base64 inside a Chr() chain inside a reversed string ...), and every layer is analysed.
+- **OneNote, CHM, MSI, XLL, password-protected Office (beta.2).** The files these carry are carved out or decrypted and scanned like attachments; XLL add-ins and CHM command objects are flagged. Locked Office documents are opened with the password from the e-mail when there is one (`pip install msoffcrypto-tool`).
+- **Allowlist (beta.2).** `python RansomwareScanner.py --allow vendor_setup.ps1 --note "checked"` adds a known-good SHA-256; the file is still scanned and reported but not scored.
+- **Optional sandbox (beta.2).** Point `SANDBOX_URL` at your own [CAPEv2](https://github.com/kevoreilly/CAPEv2) server and suspicious top-level files are detonated there; behaviour signatures (shadow-copy deletion, encryption, injection ...) are scored in a new *dynamic* category. Nothing is sent anywhere else, and it is off by default.
+- **Calibration (beta.2).** `python tools/calibrate_weights.py --malicious DIR --benign DIR --out calib` proposes scoring weights from labelled data, with cross-validated detection and false-alarm rates, for review.
 - **Tools (beta.2).** `python tools/mbox_to_eml.py OUT_DIR corpus.mbox` splits mbox mailboxes into `.eml` files for scanning and evaluation.
 - HTML smuggling now has automated tests (embedded ZIP and executable payloads, split strings, `msSaveOrOpenBlob`, data-URI anchors, phishing forms).
 
@@ -360,6 +365,9 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `SKIP_HEAVY_WHEN_SATURATED` | `true` | skip ML/LLM/VirusTotal when the local layers already score 100 |
 | `PARALLEL_HEAVY_LAYERS` | `true` | run ML/LLM/VirusTotal concurrently |
 | `QR_SCAN_ENABLED` | `true` | decode QR codes (needs pyzbar or OpenCV) |
+| `ALLOWLIST_PATH` | `~/RansomwareScanner/data/allowlist.txt` | known-good SHA-256 hashes |
+| `SANDBOX_URL`, `SANDBOX_TOKEN` | empty (off) | your CAPEv2 server and API token |
+| `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report |
 
 > The local layers (hashes, fuzzy, macros, YARA, integrity, hidden content, external links, archives) need **no keys at all**. VirusTotal needs a key; the LLM layer needs a running Ollama (recommended) or an OpenAI key.
 
@@ -548,7 +556,7 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install pytest
-python -m pytest                 # 505 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
+python -m pytest                 # 548 tests: unit + end-to-end + CLI (+1 opt-in GUI test)
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)

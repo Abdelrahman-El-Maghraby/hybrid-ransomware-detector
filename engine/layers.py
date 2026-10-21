@@ -351,6 +351,35 @@ class VirusTotalLayer(Layer):
         }
 
 
+class SandboxLayer(Layer):
+    """Optional dynamic analysis in a self-hosted CAPEv2 sandbox (off by default).
+    Only top-level files are submitted, and with SANDBOX_SUBMIT=suspicious only those
+    the static layers already rate Medium or worse."""
+    name = "sandbox"
+    heavy = True
+
+    def run(self, scanner, ctx):
+        client = getattr(scanner, "sandbox", None)
+        if client is None or ctx.depth > 0:
+            return
+        if scanner.config.get("sandbox_submit", "suspicious") != "all" and \
+                scanner.scoring.score(ctx.signals).risk_score < 25:
+            return
+        sha = ctx.hashes.get("sha256", "")
+        cached = scanner.cache.get(sha, "sandbox") if (scanner.cache and sha) else None
+        if cached:
+            data = dict(cached, status="cached")
+        else:
+            data = client.analyze(ctx.path).as_dict()
+            if scanner.cache and sha and data.get("status") == "reported":
+                scanner.cache.put(sha, "sandbox", data)
+        ctx.scan_results["sandbox"] = data
+        if data.get("status") in ("reported", "cached"):
+            ctx.signals["sandbox"] = {"signatures": data.get("signatures", []),
+                                      "ransomware": data.get("ransomware", []),
+                                      "malscore": data.get("malscore", 0)}
+
+
 def default_pipeline() -> List[Layer]:
     """The layers in the order they run."""
     return [
@@ -373,4 +402,5 @@ def default_pipeline() -> List[Layer]:
         MLLayer(),
         LLMLayer(),
         VirusTotalLayer(),
+        SandboxLayer(),
     ]

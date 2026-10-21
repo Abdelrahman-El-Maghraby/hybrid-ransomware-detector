@@ -100,6 +100,12 @@ CONFIG = {
 
     # --- Fuzzy / similarity hashing ----------------------------------------
     # Falls back to the bundled sample if no per-user DB exists.
+    # Optional self-hosted CAPEv2 sandbox (dynamic analysis). Empty URL = off.
+    "sandbox_url": os.getenv("SANDBOX_URL", ""),
+    "sandbox_token": os.getenv("SANDBOX_TOKEN", ""),
+    "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
+    # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
+    "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),

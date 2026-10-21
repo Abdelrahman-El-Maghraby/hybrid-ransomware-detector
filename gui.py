@@ -201,6 +201,7 @@ _REASON_LABELS = {
     "msi_script_custom_action": "installer script action", "xll_addin": "Excel add-in code",
     "office_encrypted_unopened": "locked document",
     "mail_archive_password_in_body": "password in the mail",
+    "sandbox_ransomware_behaviour": "sandbox: ransomware behaviour", "sandbox_behaviour": "sandbox behaviour",
 }
 
 

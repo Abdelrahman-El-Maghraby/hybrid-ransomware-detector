@@ -233,6 +233,12 @@ LLM posture:            {self._llm_posture_label()}
         if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
             lines.append(f"  [ELF]       {elf.get('detail', '')}")
 
+        sb = sr.get("sandbox", {})
+        if sb:
+            lines.append(f"  [Sandbox]   {sb.get('detail') or sb.get('status', '')}")
+            for host in (sb.get("network_hosts") or [])[:3]:
+                lines.append(f"              - contacted {defang(str(host))}")
+
         allow = sr.get("allowlist", {})
         if allow.get("allowlisted"):
             lines.append(f"  [Allowlist] known-good SHA-256 ({allow.get('note') or 'no note'}); "

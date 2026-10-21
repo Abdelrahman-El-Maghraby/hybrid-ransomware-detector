@@ -67,6 +67,7 @@ TECHNICAL_CATEGORY_CAP = 100.0      # technical can drive the score on its own
 REPUTATION_CATEGORY_CAP = 80.0
 SEMANTIC_CATEGORY_CAP = 24.0        # deliberately < the MEDIUM band ceiling (49)
 STATISTICAL_CATEGORY_CAP = 20.0     # ML byte-shape classifier: a weak, broad signal
+DYNAMIC_CATEGORY_CAP = 100.0        # observed behaviour in a sandbox: as strong as technical
 
 MAX_RAW = 100.0
 
@@ -250,6 +251,10 @@ class ScoringMatrix:
     W_MSI_SCRIPT_ACTION = 40.0      # VBScript / JScript custom action in an installer
     W_XLL_ADDIN = 40.0              # Excel add-in DLL: code that runs when Excel opens it
     W_OFFICE_ENCRYPTED = 10.0       # password-protected document no password opened
+    # ---- dynamic (optional self-hosted CAPEv2 sandbox) ----------------------------
+    W_SANDBOX_RANSOMWARE = 80.0     # encryption / shadow-copy deletion / ransom note observed
+    W_SANDBOX_SIGNATURE = {3: 25.0, 2: 12.0, 1: 4.0}   # per behaviour signature, by severity
+    W_SANDBOX_SIGNATURES_MAX = 70.0
 
     # ---- v4.1: ML classifier (statistical) --------------------------------------
     W_ML = 20.0                    # scaled by P(suspicious)
@@ -337,6 +342,21 @@ class ScoringMatrix:
                 f"Static ML classifier ({ml.get('model', 'rules')}) rates the byte "
                 f"structure suspicious (p={prob:.2f})" + (f": {why}." if why else ".")))
 
+        # ---------------- DYNAMIC (sandbox) ----------------
+        sb = signals.get("sandbox") or {}
+        if sb.get("ransomware"):
+            contribs.append(Contribution(
+                "sandbox_ransomware_behaviour", "dynamic", self.W_SANDBOX_RANSOMWARE,
+                "Sandbox observed ransomware behaviour: " + ", ".join(sb["ransomware"][:3]) + "."))
+        sigs = [s for s in (sb.get("signatures") or []) if s.get("name") not in (sb.get("ransomware") or [])]
+        if sigs:
+            pts = min(self.W_SANDBOX_SIGNATURES_MAX,
+                      sum(self.W_SANDBOX_SIGNATURE.get(int(s.get("severity", 1)), 4.0) for s in sigs))
+            contribs.append(Contribution(
+                "sandbox_behaviour", "dynamic", pts,
+                f"Sandbox behaviour ({len(sigs)} signature(s)): "
+                + ", ".join(s.get("name", "?") for s in sigs[:4]) + "."))
+
         # ---------------- REPUTATION ----------------
         vt = signals.get("virustotal") or {}
         vt_ratio = float(vt.get("ratio", 0) or 0)
@@ -365,9 +385,12 @@ class ScoringMatrix:
             "reputation": REPUTATION_CATEGORY_CAP,
             "semantic": SEMANTIC_CATEGORY_CAP,
             "statistical": STATISTICAL_CATEGORY_CAP,
+            "dynamic": DYNAMIC_CATEGORY_CAP,
         }
         raw_totals = {"technical": 0.0, "reputation": 0.0, "semantic": 0.0,
                       "statistical": 0.0}
+        if any(c.category == "dynamic" for c in contribs):
+            raw_totals["dynamic"] = 0.0
         for c in contribs:
             raw_totals[c.category] = raw_totals.get(c.category, 0.0) + c.points
         category_totals = {cat: min(total, caps.get(cat, total))
@@ -377,7 +400,8 @@ class ScoringMatrix:
 
         # Rule 2: a semantic/statistical-only result cannot exceed MEDIUM.
         has_hard_signal = (category_totals.get("technical", 0) > 0
-                           or category_totals.get("reputation", 0) > 0)
+                           or category_totals.get("reputation", 0) > 0
+                           or category_totals.get("dynamic", 0) > 0)
         if not has_hard_signal:
             raw_score = min(raw_score, SEMANTIC_ONLY_MAX)
 

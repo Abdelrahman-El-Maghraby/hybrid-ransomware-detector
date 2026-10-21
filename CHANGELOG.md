@@ -41,6 +41,28 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   stopping of database/backup services, Safe Mode boot, event-log clearing,
   encryptor binaries and Tor ransom notes. Run over 258,666 benign files on the
   build machine: no matches.
+- **Layered script obfuscation:** up to five nested layers are unwound
+  (base64 / `-enc`, Chr() / fromCharCode / [char] codes, hex and % escapes,
+  split strings, reversal, junk replacement); nesting itself counts as
+  obfuscation. 16,464 real scripts: no new High results.
+- **OneNote, CHM, MSI, XLL and password-protected Office:** embedded files are
+  carved out of OneNote notebooks, CHM help is unpacked (7-Zip), MSI programs and
+  script custom actions are extracted, password-protected Office documents are
+  opened with msoffcrypto-tool (password from the e-mail, Excel's default, the
+  delivery list) - and the content goes through the whole pipeline. XLL add-ins
+  are flagged.
+- **Allowlist** of known-good SHA-256 hashes (`--allow FILE --note "..."`):
+  such files are still scanned and reported, but not scored; a hash in the
+  malware database still wins.
+- **Optional sandbox (CAPEv2):** with `SANDBOX_URL` set, top-level files the
+  static layers rate Medium or worse (or every file, `SANDBOX_SUBMIT=all`) are
+  sent to *your* CAPE server; its behaviour signatures enter a new **dynamic**
+  scoring category (ransomware behaviour 80; other signatures 25 / 12 / 4 by
+  severity, up to 70). Off by default; results cached by SHA-256.
+- `tools/calibrate_weights.py`: scans labelled folders (engine only), fits a
+  logistic regression on the indicators that fired and proposes points per
+  indicator, with detection / false-alarm rates for current vs proposed weights
+  (cross-validated). Never applied automatically.
 - `tools/build_fuzzy_db.py`: build the fuzzy-signature database inside the
   analysis VM from a folder of confirmed samples (family = sub-folder or a
   labels CSV). Near-duplicates are kept once, and with `--benign` every
@@ -48,8 +70,10 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   only.
 - `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
   into one `.eml` per message, skipping duplicates.
-- 98 new tests (ELF, QR, scripts, HTML smuggling, mail archive passwords,
-  Script Encoder, fuzzy-DB tool, mbox tool, staged pipeline, RAR codec); 505 in total. HTML-smuggling detection now has automated tests.
+- 141 new tests (ELF, QR, scripts and layered encodings, HTML smuggling, mail
+  archive passwords, Script Encoder, OneNote / CHM / MSI / XLL / encrypted
+  Office, allowlist, sandbox, calibration and fuzzy-DB tools, mbox tool, staged
+  pipeline, RAR codec); 548 in total. HTML-smuggling detection now has automated tests.
 
 ### Changed
 

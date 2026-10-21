@@ -104,6 +104,13 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         # v4.4: HTML smuggling / SVG / phishing pages.
         self.web_analyzer = WebContentAnalyzer()
         self.allowlist = load_allowlist(config.get("allowlist_path"))
+        self.sandbox = None
+        if config.get("sandbox_url"):
+            from core.sandbox import CapeClient
+            self.sandbox = CapeClient(config["sandbox_url"], token=config.get("sandbox_token", ""),
+                                      wait_seconds=int(config.get("sandbox_wait_seconds", 600)))
+            logger.info("Sandbox layer: ON (CAPEv2 at %s, submit=%s).", config["sandbox_url"],
+                        config.get("sandbox_submit", "suspicious"))
         self.embedded_analyzer = EmbeddedContentAnalyzer(
             password_source=self.container_extractor.current_extra_passwords)
         # 4.4.0-beta.2: Linux ELF triage and QR codes (quishing).
