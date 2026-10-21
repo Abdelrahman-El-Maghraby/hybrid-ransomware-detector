@@ -209,7 +209,7 @@ def rar_codec_problem() -> str:
             logger.debug("RAR codec probe failed: %s", e)
     return _rar_codec_state
 
-_BAD_ZIP_ERRORS = (zipfile.BadZipFile,) + (
+_BAD_ZIP_ERRORS = (zipfile.BadZipFile, NotImplementedError, EOFError) + (
     (_pyzipper.BadZipFile,) if AES_ZIP_AVAILABLE and _pyzipper.BadZipFile is not zipfile.BadZipFile
     else ())
 
@@ -378,7 +378,14 @@ class ContainerExtractor:
                                  container_type=detect_container(path) or "zip")
         sandbox = Path(tempfile.mkdtemp(prefix="hrd_unpack_"))
         try:
-            self._walk(path, path.name, sandbox, 1, result)
+            try:
+                self._walk(path, path.name, sandbox, 1, result)
+            except Exception as e:             # a hostile archive must not end the scan
+                logger.debug("Archive %s could not be walked completely: %s", path, e)
+                result.unreadable_members += 1
+                result.members.append(ArchiveMember(
+                    f"{path.name}!/(rest of archive)",
+                    skipped_reason=f"could not be parsed completely ({type(e).__name__})"))
             result.detail = self._summary(result)
             yield result
         finally:

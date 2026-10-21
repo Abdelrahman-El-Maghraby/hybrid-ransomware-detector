@@ -273,7 +273,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
                 continue
             self._run_heavy(heavy, ctx)          # a fast layer after slow ones keeps its order
             heavy = []
-            layer.run(self, ctx)
+            self._run_layer(layer, ctx)
         self._run_heavy(heavy, ctx)
 
         # Fuse every signal through the weighted scoring matrix
@@ -290,6 +290,17 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             display, result["verdict"], result["risk_score"], result["severity_score"],
         )
         return result
+
+    def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
+        """Run one layer; a parser that raises on a hostile file costs that layer's
+        evidence, not the whole file's verdict. The error is kept in the result."""
+        try:
+            layer.run(self, ctx)
+        except Exception as e:
+            logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
+                           type(e).__name__, e)
+            ctx.scan_results.setdefault("layer_errors", {})[layer.name] = (
+                f"{type(e).__name__}: {str(e)[:200]}")
 
     def _run_heavy(self, layers: List[Layer], ctx: ScanContext) -> None:
         """Run a group of slow layers: skipped at a saturated score, else concurrently."""
@@ -311,14 +322,14 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             return
         if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
             for layer in layers:
-                layer.run(self, ctx)
+                self._run_layer(layer, ctx)
             return
 
         def run_on_copy(layer: Layer) -> ScanContext:
             sub = copy.copy(ctx)
             sub.result = {**ctx.result, "scan_results": {}}
             sub.signals = dict(ctx.signals)
-            layer.run(self, sub)
+            self._run_layer(layer, sub)
             return sub
 
         if self._heavy_pool is None:
