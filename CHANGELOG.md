@@ -26,6 +26,20 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   download plus an execute (a dropper) scores High; either alone stays Low.
   Run over 16,475 scripts on the build machine: 15 High, all of them the same
   browser-installer scripts that really do download and run an installer.
+- **Archive passwords from the message:** "Password: 4471" (and the same in
+  German, French, Spanish, Portuguese, Italian, Dutch, Polish, Turkish, Arabic
+  and Russian) in a mail's subject or body is tried first on its encrypted ZIP /
+  7z / RAR attachments. An archive opened this way adds
+  `mail_archive_password_in_body` (30, technical): the classic gateway-evasion
+  trick of Emotet / Qakbot campaigns.
+- **Encoded scripts are decoded:** Windows Script Encoder blocks (`.vbe`,
+  `.jse`, encoded blocks in `.hta` / `.wsf`) are decoded and the real source is
+  analysed (decoding tables from Didier Stevens' public-domain decode-vbe.py).
+- `tools/build_fuzzy_db.py`: build the fuzzy-signature database inside the
+  analysis VM from a folder of confirmed samples (family = sub-folder or a
+  labels CSV). Near-duplicates are kept once, and with `--benign` every
+  signature that matches a known-good file is dropped. The output holds digests
+  only.
 - `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
   into one `.eml` per message, skipping duplicates.
 - 78 new tests (ELF, QR, scripts, HTML smuggling, mbox tool, staged pipeline,

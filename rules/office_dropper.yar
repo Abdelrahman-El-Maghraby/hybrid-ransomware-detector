@@ -23,8 +23,12 @@ rule Office_Macro_AutoExec_Execution
         $x3 = "CreateObject"    nocase wide ascii
         $x4 = "powershell"      nocase wide ascii
         $x5 = "cmd.exe"         nocase wide ascii
+        $vb = "Attribute VB_"   ascii wide
     condition:
-        (any of ($a*)) and (any of ($x*))
+        // 4.4.0-beta.2: only in Office binaries (OLE), Word 2003 XML / MHTML
+        // exports, or VBA source - the words also occur in manuals and scripts.
+        (uint32(0) == 0xE011CFD0 or $vb or filesize < 64KB)
+        and (any of ($a*)) and (any of ($x*))
 }
 
 rule Office_Macro_Payload_Download
@@ -40,8 +44,11 @@ rule Office_Macro_Payload_Download
         $n4 = "ADODB.Stream"      nocase wide ascii
         $h1 = "http://"           nocase wide ascii
         $h2 = "https://"          nocase wide ascii
+        $vb = "Attribute VB_"     ascii wide
+        $ole = { D0 CF 11 E0 A1 B1 1A E1 }
     condition:
-        (any of ($n*)) and (any of ($h*))
+        // 4.4.0-beta.2: Office binaries, VBA source or small dropped scripts only
+        ($ole at 0 or $vb or filesize < 64KB) and (any of ($n*)) and (any of ($h*))
 }
 
 rule PDF_AutoLaunch_Action

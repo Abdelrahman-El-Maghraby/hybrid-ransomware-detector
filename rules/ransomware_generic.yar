@@ -49,8 +49,15 @@ rule Crypto_Ransom_Extortion_Combo
         $u3 = "deadline"         nocase wide ascii
         $u4 = "permanently delete" nocase wide ascii
         $u5 = "lost forever"     nocase wide ascii
+        $y1 = "your files"       nocase wide ascii
+        $y2 = "your data"        nocase wide ascii
+        $y3 = "your network"     nocase wide ascii
+        $y4 = "your documents"   nocase wide ascii
     condition:
-        (any of ($e*)) and (any of ($p*)) and (any of ($u*))
+        // 4.4.0-beta.2: addressed to the victim ("your files ...") and note-sized;
+        // dictionaries and licences contain every one of the other words.
+        filesize < 2MB and (any of ($e*)) and (any of ($p*)) and (any of ($u*))
+        and (any of ($y*))
 }
 
 rule Bitcoin_Address_With_Payment_Context
@@ -66,8 +73,12 @@ rule Bitcoin_Address_With_Payment_Context
         $ctx2 = "pay"      nocase wide ascii
         $ctx3 = "wallet"   nocase wide ascii
         $ctx4 = "decrypt"  nocase wide ascii
+        $coin1 = "bitcoin" nocase wide ascii
+        $coin2 = "btc"     nocase wide ascii fullword
     condition:
-        $btc and (any of ($ctx*))
+        // 4.4.0-beta.2: the address shape alone matches random identifiers in
+        // documentation and binaries, so the currency must be named as well.
+        filesize < 5MB and $btc and (any of ($coin*)) and (any of ($ctx*))
 }
 
 rule PowerShell_Download_Cradle
@@ -78,14 +89,16 @@ rule PowerShell_Download_Cradle
         severity    = "high"
     strings:
         $ps   = "powershell" nocase wide ascii
-        $enc  = "-enc"        nocase wide ascii
+        $enc  = /powershell(\.exe)?[^\r\n]{0,80}\s-(e|en|enc|encodedcommand)\s+[A-Za-z0-9+\/=]{20,}/ nocase ascii wide
         $enc2 = "-encodedcommand" nocase wide ascii
         $dl1  = "downloadstring"  nocase wide ascii
         $dl2  = "downloadfile"    nocase wide ascii
         $dl3  = "invoke-webrequest" nocase wide ascii
-        $iex  = "iex"             nocase wide ascii
+        $iex  = "iex"             nocase wide ascii fullword
         $b64  = "frombase64string" nocase wide ascii
         $hid  = "-windowstyle hidden" nocase wide ascii
     condition:
-        $ps and (any of ($enc, $enc2, $dl1, $dl2, $dl3, $iex, $b64, $hid))
+        // 4.4.0-beta.2: "-enc" must be followed by an encoded blob and "iex" must be
+        // a word (both appeared in shell documentation); an option alone is not a cradle.
+        $enc or ($ps and (any of ($dl1, $dl2, $dl3, $b64)) and (any of ($iex, $hid, $enc2, $dl1, $dl2)))
 }
