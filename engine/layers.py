@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
@@ -55,6 +55,24 @@ class ScanContext:
     is_mail: bool = False
     is_web: bool = False
     embedded_kind: str = ""      # onenote | chm | msi | office-encrypted | xll
+    _data: Optional[bytes] = None
+    _data_loaded: bool = False
+
+    SHARED_READ_MAX = 64 * 1024 * 1024
+
+    def data(self) -> Optional[bytes]:
+        """The whole file, read once and shared by the layers that need every byte
+        (hashes, fuzzy hashes, YARA, ELF, scripts). None above SHARED_READ_MAX:
+        those layers then stream from disk as before."""
+        if not self._data_loaded:
+            self._data_loaded = True
+            try:
+                if os.path.getsize(self.path) <= self.SHARED_READ_MAX:
+                    with open(self.path, "rb") as fh:
+                        self._data = fh.read(self.SHARED_READ_MAX + 1)
+            except OSError:
+                self._data = None
+        return self._data
     hashes: Dict = field(default_factory=dict)
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
@@ -105,7 +123,13 @@ class HashLayer(Layer):
     name = "hashes"
 
     def run(self, scanner, ctx):
-        ctx.hashes = scanner.calculate_hashes(ctx.path)
+        data = ctx.data()
+        if data is not None:
+            import hashlib
+            ctx.hashes = {"md5": hashlib.md5(data).hexdigest(),
+                          "sha256": hashlib.sha256(data).hexdigest()}
+        else:
+            ctx.hashes = scanner.calculate_hashes(ctx.path)
         ctx.result["md5_hash"] = ctx.hashes["md5"]
         ctx.result["sha256_hash"] = ctx.hashes["sha256"]
 
@@ -128,7 +152,9 @@ class FuzzyHashLayer(Layer):
 
     def run(self, scanner, ctx):
         if ctx.result["file_size"] <= scanner.fuzzy_max_bytes:
-            fuzzy = scanner.fuzzy_hasher.analyze_file(ctx.path)
+            data = ctx.data()
+            pre = scanner.fuzzy_hasher.hash_bytes(data) if data is not None else None
+            fuzzy = scanner.fuzzy_hasher.analyze_file(ctx.path, precomputed=pre)
         else:
             from detectors.fuzzy_hash import FuzzyResult
             fuzzy = FuzzyResult(available=FUZZY_AVAILABLE,
@@ -176,7 +202,7 @@ class YaraLayer(Layer):
     name = "yara"
 
     def run(self, scanner, ctx):
-        res = scanner.yara_engine.scan_file(ctx.path)
+        res = scanner.yara_engine.scan_file(ctx.path, data=ctx.data())
         ctx.scan_results["yara"] = res.as_dict()
         ctx.signals["yara"] = {
             "matched": res.matched,
@@ -209,7 +235,7 @@ class ElfLayer(Layer):
     def run(self, scanner, ctx):
         if ctx.is_archive or ctx.is_mail or not is_elf(ctx.path):
             return
-        res = scanner.elf_analyzer.analyze_file(ctx.path)
+        res = scanner.elf_analyzer.analyze_file(ctx.path, data=ctx.data())
         ctx.scan_results["elf_analysis"] = res.as_dict()
         ctx.signals["elf"] = {"categories": res.categories, "packed": res.packed,
                               "packer": res.packer, "no_section_table": res.no_section_table}
@@ -223,7 +249,7 @@ class ScriptLayer(Layer):
     def run(self, scanner, ctx):
         if ctx.is_archive or ctx.is_mail or not is_script(ctx.path):
             return
-        res = scanner.script_analyzer.analyze_file(ctx.path)
+        res = scanner.script_analyzer.analyze_file(ctx.path, data=ctx.data())
         ctx.scan_results["script_analysis"] = res.as_dict()
         ctx.signals["script"] = {"language": res.language, "categories": res.categories,
                                  "encoded": res.encoded, "obfuscation": res.obfuscation}

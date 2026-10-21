@@ -248,6 +248,12 @@ class ScoringMatrix:
         contribs.extend(self._script(signals))
         contribs.extend(self._embedded(signals))
 
+        if signals.get("scan_failed"):
+            contribs.append(Contribution(
+                "scan_failed", "technical", self.W_SCAN_FAILED,
+                f"Scanning this file failed ({signals['scan_failed']}). Ordinary documents do "
+                "not hang or crash a parser; inspect it manually."))
+
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
         # When the integrity layer already proved the content is encrypted,

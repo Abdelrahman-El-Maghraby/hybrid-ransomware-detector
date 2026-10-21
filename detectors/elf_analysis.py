@@ -139,14 +139,17 @@ class ElfAnalyzer:
     def __init__(self, max_read: int = _MAX_READ):
         self.max_read = max_read
 
-    def analyze_file(self, path: PathLike) -> ElfResult:
+    def analyze_file(self, path: PathLike, data: Optional[bytes] = None) -> ElfResult:
         res = ElfResult()
-        try:
-            with open(path, "rb") as fh:
-                data = fh.read(self.max_read)
-        except OSError as e:
-            res.detail = f"Could not read file: {e}"
-            return res
+        if data is not None:
+            data = data[: self.max_read]
+        else:
+            try:
+                with open(path, "rb") as fh:
+                    data = fh.read(self.max_read)
+            except OSError as e:
+                res.detail = f"Could not read file: {e}"
+                return res
         if not data.startswith(ELF_MAGIC):
             res.detail = "Not an ELF file."
             return res

@@ -108,6 +108,11 @@ CONFIG = {
     "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
     # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
     "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
+    # Folder scans: each file in a worker process with a time and memory limit
+    "isolate_scans": _env_bool("ISOLATE_SCANS", True),
+    "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
+    "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
+    "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),

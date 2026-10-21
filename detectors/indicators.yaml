@@ -111,6 +111,7 @@ weights:         # points when an indicator fires fully
     2: 12.0
     1: 4.0
   W_SANDBOX_SIGNATURES_MAX: 70.0
+  W_SCAN_FAILED: 25.0   # the file made the scanner time out or crash (possible parser attack)
   W_ML: 20.0   # scaled by P(suspicious)
 
 indicators:      # name -> category, the weight it uses, label in the app
@@ -173,3 +174,4 @@ indicators:      # name -> category, the weight it uses, label in the app
   web_credential_capture: {category: technical, weight: W_WEB_CREDENTIAL, label: "password form"}
   web_redirect: {category: technical, weight: W_WEB_REDIRECT, label: "redirects away"}
   js_obfuscation: {category: technical, weight: W_JS_OBFUSCATION, label: "obfuscated script"}
+  scan_failed: {category: technical, weight: W_SCAN_FAILED, label: "file broke the scanner"}

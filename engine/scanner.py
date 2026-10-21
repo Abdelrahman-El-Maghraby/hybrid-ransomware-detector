@@ -364,6 +364,27 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         """
         results = []
         total = len(targets)
+        if self.config.get("isolate_scans", True) and total > 1:
+            from engine.workers import default_workers, scan_isolated
+
+            def collect(index, file_path, result):
+                try:
+                    self._maybe_auto_quarantine(result)
+                except Exception as e:
+                    logger.error(f"Auto-quarantine failed for {file_path}: {e}")
+                results.append(result)
+                if progress_callback is not None:
+                    try:
+                        progress_callback(index, total, file_path, result)
+                    except Exception as e:
+                        logger.error(f"Progress callback error: {str(e)}")
+
+            scan_isolated(self, targets, default_workers(self.config),
+                          float(self.config.get("scan_timeout_seconds", 300)),
+                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
+            order = {p: i for i, p in enumerate(targets)}
+            results.sort(key=lambda r: order.get(r.get("file_path"), 0))
+            return results
         for index, file_path in enumerate(targets, start=1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info(f"Scan cancelled by user after {len(results)}/{total} files.")
