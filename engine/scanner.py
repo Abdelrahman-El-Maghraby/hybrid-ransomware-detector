@@ -20,26 +20,48 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core import (
-    CanaryManager, QUARANTINE_AVAILABLE, QuarantineError, QuarantineVault,
-    RateLimiter, ResultCache, build_session,
+    QUARANTINE_AVAILABLE,
+    CanaryManager,
+    QuarantineError,
+    QuarantineVault,
+    RateLimiter,
+    ResultCache,
+    build_session,
 )
+from core.allowlist import load_allowlist
 from core.canary import desktop_notify
 from detectors import (
-    DEFUSEDXML_AVAILABLE, FUZZY_AVAILABLE, MSG_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE,
-    ContainerExtractor, FileIntegrityAnalyzer, FuzzyHasher, MacroAnalyzer, MailAnalyzer,
-    MLClassifier, PromptGuard, RelationshipScanner, ScoringMatrix, YaraEngine,
-    build_llm_backend, ransom_indicator,
+    DEFUSEDXML_AVAILABLE,
+    FUZZY_AVAILABLE,
+    MSG_AVAILABLE,
+    OLEVBA_AVAILABLE,
+    YARA_AVAILABLE,
+    ContainerExtractor,
+    FileIntegrityAnalyzer,
+    FuzzyHasher,
+    MacroAnalyzer,
+    MailAnalyzer,
+    MLClassifier,
+    PromptGuard,
+    RelationshipScanner,
+    ScoringMatrix,
+    YaraEngine,
+    build_llm_backend,
+    ransom_indicator,
 )
-
 from detectors.elf_analysis import ElfAnalyzer
-from detectors.script_analysis import ScriptAnalyzer
-from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
-from core.allowlist import load_allowlist
-from detectors.web_content import WebContentAnalyzer
 from detectors.embedded_content import EmbeddedContentAnalyzer
+from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
+from detectors.script_analysis import ScriptAnalyzer
+from detectors.web_content import WebContentAnalyzer
 
 from .config import (
-    BUNDLED_FUZZY_SIGS, DATA_DIR, ENGINE_VERSION, KEYSTORE_DIR, QUARANTINE_DIR, VERDICT_RANK,
+    BUNDLED_FUZZY_SIGS,
+    DATA_DIR,
+    ENGINE_VERSION,
+    KEYSTORE_DIR,
+    QUARANTINE_DIR,
+    VERDICT_RANK,
 )
 from .external import ExternalLookupsMixin
 from .layers import Layer, ScanContext, default_pipeline
@@ -183,7 +205,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
     def _load_kaggle_database(self) -> set:
         """Load malicious MD5 hashes into a memory-efficient set (streaming CSV, no pandas)."""
-        malicious_hashes = set()
+        malicious_hashes: set = set()
         try:
             if not os.path.exists(self.kaggle_db_path):
                 logger.warning(f"Malware database not found at {self.kaggle_db_path}. "
@@ -191,7 +213,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
                 return malicious_hashes
 
             logger.info(f"Loading malware database from {self.kaggle_db_path}")
-            with open(self.kaggle_db_path, mode="r", encoding="utf-8", newline="") as f:
+            with open(self.kaggle_db_path, encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     # A row is malicious when the 'Benign' flag is false/0/no

@@ -27,7 +27,7 @@ class Registry:
         entry = self.indicators.get(base) or {}
         return entry.get("label") or base.replace("_", " ")
 
-    def with_overrides(self, overrides: Optional[Dict[str, Any]]) -> "Registry":
+    def with_overrides(self, overrides: Optional[Dict[str, Any]]) -> Registry:
         """A copy with some weights replaced (e.g. a reviewed calibration result)."""
         reg = copy.deepcopy(self)
         for name, value in (overrides or {}).items():

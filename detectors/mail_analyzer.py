@@ -88,7 +88,7 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _AUTH_PASS = frozenset({"pass"})
 _AUTH_FAIL = frozenset({"fail", "softfail", "permerror"})
 
-_LURE_SUBJECT_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = tuple(
+_LURE_SUBJECT_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = tuple(
     (label, re.compile(rx, re.I)) for label, rx in (
         ("invoice/payment", r"\b(invoice|payment|remittance|wire transfer|overdue|past due)\b"),
         ("urgency", r"\b(urgent|immediate(ly)?|final (notice|warning)|action required)\b"),
@@ -184,9 +184,10 @@ class AuthResult:
 
 # "Password: 1234" next to an encrypted attachment: the gateway cannot open the
 # archive, the victim can. Labels in the languages delivery campaigns use most.
-_PASSWORD_LABELS = (r"password|passwort|kennwort|passcode|pass|pwd|pw|code|mot de passe|"
-                    r"contrase(?:n|ñ)a|senha|parola|wachtwoord|has(?:l|ł)o|şifre|sifre|"
-                    r"كلمة (?:المرور|السر)|الرقم السري|كود|пароль")
+_PASSWORD_LABELS = (  # label words, not a password
+    r"password|passwort|kennwort|passcode|pass|pwd|pw|code|mot de passe|"  # noqa: S105
+    r"contrase(?:n|ñ)a|senha|parola|wachtwoord|has(?:l|ł)o|şifre|sifre|"
+    r"كلمة (?:المرور|السر)|الرقم السري|كود|пароль")
 _PASSWORD_RX = re.compile(
     r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?\s*[:=：\-–]?\s*"
     r"[\"'“«‘]?([^\s\"'”»’<>]{3,40})", re.I | re.M)
@@ -301,7 +302,7 @@ class MailAnalyzer:
         try:
             try:
                 self._analyze(path, sandbox, res)
-            except Exception as exc:  # noqa: BLE001 - a hostile file must not crash a scan
+            except Exception as exc:
                 logger.debug("MailGuard failed on %s", path, exc_info=True)
                 res.error = res.error or f"{type(exc).__name__}: {exc}"
             res.detail = _summary(res)
@@ -538,7 +539,7 @@ def _decode_words(value: str) -> str:
     try:
         from email.header import decode_header, make_header
         return str(make_header(decode_header(value))).strip()
-    except Exception:  # noqa: BLE001 - malformed encodings are common in spam
+    except Exception:
         return str(value).strip()
 
 

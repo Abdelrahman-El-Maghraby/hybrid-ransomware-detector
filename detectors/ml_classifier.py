@@ -312,7 +312,7 @@ class MLClassifier:
         if model_path and Path(model_path).is_file():
             try:
                 self.load(model_path)
-            except Exception as exc:  # noqa: BLE001 - fall back to the rule engine
+            except Exception as exc:
                 self.load_error = f"{type(exc).__name__}: {exc}"
                 logger.warning("ML model %s not loaded (%s); using rule engine.",
                                model_path, self.load_error)
@@ -334,7 +334,7 @@ class MLClassifier:
                 classes = list(self.model.classes_)
                 res.probability = float(proba[classes.index(1)]) if 1 in classes else 0.0
                 res.indicators = self._model_reasons(feats) + reasons[:2]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 res.error = f"model inference failed ({exc}); used rule engine"
                 res.model = "rules"
                 res.probability, res.indicators = rule_score(feats)

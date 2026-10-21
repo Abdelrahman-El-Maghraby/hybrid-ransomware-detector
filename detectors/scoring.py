@@ -57,7 +57,7 @@ Two scores are produced:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .registry import REGISTRY
 
@@ -124,7 +124,7 @@ class ScoreResult:
         }
 
 
-def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> "Contribution":
+def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> Contribution:
     return Contribution(
         indicator=f"{prefix}:{c.get('indicator', '?')}",
         category=str(c.get("category", "technical")),
@@ -172,6 +172,9 @@ class ScoringMatrix:
     # Weights live in detectors/indicators.yaml (one place for weights, categories
     # and labels); they are attached to this class as W_* attributes at import
     # time, and an instance can carry reviewed overrides (see __init__).
+
+    if TYPE_CHECKING:                     # W_* weights are attached from the registry
+        def __getattr__(self, name: str) -> Any: ...
 
     def __init__(self, weights_override: Optional[Dict] = None):
         self.registry = REGISTRY.with_overrides(weights_override) if weights_override else REGISTRY
@@ -414,14 +417,14 @@ class ScoringMatrix:
                 + (f" -> {targets}" if targets else "") + "."))
 
         arc = signals.get("archive") or {}
-        reasons = arc.get("reasons") or {}
+        arc_reasons = arc.get("reasons") or {}
         if arc.get("zip_slip"):
             out.append(Contribution("archive_zip_slip", "technical", self.W_ARCHIVE_SLIP,
                                     f"Archive path traversal / symlink entry. "
-                                    f"{reasons.get('zip_slip', '')}".strip()))
+                                    f"{arc_reasons.get('zip_slip', '')}".strip()))
         if arc.get("zip_bomb"):
             out.append(Contribution("archive_zip_bomb", "technical", self.W_ARCHIVE_BOMB,
-                                    f"Decompression bomb. {reasons.get('zip_bomb', '')}".strip()))
+                                    f"Decompression bomb. {arc_reasons.get('zip_bomb', '')}".strip()))
         if arc.get("double_extension_members"):
             out.append(Contribution(
                 "archive_double_extension", "technical", self.W_ARCHIVE_DOUBLE_EXT,

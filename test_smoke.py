@@ -1,8 +1,14 @@
 """Smoke test for the patched RansomwareScanner — verifies the GUI integration
 points work AND that legacy (no-argument) call signatures still behave identically."""
-import hashlib, csv, threading, tempfile, os
+import csv
+import hashlib
+import os
+import tempfile
+import threading
 from pathlib import Path
+
 import docx as docxlib
+
 import RansomwareScanner as RS
 
 tmp = Path(tempfile.mkdtemp())
@@ -76,8 +82,13 @@ print("generate_report: OK —", files)
 # v4 NEW-LAYER COVERAGE — scoring matrix + fuzzy / macro / YARA engines
 # ===========================================================================
 from detectors import (
-    ScoringMatrix, FuzzyHasher, MacroAnalyzer, YaraEngine,
-    FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE,
+    FUZZY_AVAILABLE,
+    OLEVBA_AVAILABLE,
+    YARA_AVAILABLE,
+    FuzzyHasher,
+    MacroAnalyzer,
+    ScoringMatrix,
+    YaraEngine,
 )
 
 sm = ScoringMatrix()

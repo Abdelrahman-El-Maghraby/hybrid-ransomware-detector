@@ -10,7 +10,7 @@ python-dotenv
 PyYAML              # detectors/indicators.yaml (weights, categories, labels)
 
 # Document parsing
-PyPDF2
+pypdf>=4.0          # PDF text / structure (PyPDF2 3.0.x has a parser hang, CVE-2023-36464)
 python-docx
 pdf2image           # also needs the system package "poppler"
 pytesseract         # also needs the system package "tesseract-ocr"

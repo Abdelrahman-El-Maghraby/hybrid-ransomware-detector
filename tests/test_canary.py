@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import docx
-import PyPDF2
+from pypdf import PdfReader
 import pytest
 
 from core.canary import CANARY_TEMPLATES, CanaryManager
@@ -30,7 +30,7 @@ def test_deploy_creates_valid_realistic_documents(setup):
     assert len(mgr.entries()) == len(created)
     text = "\n".join(p.text for p in docx.Document(str(_canary(d1, ".docx"))).paragraphs)
     assert "Finance Records" in text
-    pdf = PyPDF2.PdfReader(str(_canary(d1, ".pdf")))
+    pdf = PdfReader(str(_canary(d1, ".pdf")))
     assert "Signed Contracts" in pdf.pages[0].extract_text()
     rows = list(csv.reader(io.StringIO(_canary(d2, ".csv").read_text())))
     assert rows[0][0] == "asset_tag" and len(rows) > 10

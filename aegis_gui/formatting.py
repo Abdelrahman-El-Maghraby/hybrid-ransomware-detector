@@ -30,7 +30,7 @@ def open_path(path) -> None:
     path = str(path)
     try:
         if platform.system() == "Windows":
-            os.startfile(path)  # type: ignore[attr-defined]
+            os.startfile(path)  # type: ignore[attr-defined]  # noqa: S606 - opens a report/folder the user picked
         elif platform.system() == "Darwin":
             subprocess.Popen(["open", path])
         else:

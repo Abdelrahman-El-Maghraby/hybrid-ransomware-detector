@@ -130,6 +130,7 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
     """A result for a file whose scan timed out or crashed the worker."""
     import os as _os
     from datetime import datetime
+
     from engine.config import ENGINE_VERSION
     try:
         hashes = scanner.calculate_hashes(path)
@@ -210,7 +211,7 @@ def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, mem
                 if kind in ("ok", "error"):
                     path, w.path = w.path, None
                     if path is not None:
-                        if kind == "ok":
+                        if kind == "ok" and isinstance(payload, dict):
                             finish(path, payload)
                         else:
                             fail(path, payload or "scan error")

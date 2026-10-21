@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-import mbox_to_eml  # noqa: E402
+import mbox_to_eml
 
 MSG = "From a@example.com Mon Jan  1 00:00:00 2024\nFrom: a@example.com\nSubject: {s}\n\nbody {s}\n\n"
 

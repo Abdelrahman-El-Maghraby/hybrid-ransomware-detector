@@ -6,8 +6,8 @@ import zipfile
 
 import pytest
 
-import RansomwareScanner as RS
 import detectors.container_extractor as ce
+import RansomwareScanner as RS
 from detectors.container_extractor import ContainerExtractor, detect_container
 from tests.helpers import make_pdf
 from tests.test_file_integrity import _pe_bytes

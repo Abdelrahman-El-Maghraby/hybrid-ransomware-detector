@@ -8,8 +8,12 @@ import os
 import pytest
 
 import RansomwareScanner as RS
-from detectors.file_integrity import (detect_format, encrypted_container_format,
-                                       is_openpgp_message, trusted_vault)
+from detectors.file_integrity import (
+    detect_format,
+    encrypted_container_format,
+    is_openpgp_message,
+    trusted_vault,
+)
 from detectors.ml_classifier import MLClassifier, extract_features
 from tests.test_scanner_integration import _config, _indicators
 

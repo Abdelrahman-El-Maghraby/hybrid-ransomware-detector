@@ -35,7 +35,6 @@ import json
 import math
 import random
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -235,7 +234,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     if a.features_in:
-        rows = [json.loads(l) for l in a.features_in.read_text().splitlines() if l.strip()]
+        rows = [json.loads(line) for line in a.features_in.read_text().splitlines() if line.strip()]
     else:
         if not a.malicious or not a.benign:
             ap.error("give --malicious and --benign folders, or --features-in")

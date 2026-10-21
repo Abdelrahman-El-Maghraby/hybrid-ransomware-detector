@@ -52,25 +52,25 @@ class ContainerHandler:
     worst_default_name = "member"
     error_label = "member"     # used in the log line when a member scan fails
 
-    def applies(self, ctx: "ScanContext") -> bool:
+    def applies(self, ctx: ScanContext) -> bool:
         raise NotImplementedError
 
-    def open(self, scanner: "RansomwareScanner", path: str):
+    def open(self, scanner: RansomwareScanner, path: str):
         """Context manager yielding a view with `.as_dict()`; sandbox lives inside it."""
         raise NotImplementedError
 
-    def budget(self, scanner: "RansomwareScanner") -> int:
+    def budget(self, scanner: RansomwareScanner) -> int:
         raise NotImplementedError
 
-    def items(self, view, ctx: "ScanContext") -> Iterator[Tuple[str, str, str]]:
+    def items(self, view, ctx: ScanContext) -> Iterator[Tuple[str, str, str]]:
         """Yield (sandbox path, display name, log label) for each scannable member."""
         raise NotImplementedError
 
-    def member_context(self, scanner: "RansomwareScanner", view):
+    def member_context(self, scanner: RansomwareScanner, view):
         """Context in which the members are scanned (e.g. extra archive passwords)."""
         return contextlib.nullcontext()
 
-    def capture(self, view, ctx: "ScanContext") -> None:
+    def capture(self, view, ctx: ScanContext) -> None:
         """Copy anything else the pipeline needs out of the view before it closes."""
 
     def decorate(self, view_dict: Dict, summaries: List[Dict]) -> None:
@@ -80,8 +80,8 @@ class ContainerHandler:
         raise NotImplementedError
 
 
-def scan_container(scanner: "RansomwareScanner", handler: ContainerHandler,
-                   ctx: "ScanContext") -> None:
+def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
+                   ctx: ScanContext) -> None:
     """Unpack, scan every member through the pipeline, record result + signals."""
     member_results: List[Dict] = []
     skipped_for_budget = 0

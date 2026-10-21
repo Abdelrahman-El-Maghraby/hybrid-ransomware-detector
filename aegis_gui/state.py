@@ -99,8 +99,8 @@ class ScanController:
     def _work(self, scanner, mode, target):
         bus = self.bus
         try:
-            callback = lambda done, total, path, res: bus.put(
-                ("progress", done, total, path, res))
+            def callback(done, total, path, res):
+                bus.put(("progress", done, total, path, res))
             if mode == "file":
                 bus.put(("progress", 0, 1, target, None))
                 results = [scanner.scan_file(target)]

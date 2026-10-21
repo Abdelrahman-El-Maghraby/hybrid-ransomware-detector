@@ -9,8 +9,8 @@ import zipfile
 
 import pytest
 
-from detectors.web_content import MAX_PAYLOADS, WebContentAnalyzer
 from detectors.scoring import ScoringMatrix
+from detectors.web_content import MAX_PAYLOADS, WebContentAnalyzer
 from tests.test_file_integrity import _pe_bytes
 from tests.test_mail_analyzer import make_eml
 from tests.test_scanner_integration import _indicators, scanner  # noqa: F401  (fixture)

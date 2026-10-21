@@ -47,20 +47,41 @@ except ImportError:
 
 # Engine: configuration first (creates the app folders, logging, .env), then
 # the scanner. Every name below is re-exported for the GUI and older callers.
-from engine.config import (  # noqa: F401
-    APP_DIR, BUNDLED_FUZZY_SIGS, BUNDLED_RULES_DIR, CONFIG, DATA_DIR, ENGINE_VERSION,
-    ENV_FILE, FROZEN, KEYSTORE_DIR, LOG_FILE, QUARANTINE_DIR, REPORT_DIR, SCRIPT_DIR,
-    SUPPORTED_EXTENSIONS, USER_HOME, VERDICT_RANK, _env_bool, _env_float, logger,
-)
-from engine.scanner import RansomwareScanner  # noqa: F401
-from engine.text import extract_suspicious_strings  # noqa: F401
-from detectors import (  # noqa: F401
-    DEFUSEDXML_AVAILABLE, FUZZY_AVAILABLE, MSG_AVAILABLE, OLEVBA_AVAILABLE,
-    SKLEARN_AVAILABLE, YARA_AVAILABLE, FuzzyHasher, MLClassifier,
+from core import WATCHDOG_AVAILABLE, CanaryWatcher, QuarantineError
+from detectors import (
+    DEFUSEDXML_AVAILABLE,
+    FUZZY_AVAILABLE,
+    MSG_AVAILABLE,
+    OLEVBA_AVAILABLE,
+    SKLEARN_AVAILABLE,
+    YARA_AVAILABLE,
+    FuzzyHasher,
+    MLClassifier,
 )
 from detectors.relationship_scanner import defang  # noqa: F401
-from core import WATCHDOG_AVAILABLE, CanaryWatcher, QuarantineError  # noqa: F401
-
+from engine.config import (  # noqa: F401
+    APP_DIR,
+    BUNDLED_FUZZY_SIGS,
+    BUNDLED_RULES_DIR,
+    CONFIG,
+    DATA_DIR,
+    ENGINE_VERSION,
+    ENV_FILE,
+    FROZEN,
+    KEYSTORE_DIR,
+    LOG_FILE,
+    QUARANTINE_DIR,
+    REPORT_DIR,
+    SCRIPT_DIR,
+    SUPPORTED_EXTENSIONS,
+    USER_HOME,
+    VERDICT_RANK,
+    _env_bool,
+    _env_float,
+    logger,
+)
+from engine.scanner import RansomwareScanner
+from engine.text import extract_suspicious_strings  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Cross-platform autostart  (run the scanner automatically at login/startup)
@@ -280,7 +301,8 @@ def remove_autostart() -> bool:
             if shutil.which("crontab"):
                 existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
                 if existing.returncode == 0 and CRON_MARKER in existing.stdout:
-                    filtered = "\n".join(l for l in existing.stdout.splitlines() if CRON_MARKER not in l)
+                    filtered = "\n".join(line for line in existing.stdout.splitlines()
+                                         if CRON_MARKER not in line)
                     filtered = (filtered + "\n") if filtered.strip() else ""
                     subprocess.run(["crontab", "-"], input=filtered, text=True, capture_output=True)
                     removed = True
@@ -367,7 +389,7 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
     try:
         shutil.copy2(source_path, destination_path)
 
-        with open(destination_path, mode="r", encoding="utf-8", newline="") as f:
+        with open(destination_path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
             outcome["entries"] = sum(1 for _ in reader)
@@ -393,6 +415,7 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
 def _allow_file(path: str, note: str, allowlist_path: str) -> None:
     """Append a file's SHA-256 (and a note) to the allowlist."""
     import hashlib
+
     from core.allowlist import load_allowlist
     if not os.path.isfile(path):
         print(f"Error: file not found: {path}")

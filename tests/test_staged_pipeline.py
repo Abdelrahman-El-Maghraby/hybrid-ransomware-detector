@@ -73,8 +73,9 @@ def test_sequential_mode_keeps_one_thread(scanner, tmp_path):
 
 
 def test_real_slow_layers_still_score(scanner, tmp_path):
-    from tests.test_ml_classifier import SCN_WX, make_pe
     import os
+
+    from tests.test_ml_classifier import SCN_WX, make_pe
     p = tmp_path / "scan" / "setup.exe"
     p.write_bytes(make_pe([("UPX0", b"\0" * 512, SCN_WX), ("UPX1", os.urandom(20_000), SCN_WX)],
                           imports=("KERNEL32.dll",)))

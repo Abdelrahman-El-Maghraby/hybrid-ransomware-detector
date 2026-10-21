@@ -30,12 +30,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
 from detectors.embedded_content import sniff as embedded_sniff
-from detectors.script_analysis import is_script
 from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.relationship_scanner import defang
+from detectors.script_analysis import is_script
 
-from .containers import (ArchiveHandler, EmbeddedHandler, MailHandler, WebHandler,
-                         scan_container)
+from .containers import ArchiveHandler, EmbeddedHandler, MailHandler, WebHandler, scan_container
 from .text import extract_suspicious_strings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -79,8 +78,8 @@ class ScanContext:
     signals: Dict = field(default_factory=lambda: {"archive": {}, "mail": {}, "ml": {}})
 
     @classmethod
-    def start(cls, scanner: "RansomwareScanner", path: str, depth: int, display: str,
-              engine_version: str) -> "ScanContext":
+    def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
+              engine_version: str) -> ScanContext:
         result = {
             "file_path": display,
             "file_name": os.path.basename(display.replace("!/", "/")),
@@ -113,7 +112,7 @@ class Layer:
     name = ""
     heavy = False
 
-    def run(self, scanner: "RansomwareScanner", ctx: ScanContext) -> None:
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         raise NotImplementedError
 
 
@@ -258,7 +257,7 @@ class ScriptLayer(Layer):
 class ContainerLayer(Layer):
     """Unpack a container and send every member through the whole pipeline."""
 
-    def __init__(self, handler: "ContainerHandler"):
+    def __init__(self, handler: ContainerHandler):
         self.handler = handler
         self.name = handler.result_key
 

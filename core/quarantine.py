@@ -179,7 +179,7 @@ class QuarantineVault:
         return hashlib.sha256(b"hrd-key-fingerprint" + self._master_key).hexdigest()[:16]
 
     @staticmethod
-    def _key_cipher(passphrase: str, salt: bytes, n: int, r: int, p: int) -> "AESGCM":
+    def _key_cipher(passphrase: str, salt: bytes, n: int, r: int, p: int) -> AESGCM:
         kdf = Scrypt(salt=salt, length=32, n=n, r=r, p=p)
         return AESGCM(kdf.derive(passphrase.encode("utf-8")))
 
@@ -257,7 +257,7 @@ class QuarantineVault:
         logger.info("Imported quarantine key (fingerprint %s): %s", self.key_fingerprint(), status)
         return status
 
-    def _file_cipher(self, salt: bytes) -> "AESGCM":
+    def _file_cipher(self, salt: bytes) -> AESGCM:
         hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=_HKDF_INFO)
         return AESGCM(hkdf.derive(self._master_key))
 
@@ -370,7 +370,7 @@ class QuarantineVault:
         return meta
 
     # -------------------------------------------------------------- decrypt
-    def _decrypt_stream(self, vault_file: Path, sink) -> "tuple[Dict[str, Any], str]":
+    def _decrypt_stream(self, vault_file: Path, sink) -> tuple[Dict[str, Any], str]:
         """Authenticate + decrypt a vault file. Writes plaintext to `sink` (a
         binary file object) when given. Returns (metadata, sha256 of plaintext).
         Raises QuarantineError on any tampering, truncation or wrong key."""
@@ -412,11 +412,11 @@ class QuarantineVault:
                     h.update(pt)
                     if sink is not None:
                         sink.write(pt)
-        except InvalidTag:
+        except InvalidTag as e:
             raise QuarantineError("Vault authentication failed: the file was modified, "
-                                  "truncated, or encrypted with a different key.")
+                                  "truncated, or encrypted with a different key.") from e
         except (OSError, ValueError, struct.error) as e:
-            raise QuarantineError(f"Could not read vault file: {e}")
+            raise QuarantineError(f"Could not read vault file: {e}") from e
         return meta, h.hexdigest()
 
     def verify(self, item_id: str) -> bool:

@@ -214,7 +214,8 @@ class PromptGuard:
         found = _Findings()
         with zipfile.ZipFile(path) as zf:
             names = set(zf.namelist())
-            xml = lambda n: _read_xml(zf, n, found)
+            def xml(n, zf=zf):
+                return _read_xml(zf, n, found)
             shared = _shared_strings(xml("xl/sharedStrings.xml")) if "xl/sharedStrings.xml" in names else []
             styles = _xlsx_hidden_styles(xml("xl/styles.xml")) if "xl/styles.xml" in names else {}
             book = xml("xl/workbook.xml")
@@ -279,7 +280,7 @@ class PromptGuard:
                     self._pptx_shape(shape, slide_w, slide_h, found, top_level=True)
         return found.result()
 
-    def _pptx_shape(self, shape, slide_w: int, slide_h: int, found: "_Findings",
+    def _pptx_shape(self, shape, slide_w: int, slide_h: int, found: _Findings,
                     top_level: bool) -> None:
         nv = next((c for c in shape if c.tag.endswith("Pr") and c.tag.startswith(_P + "nv")), None)
         cnv = nv.find(f"{_P}cNvPr") if nv is not None else None
@@ -311,12 +312,15 @@ class PromptGuard:
 
     def _inspect_pdf(self, path: Path) -> HiddenTextResult:
         try:
-            import PyPDF2  # already a core dependency
-        except Exception:  # pragma: no cover
-            return HiddenTextResult()
+            from pypdf import PdfReader
+        except ImportError:  # pragma: no cover
+            try:
+                from PyPDF2 import PdfReader
+            except ImportError:
+                return HiddenTextResult()
         pages: List[int] = []
         with path.open("rb") as fh:
-            reader = PyPDF2.PdfReader(fh, strict=False)
+            reader = PdfReader(fh, strict=False)
             for number, page in enumerate(reader.pages[:_MAX_PDF_PAGES], start=1):
                 contents = page.get_contents()
                 if contents is None:
@@ -395,7 +399,7 @@ class _Findings:
         return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets)
 
 
-def _read_xml(zf: zipfile.ZipFile, name: str, found: "_Findings"):
+def _read_xml(zf: zipfile.ZipFile, name: str, found: _Findings):
     try:
         info = zf.getinfo(name)
     except KeyError:
