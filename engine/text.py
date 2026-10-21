@@ -6,6 +6,7 @@ import re
 from typing import List
 
 import docx
+
 try:  # pypdf is the maintained successor; PyPDF2 3.0.x has a known parser hang (CVE-2023-36464)
     from pypdf import PdfReader
 except ImportError:  # pragma: no cover

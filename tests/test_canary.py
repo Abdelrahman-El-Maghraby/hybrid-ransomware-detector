@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 
 import docx
-from pypdf import PdfReader
 import pytest
+from pypdf import PdfReader
 
 from core.canary import CANARY_TEMPLATES, CanaryManager
 
