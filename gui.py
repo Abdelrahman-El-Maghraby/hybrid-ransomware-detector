@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hybrid Ransomware Detector — graphical interface.
+Aegis Sentinel (hybrid ransomware detector) — graphical interface.
 
 A desktop front-end for RansomwareScanner.py. The scanner module is used as a
 library; nothing in the CLI behaviour changes. All scanning runs in a worker
@@ -25,6 +25,7 @@ import threading
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List
 
 # --- Dependency guards (friendly errors instead of tracebacks) --------------
 
@@ -52,29 +53,35 @@ except ImportError:  # pragma: no cover
 
 from dotenv import set_key
 
-APP_VERSION = "4.3"
+APP_VERSION = "4.4 beta"
 SETTINGS_FILE = RS.APP_DIR / "gui_settings.json"
 ENV_FILE = RS.ENV_FILE        # next to the script, or ~/RansomwareScanner in a build
 
-# --- Theme (matches the project's dark terminal aesthetic) -------------------
+# --- Theme --------------------------------------------------------------------
+# Graphite neutrals with a slight blue cast and one cobalt accent for actions.
+# Red / orange / amber / green are reserved for verdicts and status, so colour
+# always means something.
 
-BG = "#0D1117"
-PANEL = "#161B22"
-PANEL_2 = "#1C2230"
-BORDER = "#21262D"
-BORDER_2 = "#30363D"
-TEXT = "#E6EDF3"
-MUTED = "#8B949E"
-ACCENT = "#1D9E75"
-ACCENT_HOVER = "#16835F"
-ACCENT_SOFT = "#5DCAA5"
-ACCENT_DIM = "#11261F"
-RED = "#E24B4A"
-RED_HOVER = "#C03937"
-RED_SOFT = "#F09595"
-AMBER_SOFT = "#FAC775"
-BLUE = "#58A6FF"
-SELECT = "#1F2A37"
+BG = "#0F1216"
+PANEL = "#151A20"
+PANEL_2 = "#1B2129"
+BORDER = "#232A33"
+BORDER_2 = "#2F3843"
+TEXT = "#E3E7ED"
+MUTED = "#8A94A3"
+ACCENT = "#3E6FD8"
+ACCENT_HOVER = "#335DB8"
+ACCENT_SOFT = "#93B1EE"
+ACCENT_DIM = "#18233A"
+ON_ACCENT = "#FFFFFF"
+OK = "#5FB98E"
+RED = "#E5484D"
+RED_HOVER = "#C73E42"
+RED_SOFT = "#F2A3A5"
+ORANGE = "#EE9454"
+AMBER_SOFT = "#E9BE6C"
+BLUE = "#93B1EE"
+SELECT = "#1F2A3A"
 
 SEV_HIGH, SEV_MED = 7.0, 3.5
 
@@ -112,7 +119,7 @@ def severity_color(score: float, malicious: bool) -> str:
         return RED_SOFT
     if score >= SEV_MED:
         return AMBER_SOFT
-    return ACCENT_SOFT
+    return OK
 
 
 def severity_bar(score: float) -> str:
@@ -123,7 +130,7 @@ def severity_bar(score: float) -> str:
 # Verdict bands mirror detectors/scoring.py. Colours map band -> palette.
 VERDICT_COLORS = {
     "Critical": RED,
-    "High": RED_SOFT,
+    "High": ORANGE,
     "Medium": AMBER_SOFT,
     "Low": ACCENT_SOFT,
     "Clean": MUTED,
@@ -161,6 +168,53 @@ def result_risk(result: dict) -> int:
 def risk_bar(risk: int) -> str:
     filled = max(0, min(10, int(round(risk / 10.0))))
     return "█" * filled + "─" * (10 - filled) + f"  {risk}/100"
+
+
+# Plain-language names for the scoring indicators (detectors/scoring.py).
+_REASON_LABELS = {
+    "local_db_hit": "known malicious hash", "yara_match": "YARA rule match",
+    "fuzzy_family_match": "similar to a known family", "macro_autoexec": "auto-run macro",
+    "macro_critical": "macro runs or downloads code", "macro_suspicious": "suspicious macro",
+    "macro_dropper_synergy": "macro dropper", "vba_stomping": "VBA stomping",
+    "xlm_macros": "Excel 4.0 macros", "disguised_executable": "program disguised as a document",
+    "encrypted_content": "content looks encrypted", "format_mismatch": "wrong file format",
+    "prompt_injection": "hidden instructions to AI", "prompt_injection_phrasing": "AI-steering text",
+    "hidden_content": "hidden text", "external_relationship": "loads content from the internet",
+    "archive_zip_slip": "path traversal in archive", "archive_zip_bomb": "decompression bomb",
+    "archive_double_extension": "double extension", "archive_rtlo_spoof": "spoofed file name",
+    "archive_executable": "program inside archive", "archive_encrypted": "locked archive",
+    "mail_dmarc_fail": "sender fails DMARC", "mail_auth_fail": "sender fails SPF/DKIM",
+    "mail_display_name_spoof": "spoofed sender name", "mail_reply_to_mismatch": "replies diverted",
+    "mail_deceptive_link": "deceptive link", "mail_risky_attachment": "risky attachment",
+    "mail_double_extension": "double extension", "mail_rtlo_spoof": "spoofed file name",
+    "mail_lure_subject": "pressure in subject", "html_smuggling": "HTML smuggling",
+    "web_embedded_payload": "file hidden in page", "web_download_construct": "page builds a download",
+    "svg_active_content": "active SVG", "web_credential_capture": "password form",
+    "web_redirect": "redirects away", "js_obfuscation": "obfuscated script",
+    "image_appended_payload": "payload after image", "elf_behaviour": "hostile Linux program",
+    "elf_packed": "packed Linux program", "elf_no_section_table": "stripped Linux program",
+    "qr_code_suspicious_url": "QR code to a risky link", "qr_code_url": "QR code with a link",
+    "ml_classifier": "ML model", "virustotal": "VirusTotal engines", "llm_semantic": "LLM opinion",
+}
+
+
+def top_reasons(result: dict, limit: int = 2) -> str:
+    """The strongest reasons behind a verdict, in words, e.g.
+    'program disguised as a document · YARA rule match'."""
+    contribs = (result.get("score_breakdown") or {}).get("contributions") or []
+    out: List[str] = []
+    for c in sorted(contribs, key=lambda c: -float(c.get("points", 0) or 0)):
+        name = str(c.get("indicator", ""))
+        where = ""
+        if ":" in name:
+            prefix, name = name.split(":", 1)
+            where = " (attachment)" if prefix.startswith("mail") else " (inside)"
+        label = _REASON_LABELS.get(name, name.replace("_", " ")) + where
+        if label not in out:
+            out.append(label)
+        if len(out) >= limit:
+            break
+    return "  ·  ".join(out) if out else "nothing found"
 
 
 # Markers the LLM layer emits when it did not actually analyse the document
@@ -405,16 +459,16 @@ class StatCard(ctk.CTkFrame):
     """Dashboard layer card: title, value, status dot + status text."""
 
     def __init__(self, master, title: str, **kwargs):
-        super().__init__(master, fg_color=PANEL, corner_radius=10,
-                         border_width=1, border_color=BORDER, **kwargs)
+        # A cell of the shared "Engine" panel rather than a card of its own.
+        super().__init__(master, fg_color="transparent", corner_radius=0, **kwargs)
         self.title_label = ctk.CTkLabel(self, text=title, text_color=MUTED,
                                         font=master.app.font_small, anchor="w")
-        self.title_label.pack(fill="x", padx=14, pady=(12, 0))
+        self.title_label.pack(fill="x", padx=16, pady=(10, 0))
         self.value_label = ctk.CTkLabel(self, text="—", text_color=TEXT,
-                                        font=master.app.font_card, anchor="w")
-        self.value_label.pack(fill="x", padx=14, pady=(2, 0))
+                                        font=master.app.font_bold, anchor="w")
+        self.value_label.pack(fill="x", padx=16, pady=(0, 0))
         row = ctk.CTkFrame(self, fg_color="transparent")
-        row.pack(fill="x", padx=14, pady=(2, 12))
+        row.pack(fill="x", padx=16, pady=(0, 10))
         self.dot = ctk.CTkLabel(row, text="●", width=14, anchor="w",
                                 text_color=MUTED, font=master.app.font_small)
         self.dot.pack(side="left")
@@ -424,9 +478,9 @@ class StatCard(ctk.CTkFrame):
 
     def update_card(self, value: str, status: str, ok: bool, alert: bool = False):
         self.value_label.configure(text=value)
-        color = RED if alert else (ACCENT_SOFT if ok else AMBER_SOFT)
-        self.status_label.configure(text=status, text_color=color)
-        self.dot.configure(text_color=RED if alert else (ACCENT if ok else AMBER_SOFT))
+        color = RED if alert else (OK if ok else AMBER_SOFT)
+        self.status_label.configure(text=status, text_color=color if not ok else MUTED)
+        self.dot.configure(text_color=color)
 
 
 class Section(ctk.CTkFrame):
@@ -893,37 +947,38 @@ class DashboardPage(BasePage):
                                          border_width=1, border_color=RED,
                                          text_color=RED_SOFT, font=app.font_bold,
                                          command=app.stop_scan)
-        self.scan_button = ctk.CTkButton(header, text="▶  Scan now", width=126, height=34,
+        self.scan_button = ctk.CTkButton(header, text="Scan now", width=112, height=34,
                                          fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                         text_color="#E1F5EE", font=app.font_bold,
+                                         text_color=ON_ACCENT, font=app.font_bold,
                                          command=app.start_full_scan)
         self.scan_button.pack(side="right")
 
-        cards = ctk.CTkFrame(self, fg_color="transparent")
+        cards = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=8,
+                             border_width=1, border_color=BORDER)
         cards.app = app
         cards.pack(fill="x", pady=(14, 0))
         cards.grid_columnconfigure((0, 1, 2), weight=1, uniform="cards")
         # Row 0 — technical layers (exact + structural)
         self.card_db = StatCard(cards, "Hash database")
-        self.card_db.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        self.card_db.grid(row=0, column=0, sticky="nsew", pady=(4, 0))
         self.card_fuzzy = StatCard(cards, "Fuzzy hashing")
-        self.card_fuzzy.grid(row=0, column=1, sticky="nsew", padx=4, pady=(0, 8))
+        self.card_fuzzy.grid(row=0, column=1, sticky="nsew", pady=(4, 0))
         self.card_macro = StatCard(cards, "Macro analysis")
-        self.card_macro.grid(row=0, column=2, sticky="nsew", padx=(8, 0), pady=(0, 8))
+        self.card_macro.grid(row=0, column=2, sticky="nsew", pady=(4, 0))
         # Row 1 — structural / reputation / semantic
         self.card_yara = StatCard(cards, "YARA rules")
-        self.card_yara.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        self.card_yara.grid(row=1, column=0, sticky="nsew")
         self.card_vt = StatCard(cards, "VirusTotal")
-        self.card_vt.grid(row=1, column=1, sticky="nsew", padx=4)
+        self.card_vt.grid(row=1, column=1, sticky="nsew")
         self.card_ai = StatCard(cards, "LLM analysis")
-        self.card_ai.grid(row=1, column=2, sticky="nsew", padx=(8, 0))
+        self.card_ai.grid(row=1, column=2, sticky="nsew")
         # Row 2 — v4 heuristics + host protection
         self.card_heur = StatCard(cards, "Heuristic layers")
-        self.card_heur.grid(row=2, column=0, sticky="nsew", padx=(0, 8), pady=(8, 0))
+        self.card_heur.grid(row=2, column=0, sticky="nsew", pady=(0, 4))
         self.card_canary = StatCard(cards, "Canary tripwires")
-        self.card_canary.grid(row=2, column=1, sticky="nsew", padx=4, pady=(8, 0))
+        self.card_canary.grid(row=2, column=1, sticky="nsew", pady=(0, 4))
         self.card_vault = StatCard(cards, "Quarantine vault")
-        self.card_vault.grid(row=2, column=2, sticky="nsew", padx=(8, 0), pady=(8, 0))
+        self.card_vault.grid(row=2, column=2, sticky="nsew", pady=(0, 4))
 
         prog = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
                             border_width=1, border_color=BORDER)
@@ -957,12 +1012,12 @@ class DashboardPage(BasePage):
 
         tree_holder = ctk.CTkFrame(table_frame, fg_color="transparent")
         tree_holder.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.tree = ttk.Treeview(tree_holder, columns=("file", "layers", "risk", "verdict"),
+        self.tree = ttk.Treeview(tree_holder, columns=("file", "verdict", "risk", "why"),
                                  show="headings", style="RD.Treeview", selectmode="browse")
-        for col, label, width, stretch in [("file", "File", 180, True),
-                                           ("layers", "Layers", 380, False),
-                                           ("risk", "Risk", 180, False),
-                                           ("verdict", "Verdict", 90, False)]:
+        for col, label, width, stretch in [("file", "File", 220, False),
+                                           ("verdict", "Verdict", 90, False),
+                                           ("risk", "Risk", 70, False),
+                                           ("why", "Main reasons", 420, True)]:
             self.tree.heading(col, text=label, anchor="w")
             self.tree.column(col, width=width, stretch=stretch, anchor="w")
         scrollbar = ctk.CTkScrollbar(tree_holder, command=self.tree.yview,
@@ -971,9 +1026,8 @@ class DashboardPage(BasePage):
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        self.tree.tag_configure("mal", foreground=RED_SOFT)
-        self.tree.tag_configure("warn", foreground=AMBER_SOFT)
-        self.tree.tag_configure("clean", foreground=TEXT)
+        for verdict, color in VERDICT_COLORS.items():
+            self.tree.tag_configure(verdict, foreground=color if verdict != "Clean" else TEXT)
         self.tree.bind("<Double-1>", self._open_detail)
 
         self.empty_label = ctk.CTkLabel(table_frame,
@@ -992,19 +1046,12 @@ class DashboardPage(BasePage):
     def add_result(self, result: dict):
         verdict = result_verdict(result)
         risk = result_risk(result)
-        # Map the verdict band onto the three available row colours.
-        if verdict in ("Critical", "High"):
-            tag = "mal"
-        elif verdict in ("Medium", "Low"):
-            tag = "warn"
-        else:
-            tag = "clean"
         iid = self.tree.insert("", "end", values=(
             result.get("file_name", "?"),
-            layers_summary(result),
-            risk_bar(risk),
             verdict,
-        ), tags=(tag,))
+            f"{risk}",
+            top_reasons(result) if verdict != "Clean" else "",
+        ), tags=(verdict if verdict in VERDICT_COLORS else "Clean",))
         self.row_results[iid] = result
         self.tree.see(iid)
 
@@ -1148,7 +1195,7 @@ class ScanPage(BasePage):
             self.ext_vars[ext] = var
             ctk.CTkCheckBox(ext_row, text=ext, variable=var, font=app.font_ui, width=90,
                             text_color=TEXT, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                            border_color=BORDER_2, checkmark_color="#E1F5EE",
+                            border_color=BORDER_2, checkmark_color=ON_ACCENT,
                             command=self._extensions_changed
                             ).grid(row=i // 7, column=i % 7, sticky="w", pady=3)
 
@@ -1156,9 +1203,9 @@ class ScanPage(BasePage):
         sec.pack(fill="x", pady=(14, 0))
         run_row = ctk.CTkFrame(sec.body, fg_color="transparent")
         run_row.pack(fill="x", padx=14, pady=(12, 6))
-        self.scan_button = ctk.CTkButton(run_row, text="▶  Scan all directories", height=34,
+        self.scan_button = ctk.CTkButton(run_row, text="Scan all directories", height=34,
                                          fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                         text_color="#E1F5EE", font=app.font_bold,
+                                         text_color=ON_ACCENT, font=app.font_bold,
                                          command=app.start_full_scan)
         self.scan_button.pack(side="left")
         ctk.CTkButton(run_row, text="Scan a single file…", height=34, font=app.font_ui,
@@ -1282,7 +1329,7 @@ class ProtectionPage(BasePage):
         row = ctk.CTkFrame(sec.body, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(0, 6))
         ctk.CTkButton(row, text="Deploy to monitored folders", height=32, fg_color=ACCENT,
-                      hover_color=ACCENT_HOVER, text_color="#E1F5EE", font=app.font_bold,
+                      hover_color=ACCENT_HOVER, text_color=ON_ACCENT, font=app.font_bold,
                       command=self._deploy).pack(side="left")
         ctk.CTkButton(row, text="Verify now", height=32, font=app.font_ui,
                       fg_color="transparent", hover_color=PANEL_2, border_width=1,
@@ -1584,7 +1631,7 @@ class DatabasePage(BasePage):
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
                      justify="left").pack(fill="x", padx=14, pady=(12, 6))
         ctk.CTkButton(sec.body, text="Import dataset (.csv)…", height=34,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#E1F5EE",
+                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color=ON_ACCENT,
                       font=app.font_bold, command=self._import).pack(anchor="w",
                                                                      padx=14, pady=(0, 8))
         self.import_label = ctk.CTkLabel(sec.body, text="", font=app.font_small,
@@ -1754,7 +1801,7 @@ class SettingsPage(BasePage):
             status.pack(side="left")
             self.key_rows[env_name] = (entry, status, config_key)
         ctk.CTkButton(sec.body, text="Save keys", height=32, fg_color=ACCENT,
-                      hover_color=ACCENT_HOVER, text_color="#E1F5EE", font=app.font_bold,
+                      hover_color=ACCENT_HOVER, text_color=ON_ACCENT, font=app.font_bold,
                       command=self._save_keys).pack(anchor="w", padx=14, pady=(6, 4))
         self.vt_upload_var = ctk.BooleanVar(
             value=bool(app.scanner.config.get("virustotal_upload_unknown")))
@@ -1900,7 +1947,7 @@ class App(ctk.CTk):
     def __init__(self):
         ctk.set_appearance_mode("dark")
         super().__init__(fg_color=BG)
-        self.title("Hybrid Ransomware Detector")
+        self.title("Aegis Sentinel")
         self.geometry("1180x760")
         self.minsize(1024, 660)
 
@@ -1997,9 +2044,9 @@ class App(ctk.CTk):
 
         brand = ctk.CTkFrame(sidebar, fg_color="transparent")
         brand.pack(fill="x", padx=16, pady=(18, 14))
-        ctk.CTkLabel(brand, text="Ransomware detector", font=self.font_h2,
+        ctk.CTkLabel(brand, text="Aegis Sentinel", font=self.font_h2,
                      text_color=TEXT, anchor="w").pack(fill="x")
-        ctk.CTkLabel(brand, text=f"hybrid engine · v{APP_VERSION}",
+        ctk.CTkLabel(brand, text=f"hybrid ransomware detector · v{APP_VERSION}",
                      font=self.font_small, text_color=MUTED, anchor="w").pack(fill="x")
 
         self.nav_buttons = {}
