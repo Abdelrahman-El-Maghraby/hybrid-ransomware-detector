@@ -216,6 +216,7 @@ class ScoringMatrix:
     W_MAIL_DOUBLE_EXT = 60.0
     W_MAIL_RTLO = 60.0
     W_MAIL_LURE_SUBJECT = 8.0      # semantic: urgency/payment/credential phrasing
+    W_MAIL_ARCHIVE_PASSWORD = 30.0 # encrypted archive + its password in the mail (gateway evasion)
 
     # ---- v4.4: web content + images ------------------------------------------------
     W_HTML_SMUGGLING = 70.0        # Blob download construct + embedded payload (T1027.006)
@@ -528,6 +529,13 @@ class ScoringMatrix:
             out.append(Contribution(
                 "mail_lure_subject", "semantic", self.W_MAIL_LURE_SUBJECT,
                 f"Subject uses lure phrasing ({', '.join(mail['lure_subject'])})."))
+        if mail.get("archive_password_in_body"):
+            out.append(Contribution(
+                "mail_archive_password_in_body", "technical", self.W_MAIL_ARCHIVE_PASSWORD,
+                "Encrypted archive whose password is written in the message (hides the "
+                "content from mail gateways): "
+                + ", ".join(n.rsplit("!/", 1)[-1] for n in mail["archive_password_in_body"][:3])
+                + "."))
         worst = mail.get("worst_attachment") or {}
         for c in worst.get("contributions", []) or []:
             out.append(_prefixed(worst.get("name", "attachment"), c, "mail_attachment"))

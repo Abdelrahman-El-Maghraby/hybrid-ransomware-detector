@@ -61,6 +61,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 import zipfile
 import zlib
 from dataclasses import dataclass, field
@@ -364,6 +365,7 @@ class ContainerExtractor:
         self.max_members = int(max_members)
         self.max_ratio = float(max_ratio)
         self.passwords = tuple(passwords)
+        self._local = threading.local()
 
     def is_container(self, file_path: PathLike) -> bool:
         return detect_container(file_path) is not None
@@ -410,9 +412,21 @@ class ContainerExtractor:
         else:
             self._walk_zip(archive, display, sandbox, depth, res)
 
+    @contextlib.contextmanager
+    def extra_passwords(self, passwords) -> Iterator[None]:
+        """Try these passwords first while the block runs (e.g. ones written in the
+        e-mail an archive came with). Per thread, so parallel scans do not mix."""
+        previous = getattr(self._local, "extra", ())
+        self._local.extra = tuple(p for p in (passwords or ()) if p) + tuple(previous)
+        try:
+            yield
+        finally:
+            self._local.extra = previous
+
     def _candidates(self, archive: Path) -> List[Optional[str]]:
         stem = Path(archive.name).stem
-        return list(dict.fromkeys([*self.passwords, stem, stem.lower()]))
+        extra = getattr(self._local, "extra", ())
+        return list(dict.fromkeys([*extra, *self.passwords, stem, stem.lower()]))
 
     def _missing(self, fmt: str, res: ContainerResult, count: int = 1) -> None:
         res.unreadable_members += count

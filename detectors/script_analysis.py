@@ -117,6 +117,43 @@ _FROM_B64 = re.compile(r"frombase64string\s*\(\s*['\"]([a-z0-9+/]{16,}={0,2})['\
 _URL = re.compile(r"https?://[^\s'\"<>)]{4,200}", _I)
 
 
+# ---------------------------------------------------------------- Script Encoder
+# Windows Script Encoder (screnc) output, as in .vbe / .jse files and encoded
+# blocks inside .hta / .wsf. The substitution table and the 64-step selector
+# below are the published decoding tables (Didier Stevens, decode-vbe.py, public
+# domain). Row r gives the plain character for codes 9 and 32..127 when the
+# selector picks r.
+_SE_CODES = [9] + list(range(32, 128))
+_SE_ROWS = (
+    'W.GzVBj/&IA42[vrC89pEhqO\tbD#uJ~J^@wJa]"KoN;LPg*}tT+-,0nkf5%!dMRc?{x)(sY3\x7fmUS|:_eFX1ilZH\'\\=$y7`Q 6',
+    'n-uR`q^I\\b})6 |z\x7fkc3+hQfv1dTCL:L~LE,*t\'7DyY/o&rj9{?8wgSG4x]0#Z[lHUpi.L!$NP\tVs5aKX;W"mM%(FJ2A=_OBe',
+    '{20!)[83=X:5e9\\VsfNEkbYx^}JmqA`AS@B\'Hru17MR"TjGd- \x7f.L]~loytC&v%$+(#A4\t*D?w;UiacPgQIOFh|6pnz/_KZ,W',
+)
+_SE_TABLE = {code: tuple(row[i] for row in _SE_ROWS) for i, code in enumerate(_SE_CODES)}
+_SE_PICK = "0120121221210212021200122102122100212120200120210212001220012021"
+_SE_BLOCK = re.compile(r"#@~\^[A-Za-z0-9+/]{6}==(.*?)[A-Za-z0-9+/]{6}==\^#~@", re.S)
+_SE_ESCAPES = (("@&", "\n"), ("@#", "\r"), ("@*", ">"), ("@!", "<"), ("@$", "@"))
+
+
+def decode_script_encoder(text: str) -> str:
+    """Plain source of every Script Encoder block in `text` ('' if there is none)."""
+    out = []
+    for m in _SE_BLOCK.finditer(text):
+        data = m.group(1)
+        for esc, plain in _SE_ESCAPES:
+            data = data.replace(esc, plain)
+        chars, index = [], -1
+        for ch in data:
+            code = ord(ch)
+            if code < 128:
+                index += 1
+            if (code == 9 or 31 < code < 128) and code not in (60, 62, 64):
+                ch = _SE_TABLE[code][int(_SE_PICK[index % 64])]
+            chars.append(ch)
+        out.append("".join(chars))
+    return "\n".join(out)
+
+
 @dataclass
 class ScriptResult:
     is_script: bool = False
@@ -188,8 +225,13 @@ class ScriptAnalyzer:
         else:
             text = raw.decode("utf-8", errors="replace")
 
-        # one level of embedded payloads: powershell -enc <utf16 b64>, FromBase64String('...')
+        # one level of embedded payloads: Script Encoder blocks, powershell -enc <utf16
+        # b64>, FromBase64String('...')
         inner = []
+        if res.encoded:
+            plain = decode_script_encoder(text)
+            if plain:
+                inner.append(plain)
         for m in _PS_ENC.finditer(text):
             dec = _decode_b64_text(m.group(1), utf16=True)
             if dec:

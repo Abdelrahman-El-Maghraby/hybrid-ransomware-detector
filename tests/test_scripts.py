@@ -169,3 +169,46 @@ def test_script_inside_a_zip_attached_to_mail(scanner, tmp_path):
 def test_non_scripts_get_no_script_entry(scanner, tmp_path):
     p = write(tmp_path, "readme.txt", DROPPER_VBS)
     assert "script_analysis" not in scanner.scan_file(str(p))["scan_results"]
+
+
+# ------------------------------------------------------------------ Script Encoder
+def _encode(plain: str) -> str:
+    """Test-only inverse of the decoder: what screnc would write for `plain`."""
+    import detectors.script_analysis as sa
+    out, index = [], -1
+    for ch in plain:
+        index += 1
+        row = int(sa._SE_PICK[index % 64])
+        if ch == "\n":
+            out.append("@&")
+            continue
+        if ch == "\r":
+            out.append("@#")
+            continue
+        if ch in "<>@":                      # written as escapes, never substituted
+            out.append({"<": "@!", ">": "@*", "@": "@$"}[ch])
+            continue
+        code = next(c for c in sa._SE_CODES
+                    if c not in (60, 62, 64) and sa._SE_TABLE[c][row] == ch)
+        out.append(chr(code))
+    return "#@~^AAAAAA==" + "".join(out) + "AAAAAA==^#~@"
+
+
+def test_known_prefix_decodes():
+    from detectors.script_analysis import decode_script_encoder
+    # a widely published sample; the first characters are unambiguous
+    assert decode_script_encoder(r"#@~^DgAAAA==\ko$K6,JCV^GJqAQAAA==^#~@").startswith('MsgBox "H')
+
+
+def test_encoded_script_round_trip():
+    from detectors.script_analysis import decode_script_encoder
+    plain = 'Set o = CreateObject("Scripting.FileSystemObject")\r\nx = 1 < 2 > 0 @ 3\tok'
+    assert decode_script_encoder(_encode(plain)) == plain
+
+
+def test_encoded_vbe_dropper_is_decoded_and_scored(tmp_path):
+    r = analyze(tmp_path, "invoice.vbe", _encode(DROPPER_VBS.decode()))
+    assert r.encoded and r.decoded_layers == 1 and r.dropper
+    ind = {c.indicator for c in score_of(r).contributions}
+    assert ind == {"script_behaviour", "script_encoded"}
+    assert score_of(r).verdict == "Critical"

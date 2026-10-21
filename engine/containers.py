@@ -16,6 +16,7 @@ handler, not another copy of the scanning loop.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import TYPE_CHECKING, Dict, Iterator, List, Tuple
@@ -37,6 +38,7 @@ def member_summary(r: Dict) -> Dict:
         "md5_hash": r.get("md5_hash", ""),
         "sha256_hash": r.get("sha256_hash", ""),
         "indicators": [c.get("indicator") for c in contributions][:8],
+        "archive_password": (r.get("scan_results", {}).get("archive") or {}).get("password_used"),
     }
 
 
@@ -64,6 +66,10 @@ class ContainerHandler:
         """Yield (sandbox path, display name, log label) for each scannable member."""
         raise NotImplementedError
 
+    def member_context(self, scanner: "RansomwareScanner", view):
+        """Context in which the members are scanned (e.g. extra archive passwords)."""
+        return contextlib.nullcontext()
+
     def capture(self, view, ctx: "ScanContext") -> None:
         """Copy anything else the pipeline needs out of the view before it closes."""
 
@@ -82,15 +88,16 @@ def scan_container(scanner: "RansomwareScanner", handler: ContainerHandler,
     with handler.open(scanner, ctx.path) as view:
         if ctx.depth < scanner.max_nesting:
             budget = handler.budget(scanner)
-            for member_path, display_name, label in handler.items(view, ctx):
-                if len(member_results) >= budget:
-                    skipped_for_budget += 1
-                    continue
-                try:
-                    member_results.append(scanner.scan_file(
-                        member_path, _depth=ctx.depth + 1, _display_name=display_name))
-                except Exception as e:
-                    logger.error(f"Error scanning {handler.error_label} {label}: {e}")
+            with handler.member_context(scanner, view):
+                for member_path, display_name, label in handler.items(view, ctx):
+                    if len(member_results) >= budget:
+                        skipped_for_budget += 1
+                        continue
+                    try:
+                        member_results.append(scanner.scan_file(
+                            member_path, _depth=ctx.depth + 1, _display_name=display_name))
+                    except Exception as e:
+                        logger.error(f"Error scanning {handler.error_label} {label}: {e}")
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 
@@ -223,8 +230,17 @@ class MailHandler(ContainerHandler):
                 continue
             yield att.path, f"{ctx.display}!/{att.filename}", att.filename
 
+    def member_context(self, scanner, view):
+        # "Password: 4471" in the message opens the encrypted ZIP / 7z / RAR it carries
+        return scanner.container_extractor.extra_passwords(view.archive_passwords)
+
     def capture(self, view, ctx):
         ctx.text = view.body_text   # the prompt-guard and LLM layers read the body
+
+    def decorate(self, view_dict, summaries):
+        written = set(view_dict.get("archive_passwords") or [])
+        view_dict["archives_opened_with_mail_password"] = [
+            s["name"] for s in summaries if s.get("archive_password") in written]
 
     def signals(self, d):
         return {
@@ -239,4 +255,5 @@ class MailHandler(ContainerHandler):
             "double_extension_attachments": d["double_extension_attachments"],
             "rtlo_attachments": d["rtlo_attachments"],
             "lure_subject": d["lure_subject"],
+            "archive_password_in_body": d.get("archives_opened_with_mail_password", []),
         }
