@@ -77,6 +77,13 @@ LLM posture:            {self._llm_posture_label()}
             report_text += f"Canary tripwires:       {canary_report.summary()}\n"
 
         report_text += self._impact_section(results, impact)
+        allowed = [r for r in results
+                   if (r.get("scan_results", {}).get("allowlist") or {}).get("allowlisted")]
+        if allowed:
+            report_text += f"\n[Allowlist] {len(allowed)} known-good file(s) scanned but not scored:\n"
+            for r in allowed[:20]:
+                note = r["scan_results"]["allowlist"].get("note") or "no note"
+                report_text += f"  - {r.get('file_path')} ({note})\n"
         if canary_report is not None and canary_report.triggered:
             report_text += f"\n{'!' * 60}\nCANARY TRIPWIRE TRIGGERED\n{'!' * 60}\n"
             for f in canary_report.findings:
@@ -225,6 +232,11 @@ LLM posture:            {self._llm_posture_label()}
         elf = sr.get("elf_analysis", {})
         if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
             lines.append(f"  [ELF]       {elf.get('detail', '')}")
+
+        allow = sr.get("allowlist", {})
+        if allow.get("allowlisted"):
+            lines.append(f"  [Allowlist] known-good SHA-256 ({allow.get('note') or 'no note'}); "
+                         "findings below are not scored")
 
         # Script files (JS / VBS / HTA / PS1 / BAT)
         sc = sr.get("script_analysis", {})

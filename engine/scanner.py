@@ -34,6 +34,7 @@ from detectors import (
 from detectors.elf_analysis import ElfAnalyzer
 from detectors.script_analysis import ScriptAnalyzer
 from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
+from core.allowlist import load_allowlist
 from detectors.web_content import WebContentAnalyzer
 from detectors.embedded_content import EmbeddedContentAnalyzer
 
@@ -102,6 +103,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         self.mail_scan_attachments = int(config.get("mail_scan_attachments", 25))
         # v4.4: HTML smuggling / SVG / phishing pages.
         self.web_analyzer = WebContentAnalyzer()
+        self.allowlist = load_allowlist(config.get("allowlist_path"))
         self.embedded_analyzer = EmbeddedContentAnalyzer(
             password_source=self.container_extractor.current_extra_passwords)
         # 4.4.0-beta.2: Linux ELF triage and QR codes (quishing).
@@ -262,6 +264,12 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
     def _run_heavy(self, layers: List[Layer], ctx: ScanContext) -> None:
         """Run a group of slow layers: skipped at a saturated score, else concurrently."""
         if not layers:
+            return
+        if ctx.signals.get("allowlisted") and not ctx.signals.get("local_db_hit"):
+            ctx.scan_results["skipped_layers"] = {
+                "layers": [layer.name for layer in layers],
+                "reason": "File is on the allowlist; these layers cannot change the verdict.",
+            }
             return
         if (self.config.get("skip_heavy_when_saturated", True)
                 and self.scoring.score(ctx.signals).risk_score >= 100):

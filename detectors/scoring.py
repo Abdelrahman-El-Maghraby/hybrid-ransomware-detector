@@ -381,13 +381,25 @@ class ScoringMatrix:
         if not has_hard_signal:
             raw_score = min(raw_score, SEMANTIC_ONLY_MAX)
 
+        # Allowlist (a SHA-256 the user marked as known-good): the evidence is kept in
+        # the report but not scored - unless the same hash is in the malware database.
+        allowed = signals.get("allowlisted")
+        if allowed and not signals.get("local_db_hit"):
+            raw_score = 0.0
+            contribs = [Contribution(
+                "allowlisted", "technical", 0.0,
+                f"SHA-256 is on the allowlist ({allowed}); "
+                + (f"{len(contribs)} finding(s) kept for reference, not scored."
+                   if contribs else "no findings."))]
+            category_totals = {k: 0.0 for k in category_totals}
+
         risk_score = int(round(raw_score))
         severity_score = round(risk_score / 10.0, 1)   # legacy 0-10
         verdict = _band(risk_score)
 
         # A file is "malicious" if any layer fired. (Mirrors the original
         # OR-of-layers behaviour; the score then expresses *how* malicious.)
-        is_malicious = bool(contribs) and risk_score > 0
+        is_malicious = risk_score > 0 and any(c.points > 0 for c in contribs)
 
         return ScoreResult(
             risk_score=risk_score,

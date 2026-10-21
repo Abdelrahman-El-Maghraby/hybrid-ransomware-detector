@@ -110,6 +110,18 @@ class HashLayer(Layer):
         ctx.result["sha256_hash"] = ctx.hashes["sha256"]
 
 
+class AllowlistLayer(Layer):
+    """Known-good SHA-256 hashes the user listed (e.g. a vendor installer script
+    that looks like a dropper). Every other layer still runs and is reported."""
+    name = "allowlist"
+
+    def run(self, scanner, ctx):
+        note = scanner.allowlist.get(ctx.hashes.get("sha256", ""))
+        if note is not None:
+            ctx.scan_results["allowlist"] = {"allowlisted": True, "note": note}
+            ctx.signals["allowlisted"] = note or "no note"
+
+
 class FuzzyHashLayer(Layer):
     """TLSH + ssdeep similarity to known families (skipped above fuzzy_max_bytes)."""
     name = "fuzzy"
@@ -343,6 +355,7 @@ def default_pipeline() -> List[Layer]:
     """The layers in the order they run."""
     return [
         HashLayer(),
+        AllowlistLayer(),
         FuzzyHashLayer(),
         LocalDatabaseLayer(),
         MacroLayer(),

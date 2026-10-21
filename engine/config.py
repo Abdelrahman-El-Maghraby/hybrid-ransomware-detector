@@ -100,6 +100,8 @@ CONFIG = {
 
     # --- Fuzzy / similarity hashing ----------------------------------------
     # Falls back to the bundled sample if no per-user DB exists.
+    # Known-good files: one SHA-256 per line, optional "# note" after it
+    "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
     "fuzzy_max_bytes": 20 * 1024 * 1024,   # don't fuzzy-hash files larger than this
 

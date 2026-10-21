@@ -390,6 +390,28 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
         return outcome
 
 
+def _allow_file(path: str, note: str, allowlist_path: str) -> None:
+    """Append a file's SHA-256 (and a note) to the allowlist."""
+    import hashlib
+    from core.allowlist import load_allowlist
+    if not os.path.isfile(path):
+        print(f"Error: file not found: {path}")
+        return
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    if digest in load_allowlist(allowlist_path):
+        print(f"Already on the allowlist: {digest}")
+        return
+    os.makedirs(os.path.dirname(allowlist_path) or ".", exist_ok=True)
+    clean_note = " ".join((note or os.path.basename(path)).split())
+    with open(allowlist_path, "a", encoding="utf-8") as fh:
+        fh.write(f"{digest}  # {clean_note}\n")
+    print(f"Added to {allowlist_path}: {digest}  # {clean_note}")
+
+
 def _print_fuzzy_hash(path: str) -> None:
     """Print a file's fuzzy digests so the user can add them to a signature DB.
 
@@ -509,6 +531,11 @@ def main():
     parser.add_argument("--fuzzy-hash", metavar="PATH",
                         help="Print a file's TLSH and ssdeep digests (use these to "
                              "populate your fuzzy signature DB), then exit")
+    parser.add_argument("--allow", metavar="PATH",
+                        help="Add a known-good file's SHA-256 to the allowlist (it is still "
+                             "scanned and reported, but not scored), then exit")
+    parser.add_argument("--note", metavar="TEXT", default="",
+                        help="Note stored with --allow (who checked it and why)")
     parser.add_argument("--llm-provider", choices=["auto", "ollama", "openai", "none"],
                         help="Override the LLM backend for this run. 'auto' (default) "
                              "prefers a reachable local Ollama for OPSEC and only falls "
@@ -558,6 +585,10 @@ def main():
     if args.train_ml:
         sys.exit(_train_ml_cli(args.train_ml[0], args.train_ml[1],
                                args.ml_model_out or CONFIG["ml_model_path"]))
+
+    if args.allow:
+        _allow_file(args.allow, args.note, CONFIG["allowlist_path"])
+        return
 
     # --fuzzy-hash is a standalone utility: it needs no DB, no API keys, no banner.
     if args.fuzzy_hash:
