@@ -71,3 +71,5 @@ pyzbar              # QR codes in images / PDFs / Office files (quishing). Windo
                     # wheels include zbar; Linux: sudo apt-get install libzbar0
                     # macOS: brew install zbar. Alternative decoder:
                     # pip install opencv-python-headless
+msoffcrypto-tool    # password-protected Office documents: tries the password from the
+                    # e-mail, Excel's default and the delivery list, then scans the content

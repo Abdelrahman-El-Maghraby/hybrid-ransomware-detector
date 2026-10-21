@@ -29,11 +29,13 @@ from typing import TYPE_CHECKING, Dict, List
 
 from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
+from detectors.embedded_content import sniff as embedded_sniff
 from detectors.script_analysis import is_script
 from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.relationship_scanner import defang
 
-from .containers import ArchiveHandler, MailHandler, WebHandler, scan_container
+from .containers import (ArchiveHandler, EmbeddedHandler, MailHandler, WebHandler,
+                         scan_container)
 from .text import extract_suspicious_strings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -52,6 +54,7 @@ class ScanContext:
     is_archive: bool = False
     is_mail: bool = False
     is_web: bool = False
+    embedded_kind: str = ""      # onenote | chm | msi | office-encrypted | xll
     hashes: Dict = field(default_factory=dict)
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
@@ -72,7 +75,8 @@ class ScanContext:
         return cls(path=path, display=display, depth=depth, result=result,
                    is_archive=scanner.container_extractor.is_container(path),
                    is_mail=scanner.mail_analyzer.is_mail(path),
-                   is_web=scanner.web_analyzer.is_web(path))
+                   is_web=scanner.web_analyzer.is_web(path),
+                   embedded_kind=embedded_sniff(path))
 
     @property
     def scan_results(self) -> Dict:
@@ -352,6 +356,7 @@ def default_pipeline() -> List[Layer]:
         QRLayer(),
         ContainerLayer(ArchiveHandler()),
         ContainerLayer(WebHandler()),        # HTML smuggling: payloads hidden in a page
+        ContainerLayer(EmbeddedHandler()),   # OneNote / CHM / MSI / encrypted Office / XLL
         MLLayer(),
         LLMLayer(),
         VirusTotalLayer(),

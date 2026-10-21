@@ -423,6 +423,10 @@ class ContainerExtractor:
         finally:
             self._local.extra = previous
 
+    def current_extra_passwords(self) -> tuple:
+        """The passwords added by `extra_passwords` in this thread (e.g. from an e-mail)."""
+        return tuple(getattr(self._local, "extra", ()))
+
     def _candidates(self, archive: Path) -> List[Optional[str]]:
         stem = Path(archive.name).stem
         extra = getattr(self._local, "extra", ())

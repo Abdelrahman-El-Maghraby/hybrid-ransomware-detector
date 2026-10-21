@@ -197,6 +197,10 @@ _REASON_LABELS = {
     "ml_classifier": "ML model", "virustotal": "VirusTotal engines", "llm_semantic": "LLM opinion",
     "script_behaviour": "script downloads / runs code", "script_encoded": "encoded script",
     "script_obfuscation": "obfuscated script",
+    "onenote_embedded_file": "OneNote with runnable file", "chm_shortcut_command": "help file runs a command",
+    "msi_script_custom_action": "installer script action", "xll_addin": "Excel add-in code",
+    "office_encrypted_unopened": "locked document",
+    "mail_archive_password_in_body": "password in the mail",
 }
 
 

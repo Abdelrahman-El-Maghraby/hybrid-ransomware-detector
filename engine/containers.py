@@ -206,6 +206,42 @@ class WebHandler(ContainerHandler):
         }
 
 
+class EmbeddedHandler(ContainerHandler):
+    """OneNote / CHM / MSI / encrypted Office / XLL: carved or decrypted content is
+    the members; the container's own findings are its signals."""
+
+    result_key = signal_key = "embedded"
+    members_key = "member_results"
+    worst_key = "worst_member"
+    worst_default_name = "embedded file"
+    error_label = "embedded file"
+
+    def applies(self, ctx):
+        return bool(ctx.embedded_kind) and not (ctx.is_archive or ctx.is_mail or ctx.is_web)
+
+    def open(self, scanner, path):
+        return scanner.embedded_analyzer.open(path)
+
+    def budget(self, scanner):
+        return 25
+
+    def items(self, view, ctx):
+        for m in view.members:
+            if m.path:
+                yield m.path, f"{ctx.display}!/{m.name}", m.name
+
+    def signals(self, d):
+        return {
+            "kind": d["kind"],
+            "risky_members": d["risky_members"],
+            "chm_shortcut": d["chm_shortcut"],
+            "msi_script_actions": d["msi_script_actions"],
+            "xll_addin": d["xll_addin"],
+            "encrypted_unopened": d["encrypted"] and not d["decrypted"],
+            "password_from_message": d["password_from_message"],
+        }
+
+
 class MailHandler(ContainerHandler):
     """E-mails (.eml / .msg): attachments are the members; the body is kept as text."""
 

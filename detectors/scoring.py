@@ -245,6 +245,11 @@ class ScoringMatrix:
     W_SCRIPT_BEHAVIOUR_EXTRA = 8.0  # each additional category
     W_SCRIPT_ENCODED = 30.0         # Script Encoder output (.vbe / .jse): hides the source
     W_SCRIPT_OBFUSCATION = 20.0     # two or more obfuscation markers
+    W_ONENOTE_RISKY = 45.0          # OneNote page carrying a script / program / shortcut
+    W_CHM_SHORTCUT = 60.0           # help page that runs a command (HTML Help ShortCut object)
+    W_MSI_SCRIPT_ACTION = 40.0      # VBScript / JScript custom action in an installer
+    W_XLL_ADDIN = 40.0              # Excel add-in DLL: code that runs when Excel opens it
+    W_OFFICE_ENCRYPTED = 10.0       # password-protected document no password opened
 
     # ---- v4.1: ML classifier (statistical) --------------------------------------
     W_ML = 20.0                    # scaled by P(suspicious)
@@ -317,6 +322,7 @@ class ScoringMatrix:
         contribs.extend(self._web(signals))
         contribs.extend(self._elf_and_qr(signals))
         contribs.extend(self._script(signals))
+        contribs.extend(self._embedded(signals))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -573,6 +579,42 @@ class ScoringMatrix:
                 "qr_code_url", "semantic", self.W_QR_URL,
                 f"QR code carries a web link ({qr['urls'][0]}); "
                 "links in QR codes bypass text filters."))
+        return out
+
+    def _embedded(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        emb = signals.get("embedded") or {}
+        if not emb:
+            return out
+        if emb.get("kind") == "onenote" and emb.get("risky_members"):
+            out.append(Contribution(
+                "onenote_embedded_file", "technical", self.W_ONENOTE_RISKY,
+                "OneNote page carries a runnable file: "
+                + ", ".join(emb["risky_members"][:3]) + "."))
+        if emb.get("chm_shortcut"):
+            out.append(Contribution(
+                "chm_shortcut_command", "technical", self.W_CHM_SHORTCUT,
+                "Help file page runs a command (HTML Help ShortCut object)."))
+        if emb.get("msi_script_actions"):
+            out.append(Contribution(
+                "msi_script_custom_action", "technical", self.W_MSI_SCRIPT_ACTION,
+                "Installer runs a script custom action ("
+                + ", ".join(sorted(set(emb["msi_script_actions"]))) + ")."))
+        if emb.get("xll_addin"):
+            out.append(Contribution(
+                "xll_addin", "technical", self.W_XLL_ADDIN,
+                "Excel add-in DLL (xlAutoOpen): Excel runs its code when the file is opened."))
+        if emb.get("encrypted_unopened"):
+            out.append(Contribution(
+                "office_encrypted_unopened", "technical", self.W_OFFICE_ENCRYPTED,
+                "Password-protected document: its content could not be checked."))
+        if emb.get("password_from_message"):
+            out.append(Contribution(
+                "mail_archive_password_in_body", "technical", self.W_MAIL_ARCHIVE_PASSWORD,
+                "Password-protected document opened with the password written in the message."))
+        worst = emb.get("worst_member") or {}
+        for c in worst.get("contributions", []) or []:
+            out.append(_prefixed(worst.get("name", "embedded file"), c, "embedded_member"))
         return out
 
     def _script(self, signals: Dict) -> List[Contribution]:

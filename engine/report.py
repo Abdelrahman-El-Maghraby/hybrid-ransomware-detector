@@ -233,6 +233,15 @@ LLM posture:            {self._llm_posture_label()}
             for url in (sc.get("urls") or [])[:3]:
                 lines.append(f"              - {defang(url)}")
 
+        # OneNote / CHM / MSI / encrypted Office / XLL
+        emb = sr.get("embedded", {})
+        if emb:
+            lines.append(f"  [Embedded]  {emb.get('detail', '')}")
+            for m in (emb.get("member_results") or [])[:5]:
+                if m.get("risk_score", 0) > 0:
+                    lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
+                                 f"(risk {m.get('risk_score')}/100)")
+
         # QR codes (quishing)
         qr = sr.get("qr_codes", {})
         for c in (qr.get("codes") or [])[:3]:
