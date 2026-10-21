@@ -123,7 +123,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
         # Weighted scoring matrix that fuses every layer's signals, and the
         # ordered list of layers that produce them (engine/layers.py).
-        self.scoring = ScoringMatrix()
+        from detectors.registry import load_overrides
+        self.scoring = ScoringMatrix(load_overrides(config.get("weights_override")) or None)
         self.pipeline: List[Layer] = default_pipeline()
         self._heavy_pool: Optional[ThreadPoolExecutor] = None
 

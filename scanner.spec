@@ -42,6 +42,7 @@ APP_NAME = "HybridRansomwareDetector"
 
 datas = [
     (str(ROOT / "rules"), "rules"),                                  # YARA rules
+    (str(ROOT / "detectors" / "indicators.yaml"), "detectors"),      # weights + labels
     (str(ROOT / "fuzzy_signatures.sample.json"), "."),
     (str(ROOT / ".env.example"), "."),
     (str(ROOT / "LICENSE"), "."),

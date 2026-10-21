@@ -15,6 +15,9 @@ Outputs (in --out):
   features.jsonl  one line per file: label + the indicators that fired (re-usable
                   with --features-in, so the folders need to be scanned only once)
   weights.json    current vs proposed points per indicator, with support counts
+  weights.override.yaml  proposed points for indicators that have one plain weight in
+                  detectors/indicators.yaml and enough files behind them. After
+                  review, point WEIGHTS_OVERRIDE at it (or merge it into the registry).
   summary.md      the same as a table, plus detection / false-alarm rates at the
                   High threshold for the current and the proposed weights
                   (in-sample and 5-fold cross-validated)
@@ -186,6 +189,22 @@ def calibrate(rows: Iterable[Dict], min_support: int = 10, folds: int = 5,
     }
 
 
+def override_yaml(res: Dict) -> str:
+    """The reviewed-to-be override file: only indicators with a scalar weight."""
+    from detectors.registry import REGISTRY
+    lines = ["# Proposed by tools/calibrate_weights.py - review before using.",
+             f"# Based on {res['files']} files; registry {REGISTRY.version}.", "weights:"]
+    for t in res["indicators"]:
+        if t["kept_current"]:
+            continue
+        entry = REGISTRY.indicators.get(t["indicator"]) or {}
+        key = entry.get("weight")
+        if key and not isinstance(REGISTRY.weights.get(key), dict):
+            lines.append(f"  {key}: {t['proposed']}   # {t['indicator']}: was {t['current']}, "
+                         f"seen in {t['malicious']} malicious / {t['benign']} benign")
+    return "\n".join(lines) + "\n"
+
+
 def summary_md(res: Dict) -> str:
     def pct(x): return f"{100 * x:.1f}%"
     lines = ["# Weight calibration", "",
@@ -227,6 +246,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     res = calibrate(rows, min_support=a.min_support)
     (a.out / "weights.json").write_text(json.dumps(res, indent=2))
     (a.out / "summary.md").write_text(summary_md(res))
+    (a.out / "weights.override.yaml").write_text(override_yaml(res))
     print(summary_md(res).split("\n\n| indicator")[0])
     print(f"\nFull table: {a.out / 'summary.md'}")
     return 0

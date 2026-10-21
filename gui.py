@@ -27,6 +27,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
 
+from detectors.registry import REGISTRY
+
 # --- Dependency guards (friendly errors instead of tracebacks) --------------
 
 try:
@@ -171,38 +173,7 @@ def risk_bar(risk: int) -> str:
 
 
 # Plain-language names for the scoring indicators (detectors/scoring.py).
-_REASON_LABELS = {
-    "local_db_hit": "known malicious hash", "yara_match": "YARA rule match",
-    "fuzzy_family_match": "similar to a known family", "macro_autoexec": "auto-run macro",
-    "macro_critical": "macro runs or downloads code", "macro_suspicious": "suspicious macro",
-    "macro_dropper_synergy": "macro dropper", "vba_stomping": "VBA stomping",
-    "xlm_macros": "Excel 4.0 macros", "disguised_executable": "program disguised as a document",
-    "encrypted_content": "content looks encrypted", "format_mismatch": "wrong file format",
-    "prompt_injection": "hidden instructions to AI", "prompt_injection_phrasing": "AI-steering text",
-    "hidden_content": "hidden text", "external_relationship": "loads content from the internet",
-    "archive_zip_slip": "path traversal in archive", "archive_zip_bomb": "decompression bomb",
-    "archive_double_extension": "double extension", "archive_rtlo_spoof": "spoofed file name",
-    "archive_executable": "program inside archive", "archive_encrypted": "locked archive",
-    "mail_dmarc_fail": "sender fails DMARC", "mail_auth_fail": "sender fails SPF/DKIM",
-    "mail_display_name_spoof": "spoofed sender name", "mail_reply_to_mismatch": "replies diverted",
-    "mail_deceptive_link": "deceptive link", "mail_risky_attachment": "risky attachment",
-    "mail_double_extension": "double extension", "mail_rtlo_spoof": "spoofed file name",
-    "mail_lure_subject": "pressure in subject", "html_smuggling": "HTML smuggling",
-    "web_embedded_payload": "file hidden in page", "web_download_construct": "page builds a download",
-    "svg_active_content": "active SVG", "web_credential_capture": "password form",
-    "web_redirect": "redirects away", "js_obfuscation": "obfuscated script",
-    "image_appended_payload": "payload after image", "elf_behaviour": "hostile Linux program",
-    "elf_packed": "packed Linux program", "elf_no_section_table": "stripped Linux program",
-    "qr_code_suspicious_url": "QR code to a risky link", "qr_code_url": "QR code with a link",
-    "ml_classifier": "ML model", "virustotal": "VirusTotal engines", "llm_semantic": "LLM opinion",
-    "script_behaviour": "script downloads / runs code", "script_encoded": "encoded script",
-    "script_obfuscation": "obfuscated script",
-    "onenote_embedded_file": "OneNote with runnable file", "chm_shortcut_command": "help file runs a command",
-    "msi_script_custom_action": "installer script action", "xll_addin": "Excel add-in code",
-    "office_encrypted_unopened": "locked document",
-    "mail_archive_password_in_body": "password in the mail",
-    "sandbox_ransomware_behaviour": "sandbox: ransomware behaviour", "sandbox_behaviour": "sandbox behaviour",
-}
+# Short labels for indicators come from the registry (detectors/indicators.yaml).
 
 
 def top_reasons(result: dict, limit: int = 2) -> str:
@@ -216,7 +187,7 @@ def top_reasons(result: dict, limit: int = 2) -> str:
         if ":" in name:
             prefix, name = name.split(":", 1)
             where = " (attachment)" if prefix.startswith("mail") else " (inside)"
-        label = _REASON_LABELS.get(name, name.replace("_", " ")) + where
+        label = REGISTRY.label(name) + where
         if label not in out:
             out.append(label)
         if len(out) >= limit:

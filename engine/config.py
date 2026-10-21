@@ -106,6 +106,8 @@ CONFIG = {
     "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
     "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
+    # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
+    "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
