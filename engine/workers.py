@@ -21,15 +21,19 @@ per process, so with a VirusTotal key and pacing on, one worker is used.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import multiprocessing as mp
 import os
+import sys
+import threading
 import time
 from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger("RansomwareScanner")
 
 _SCANNER = None
+_START_LOCK = threading.Lock()
 
 
 def _limit_memory(megabytes: int) -> None:
@@ -75,11 +79,36 @@ def _worker_main(config: Dict, memory_mb: int, conn) -> None:
             conn.send(("error", f"{type(e).__name__}: {e}"))
 
 
+@contextlib.contextmanager
+def _main_not_reimported():
+    """Stop spawned workers from re-running the caller's main script.
+
+    'spawn' normally re-imports __main__ in every child so that objects defined there
+    can be unpickled. Workers need nothing from it (their target lives in this
+    module), and re-running it is harmful: a script without an
+    `if __name__ == "__main__":` guard would open its GUI or start its own scan in
+    each worker. Hiding the main module's path for the moment of start() avoids it."""
+    main = sys.modules.get("__main__")
+    saved = {}
+    if main is not None and not getattr(sys, "frozen", False):
+        if "__file__" in main.__dict__:
+            saved["__file__"] = main.__dict__.pop("__file__")
+        if "__spec__" in main.__dict__:
+            saved["__spec__"] = main.__dict__["__spec__"]
+            main.__dict__["__spec__"] = None
+    try:
+        yield
+    finally:
+        if main is not None:
+            main.__dict__.update(saved)
+
+
 class _Worker:
     def __init__(self, ctx, config: Dict, memory_mb: int):
         self.parent, child = ctx.Pipe()
         self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child), daemon=True)
-        self.proc.start()
+        with _START_LOCK, _main_not_reimported():
+            self.proc.start()
         child.close()
         self.path: Optional[str] = None
         self.started = 0.0

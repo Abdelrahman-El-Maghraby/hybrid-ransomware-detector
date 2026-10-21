@@ -73,3 +73,30 @@ def test_workers_that_cannot_start_fall_back_to_in_process(tmp_path):
     res = s.scan_all_directories()
     assert sorted(r["file_name"] for r in res) == ["a.pdf", "b.pdf", "c.pdf"]
     assert all(r["verdict"] == "Clean" for r in res)
+
+
+def test_a_script_without_main_guard_is_not_rerun_by_the_workers(tmp_path):
+    """Library use from a plain script: spawn must not execute the script again in
+    each worker (that would repeat its side effects - open a GUI, start scans)."""
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    for n in ("a.pdf", "b.pdf", "c.pdf"):
+        (tmp_path / n).write_bytes(make_pdf(n))
+    runs = tmp_path / "runs.txt"
+    script = tmp_path / "user_script.py"
+    script.write_text(f"""
+import sys
+sys.path.insert(0, {str(root)!r})
+open({str(runs)!r}, "a").write("run\\n")          # a side effect of running the script
+import RansomwareScanner as RS
+from tests.test_scanner_integration import _config
+from pathlib import Path
+cfg = _config(Path({str(tmp_path)!r}), scan_workers=2)
+res = RS.RansomwareScanner(cfg).scan_directory({str(tmp_path)!r})
+print(len(res))
+""")
+    out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
+                         timeout=240, cwd=tmp_path)
+    assert out.stdout.strip().splitlines()[-1] == "3", out.stderr[-2000:]
+    assert runs.read_text().count("run") == 1
