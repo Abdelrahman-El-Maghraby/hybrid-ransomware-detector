@@ -25,7 +25,7 @@ jobs:
       - run: python -m pip install --upgrade pip ruff mypy bandit types-requests types-PyYAML
       - name: ruff (lint + import order + bug patterns + bandit-style checks)
         run: ruff check --output-format=github .
-      - name: mypy (engine, core, scoring, API)
+      - name: mypy (engine, core, detectors, API)
         run: |
           python -m pip install -e .
           mypy

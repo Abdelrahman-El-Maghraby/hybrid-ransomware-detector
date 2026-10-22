@@ -42,7 +42,7 @@ try:
     from PIL import Image  # type: ignore
     PIL_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    Image = None
+    Image = None  # type: ignore[assignment]
     PIL_AVAILABLE = False
 
 _pyzbar = None
@@ -258,11 +258,11 @@ class QRScanner:
     # ---------------------------------------------------------------- decoding
     def _decode(self, data: bytes) -> List[str]:
         try:
-            img = Image.open(io.BytesIO(data))
-            w, h = img.size
+            opened = Image.open(io.BytesIO(data))
+            w, h = opened.size
             if w * h > self.max_pixels or w < 21 or h < 21:   # bomb, or too small for a QR
                 return []
-            img = img.convert("L")
+            img = opened.convert("L")
         except Exception:
             return []
         out: List[str] = []

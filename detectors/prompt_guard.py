@@ -332,7 +332,7 @@ class PromptGuard:
             from pypdf import PdfReader
         except ImportError:  # pragma: no cover
             try:
-                from PyPDF2 import PdfReader
+                from PyPDF2 import PdfReader  # type: ignore[no-redef]
             except ImportError:
                 return HiddenTextResult()
         pages: List[int] = []
