@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from detectors import FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE
 from detectors.qr_scanner import QR_AVAILABLE
@@ -148,7 +148,9 @@ LLM posture:            {self._llm_posture_label()}
         return out
 
     def _format_file_finding(self, result: Dict) -> str:
-        """Render one flagged file's evidence block for the text report."""
+        """Render one flagged file's evidence block for the text report: a header,
+        one block per layer that found something (FINDING_SECTIONS), then the
+        quarantine note and the score breakdown."""
         sr = result.get("scan_results", {})
         lines = [
             f"\n- File:     {result.get('file_path')}",
@@ -157,222 +159,10 @@ LLM posture:            {self._llm_posture_label()}
             f"severity {result.get('severity_score', 0)}/10)",
             f"  MD5:      {result.get('md5_hash', 'n/a')}",
         ]
-
-        # Local hash DB (exact known-bad)
-        local_db = sr.get("local_database", {})
-        if local_db.get("is_malicious"):
-            lines.append("  [Local DB]  Exact hash match against known-bad database.")
-
-        # Fuzzy / structural similarity
-        fuzzy = sr.get("fuzzy_hash", {})
-        if fuzzy.get("matched"):
-            fams = sorted({m.get("family", "") for m in fuzzy.get("matches", [])
-                           if m.get("family")}) or ["known family"]
-            conf = fuzzy.get("best_confidence", 0) or 0
-            lines.append(
-                f"  [Fuzzy]     Structural similarity to {', '.join(fams)} "
-                f"(confidence {conf:.2f})."
-            )
-
-        # Macro analysis (Office dropper mechanism)
-        macro = sr.get("macro_analysis", {})
-        if macro.get("has_macros"):
-            autoexec = macro.get("autoexec", []) or []
-            critical = macro.get("critical", []) or []
-            suspicious = macro.get("suspicious", []) or []
-            if autoexec:
-                lines.append(f"  [Macro]     Auto-run trigger(s): {', '.join(autoexec)}.")
-            if critical:
-                lines.append(
-                    f"  [Macro]     Execution/download primitive(s): "
-                    f"{', '.join(critical)}."
-                )
-            elif suspicious:
-                lines.append(
-                    f"  [Macro]     Suspicious call(s): "
-                    f"{', '.join(suspicious[:6])}."
-                )
-            if autoexec and critical:
-                lines.append(
-                    "  [Macro]     -> Auto-exec + exec primitive = classic "
-                    "dropper pattern."
-                )
-            if macro.get("vba_stomping"):
-                lines.append("  [Macro]     VBA STOMPING: compiled P-code differs from the "
-                             "visible source.")
-            if macro.get("xlm_macros"):
-                lines.append("  [Macro]     Excel 4.0 (XLM) macro sheet(s): "
-                             f"{', '.join((macro.get('xlm_evidence') or [])[:3])}.")
-
-        # YARA structural IOCs
-        yara_res = sr.get("yara", {})
-        if yara_res.get("matched"):
-            rule_names = sorted({m.get("rule", "") for m in yara_res.get("matches", [])
-                                 if m.get("rule")})
-            rules = ", ".join(rule_names) if rule_names else "(unnamed)"
-            lines.append(
-                f"  [YARA]      Rule(s) matched [{rules}] "
-                f"(top severity '{yara_res.get('top_severity', 'medium')}')."
-            )
-
-        # File integrity (disguise / encryption)
-        integ = sr.get("file_integrity", {})
-        if integ.get("disguised_executable") or integ.get("encrypted_likely") \
-                or integ.get("format_mismatch"):
-            lines.append(f"  [Integrity] {integ.get('detail', '')}")
-
-        # Hidden content / prompt injection
-        guard = sr.get("prompt_guard", {})
-        if guard.get("hidden_text_found"):
-            lines.append(f"  [Hidden]    Concealed content: "
-                         f"{', '.join(guard.get('hidden_reasons', []) or [])}.")
-        if guard.get("injection_status") in ("confirmed", "suspicious"):
-            lines.append(f"  [Injection] {guard['injection_status']} prompt-injection attempt: "
-                         f"{', '.join(guard.get('injection_indicators', []) or [])}.")
-
-        # Linux ELF triage
-        elf = sr.get("elf_analysis", {})
-        if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
-            lines.append(f"  [ELF]       {elf.get('detail', '')}")
-
-        sb = sr.get("sandbox", {})
-        if sb:
-            lines.append(f"  [Sandbox]   {sb.get('detail') or sb.get('status', '')}")
-            for host in (sb.get("network_hosts") or [])[:3]:
-                lines.append(f"              - contacted {defang(str(host))}")
-
-        allow = sr.get("allowlist", {})
-        if allow.get("allowlisted"):
-            lines.append(f"  [Allowlist] known-good SHA-256 ({allow.get('note') or 'no note'}); "
-                         "findings below are not scored")
-
-        # Script files (JS / VBS / HTA / PS1 / BAT)
-        sc = sr.get("script_analysis", {})
-        if sc.get("behaviour") or sc.get("encoded") or len(sc.get("obfuscation") or []) >= 2:
-            lines.append(f"  [Script]    {sc.get('detail', '')}")
-            for url in (sc.get("urls") or [])[:3]:
-                lines.append(f"              - {defang(url)}")
-
-        # OneNote / CHM / MSI / encrypted Office / XLL
-        emb = sr.get("embedded", {})
-        if emb:
-            lines.append(f"  [Embedded]  {emb.get('detail', '')}")
-            for m in (emb.get("member_results") or [])[:5]:
-                if m.get("risk_score", 0) > 0:
-                    lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
-                                 f"(risk {m.get('risk_score')}/100)")
-
-        # QR codes (quishing)
-        qr = sr.get("qr_codes", {})
-        for c in (qr.get("codes") or [])[:3]:
-            if c.get("is_url"):
-                why = "; ".join(c.get("suspicious_reasons") or []) or "ordinary link"
-                lines.append(f"  [QR]        {defang(c.get('payload', ''))} ({why})")
-        if qr and not qr.get("available"):
-            lines.append(f"  [QR]        {qr.get('detail', '')}")
-
-        # Office external relationships
-        rels = sr.get("relationships", {})
-        for f in (rels.get("findings") or [])[:3]:
-            lines.append(f"  [External]  {f.get('kind')} -> {defang(str(f.get('target', '')))}")
-
-        # Archive contents
-        arc = sr.get("archive", {})
-        if arc:
-            lines.append(f"  [Archive]   {arc.get('detail', '')}")
-            shown = set()
-            for label, key in (("double extension", "double_extension_members"),
-                               ("RTLO spoof", "rtlo_members"),
-                               ("executable", "executable_members")):
-                for name in [n for n in (arc.get(key) or []) if n not in shown][:3]:
-                    shown.add(name)
-                    lines.append(f"              ! {label}: {name}")
-            for m in arc.get("member_results", []) or []:
-                if m.get("verdict", "Clean") != "Clean":
-                    lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
-                                 f"(risk {m.get('risk_score', 0)}/100)")
-
-        # E-mail envelope + attachments
-        mail = sr.get("mail", {})
-        if mail:
-            lines.append(f"  [Mail]      {mail.get('detail', '')}")
-            if mail.get("subject"):
-                lines.append(f"              Subject: {mail['subject'][:120]}")
-            for link in (mail.get("deceptive_links") or [])[:3]:
-                lines.append(f"              ! deceptive link: {defang(link)}")
-            for a in mail.get("attachment_results", []) or []:
-                if a.get("verdict", "Clean") != "Clean":
-                    lines.append(f"              - {a.get('name')}: {a.get('verdict')} "
-                                 f"(risk {a.get('risk_score', 0)}/100)")
-
-        # Web page (HTML smuggling, active SVG, phishing form)
-        web = sr.get("web", {})
-        if web:
-            detail = re.sub(r"https?://[^\s;,'\")]+", lambda m: defang(m.group(0)),
-                            web.get("detail", ""))
-            lines.append(f"  [Web]       {detail}")
-            for url in (web.get("redirects") or [])[:3]:
-                lines.append(f"              ! redirects to {defang(url)}")
-            for m in web.get("payload_results", []) or []:
-                if m.get("verdict", "Clean") != "Clean":
-                    lines.append(f"              - {m.get('name')}: {m.get('verdict')} "
-                                 f"(risk {m.get('risk_score', 0)}/100)")
-
-        # ML classifier
-        ml = sr.get("ml_classifier", {})
-        if ml.get("label") == "suspicious":
-            lines.append(f"  [ML]        {ml.get('model')} p={ml.get('probability', 0):.2f}: "
-                         f"{'; '.join((ml.get('indicators') or [])[:3])}")
-
-        # VirusTotal reputation
-        vt = sr.get("virustotal", {})
-        if vt.get("is_malicious"):
-            lines.append(
-                f"  [VT]        {vt.get('malicious_detections', 0)} malicious / "
-                f"{vt.get('total_engines', 0)} engines."
-            )
-            if vt.get("permalink"):
-                lines.append(f"              {vt.get('permalink')}")
-
-        # LLM semantic opinion (capped low by the scoring matrix)
-        llm = sr.get("chatgpt_analysis", {})
-        if llm.get("is_malicious"):
-            lines.append(
-                f"  [Semantic]  LLM flagged the text "
-                f"(confidence {llm.get('confidence', 0):.2f})."
-            )
-            elems = llm.get("suspicious_elements", []) or []
-            if elems:
-                lines.append(f"              Elements: {', '.join(map(str, elems))}.")
-
-        skipped = sr.get("skipped_layers") or {}
-        if skipped.get("layers"):
-            lines.append(f"  [Skipped]   {', '.join(skipped['layers'])}: score already 100/100.")
-
-        quarantine = result.get("quarantine") or {}
-        if quarantine.get("id"):
-            lines.append(f"  [Quarantine] Moved to the encrypted vault (id {quarantine['id']}).")
-        elif quarantine.get("error"):
-            lines.append(f"  [Quarantine] FAILED: {quarantine['error']}")
-
-        # Weighted score breakdown (the "why")
-        breakdown = result.get("score_breakdown", {})
-        contribs = breakdown.get("contributions", []) or []
-        if contribs:
-            lines.append("  Score breakdown:")
-            for c in contribs:
-                lines.append(
-                    f"    + {c.get('points', 0):>5.1f}  "
-                    f"[{c.get('category', '?')}] {c.get('indicator', '?')}"
-                )
-            totals = breakdown.get("category_totals", {})
-            if totals:
-                totals_str = ", ".join(
-                    f"{k}={v}" for k, v in totals.items() if v
-                )
-                if totals_str:
-                    lines.append(f"    = category totals: {totals_str}")
-
+        for section in FINDING_SECTIONS:
+            lines.extend(section(sr))
+        lines.extend(_quarantine_lines(result.get("quarantine") or {}))
+        lines.extend(_breakdown_lines(result.get("score_breakdown", {})))
         lines.append("")
         return "\n".join(lines)
 
@@ -407,3 +197,247 @@ LLM posture:            {self._llm_posture_label()}
             return "CLOUD (OpenAI - documents leave the machine)"
         return "disabled"
 
+
+# --------------------------------------------------------------------------
+# Finding sections. Each takes a result's scan_results and returns report
+# lines (none when the layer found nothing). A new layer adds one function
+# and one entry in FINDING_SECTIONS; the order there is the order in reports.
+# --------------------------------------------------------------------------
+Lines = List[str]
+
+
+def _members(results, indent: str = "              - ") -> Lines:
+    """Non-clean members / attachments / payloads, one line each."""
+    return [f"{indent}{m.get('name')}: {m.get('verdict')} (risk {m.get('risk_score', 0)}/100)"
+            for m in results or [] if m.get("verdict", "Clean") != "Clean"]
+
+
+def _local_db(sr: Dict) -> Lines:
+    if sr.get("local_database", {}).get("is_malicious"):
+        return ["  [Local DB]  Exact hash match against known-bad database."]
+    return []
+
+
+def _fuzzy(sr: Dict) -> Lines:
+    fuzzy = sr.get("fuzzy_hash", {})
+    if not fuzzy.get("matched"):
+        return []
+    fams = sorted({m.get("family", "") for m in fuzzy.get("matches", [])
+                   if m.get("family")}) or ["known family"]
+    conf = fuzzy.get("best_confidence", 0) or 0
+    return [f"  [Fuzzy]     Structural similarity to {', '.join(fams)} (confidence {conf:.2f})."]
+
+
+def _macro(sr: Dict) -> Lines:
+    macro = sr.get("macro_analysis", {})
+    if not macro.get("has_macros"):
+        return []
+    autoexec = macro.get("autoexec", []) or []
+    critical = macro.get("critical", []) or []
+    suspicious = macro.get("suspicious", []) or []
+    out: Lines = []
+    if autoexec:
+        out.append(f"  [Macro]     Auto-run trigger(s): {', '.join(autoexec)}.")
+    if critical:
+        out.append(f"  [Macro]     Execution/download primitive(s): {', '.join(critical)}.")
+    elif suspicious:
+        out.append(f"  [Macro]     Suspicious call(s): {', '.join(suspicious[:6])}.")
+    if autoexec and critical:
+        out.append("  [Macro]     -> Auto-exec + exec primitive = classic dropper pattern.")
+    if macro.get("vba_stomping"):
+        out.append("  [Macro]     VBA STOMPING: compiled P-code differs from the visible source.")
+    if macro.get("xlm_macros"):
+        out.append("  [Macro]     Excel 4.0 (XLM) macro sheet(s): "
+                   f"{', '.join((macro.get('xlm_evidence') or [])[:3])}.")
+    return out
+
+
+def _yara(sr: Dict) -> Lines:
+    yara_res = sr.get("yara", {})
+    if not yara_res.get("matched"):
+        return []
+    names = sorted({m.get("rule", "") for m in yara_res.get("matches", []) if m.get("rule")})
+    return [f"  [YARA]      Rule(s) matched [{', '.join(names) if names else '(unnamed)'}] "
+            f"(top severity '{yara_res.get('top_severity', 'medium')}')."]
+
+
+def _integrity(sr: Dict) -> Lines:
+    integ = sr.get("file_integrity", {})
+    if (integ.get("disguised_executable") or integ.get("encrypted_likely")
+            or integ.get("format_mismatch")):
+        return [f"  [Integrity] {integ.get('detail', '')}"]
+    return []
+
+
+def _prompt_guard(sr: Dict) -> Lines:
+    guard = sr.get("prompt_guard", {})
+    out: Lines = []
+    if guard.get("hidden_text_found"):
+        out.append(f"  [Hidden]    Concealed content: "
+                   f"{', '.join(guard.get('hidden_reasons', []) or [])}.")
+    if guard.get("injection_status") in ("confirmed", "suspicious"):
+        out.append(f"  [Injection] {guard['injection_status']} prompt-injection attempt: "
+                   f"{', '.join(guard.get('injection_indicators', []) or [])}.")
+    return out
+
+
+def _elf(sr: Dict) -> Lines:
+    elf = sr.get("elf_analysis", {})
+    if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
+        return [f"  [ELF]       {elf.get('detail', '')}"]
+    return []
+
+
+def _sandbox(sr: Dict) -> Lines:
+    sb = sr.get("sandbox", {})
+    if not sb:
+        return []
+    return ([f"  [Sandbox]   {sb.get('detail') or sb.get('status', '')}"]
+            + [f"              - contacted {defang(str(h))}"
+               for h in (sb.get("network_hosts") or [])[:3]])
+
+
+def _allowlist(sr: Dict) -> Lines:
+    allow = sr.get("allowlist", {})
+    if allow.get("allowlisted"):
+        return [f"  [Allowlist] known-good SHA-256 ({allow.get('note') or 'no note'}); "
+                "findings below are not scored"]
+    return []
+
+
+def _script(sr: Dict) -> Lines:
+    sc = sr.get("script_analysis", {})
+    if not (sc.get("behaviour") or sc.get("encoded") or len(sc.get("obfuscation") or []) >= 2):
+        return []
+    return ([f"  [Script]    {sc.get('detail', '')}"]
+            + [f"              - {defang(url)}" for url in (sc.get("urls") or [])[:3]])
+
+
+def _embedded(sr: Dict) -> Lines:
+    emb = sr.get("embedded", {})
+    if not emb:
+        return []
+    return ([f"  [Embedded]  {emb.get('detail', '')}"]
+            + [f"              - {m.get('name')}: {m.get('verdict')} "
+               f"(risk {m.get('risk_score')}/100)"
+               for m in (emb.get("member_results") or [])[:5] if m.get("risk_score", 0) > 0])
+
+
+def _qr(sr: Dict) -> Lines:
+    qr = sr.get("qr_codes", {})
+    out = [f"  [QR]        {defang(c.get('payload', ''))} "
+           f"({'; '.join(c.get('suspicious_reasons') or []) or 'ordinary link'})"
+           for c in (qr.get("codes") or [])[:3] if c.get("is_url")]
+    if qr and not qr.get("available"):
+        out.append(f"  [QR]        {qr.get('detail', '')}")
+    return out
+
+
+def _relationships(sr: Dict) -> Lines:
+    return [f"  [External]  {f.get('kind')} -> {defang(str(f.get('target', '')))}"
+            for f in (sr.get("relationships", {}).get("findings") or [])[:3]]
+
+
+def _archive(sr: Dict) -> Lines:
+    arc = sr.get("archive", {})
+    if not arc:
+        return []
+    out = [f"  [Archive]   {arc.get('detail', '')}"]
+    shown: set = set()
+    for label, key in (("double extension", "double_extension_members"),
+                       ("RTLO spoof", "rtlo_members"), ("executable", "executable_members")):
+        for name in [n for n in (arc.get(key) or []) if n not in shown][:3]:
+            shown.add(name)
+            out.append(f"              ! {label}: {name}")
+    return out + _members(arc.get("member_results"))
+
+
+def _mail(sr: Dict) -> Lines:
+    mail = sr.get("mail", {})
+    if not mail:
+        return []
+    out = [f"  [Mail]      {mail.get('detail', '')}"]
+    if mail.get("subject"):
+        out.append(f"              Subject: {mail['subject'][:120]}")
+    out += [f"              ! deceptive link: {defang(link)}"
+            for link in (mail.get("deceptive_links") or [])[:3]]
+    return out + _members(mail.get("attachment_results"))
+
+
+_URL = re.compile(r"https?://[^\s;,'\")]+")
+
+
+def _web(sr: Dict) -> Lines:
+    web = sr.get("web", {})
+    if not web:
+        return []
+    detail = _URL.sub(lambda m: defang(m.group(0)), web.get("detail", ""))
+    return ([f"  [Web]       {detail}"]
+            + [f"              ! redirects to {defang(url)}" for url in (web.get("redirects") or [])[:3]]
+            + _members(web.get("payload_results")))
+
+
+def _ml(sr: Dict) -> Lines:
+    ml = sr.get("ml_classifier", {})
+    if ml.get("label") != "suspicious":
+        return []
+    return [f"  [ML]        {ml.get('model')} p={ml.get('probability', 0):.2f}: "
+            f"{'; '.join((ml.get('indicators') or [])[:3])}"]
+
+
+def _virustotal(sr: Dict) -> Lines:
+    vt = sr.get("virustotal", {})
+    if not vt.get("is_malicious"):
+        return []
+    out = [f"  [VT]        {vt.get('malicious_detections', 0)} malicious / "
+           f"{vt.get('total_engines', 0)} engines."]
+    if vt.get("permalink"):
+        out.append(f"              {vt.get('permalink')}")
+    return out
+
+
+def _llm(sr: Dict) -> Lines:
+    llm = sr.get("chatgpt_analysis", {})
+    if not llm.get("is_malicious"):
+        return []
+    out = [f"  [Semantic]  LLM flagged the text (confidence {llm.get('confidence', 0):.2f})."]
+    elems = llm.get("suspicious_elements", []) or []
+    if elems:
+        out.append(f"              Elements: {', '.join(map(str, elems))}.")
+    return out
+
+
+def _skipped(sr: Dict) -> Lines:
+    skipped = sr.get("skipped_layers") or {}
+    if skipped.get("layers"):
+        return [f"  [Skipped]   {', '.join(skipped['layers'])}: score already 100/100."]
+    return []
+
+
+FINDING_SECTIONS: Tuple[Callable[[Dict], Lines], ...] = (
+    _local_db, _fuzzy, _macro, _yara, _integrity, _prompt_guard, _elf, _sandbox,
+    _allowlist, _script, _embedded, _qr, _relationships, _archive, _mail, _web, _ml,
+    _virustotal, _llm, _skipped,
+)
+
+
+def _quarantine_lines(quarantine: Dict) -> Lines:
+    if quarantine.get("id"):
+        return [f"  [Quarantine] Moved to the encrypted vault (id {quarantine['id']})."]
+    if quarantine.get("error"):
+        return [f"  [Quarantine] FAILED: {quarantine['error']}"]
+    return []
+
+
+def _breakdown_lines(breakdown: Dict) -> Lines:
+    """The weighted score breakdown: the "why" behind the number."""
+    contribs = breakdown.get("contributions", []) or []
+    if not contribs:
+        return []
+    out = ["  Score breakdown:"]
+    out += [f"    + {c.get('points', 0):>5.1f}  [{c.get('category', '?')}] {c.get('indicator', '?')}"
+            for c in contribs]
+    totals_str = ", ".join(f"{k}={v}" for k, v in (breakdown.get("category_totals") or {}).items() if v)
+    if totals_str:
+        out.append(f"    = category totals: {totals_str}")
+    return out

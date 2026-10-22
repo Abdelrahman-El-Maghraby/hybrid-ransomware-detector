@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import struct
 from collections import Counter
 from dataclasses import dataclass, field
@@ -308,6 +309,20 @@ def rule_score(f: Dict[str, float]) -> Tuple[float, List[str]]:
 # Classifier
 # ---------------------------------------------------------------------------
 
+def _check_model_file(path: Path) -> None:
+    """Loading a joblib model runs code, so on POSIX refuse a model file that
+    another user owns or that the group / others may write: anyone who could
+    change it could run code in every scan."""
+    if os.name != "posix":
+        return
+    st = path.stat()
+    if st.st_mode & 0o022:
+        raise PermissionError(f"refusing to load {path.name}: writable by group/others "
+                              f"(chmod go-w {path})")
+    if hasattr(os, "getuid") and st.st_uid not in (os.getuid(), 0):
+        raise PermissionError(f"refusing to load {path.name}: owned by another user")
+
+
 class MLClassifier:
     """`classify()` never raises; it uses a trained model if one is loaded."""
 
@@ -355,6 +370,7 @@ class MLClassifier:
         if not SKLEARN_AVAILABLE:
             raise ImportError("scikit-learn/joblib not installed "
                               "(pip install -r requirements-ml.txt)")
+        _check_model_file(Path(model_path))
         bundle = _joblib.load(model_path)
         if not isinstance(bundle, dict) or bundle.get("format") != MODEL_FORMAT:
             raise ValueError("not a hybrid-ransomware-detector model file")
@@ -371,6 +387,8 @@ class MLClassifier:
         path.parent.mkdir(parents=True, exist_ok=True)
         _joblib.dump({"format": MODEL_FORMAT, "feature_names": FEATURE_NAMES,
                       "model": self.model, **self.model_info}, path)
+        if os.name == "posix":
+            path.chmod(0o600)                   # see _check_model_file
         self.model_name = path.name
 
     # ---------------------------------------------------------------- training

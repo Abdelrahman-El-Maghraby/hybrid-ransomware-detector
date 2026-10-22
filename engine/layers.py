@@ -127,7 +127,7 @@ class HashLayer(Layer):
         data = ctx.data()
         if data is not None:
             import hashlib
-            ctx.hashes = {"md5": hashlib.md5(data).hexdigest(),
+            ctx.hashes = {"md5": hashlib.md5(data, usedforsecurity=False).hexdigest(),
                           "sha256": hashlib.sha256(data).hexdigest()}
         else:
             ctx.hashes = scanner.calculate_hashes(ctx.path)

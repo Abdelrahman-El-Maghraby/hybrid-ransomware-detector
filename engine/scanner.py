@@ -250,7 +250,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         identifier used for VirusTotal, the result cache, and as the canonical
         file hash.
         """
-        md5_hash = hashlib.md5()
+        md5_hash = hashlib.md5(usedforsecurity=False)
         sha256_hash = hashlib.sha256()
         try:
             with open(file_path, "rb") as f:

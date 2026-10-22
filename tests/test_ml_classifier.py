@@ -223,6 +223,12 @@ def test_train_save_load_roundtrip(tmp_path):
     clf.save(model)
     loaded = MLClassifier(model)
     assert loaded.has_model and loaded.model_name == "m.joblib" and not loaded.load_error
+    if os.name == "posix":                    # a model others can change is never loaded
+        assert model.stat().st_mode & 0o777 == 0o600
+        model.chmod(0o666)
+        refused = MLClassifier(model)
+        assert not refused.has_model and "writable by group/others" in refused.load_error
+        model.chmod(0o600)
 
     sample = tmp_path / "new.locked"
     sample.write_bytes(os.urandom(50_000))
