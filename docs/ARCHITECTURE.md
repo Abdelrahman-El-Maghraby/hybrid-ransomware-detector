@@ -14,7 +14,7 @@ own and makes the order a single, visible list.
 ```
 hashes → allowlist → fuzzy → local-db → macro → yara → integrity → elf → script
 → mail⟲ → prompt-guard → relationships → qr → archive⟲ → web⟲ → embedded⟲
-→ [ml · llm · virustotal · sandbox]   (slow layers: skipped at 100, else concurrent)
+→ [emulation · ml · llm · virustotal · sandbox]   (slow: skipped at 100, else concurrent)
 ```
 
 ⟲ = container: members are unpacked into a temporary folder and scanned through
@@ -53,11 +53,13 @@ proposes data-driven values (cross-validated) for review.
 ## 4. Static first, dynamic optional
 
 Everything above is static: no file is executed or rendered, links are never
-followed. Behaviour that only shows at run time is the main blind spot; the optional
-`sandbox` layer hands suspicious files to the user's own CAPEv2 server and scores
-its behaviour signatures in a separate *dynamic* category.
+followed. Behaviour that only shows at run time is the main blind spot. Two opt-in
+layers cover part of it, both scored in a separate *dynamic* category: `emulation`
+runs JavaScript in box-js against fake WScript objects (URLs, file writes, commands),
+and `sandbox` hands suspicious files to the user's own CAPEv2 server. Both execute
+attacker code, so both are off by default and meant for an analysis VM.
 
-*Read:* `core/sandbox.py`.
+*Read:* `detectors/emulation.py`, `core/sandbox.py`.
 
 ## 5. Privacy by default
 
@@ -68,8 +70,9 @@ metadata only.
 ## 6. Interfaces
 
 CLI (`RansomwareScanner.py`), desktop app (`aegis_gui/`), background scheduler with
-canary tripwires, JSON Lines and signed webhooks for SIEM/SOAR, and an optional REST
-API. All results follow `api/scan_result.schema.json` (`schema_version`).
+canary tripwires and response actions (`core/response.py`), IMAP mailbox scanning
+(`core/mailbox.py`, read-only), JSON Lines and signed webhooks for SIEM/SOAR, and an
+optional REST API. All results follow `api/scan_result.schema.json` (`schema_version`).
 
 ## 7. Keeping it trustworthy over time
 

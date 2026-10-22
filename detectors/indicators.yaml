@@ -6,7 +6,7 @@
 # Change a weight here, run the test suite and the regression corpus, and bump
 # `version` - reports record which registry version scored a file.
 
-version: "2026.10.22-1"
+version: "2026.10.22-2"
 
 caps:            # each category's total is capped, then the total is clamped to max_raw
   technical: 100.0
