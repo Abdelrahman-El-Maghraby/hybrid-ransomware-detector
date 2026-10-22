@@ -42,7 +42,13 @@ jobs:
           done
           python -m pip install -r requirements-build.txt
       - name: Build, smoke-test and package
-        run: python build.py --clean
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -o pipefail
+          python build.py --clean 2>&1 | tee build.log || {
+            # surface the end of the log as annotations (readable without the raw log)
+            tail -n 40 build.log | sed 's/^/::error::/' ; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
@@ -52,6 +58,7 @@ jobs:
 
   publish:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write        # create the release
