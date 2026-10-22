@@ -97,6 +97,20 @@ covers part of this; without it, this is the largest gap.
 *Residual:* anyone who can write to the user's data folder can edit the allowlist
 or point the config elsewhere - protect that folder like the rest of the account.
 
+### 5b. Turn the scanner's own features against the host
+- **Emulation** (box-js) executes the attacker's JavaScript in a Node sandbox;
+  sandboxes of this kind (vm2) have had escapes. It is off by default, documented
+  for analysis VMs only, found by trusted path, run on a copy in a private
+  temporary folder with a stripped environment and a time limit, inheriting the
+  worker's memory limit; its result files are parsed as untrusted JSON.
+- **Canary response scripts** run with the user's rights when an attack is under
+  way: only an absolute path, owned by the user, not writable by group/others.
+- **Helper programs** (7-Zip, unrar, nmcli, ...) are resolved outside the current
+  directory, so a planted `7z.exe` in a scanned folder is never started.
+- **IMAP credentials**: an app password from `.env`, never logged, never in
+  reports or the state file; TLS with certificate verification only, read-only
+  mailbox access.
+
 ### 6. Leak data to third parties
 - VirusTotal is queried **by hash**; uploads are opt-in. The LLM prefers a local
   Ollama model; cloud use is logged. The sandbox is the user's own server.

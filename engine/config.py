@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ENGINE_VERSION = "4.4.1"
+ENGINE_VERSION = "4.5.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()
@@ -106,6 +106,11 @@ CONFIG = {
     "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
     "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
+    # Optional JavaScript emulation with box-js. Runs the attacker's script in a
+    # Node sandbox: enable inside an analysis VM / container only.
+    "emulation_enabled": _env_bool("EMULATION_ENABLED", False),
+    "emulation_tool": os.getenv("EMULATION_TOOL", "box-js"),
+    "emulation_timeout": int(_env_float("EMULATION_TIMEOUT", 20)),
     # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
     "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
     # Folder scans: each file in a worker process with a time and memory limit
@@ -179,9 +184,26 @@ CONFIG = {
     # verdict automatically after they are scanned.
     "auto_quarantine": os.getenv("AUTO_QUARANTINE", "").strip().lower(),
 
+    # --- Mailbox (IMAP) scanning -------------------------------------------
+    # Read-only, TLS only. Use an app password. Empty host = off.
+    "imap_host": os.getenv("IMAP_HOST", ""),
+    "imap_port": int(_env_float("IMAP_PORT", 993)),
+    "imap_starttls": _env_bool("IMAP_STARTTLS", False),
+    "imap_user": os.getenv("IMAP_USER", ""),
+    "imap_password": os.getenv("IMAP_PASSWORD", ""),
+    "imap_folder": os.getenv("IMAP_FOLDER", "INBOX"),
+    "imap_since_days": int(_env_float("IMAP_SINCE_DAYS", 7)),
+    "imap_max_messages": int(_env_float("IMAP_MAX_MESSAGES", 200)),
+    "imap_max_mb": _env_float("IMAP_MAX_MB", 25),
+    "imap_state_path": str(DATA_DIR / "imap_state.json"),
+    "imap_check_minutes": int(_env_float("IMAP_CHECK_MINUTES", 0)),   # background mode; 0 = off
+
     # --- Canary tripwires ---------------------------------------------------
     "canary_registry": str(DATA_DIR / "canaries.json"),
     "canary_check_minutes": int(_env_float("CANARY_CHECK_MINUTES", 5)),
+    # On a NEW trigger: "" (alert only, default) or any of "network_off,script"
+    "canary_response": os.getenv("CANARY_RESPONSE", ""),
+    "canary_response_script": os.getenv("CANARY_RESPONSE_SCRIPT", ""),
 
     "report_directory": str(REPORT_DIR),
     "scan_interval_hours": 6,  # Scan every 6 hours

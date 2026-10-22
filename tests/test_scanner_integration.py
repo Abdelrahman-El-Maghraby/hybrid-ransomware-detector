@@ -164,6 +164,26 @@ def test_check_canaries_writes_one_alert_per_new_incident(scanner, tmp_path):
     assert len(alerts) == 1 and "encrypted" in alerts[0].read_text()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="runs a shell script")
+def test_canary_trip_runs_the_response_script_once(tmp_path):
+    marker = tmp_path / "ran.json"
+    script = tmp_path / "respond.sh"
+    script.write_text(f"#!/bin/sh\ncat > '{marker}'\n")
+    script.chmod(0o700)
+    sc = RS.RansomwareScanner(_config(tmp_path, canary_response="script",
+                                      canary_response_script=str(script)))
+    sc.deploy_canaries([str(tmp_path / "scan")])
+    victim = next((tmp_path / "scan").glob("!000_*.pdf"))
+    victim.write_bytes(os.urandom(victim.stat().st_size))
+    sc.check_canaries(notify=False)
+    assert "findings" in marker.read_text()
+    marker.unlink()
+    sc.check_canaries(notify=False)                                # same incident: no rerun
+    assert not marker.exists()
+    alert = next((tmp_path / "reports").glob("canary_alert_*.txt")).read_text()
+    assert "Automatic response:" in alert and "[done] script" in alert
+
+
 # ----------------------------------------------------------------- quarantine
 def test_auto_quarantine_moves_critical_files(tmp_path):
     sc = RS.RansomwareScanner(_config(tmp_path, auto_quarantine="critical"))

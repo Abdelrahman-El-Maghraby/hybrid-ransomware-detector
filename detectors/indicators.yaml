@@ -106,6 +106,8 @@ weights:         # points when an indicator fires fully
   W_MSI_SCRIPT_ACTION: 40.0   # VBScript / JScript custom action in an installer
   W_XLL_ADDIN: 40.0   # Excel add-in DLL: code that runs when Excel opens it
   W_OFFICE_ENCRYPTED: 10.0   # password-protected document no password opened
+  W_EMU_DROPPER: 65.0   # emulated script fetched a URL and ran / dropped a program
+  W_EMU_NETWORK: 25.0   # emulated script contacted a URL
   W_SANDBOX_RANSOMWARE: 80.0   # encryption / shadow-copy deletion / ransom note observed
   W_SANDBOX_SIGNATURE:   # per behaviour signature, by severity
     3: 25.0
@@ -126,6 +128,8 @@ indicators:      # name -> category, the weight it uses, label in the app
   vba_stomping: {category: technical, weight: W_VBA_STOMPING, label: "VBA stomping"}
   xlm_macros: {category: technical, weight: W_XLM_MACROS, label: "Excel 4.0 macros"}
   ml_classifier: {category: statistical, weight: W_ML, label: "ML model"}
+  emulated_dropper: {category: dynamic, weight: W_EMU_DROPPER, label: "emulation: download and run"}
+  emulated_network: {category: dynamic, weight: W_EMU_NETWORK, label: "emulation: contacts a URL"}
   sandbox_ransomware_behaviour: {category: dynamic, weight: W_SANDBOX_RANSOMWARE, label: "sandbox: ransomware behaviour"}
   sandbox_behaviour: {category: dynamic, label: "sandbox behaviour"}
   virustotal: {category: reputation, label: "VirusTotal engines"}

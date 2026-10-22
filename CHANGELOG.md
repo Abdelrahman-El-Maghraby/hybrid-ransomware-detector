@@ -4,7 +4,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [4.4.1] — 2026-10-22
+## [4.5.0] — 2026-10-22
+
+Includes everything listed under 4.4.1 below (that version was not published
+separately).
+
+### Added
+
+- **IMAP mailbox scanning** (`--scan-imap`, `IMAP_*`, `core/mailbox.py`): messages
+  are read with their transport headers, so authentication and spoofing checks
+  work on mail that saved copies would have stripped. Read-only (EXAMINE +
+  BODY.PEEK[]), TLS only with certificate verification, isolated workers, last
+  UID per folder (reset on UIDVALIDITY change), per-run and per-message limits,
+  scheduled with `--background` and `IMAP_CHECK_MINUTES`. Results carry a
+  `mailbox` field and an `imap://user@host/folder;UID=n` path.
+- **Canary response actions** (`CANARY_RESPONSE`, `core/response.py`):
+  `network_off` (PowerShell Disable-NetAdapter / nmcli / networksetup) and
+  `script` (your script, absolute path, owner-only writable, alert JSON on
+  stdin). Off by default, time-limited, results written into the alert file.
+- **Optional JavaScript emulation** with box-js (`EMULATION_ENABLED`,
+  `detectors/emulation.py`): URLs fetched, files written and commands run by
+  `.js` / `.jse` files, including URLs built at run time. New dynamic indicators
+  `emulated_dropper` (65) and `emulated_network` (25). Off by default because it
+  executes the script in a Node sandbox; documented for analysis VMs.
+
 
 ### Added (limits from the README, now closed)
 

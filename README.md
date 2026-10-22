@@ -3,7 +3,7 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.4.1-brightgreen)
+![Version](https://img.shields.io/badge/version-4.5.0-brightgreen)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
@@ -19,6 +19,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.5](#-whats-new-in-45)
 - [🆕 What's new in 4.4](#-whats-new-in-44)
 - [🏗️ Engineering](#️-engineering)
 - [🆕 What's new in 4.3](#-whats-new-in-43)
@@ -44,6 +45,14 @@ Originally built as my B.Sc. graduation project as a three-layer scanner. v3 add
 - [👤 Author](#-author)
 
 ---
+
+## 🆕 What's new in 4.5
+
+- **Scan the mailbox itself (IMAP).** `python RansomwareScanner.py --scan-imap` reads new messages from `IMAP_FOLDER` with their full transport headers, so SPF / DKIM / DMARC and spoofing checks work even when saved copies would have lost them. Read-only (the folder is opened with EXAMINE and bodies fetched with `BODY.PEEK[]`, so nothing is marked as read), TLS only with certificate checks, each message scanned in an isolated worker, nothing scanned twice (last UID per folder, reset when the server's UIDVALIDITY changes), bounded by `IMAP_MAX_MESSAGES` and `IMAP_MAX_MB`. With `--background` and `IMAP_CHECK_MINUTES`, the mailbox is checked on a schedule. Use an app password.
+- **Canary response actions.** A tripwire can now act, not only alert: `CANARY_RESPONSE=network_off` disables the network adapters (PowerShell `Disable-NetAdapter`, `nmcli networking off`, `networksetup`), and `script` runs your own response script with the alert as JSON on stdin. Off by default; the script must be an absolute path only its owner can change, and every action is time-limited and logged in the alert file. On Windows, also turn on **Controlled Folder Access**: it blocks unknown programs from writing to protected folders, which this tool cannot do.
+- **JavaScript emulation (optional).** With `EMULATION_ENABLED=1` and [box-js](https://github.com/CapacitorSet/box-js) installed, `.js` / `.jse` files are run against fake WScript / ActiveX objects and what they tried to do is recorded: URLs fetched (including ones built at run time), files written and commands run. A fetch plus a run or a dropped program scores 65 (`emulated_dropper`, dynamic category). It executes the attacker's script in a Node sandbox, so enable it inside an analysis VM only.
+- **More formats closed:** Equation Editor 3.0 objects (CVE-2017-11882) in RTF and legacy Office files, hidden / very hidden sheets in `.xls`, LUKS and `openssl enc` files recognised as legitimate encrypted containers.
+- **Security hardening:** helper programs are never taken from the current directory, ML models other users could change are refused, bandit runs in CI, and type checking covers every detector.
 
 ## 🆕 What's new in 4.4
 
@@ -248,7 +257,7 @@ python RansomwareScanner.py --verify-canaries             # exit code 2 if tripp
 python RansomwareScanner.py --remove-canaries
 ```
 
-Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves.
+Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves. Since 4.5 a trip can also **act**: `CANARY_RESPONSE=network_off,script` (see [What's new in 4.5](#-whats-new-in-45)).
 
 ### Encrypted quarantine vault
 
@@ -690,13 +699,13 @@ How the project is built to be trusted, not only to detect. Details in [`docs/AR
 
 Being explicit about what the tool does *not* do:
 
-- **Static analysis by default.** Nothing is executed. Behaviour that only shows at run time (a payload downloaded later, environment checks) is missed unless you connect your own CAPEv2 sandbox (`SANDBOX_URL`, off by default).
+- **Static analysis by default.** Nothing is executed. Behaviour that only shows at run time (a payload downloaded later, environment checks) is missed unless you turn on JavaScript emulation (`EMULATION_ENABLED`, box-js) or connect your own CAPEv2 sandbox (`SANDBOX_URL`); both are off by default and belong in an analysis VM.
 - **Archives:** ZIP (ZipCrypto and AES), 7z, RAR and ISO/IMG. RAR contents need an external decompressor (7-Zip, unrar, unar or bsdtar); without one only the member names are checked. Multi-volume RAR sets are not reassembled. Encrypted archives open only with a password from the built-in delivery list or one written in the e-mail that carried them. Archives with more than 500 entries are partly unpacked (programs and scripts first; every name is still checked).
 - **Encrypted-content detection** needs at least 1 KiB of data, and a raw, headerless compressed stream can look as random as ciphertext. That is why it only runs once a document's own signature is already missing.
-- **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict. OLE objects that are neither a packaged file nor an Office/PDF document are counted but not unpacked; Equation Editor 3.0 objects (the CVE-2017-11882 exploit carrier) are flagged by YARA in RTF and legacy Office files.
+- **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict; scan the mailbox with `--scan-imap` to get messages as delivered. Microsoft Graph (Exchange Online without IMAP) is not supported yet. OLE objects that are neither a packaged file nor an Office/PDF document are counted but not unpacked; Equation Editor 3.0 objects (the CVE-2017-11882 exploit carrier) are flagged by YARA in RTF and legacy Office files.
 - **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which can include legitimate encrypted files. KeePass, GPG, age, LUKS and `openssl enc` files with their normal extension are recognised; other encrypted formats are not (PDFs whose object structure is intact are). That's why the layer is capped at 20 points.
 - **Hidden-content detection** covers Word, Excel, PowerPoint (OOXML), PDF, and hidden / very hidden sheets in legacy `.xls` workbooks. Legacy `.ppt` and conditional-formatting tricks are not inspected.
-- **Canaries detect, they don't block.** They catch encryption in the folders where they are planted: within about a second with `watchdog`, otherwise at the check interval. This is a tripwire, not an EDR.
+- **Canaries detect; they do not stop the encrypting process.** They catch encryption in the folders where they are planted (about a second with `watchdog`), and with `CANARY_RESPONSE` they can cut the network or run your script. Killing the process needs kernel-level hooks (an EDR); on Windows, Controlled Folder Access is the built-in blocker.
 - **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Use `--export-key` to back it up; a lost key and no backup means quarantined items can't be restored.
 - **Detection content is a starting point:** the bundled YARA rules are original triage heuristics and the fuzzy database ships empty. Real coverage grows with your own signatures.
 - **Windows programs are not classified on their own.** An `.exe` / `.dll` scanned directly is judged by the ML fallback, YARA behaviour rules and VirusTotal; the engine's strength is documents, e-mails, archives and scripts. A program disguised as a document, inside an archive or attached to an e-mail is flagged.
@@ -706,12 +715,11 @@ Being explicit about what the tool does *not* do:
 
 ## 🧭 Roadmap
 
-Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered in v4.2.0: AES ZIP / 7z / ISO, Excel and PowerPoint hidden content, nested Outlook items, quarantine key backup, vault-aware ML, and real-time canary watching. Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
+Delivered in v4.5.0: IMAP mailbox scanning, canary response actions and optional JavaScript emulation. Delivered in v4.4: QR codes, ELF, scripts, the optional CAPEv2 sandbox, signed releases and the benign-corpus benchmark. Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered in v4.2.0: AES ZIP / 7z / ISO, Excel and PowerPoint hidden content, nested Outlook items, quarantine key backup, vault-aware ML, and real-time canary watching. Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
 
-- **Optional sandbox integration** (e.g. a self-hosted CAPE): dynamic results as a separate, opt-in scoring category.
+- **Microsoft Graph mailbox scanning** for Exchange Online tenants that disable IMAP.
 - **A curated, labelled training corpus** and published ML evaluation numbers.
 - **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
-- **Release builds in CI:** run `build.py` on Windows, macOS and Linux and attach the binaries to releases (the test suite already runs on all three).
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
 
 ---

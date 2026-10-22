@@ -29,11 +29,13 @@ RICH = {
     "virustotal": {"is_malicious": True, "malicious_detections": 3, "total_engines": 70,
                    "permalink": "https://vt"},
     "chatgpt_analysis": {"is_malicious": True, "confidence": 0.8, "suspicious_elements": ["e"]},
+    "emulation": {"ran": True, "detail": "Emulation: 1 URL(s) contacted.",
+                  "urls": ["http://e.example/a.exe"], "commands": ["a.exe"]},
     "skipped_layers": {"layers": ["ml"]},
 }
 TAGS = ["[Local DB]", "[Fuzzy]", "[Macro]", "[YARA]", "[Integrity]", "[Hidden]", "[ELF]",
         "[Sandbox]", "[Allowlist]", "[Script]", "[Embedded]", "[QR]", "[External]", "[Archive]",
-        "[Mail]", "[Web]", "[ML]", "[VT]", "[Semantic]", "[Skipped]"]
+        "[Mail]", "[Web]", "[ML]", "[VT]", "[Semantic]", "[Emulation]", "[Skipped]"]
 
 
 def test_every_section_is_silent_without_findings():

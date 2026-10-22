@@ -407,6 +407,15 @@ def _llm(sr: Dict) -> Lines:
     return out
 
 
+def _emulation(sr: Dict) -> Lines:
+    emu = sr.get("emulation", {})
+    if not emu.get("ran"):
+        return []
+    return ([f"  [Emulation] {emu.get('detail', '')}"]
+            + [f"              - fetched {defang(u)}" for u in (emu.get("urls") or [])[:3]]
+            + [f"              - ran {c}" for c in (emu.get("commands") or [])[:3]])
+
+
 def _skipped(sr: Dict) -> Lines:
     skipped = sr.get("skipped_layers") or {}
     if skipped.get("layers"):
@@ -417,7 +426,7 @@ def _skipped(sr: Dict) -> Lines:
 FINDING_SECTIONS: Tuple[Callable[[Dict], Lines], ...] = (
     _local_db, _fuzzy, _macro, _yara, _integrity, _prompt_guard, _elf, _sandbox,
     _allowlist, _script, _embedded, _qr, _relationships, _archive, _mail, _web, _ml,
-    _virustotal, _llm, _skipped,
+    _virustotal, _llm, _emulation, _skipped,
 )
 
 

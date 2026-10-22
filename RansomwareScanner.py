@@ -602,6 +602,9 @@ def _build_parser() -> argparse.ArgumentParser:
                              "to ML_MODEL_PATH (needs requirements-ml.txt)")
     parser.add_argument("--ml-model-out", metavar="PATH",
                         help="Where --train-ml saves the model (default: ML_MODEL_PATH)")
+    parser.add_argument("--scan-imap", action="store_true",
+                        help="Scan new messages in the IMAP mailbox (IMAP_HOST, IMAP_USER, "
+                             "IMAP_PASSWORD; read-only, TLS only), then exit")
     return parser
 
 
@@ -801,6 +804,25 @@ def _protection_command(args, scanner) -> bool:
     return False
 
 
+def _mailbox_command(args, scanner) -> bool:
+    """--scan-imap: one pass over the mailbox. True when it ran."""
+    if not args.scan_imap:
+        return False
+    from core.mailbox import MailboxError
+    try:
+        report, run = scanner.scan_mailbox()
+    except MailboxError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+    print(report)
+    if run.skipped_too_large:
+        print(f"⚠️  {len(run.skipped_too_large)} message(s) over IMAP_MAX_MB were not scanned "
+              f"(UIDs {', '.join(map(str, run.skipped_too_large[:10]))}).")
+    if run.more_waiting:
+        print("⚠️  More new messages are waiting; run --scan-imap again.")
+    return True
+
+
 def _scan_or_schedule(args, scanner) -> None:
     """--scan-file, --scan-now and the scheduled background loop."""
     # --scan-file: analyse exactly one file, print its verdict, and exit.
@@ -848,6 +870,10 @@ def _scan_or_schedule(args, scanner) -> None:
         schedule.every(minutes).minutes.do(scanner.check_canaries)
         # Canaries deployed or removed later (GUI or CLI) are picked up here.
         schedule.every(minutes).minutes.do(watcher.refresh)
+        imap_minutes = int(CONFIG.get("imap_check_minutes", 0) or 0)
+        if imap_minutes > 0 and CONFIG.get("imap_host"):
+            logger.info("Mailbox %s checked every %d minute(s).", CONFIG["imap_folder"], imap_minutes)
+            schedule.every(imap_minutes).minutes.do(scanner.scan_mailbox_safely)
 
         if not args.scan_now:
             scanner.run_scan()
@@ -885,7 +911,7 @@ def main():
         print("⚠️  One or more API keys are missing. Copy .env.example to .env and add your keys.")
         print("    The local layers still work; the VirusTotal and cloud-LLM layers need keys.\n")
     scanner = RansomwareScanner(CONFIG)
-    if _protection_command(args, scanner):
+    if _protection_command(args, scanner) or _mailbox_command(args, scanner):
         return
     _scan_or_schedule(args, scanner)
 
