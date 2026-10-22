@@ -37,6 +37,8 @@ def no_rar_tool(monkeypatch):
     monkeypatch.setattr(rarfile, "CURRENT_SETUP", None)
     monkeypatch.setattr(ce, "_rar_tool_state", None)
     monkeypatch.setattr(ce, "_rar_codec_state", None)
+    # On Windows the extractor also looks for 7-Zip / WinRAR in Program Files.
+    monkeypatch.setattr(ce, "_WINDOWS_RAR_TOOLS", ())
     yield
     ce._rar_tool_state = None
     ce._rar_codec_state = None

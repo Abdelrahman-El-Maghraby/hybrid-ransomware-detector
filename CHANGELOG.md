@@ -78,6 +78,9 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Engineering
 
+- **Continuous integration:** GitHub Actions runs the test suite and the v3
+  smoke test on Windows, macOS and Linux with Python 3.9 and 3.12 for every
+  push and pull request (from 4.3.1's CI work, merged into this release).
 - **Indicator registry** (`detectors/indicators.yaml`): weights, caps, categories
   and labels in one versioned file; reviewed overrides via `WEIGHTS_OVERRIDE`;
   the calibration tool writes override files.

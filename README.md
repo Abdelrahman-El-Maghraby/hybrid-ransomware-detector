@@ -4,6 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![Version](https://img.shields.io/badge/version-4.4.0--beta.2-orange)
+[![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
@@ -566,6 +567,8 @@ python test_smoke.py             # the original v3 smoke test, still passing
 RUN_GUI_TESTS=1 xvfb-run -a python -m pytest tests/test_gui_smoke.py
 ```
 
+Every push and pull request runs the suite on **Windows, macOS and Linux** with Python 3.9 and 3.12 (GitHub Actions, `.github/workflows/tests.yml`).
+
 The suite covers each detector and protection feature in isolation, the full scan pipeline, the CLI commands, and the GUI flow (scan → quarantine → restore → canary trigger). Highlights:
 
 - the encrypted-content heuristic accepts 200 random samples at each size and rejects compressed Office files, gzip, and text,
@@ -582,6 +585,25 @@ The suite covers each detector and protection feature in isolation, the full sca
 - a trained ML model round-trips through disk with identical predictions, and foreign or stale model files fall back to the rule engine.
 
 All test samples are **synthetic** and built at test time (a relationship pointing at a documentation IP, an `MZ` header, random bytes, a ZipCrypto archive). No live malware is stored or used.
+
+### Measuring detection on real samples
+
+The unit tests prove each check works; `tools/evaluate.py` measures how the engine does on real files. Point it at a folder of malicious samples and a folder of benign files (for example MalwareBazaar samples and Govdocs1 / SpamAssassin files, kept in an isolated VM):
+
+```bash
+python tools/evaluate.py --malicious ~/samples/malicious --benign ~/samples/benign \
+                         --labels ~/samples/labels.csv --out eval_out
+```
+
+It reports the detection rate and the false-positive rate at the Low, Medium and High thresholds, broken down by file type, malware family (from an optional `sha256,type,family` CSV) and folder, plus every miss and every false alarm with the indicators behind it (`eval_out/summary.md`, one row per file in `eval_out/results.csv`). It measures the **engine only** by default: VirusTotal, the LLM layer and the cache are off, because a reputation hit on a known sample says nothing about the detection logic (`--with-vt` / `--with-llm` measure the full product). Each file is scanned in a worker process with a time limit, so one pathological file cannot stop the run.
+
+#### Dataset credits
+
+Evaluation runs on public research datasets that are **not** redistributed in this repository. If you use the CIC-Trap4Phish 2025 dataset, cite:
+
+> F. Nejati, M. Rabbani, M. Eskandarian, M. Mirani, G. Piya, I. Opushnyev, A. A. Ghorbani, and S. Dadkhah, "CIC-Trap4Phish: A Unified Multi-Format Dataset for Phishing and Quishing Attachment Detection," arXiv:2602.09015, 2026. Canadian Institute for Cybersecurity, University of New Brunswick. https://www.unb.ca/cic/datasets/trap4phish2025.html
+
+The dataset is licensed for non-commercial use (CC BY-NC 4.0).
 
 ---
 
@@ -687,7 +709,7 @@ Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered
 - **Optional sandbox integration** (e.g. a self-hosted CAPE): dynamic results as a separate, opt-in scoring category.
 - **A curated, labelled training corpus** and published ML evaluation numbers.
 - **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
-- **CI** running the test suite and `build.py` on Windows, macOS and Linux for every push, with the binaries attached to releases.
+- **Release builds in CI:** run `build.py` on Windows, macOS and Linux and attach the binaries to releases (the test suite already runs on all three).
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
 
 ---
