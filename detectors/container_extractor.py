@@ -59,12 +59,30 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import tempfile
+import threading
 import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Iterator, List, Optional, Union
+
+from .macos_packages import (
+    FS_IMAGE_SUFFIXES,
+    BudgetExceeded,
+    FormatError,
+    TooManyEntries,
+    dmg_kind,
+    is_xar,
+    read_cpio,
+    read_xar,
+    sevenzip_extract,
+    sevenzip_list,
+    sevenzip_tool,
+    stream_decompress,
+    xar_read_entry,
+)
 
 logger = logging.getLogger("RansomwareScanner.archive")
 
@@ -103,7 +121,7 @@ EXECUTABLE_EXTENSIONS = frozenset({
     ".exe", ".scr", ".com", ".pif", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe",
     ".js", ".jse", ".wsf", ".wsh", ".hta", ".lnk", ".msi", ".msix", ".appx", ".dll",
     ".cpl", ".jar", ".iso", ".img", ".vhd", ".vhdx", ".one", ".url", ".scf", ".reg",
-    ".chm", ".xll", ".sys", ".sh", ".app", ".command",
+    ".chm", ".xll", ".sys", ".sh", ".app", ".command", ".pkg", ".mpkg", ".dmg",
 })
 LURE_EXTENSIONS = frozenset({
     ".pdf", ".doc", ".docx", ".docm", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx", ".rtf",
@@ -113,16 +131,29 @@ _EXEC_MAGIC = ((b"MZ", "pe"), (b"\x7fELF", "elf"), (b"\x4c\x00\x00\x00\x01\x14\x
                (b"\xcf\xfa\xed\xfe", "macho"), (b"\xce\xfa\xed\xfe", "macho"))
 RTLO = "‮"   # right-to-left override (escaped on purpose: never put it in source)
 _STREAM_CHUNK = 64 * 1024
+_CONTAINER_SUFFIXES = frozenset({".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".cab", ".docm",
+                                 ".xlsm", ".pptm", ".doc", ".xls", ".eml", ".msg"})
 _SEVENZIP_MAGIC = b"7z\xbc\xaf\x27\x1c"
 _RAR_MAGICS = (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")      # RAR 1.5-4.x, RAR 5
 _ISO_DESCRIPTOR_OFFSETS = (0x8001, 0x8801, 0x9001)
 _FORMAT_EXTENSIONS = {"zip": {".zip"}, "7z": {".7z"}, "iso": {".iso", ".img"},
-                      "rar": {".rar"}}
-_MISSING_LIBRARY = {"7z": "py7zr", "iso": "pycdlib", "rar": "rarfile",
-                    "rar-tool": "7-Zip, unrar or unar (a RAR decompressor)"}
+                      "rar": {".rar"}, "pkg": {".pkg", ".mpkg"}, "dmg": {".dmg"}}
+_MISSING_LIBRARY = {"7z": "py7zr", "iso": "pycdlib", "rar": "rarfile", "pkg": "defusedxml",
+                    "rar-tool": "7-Zip, unrar or unar (a RAR decompressor)",
+                    "rar-codec": "unrar or unar (this 7-Zip build has no RAR codec)",
+                    "dmg-tool": "7-Zip (to open DMG disk images)"}
+# Programs, not Python packages: the advice is "install", not "pip install".
+_MISSING_TOOLS = {_MISSING_LIBRARY["rar-tool"], _MISSING_LIBRARY["rar-codec"],
+                  _MISSING_LIBRARY["dmg-tool"]}
+# Installers carry programs and scripts by design: listed, scanned, not scored as such.
+_INSTALLER_FORMATS = ("pkg", "dmg")
 # Where the RAR decompressors live on Windows when they are not on PATH.
 _WINDOWS_RAR_TOOLS = (("SEVENZIP_TOOL", r"7-Zip\7z.exe"), ("UNRAR_TOOL", r"WinRAR\UnRAR.exe"))
 _rar_tool_state: Optional[bool] = None
+_rar_codec_state: Optional[str] = None
+RAR_NO_CODEC = ("the installed 7-Zip has no RAR codec, so it cannot decompress RAR members "
+                "(install unrar or unar)")
+_RAR_CODEC_NAME = re.compile(r"\bRar[1-5]?\b")
 
 
 def rar_tool_available() -> bool:
@@ -148,7 +179,39 @@ def rar_tool_available() -> bool:
             _rar_tool_state = False
     return _rar_tool_state
 
-_BAD_ZIP_ERRORS = (zipfile.BadZipFile,) + (
+def sevenzip_lacks_rar_codec(info_output: str) -> bool:
+    """True when `7z i` output lists codecs but none of them is a RAR codec.
+
+    Some 7-Zip builds (distribution packages, Homebrew's `sevenzip`) recognise the
+    RAR format but leave out the RAR decompression codec. They list the archive and
+    then fail on every compressed member, which used to be reported as "encrypted".
+    """
+    codecs = info_output.partition("Codecs:")[2].partition("Hashers:")[0]
+    return bool(codecs.strip()) and not _RAR_CODEC_NAME.search(codecs)
+
+
+def rar_codec_problem() -> str:
+    """Why RAR members cannot be decompressed here, or "" if nothing is known to be wrong.
+
+    Only a 7-Zip without the RAR codec is detected (cached); unrar, unar and bsdtar
+    always decompress RAR when they are present.
+    """
+    global _rar_codec_state
+    if _rar_codec_state is None:
+        _rar_codec_state = ""
+        try:
+            if rar_tool_available():
+                tool = _rarfile.tool_setup().setup.get("open_cmd", ("",))[0]
+                if tool in ("SEVENZIP_TOOL", "SEVENZIP2_TOOL"):
+                    out = subprocess.run([getattr(_rarfile, tool), "i"], capture_output=True,
+                                         text=True, errors="replace", timeout=15).stdout
+                    if sevenzip_lacks_rar_codec(out):
+                        _rar_codec_state = RAR_NO_CODEC
+        except Exception as e:                   # never let the probe break a scan
+            logger.debug("RAR codec probe failed: %s", e)
+    return _rar_codec_state
+
+_BAD_ZIP_ERRORS = (zipfile.BadZipFile, NotImplementedError, EOFError) + (
     (_pyzipper.BadZipFile,) if AES_ZIP_AVAILABLE and _pyzipper.BadZipFile is not zipfile.BadZipFile
     else ())
 
@@ -189,10 +252,12 @@ class ContainerResult:
     zip_slip: bool = False
     zip_slip_reason: str = ""
     unreadable_members: int = 0
+    skipped_members: int = 0        # past the member limit: names checked, not unpacked
     password_used: Optional[str] = None
     executable_members: List[str] = field(default_factory=list)
     double_extension_members: List[str] = field(default_factory=list)
     rtlo_members: List[str] = field(default_factory=list)
+    installer_executables: List[str] = field(default_factory=list)  # pkg/dmg contents
     detail: str = ""
     missing_support: List[str] = field(default_factory=list)   # libraries to install
 
@@ -215,11 +280,13 @@ class ContainerResult:
             "zip_slip": self.zip_slip,
             "zip_slip_reason": self.zip_slip_reason,
             "unreadable_members": self.unreadable_members,
+            "skipped_members": self.skipped_members,
             "encrypted_unreadable": self.encrypted_unreadable,
             "password_used": self.password_used,
             "executable_members": self.executable_members[:50],
             "double_extension_members": self.double_extension_members[:50],
             "rtlo_members": self.rtlo_members[:50],
+            "installer_executables": self.installer_executables[:50],
             "detail": self.detail,
         }
 
@@ -228,6 +295,12 @@ def visible_name(name: str) -> str:
     """Render a member name safely for reports (control chars + RTLO shown)."""
     out = name.replace(RTLO, "[RTLO]")
     return re.sub(r"[\x00-\x1f\x7f]", "?", out)
+
+
+def _priority_name(name: str) -> bool:
+    """Unpack these first when an archive has more entries than the member limit."""
+    suffix = PurePosixPath(name.replace("\\", "/").replace(RTLO, "")).suffix.lower()
+    return RTLO in name or suffix in EXECUTABLE_EXTENSIONS or suffix in _CONTAINER_SUFFIXES
 
 
 def _unsafe_member_path(name: str) -> Optional[str]:
@@ -243,7 +316,8 @@ def _unsafe_member_path(name: str) -> Optional[str]:
 
 
 def detect_container(file_path: PathLike) -> Optional[str]:
-    """'zip' | '7z' | 'rar' | 'iso' when the extension AND the content agree, else None."""
+    """'zip' | '7z' | 'rar' | 'iso' | 'pkg' | 'dmg' when the extension AND the content
+    agree, else None."""
     path = Path(file_path)
     ext = path.suffix.lower()
     try:
@@ -262,6 +336,10 @@ def detect_container(file_path: PathLike) -> Optional[str]:
                     fh.seek(off)
                     if fh.read(5) == b"CD001":
                         return "iso"
+        if ext in _FORMAT_EXTENSIONS["pkg"]:
+            return "pkg" if is_xar(path) else None
+        if ext in _FORMAT_EXTENSIONS["dmg"]:
+            return "dmg" if dmg_kind(path) else None
     except OSError:
         return None
     return None
@@ -297,6 +375,7 @@ class ContainerExtractor:
         self.max_members = int(max_members)
         self.max_ratio = float(max_ratio)
         self.passwords = tuple(passwords)
+        self._local = threading.local()
 
     def is_container(self, file_path: PathLike) -> bool:
         return detect_container(file_path) is not None
@@ -309,7 +388,14 @@ class ContainerExtractor:
                                  container_type=detect_container(path) or "zip")
         sandbox = Path(tempfile.mkdtemp(prefix="hrd_unpack_"))
         try:
-            self._walk(path, path.name, sandbox, 1, result)
+            try:
+                self._walk(path, path.name, sandbox, 1, result)
+            except Exception as e:             # a hostile archive must not end the scan
+                logger.debug("Archive %s could not be walked completely: %s", path, e)
+                result.unreadable_members += 1
+                result.members.append(ArchiveMember(
+                    f"{path.name}!/(rest of archive)",
+                    skipped_reason=f"could not be parsed completely ({type(e).__name__})"))
             result.detail = self._summary(result)
             yield result
         finally:
@@ -332,19 +418,43 @@ class ContainerExtractor:
             self._walk_rar(archive, display, sandbox, depth, res)
         elif fmt == "iso":
             self._walk_iso(archive, display, sandbox, depth, res)
+        elif fmt in _INSTALLER_FORMATS:
+            before = len(res.executable_members)
+            (self._walk_pkg if fmt == "pkg" else self._walk_dmg)(
+                archive, display, sandbox, depth, res)
+            inside = [m for m in res.executable_members[before:] if m.startswith(display + "!/")]
+            res.executable_members = [m for i, m in enumerate(res.executable_members)
+                                      if i < before or m not in inside]
+            res.installer_executables.extend(inside)
         else:
             self._walk_zip(archive, display, sandbox, depth, res)
 
+    @contextlib.contextmanager
+    def extra_passwords(self, passwords) -> Iterator[None]:
+        """Try these passwords first while the block runs (e.g. ones written in the
+        e-mail an archive came with). Per thread, so parallel scans do not mix."""
+        previous = getattr(self._local, "extra", ())
+        self._local.extra = tuple(p for p in (passwords or ()) if p) + tuple(previous)
+        try:
+            yield
+        finally:
+            self._local.extra = previous
+
+    def current_extra_passwords(self) -> tuple:
+        """The passwords added by `extra_passwords` in this thread (e.g. from an e-mail)."""
+        return tuple(getattr(self._local, "extra", ()))
+
     def _candidates(self, archive: Path) -> List[Optional[str]]:
         stem = Path(archive.name).stem
-        return list(dict.fromkeys([*self.passwords, stem, stem.lower()]))
+        extra = getattr(self._local, "extra", ())
+        return list(dict.fromkeys([*extra, *self.passwords, stem, stem.lower()]))
 
     def _missing(self, fmt: str, res: ContainerResult, count: int = 1) -> None:
         res.unreadable_members += count
         lib = _MISSING_LIBRARY[fmt]
         if lib not in res.missing_support:
             res.missing_support.append(lib)
-            how = f"install {lib}" if fmt == "rar-tool" else f"pip install {lib}"
+            how = f"install {lib}" if lib in _MISSING_TOOLS else f"pip install {lib}"
             logger.warning("Cannot look inside this %s archive: %s "
                            "(its contents were NOT scanned).", fmt.split("-")[0], how)
 
@@ -367,6 +477,23 @@ class ContainerExtractor:
                                    f"{size / csize:,.0f}x (limit {self.max_ratio:.0f}x).")
             return False
         return True
+
+    def _cap(self, items: list, name_of, display: str, res: ContainerResult) -> list:
+        """More entries than the member limit (a timezone database, an icon set):
+        unpack the first ones - programs, scripts and nested archives first - and
+        check only the names of the rest. Many entries alone are not a bomb."""
+        room = max(0, self.max_members - len(res.members))
+        if len(items) <= room:
+            return items
+        ordered = sorted(items, key=lambda it: 0 if _priority_name(name_of(it)) else 1)
+        keep, rest = ordered[:room], ordered[room:]
+        for it in rest:
+            name = name_of(it)
+            base = PurePosixPath(name.replace("\\", "/")).name or "member"
+            self._classify_name(base, f"{display}!/{visible_name(name)}",
+                                ArchiveMember(name), res)
+        res.skipped_members += len(rest)
+        return keep
 
     def _limits_ok(self, count: int, declared: int, res: ContainerResult) -> bool:
         if len(res.members) + count > self.max_members:
@@ -443,7 +570,8 @@ class ContainerExtractor:
             logger.debug("Unreadable archive %s: %s", display, e)
             return
         with zf:
-            infos = [i for i in zf.infolist() if not i.is_dir()]
+            infos = self._cap([i for i in zf.infolist() if not i.is_dir()],
+                              lambda i: i.filename, display, res)
             if not self._limits_ok(len(infos), sum(i.file_size for i in infos), res):
                 return
             for info in infos:
@@ -530,7 +658,8 @@ class ContainerExtractor:
             logger.debug("Unreadable 7z %s: %s", display, e)
             return
 
-        files = [i for i in infos if not i.is_directory]
+        files = self._cap([i for i in infos if not i.is_directory],
+                          lambda i: i.filename, display, res)
         if not self._limits_ok(len(files), sum(i.uncompressed or 0 for i in files), res):
             return
         admitted = []
@@ -614,6 +743,7 @@ class ContainerExtractor:
             logger.debug("Unreadable RAR %s: %s", display, e)
             return
         with contextlib.closing(rf):
+            infos = self._cap(infos, lambda i: i.filename, display, res)
             if not self._limits_ok(len(infos), sum(int(i.file_size or 0) for i in infos), res):
                 return
             for info in infos:
@@ -649,6 +779,12 @@ class ContainerExtractor:
             except Exception as e:               # wrong password, CRC error, tool failure
                 target.unlink(missing_ok=True)
                 logger.debug("RAR member %s failed: %s", shown, e)
+                if rar_codec_problem():
+                    # The tool cannot decompress RAR at all: say so instead of
+                    # blaming a password, and stop trying passwords.
+                    member.skipped_reason = rar_codec_problem()
+                    self._missing("rar-codec", res, count=0)
+                    break
                 continue
             if outcome == "bomb":
                 res.members.append(member)
@@ -681,6 +817,7 @@ class ContainerExtractor:
                 for fn in files:
                     p = dirname.rstrip("/") + "/" + fn
                     entries.append((p, iso.get_record(**{key: p})))
+            entries = self._cap(entries, lambda e: e[0], display, res)
             if not self._limits_ok(len(entries),
                                    sum(r.get_data_length() for _, r in entries), res):
                 return
@@ -720,6 +857,171 @@ class ContainerExtractor:
             with contextlib.suppress(Exception):
                 iso.close()
 
+    # ---------- macOS installer package (.pkg: XAR + cpio, pure Python)
+    def _walk_pkg(self, archive: Path, display: str, sandbox: Path, depth: int,
+                  res: ContainerResult) -> None:
+        try:
+            entries, heap = read_xar(archive)
+        except FormatError as e:
+            if "defusedxml" in str(e):
+                self._missing("pkg", res)
+            else:
+                res.unreadable_members += 1
+            return
+        except Exception as e:
+            res.unreadable_members += 1
+            logger.debug("Unreadable package %s: %s", display, e)
+            return
+        files = [e for e in entries if e.kind == "file"]
+        if len(res.members) + len(files) > self.max_members:
+            self._too_many(f"{display}!/", len(files), res)
+            return
+        for entry in files:
+            if res.zip_bomb:
+                return
+            shown = f"{display}!/{visible_name(entry.name)}"
+            if _unsafe_member_path(entry.name):
+                self._admit(entry.name, entry.size, entry.length, False, shown, res)
+                continue
+            budget = self.max_total_bytes - res.total_uncompressed
+            try:
+                data = xar_read_entry(archive, heap, entry, budget)
+            except BudgetExceeded:
+                self._too_large(shown, entry.size, res)
+                continue
+            except Exception as e:
+                res.unreadable_members += 1
+                logger.debug("Package entry %s failed: %s", shown, e)
+                continue
+            leaf = PurePosixPath(entry.name).name
+            if leaf in ("Scripts", "Payload"):
+                self._pkg_stream(data, entry.name, display, sandbox, depth, res,
+                                 scripts=(leaf == "Scripts"))
+                continue
+            member = self._new_member(entry.name, len(data), entry.length, False, shown, res)
+            target = self._target(entry.name, sandbox, res)
+            target.write_bytes(data)
+            res.total_uncompressed += len(data)
+            member.extracted, member.path = True, str(target)
+            self._finish(member, target, sandbox, depth, res)
+
+    def _pkg_stream(self, data: bytes, stream: str, display: str, sandbox: Path, depth: int,
+                    res: ContainerResult, scripts: bool) -> None:
+        """A component's Scripts or Payload: a compressed cpio archive."""
+        budget = self.max_total_bytes - res.total_uncompressed
+        try:
+            raw = stream_decompress(data, budget)
+            items = [c for c in read_cpio(raw, self.max_members) if c.is_file]
+        except TooManyEntries:
+            self._too_many(f"{display}!/{visible_name(stream)}", self.max_members + 1, res)
+            return
+        except BudgetExceeded:
+            self._too_large(f"{display}!/{visible_name(stream)}", len(data), res)
+            return
+        except Exception as e:
+            res.unreadable_members += 1
+            logger.debug("Package stream %s/%s unreadable: %s", display, stream, e)
+            return
+        if len(res.members) + len(items) > self.max_members:
+            self._too_many(f"{display}!/{visible_name(stream)}", len(items), res)
+            return
+        for item in items:
+            if res.zip_bomb:
+                return
+            name = f"{stream}/{item.name}"
+            shown = f"{display}!/{visible_name(name)}"
+            if not self._admit(item.name, len(item.data), len(item.data), False, shown, res):
+                continue
+            member = self._new_member(name, len(item.data), len(item.data), False, shown, res)
+            if (scripts or item.is_executable) and not member.executable:
+                member.executable = True                 # install scripts run as root
+                res.executable_members.append(shown)
+            target = self._target(name, sandbox, res)
+            target.write_bytes(item.data)
+            res.total_uncompressed += len(item.data)
+            member.extracted, member.path = True, str(target)
+            self._finish(member, target, sandbox, depth, res)
+
+    # ---------- macOS disk image (.dmg: UDIF -> HFS+/APFS, through 7-Zip)
+    def _walk_dmg(self, archive: Path, display: str, sandbox: Path, depth: int,
+                  res: ContainerResult) -> None:
+        if dmg_kind(archive) == "encrypted":
+            res.unreadable_members += 1
+            res.members.append(ArchiveMember(
+                f"{display}!/(encrypted disk image)", encrypted=True,
+                skipped_reason="encrypted disk image - password unknown"))
+            return
+        tool = sevenzip_tool()
+        if not tool:
+            self._missing("dmg-tool", res)
+            return
+        self._sevenzip_image(tool, archive, display, sandbox, depth, res, level=1)
+
+    def _sevenzip_image(self, tool: str, image: Path, display: str, sandbox: Path,
+                        depth: int, res: ContainerResult, level: int) -> None:
+        """List, size-check, extract; open file-system images inside one level deeper."""
+        try:
+            items = sevenzip_list(tool, image)
+        except Exception as e:
+            res.unreadable_members += 1
+            logger.debug("7-Zip could not list %s: %s", display, e)
+            return
+        files = [i for i in items if not i.is_dir and not i.is_link]
+        declared = sum(i.size for i in files)
+        if len(res.members) + len(files) > self.max_members:
+            self._too_many(f"{display}!/", len(files), res)
+            return
+        if res.total_uncompressed + declared > self.max_total_bytes:
+            self._too_large(f"{display}!/", declared, res)   # large apps are normal here
+            return
+        out = Path(tempfile.mkdtemp(prefix="img_", dir=sandbox))
+        try:
+            sevenzip_extract(tool, image, out)
+        except Exception as e:
+            res.unreadable_members += 1
+            logger.debug("7-Zip could not extract %s: %s", display, e)
+            return
+        for root, dirs, names in os.walk(out, followlinks=False):
+            dirs.sort()
+            for fn in sorted(names):
+                path = Path(root) / fn
+                if path.is_symlink() or not path.is_file():
+                    continue
+                rel = path.relative_to(out).as_posix()
+                shown = f"{display}!/{visible_name(rel)}"
+                size = path.stat().st_size
+                if res.total_uncompressed + size > self.max_total_bytes:
+                    self._too_large(shown, size, res)
+                    return
+                if level < 2 and rel.lower().endswith(FS_IMAGE_SUFFIXES) and not detect_container(path):
+                    res.total_uncompressed += size
+                    self._sevenzip_image(tool, path, shown, sandbox, depth, res, level + 1)
+                    path.unlink(missing_ok=True)
+                    continue
+                if len(res.members) >= self.max_members:
+                    self._too_many(shown, 1, res)
+                    return
+                member = self._new_member(rel, size, size, False, shown, res)
+                res.total_uncompressed += size
+                member.extracted, member.path = True, str(path)
+                self._finish(member, path, sandbox, depth, res)
+
+    @staticmethod
+    def _too_many(shown: str, count: int, res: ContainerResult) -> None:
+        """An installer with more files than the member limit (an app bundle easily
+        has thousands): noted as not unpacked, not a bomb."""
+        res.unreadable_members += 1
+        res.members.append(ArchiveMember(shown, skipped_reason=f"{count} files - more than "
+                                                               f"the member limit; not unpacked"))
+
+    @staticmethod
+    def _too_large(shown: str, size: int, res: ContainerResult) -> None:
+        """Installer content past the byte budget: noted as not unpacked, not a bomb."""
+        res.unreadable_members += 1
+        res.members.append(ArchiveMember(shown, size,
+                                         skipped_reason="larger than the scan budget - "
+                                                        "not unpacked"))
+
     @staticmethod
     def _classify_name(base: str, shown: str, member: ArchiveMember,
                        res: ContainerResult) -> None:
@@ -740,8 +1042,14 @@ class ContainerExtractor:
             bits.append(f"ZIP BOMB: {res.zip_bomb_reason}")
         if res.zip_slip:
             bits.append(f"ZIP SLIP: {res.zip_slip_reason}")
+        if res.skipped_members:
+            bits.append(f"{res.skipped_members} member(s) past the member limit: "
+                        "names checked, contents not scanned")
         if res.executable_members:
             bits.append(f"{len(res.executable_members)} executable/script member(s)")
+        if res.installer_executables:
+            bits.append(f"{len(res.installer_executables)} program/script file(s) in the "
+                        f"installer (expected in an installer; each one scanned)")
         if res.double_extension_members:
             bits.append("double-extension lure name(s)")
         if res.rtlo_members:
@@ -751,6 +1059,6 @@ class ContainerExtractor:
         elif res.password_used:
             bits.append(f"opened with password '{res.password_used}'")
         for lib in res.missing_support:
-            how = f"install {lib}" if lib == _MISSING_LIBRARY["rar-tool"] else f"pip install {lib}"
+            how = f"install {lib}" if lib in _MISSING_TOOLS else f"pip install {lib}"
             bits.append(f"could not be opened: {how}")
         return "; ".join(bits) + "."

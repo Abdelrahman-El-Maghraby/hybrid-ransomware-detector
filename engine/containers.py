@@ -9,12 +9,14 @@ carry the most dangerous member's evidence over to the container's score.
 Only the parts that genuinely differ live in a `ContainerHandler`: how to
 open the container, which members to scan and under what display name, and
 which of its own findings become scoring signals. Supporting a new container
-type (7z, ISO, an Outlook item inside an Outlook item) means writing one
+type (7z, ISO, an Outlook item inside an Outlook item, a payload smuggled
+inside a web page) means writing one
 handler, not another copy of the scanning loop.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import TYPE_CHECKING, Dict, Iterator, List, Tuple
@@ -36,6 +38,7 @@ def member_summary(r: Dict) -> Dict:
         "md5_hash": r.get("md5_hash", ""),
         "sha256_hash": r.get("sha256_hash", ""),
         "indicators": [c.get("indicator") for c in contributions][:8],
+        "archive_password": (r.get("scan_results", {}).get("archive") or {}).get("password_used"),
     }
 
 
@@ -49,21 +52,25 @@ class ContainerHandler:
     worst_default_name = "member"
     error_label = "member"     # used in the log line when a member scan fails
 
-    def applies(self, ctx: "ScanContext") -> bool:
+    def applies(self, ctx: ScanContext) -> bool:
         raise NotImplementedError
 
-    def open(self, scanner: "RansomwareScanner", path: str):
+    def open(self, scanner: RansomwareScanner, path: str):
         """Context manager yielding a view with `.as_dict()`; sandbox lives inside it."""
         raise NotImplementedError
 
-    def budget(self, scanner: "RansomwareScanner") -> int:
+    def budget(self, scanner: RansomwareScanner) -> int:
         raise NotImplementedError
 
-    def items(self, view, ctx: "ScanContext") -> Iterator[Tuple[str, str, str]]:
+    def items(self, view, ctx: ScanContext) -> Iterator[Tuple[str, str, str]]:
         """Yield (sandbox path, display name, log label) for each scannable member."""
         raise NotImplementedError
 
-    def capture(self, view, ctx: "ScanContext") -> None:
+    def member_context(self, scanner: RansomwareScanner, view):
+        """Context in which the members are scanned (e.g. extra archive passwords)."""
+        return contextlib.nullcontext()
+
+    def capture(self, view, ctx: ScanContext) -> None:
         """Copy anything else the pipeline needs out of the view before it closes."""
 
     def decorate(self, view_dict: Dict, summaries: List[Dict]) -> None:
@@ -73,23 +80,24 @@ class ContainerHandler:
         raise NotImplementedError
 
 
-def scan_container(scanner: "RansomwareScanner", handler: ContainerHandler,
-                   ctx: "ScanContext") -> None:
+def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
+                   ctx: ScanContext) -> None:
     """Unpack, scan every member through the pipeline, record result + signals."""
     member_results: List[Dict] = []
     skipped_for_budget = 0
     with handler.open(scanner, ctx.path) as view:
         if ctx.depth < scanner.max_nesting:
             budget = handler.budget(scanner)
-            for member_path, display_name, label in handler.items(view, ctx):
-                if len(member_results) >= budget:
-                    skipped_for_budget += 1
-                    continue
-                try:
-                    member_results.append(scanner.scan_file(
-                        member_path, _depth=ctx.depth + 1, _display_name=display_name))
-                except Exception as e:
-                    logger.error(f"Error scanning {handler.error_label} {label}: {e}")
+            with handler.member_context(scanner, view):
+                for member_path, display_name, label in handler.items(view, ctx):
+                    if len(member_results) >= budget:
+                        skipped_for_budget += 1
+                        continue
+                    try:
+                        member_results.append(scanner.scan_file(
+                            member_path, _depth=ctx.depth + 1, _display_name=display_name))
+                    except Exception as e:
+                        logger.error(f"Error scanning {handler.error_label} {label}: {e}")
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 
@@ -153,10 +161,85 @@ class ArchiveHandler(ContainerHandler):
             "zip_slip": d["zip_slip"],
             "zip_bomb": d["zip_bomb"],
             "encrypted_unreadable": d["encrypted_unreadable"],
+            "skipped_members": d.get("skipped_members", 0),
             "executable_members": d["executable_members"],
             "double_extension_members": d["double_extension_members"],
             "rtlo_members": d["rtlo_members"],
             "reasons": {"zip_slip": d["zip_slip_reason"], "zip_bomb": d["zip_bomb_reason"]},
+        }
+
+
+class WebHandler(ContainerHandler):
+    """HTML / SVG pages: payloads decoded from base64 strings and data: URIs are
+    the members (HTML smuggling); the page's own findings are its signals."""
+
+    result_key = signal_key = "web"
+    members_key = "payload_results"
+    worst_key = "worst_payload"
+    worst_default_name = "payload"
+    error_label = "embedded payload"
+
+    def applies(self, ctx):
+        return ctx.is_web
+
+    def open(self, scanner, path):
+        return scanner.web_analyzer.open(path)
+
+    def budget(self, scanner):
+        return 5
+
+    def items(self, view, ctx):
+        for payload in view.payloads:
+            if payload.path:
+                yield payload.path, f"{ctx.display}!/{payload.name}", payload.name
+
+    def signals(self, d):
+        return {
+            "smuggling": d["smuggling"],
+            "smuggling_construct": d["smuggling_construct"],
+            "smuggling_reasons": d["smuggling_reasons"],
+            "payloads": [p["name"] + " (" + p["format"] + ")" for p in d["payloads"]],
+            "svg_active": d["svg_active"],
+            "credential_form": d["credential_form"],
+            "credential_reasons": d["credential_reasons"],
+            "redirects": d["redirects"],
+            "obfuscation": d["obfuscation"],
+        }
+
+
+class EmbeddedHandler(ContainerHandler):
+    """OneNote / CHM / MSI / encrypted Office / XLL: carved or decrypted content is
+    the members; the container's own findings are its signals."""
+
+    result_key = signal_key = "embedded"
+    members_key = "member_results"
+    worst_key = "worst_member"
+    worst_default_name = "embedded file"
+    error_label = "embedded file"
+
+    def applies(self, ctx):
+        return bool(ctx.embedded_kind) and not (ctx.is_archive or ctx.is_mail or ctx.is_web)
+
+    def open(self, scanner, path):
+        return scanner.embedded_analyzer.open(path)
+
+    def budget(self, scanner):
+        return 25
+
+    def items(self, view, ctx):
+        for m in view.members:
+            if m.path:
+                yield m.path, f"{ctx.display}!/{m.name}", m.name
+
+    def signals(self, d):
+        return {
+            "kind": d["kind"],
+            "risky_members": d["risky_members"],
+            "chm_shortcut": d["chm_shortcut"],
+            "msi_script_actions": d["msi_script_actions"],
+            "xll_addin": d["xll_addin"],
+            "encrypted_unopened": d["encrypted"] and not d["decrypted"],
+            "password_from_message": d["password_from_message"],
         }
 
 
@@ -184,8 +267,26 @@ class MailHandler(ContainerHandler):
                 continue
             yield att.path, f"{ctx.display}!/{att.filename}", att.filename
 
+    def member_context(self, scanner, view):
+        # "Password: 4471" in the message opens the encrypted ZIP / 7z / RAR it carries
+        return scanner.container_extractor.extra_passwords(view.archive_passwords)
+
     def capture(self, view, ctx):
         ctx.text = view.body_text   # the prompt-guard and LLM layers read the body
+
+    FLAG_SOURCES = (("double_extension", "double_extension_attachments"),
+                    ("rtlo_spoof", "rtlo_attachments"), ("executable", "executable_attachments"))
+
+    def decorate(self, view_dict, summaries):
+        written = set(view_dict.get("archive_passwords") or [])
+        view_dict["archives_opened_with_mail_password"] = [
+            s["name"] for s in summaries if s.get("archive_password") in written]
+        # Like archive members: an attachment the message-level checks flagged
+        # (pay.pdf.exe) is never shown as plainly "Clean".
+        for summary in summaries:
+            inner = str(summary.get("name", "")).split("!/", 1)[-1]
+            summary["mail_flags"] = [flag for flag, key in self.FLAG_SOURCES
+                                     if inner in (view_dict.get(key) or [])]
 
     def signals(self, d):
         return {
@@ -200,4 +301,5 @@ class MailHandler(ContainerHandler):
             "double_extension_attachments": d["double_extension_attachments"],
             "rtlo_attachments": d["rtlo_attachments"],
             "lure_subject": d["lure_subject"],
+            "archive_password_in_body": d.get("archives_opened_with_mail_password", []),
         }

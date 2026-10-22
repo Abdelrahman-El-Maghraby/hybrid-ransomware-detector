@@ -42,6 +42,7 @@ APP_NAME = "HybridRansomwareDetector"
 
 datas = [
     (str(ROOT / "rules"), "rules"),                                  # YARA rules
+    (str(ROOT / "detectors" / "indicators.yaml"), "detectors"),      # weights + labels
     (str(ROOT / "fuzzy_signatures.sample.json"), "."),
     (str(ROOT / ".env.example"), "."),
     (str(ROOT / "LICENSE"), "."),
@@ -57,7 +58,7 @@ hiddenimports = [
     # dependency scan doesn't miss them when they are installed.
     "tlsh", "ppdeep", "yara", "oletools.olevba", "olefile", "defusedxml",
     "cryptography.hazmat.primitives.ciphers.aead",
-    "PyPDF2", "docx", "pytesseract", "pdf2image", "PIL",
+    "pypdf", "docx", "pytesseract", "pdf2image", "PIL",
     # v4.2
     "pyzipper", "py7zr", "pycdlib", "watchdog.observers", "watchdog.events",
     "rarfile",                                                  # v4.3

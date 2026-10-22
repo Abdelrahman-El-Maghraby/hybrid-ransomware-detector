@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/api/scan_result.schema.json",
+  "title": "Aegis Sentinel scan result",
+  "description": "One scanned file. Integrations should key on schema_version: fields are only ever added within a major version; renames or removals bump it. Layer-specific details live under scan_results and may grow with new layers.",
+  "type": "object",
+  "required": ["schema_version", "file_path", "file_name", "engine_version", "sha256_hash",
+               "risk_score", "verdict", "is_malicious", "score_breakdown", "scan_results"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "file_path": {"type": "string", "description": "Path as scanned; container members appear as outer!/inner."},
+    "file_name": {"type": "string"},
+    "file_size": {"type": "integer", "minimum": 0},
+    "scan_time": {"type": "string"},
+    "engine_version": {"type": "string"},
+    "md5_hash": {"type": "string", "pattern": "^([0-9a-f]{32})?$"},
+    "sha256_hash": {"type": "string", "pattern": "^([0-9a-f]{64})?$"},
+    "is_malicious": {"type": "boolean"},
+    "severity_score": {"type": "number", "minimum": 0, "maximum": 10},
+    "risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
+    "verdict": {"enum": ["Clean", "Low", "Medium", "High", "Critical"]},
+    "score_breakdown": {
+      "type": "object",
+      "required": ["risk_score", "verdict", "contributions"],
+      "properties": {
+        "risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "severity_score": {"type": "number"},
+        "verdict": {"enum": ["Clean", "Low", "Medium", "High", "Critical"]},
+        "is_malicious": {"type": "boolean"},
+        "registry_version": {"type": "string"},
+        "category_totals": {"type": "object", "additionalProperties": {"type": "number"}},
+        "contributions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["indicator", "category", "points", "detail"],
+            "properties": {
+              "indicator": {"type": "string", "pattern": "^[a-z_]+(:[a-z_]+)*$"},
+              "category": {"enum": ["technical", "reputation", "semantic", "statistical", "dynamic"]},
+              "points": {"type": "number", "minimum": 0},
+              "detail": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "scan_results": {"type": "object", "description": "Per-layer evidence (hashes, yara, mail, archive, ...)."}
+  }
+}

@@ -12,7 +12,7 @@ RULES = Path(__file__).resolve().parent.parent / "rules"
 @pytest.fixture(scope="module")
 def engine():
     e = YaraEngine(rules_dir=str(RULES))
-    assert e.scan_file(__file__).rules_loaded == 3
+    assert e.scan_file(__file__).rules_loaded == 5
     return e
 
 

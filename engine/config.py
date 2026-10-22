@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ENGINE_VERSION = "4.3.1"
+ENGINE_VERSION = "4.4.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()
@@ -68,8 +68,16 @@ def _env_float(name: str, default: float) -> float:
 
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
-                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img",
-                        ".eml", ".msg"]
+                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
+                        ".eml", ".msg", ".html", ".htm", ".svg",
+                        ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta", ".ps1", ".bat", ".cmd",
+                        ".one", ".chm", ".msi", ".xll",
+                        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
+# Pictures are supported but not scanned in folder scans by default: a Downloads
+# folder can hold thousands, and each one would cost a VirusTotal lookup. Images
+# inside archives and e-mails are always checked; tick them in the GUI to add them.
+IMAGE_SCAN_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
+DEFAULT_EXTENSIONS = [e for e in SUPPORTED_EXTENSIONS if e not in IMAGE_SCAN_EXTENSIONS]
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
 CONFIG = {
@@ -77,7 +85,7 @@ CONFIG = {
         str(USER_HOME / "Downloads"),
         # Add more folders to scan as needed
     ],
-    "file_extensions": list(SUPPORTED_EXTENSIONS),
+    "file_extensions": list(DEFAULT_EXTENSIONS),
     "kaggle_database_path": str(DATA_DIR / "data_file.csv"),
 
     # --- LLM semantic layer -------------------------------------------------
@@ -92,6 +100,29 @@ CONFIG = {
 
     # --- Fuzzy / similarity hashing ----------------------------------------
     # Falls back to the bundled sample if no per-user DB exists.
+    # Optional self-hosted CAPEv2 sandbox (dynamic analysis). Empty URL = off.
+    "sandbox_url": os.getenv("SANDBOX_URL", ""),
+    "sandbox_token": os.getenv("SANDBOX_TOKEN", ""),
+    "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
+    # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
+    "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
+    # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
+    "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
+    # Folder scans: each file in a worker process with a time and memory limit
+    "isolate_scans": _env_bool("ISOLATE_SCANS", True),
+    "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
+    "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
+    "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
+    # Machine-readable outputs (SIEM / SOC): JSON Lines file and alert webhook
+    "jsonl_path": os.getenv("JSONL_PATH", ""),
+    "webhook_url": os.getenv("WEBHOOK_URL", ""),
+    "webhook_secret": os.getenv("WEBHOOK_SECRET", ""),
+    "webhook_min_verdict": os.getenv("WEBHOOK_MIN_VERDICT", "High"),
+    # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
+    "rulepack_public_keys": [k for k in os.getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
+    "data_dir": str(DATA_DIR),
+    # Known-good files: one SHA-256 per line, optional "# note" after it
+    "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
     "fuzzy_max_bytes": 20 * 1024 * 1024,   # don't fuzzy-hash files larger than this
 
@@ -132,6 +163,14 @@ CONFIG = {
     # with --train-ml BENIGN_DIR MALICIOUS_DIR (needs requirements-ml.txt).
     "ml_enabled": _env_bool("ML_ENABLED", True),
     "ml_model_path": os.getenv("ML_MODEL_PATH", str(DATA_DIR / "ml_model.joblib")),
+
+    # --- Pipeline staging (4.4.0-beta.2) ------------------------------------
+    # The slow layers (ML, LLM, VirusTotal) run last. They are skipped when the
+    # earlier layers already put the file at 100/100, where nothing can change the
+    # verdict, and otherwise run at the same time instead of one after another.
+    "skip_heavy_when_saturated": _env_bool("SKIP_HEAVY_WHEN_SATURATED", True),
+    "parallel_heavy_layers": _env_bool("PARALLEL_HEAVY_LAYERS", True),
+    "qr_scan_enabled": _env_bool("QR_SCAN_ENABLED", True),
 
     # --- Quarantine ---------------------------------------------------------
     "quarantine_dir": str(QUARANTINE_DIR),

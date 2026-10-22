@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from core.quarantine import (KEY_FILE_NAME, QUARANTINE_AVAILABLE, QuarantineError,
-                             QuarantineVault)
+from core.quarantine import KEY_FILE_NAME, QUARANTINE_AVAILABLE, QuarantineError, QuarantineVault
 
 pytestmark = pytest.mark.skipif(not QUARANTINE_AVAILABLE, reason="cryptography not installed")
 ROOT = Path(__file__).resolve().parent.parent

@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .text import extract_suspicious_strings
 
@@ -12,6 +12,18 @@ logger = logging.getLogger("RansomwareScanner")
 
 class ExternalLookupsMixin:
     """LLM semantic analysis and VirusTotal reputation lookups."""
+
+    # provided by RansomwareScanner
+    config: Dict[str, Any]
+    cache: Any
+    llm_backend: Any
+    vt_limiter: Any
+    http: Any
+    http_timeout: float
+
+    if TYPE_CHECKING:
+        def calculate_hashes(self, file_path: str) -> Dict[str, str]: ...
+        def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True) -> str: ...
 
     def _llm_cache_layer(self) -> str:
         backend = self.llm_backend

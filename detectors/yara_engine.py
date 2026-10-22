@@ -80,6 +80,17 @@ class YaraResult:
         }
 
 
+# Variables every rule may use. file_ext is the lower-case extension without the
+# dot ("" when there is none), so a rule can tell "a program named .exe" from
+# "a program named .pdf".
+YARA_EXTERNALS = {"file_ext": ""}
+
+
+def file_extension(path: str) -> str:
+    name = str(path).replace("\\", "/").rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[-1].lower() if "." in name.strip(".") else ""
+
+
 class YaraEngine:
     """Compiles a directory of YARA rules and scans files against them."""
 
@@ -104,7 +115,7 @@ class YaraEngine:
         # filepaths={namespace: path} lets multiple rule files coexist.
         sources = {p.stem: str(p) for p in rule_files}
         try:
-            self._rules = _yara.compile(filepaths=sources)
+            self._rules = _yara.compile(filepaths=sources, externals=YARA_EXTERNALS)
             self._rules_count = len(rule_files)
             logger.info("Compiled %d YARA rule file(s) from %s.", self._rules_count, rules_dir)
         except Exception as e:
@@ -113,7 +124,7 @@ class YaraEngine:
             self._rules = None
             self._rules_count = 0
 
-    def scan_file(self, file_path: str) -> YaraResult:
+    def scan_file(self, file_path: str, data: Optional[bytes] = None) -> YaraResult:
         if not YARA_AVAILABLE:
             return YaraResult(available=False,
                               detail="YARA scanning skipped: install 'yara-python'.")
@@ -121,7 +132,10 @@ class YaraEngine:
             return YaraResult(available=True, rules_loaded=0,
                               detail="No YARA rules loaded.")
         try:
-            raw_matches = self._rules.match(filepath=file_path, timeout=60)
+            ext = {"file_ext": file_extension(file_path)}
+            raw_matches = (self._rules.match(data=data, timeout=60, externals=ext)
+                           if data is not None
+                           else self._rules.match(filepath=file_path, timeout=60, externals=ext))
         except Exception as e:
             logger.error("YARA scan failed for %s: %s", file_path, e)
             return YaraResult(available=True, rules_loaded=self._rules_count,

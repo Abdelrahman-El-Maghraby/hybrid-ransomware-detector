@@ -88,7 +88,7 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _AUTH_PASS = frozenset({"pass"})
 _AUTH_FAIL = frozenset({"fail", "softfail", "permerror"})
 
-_LURE_SUBJECT_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = tuple(
+_LURE_SUBJECT_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = tuple(
     (label, re.compile(rx, re.I)) for label, rx in (
         ("invoice/payment", r"\b(invoice|payment|remittance|wire transfer|overdue|past due)\b"),
         ("urgency", r"\b(urgent|immediate(ly)?|final (notice|warning)|action required)\b"),
@@ -182,6 +182,36 @@ class AuthResult:
                 "failures": self.failures}
 
 
+# "Password: 1234" next to an encrypted attachment: the gateway cannot open the
+# archive, the victim can. Labels in the languages delivery campaigns use most.
+_PASSWORD_LABELS = (  # label words, not a password
+    r"password|passwort|kennwort|passcode|pass|pwd|pw|code|mot de passe|"  # noqa: S105
+    r"contrase(?:n|ñ)a|senha|parola|wachtwoord|has(?:l|ł)o|şifre|sifre|"
+    r"كلمة (?:المرور|السر)|الرقم السري|كود|пароль")
+_PASSWORD_RX = re.compile(
+    r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?\s*[:=：\-–]?\s*"
+    r"[\"'“«‘]?([^\s\"'”»’<>]{3,40})", re.I | re.M)
+_NOT_PASSWORDS = frozenset({"the", "for", "and", "attached", "below", "above", "file", "files",
+                            "zip", "archive", "document", "is", "please", "to", "you", "your"})
+
+
+def archive_passwords(*texts: str, limit: int = 5) -> List[str]:
+    """Password candidates written in a message ("Password: 4471", "PW = Inv2024")."""
+    found: List[str] = []
+    for text in texts:
+        for m in _PASSWORD_RX.finditer(text or ""):
+            token = m.group(1)
+            # "Password: Inv2024!" keeps the "!", "Password: 4471." loses the full stop:
+            # both spellings are tried, the exact one first.
+            for cand in (token, token.rstrip(".,;:!?)]")):
+                if (3 <= len(cand) <= 32 and cand.lower() not in _NOT_PASSWORDS
+                        and cand not in found):
+                    found.append(cand)
+            if len(found) >= limit:
+                return found[:limit]
+    return found
+
+
 @dataclass
 class MailResult:
     available: bool = True
@@ -203,6 +233,7 @@ class MailResult:
     attachments: List[AttachmentInfo] = field(default_factory=list)
     attachments_skipped: int = 0
     body_text: str = ""             # plain text (HTML stripped) for prompt-guard / LLM
+    archive_passwords: List[str] = field(default_factory=list)   # "Password: ..." in the mail
     error: str = ""
     detail: str = ""
 
@@ -230,6 +261,7 @@ class MailResult:
             "display_name_spoof_reason": self.display_name_spoof_reason,
             "reply_to_mismatch": self.reply_to_mismatch,
             "lure_subject": self.lure_subject,
+            "archive_passwords": self.archive_passwords,
             "deceptive_links": self.deceptive_links[:10],
             "link_count": self.link_count,
             "attachment_count": len(self.attachments),
@@ -270,7 +302,7 @@ class MailAnalyzer:
         try:
             try:
                 self._analyze(path, sandbox, res)
-            except Exception as exc:  # noqa: BLE001 - a hostile file must not crash a scan
+            except Exception as exc:
                 logger.debug("MailGuard failed on %s", path, exc_info=True)
                 res.error = res.error or f"{type(exc).__name__}: {exc}"
             res.detail = _summary(res)
@@ -438,6 +470,7 @@ class MailAnalyzer:
             text_from_html = html.unescape(_TAG.sub(" ", stripped))
         body = plain.strip() or text_from_html
         res.body_text = re.sub(r"[ \t\r\f\v]+", " ", body).strip()[:200_000]
+        res.archive_passwords = archive_passwords(res.subject, res.body_text)
 
     def _add_attachment(self, data: bytes, name: str, ctype: str, sandbox: Path,
                         res: MailResult) -> None:
@@ -506,7 +539,7 @@ def _decode_words(value: str) -> str:
     try:
         from email.header import decode_header, make_header
         return str(make_header(decode_header(value))).strip()
-    except Exception:  # noqa: BLE001 - malformed encodings are common in spam
+    except Exception:
         return str(value).strip()
 
 

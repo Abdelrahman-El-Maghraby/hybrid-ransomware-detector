@@ -4,14 +4,238 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.4.0] — 2026-10-22
+
+Stable release. Everything from 4.4.0-beta.1 and 4.4.0-beta.2 (below), plus the
+benchmark fixes in this section. Known limit: the detection rate on real malware
+samples has not been measured yet (`tools/evaluate.py`); the numbers below are
+about false alarms and speed on benign files.
+
+Measured on 3,312 benign files from a Linux workstation (system binaries, Python /
+Node / Go packages, PDFs, HTML, scripts, Windows launchers found in Python
+packages) plus 105 documents made with LibreOffice and 100 synthetic e-mails /
+archives. The project's own test fixtures were excluded.
+
+| | before | after |
+|---|---|---|
+| High / Critical on benign files | 160 (4.8%) | 27 (0.8%) |
+| Low on benign files | 97 | 25 |
+| In-process scan time | 589 s | 91 s (6.5x) |
+| Folder scan, 662 files, 2 cores (workers) | 57.5 s | 16.4 s (3.5x) |
+
+The 27 left: 25 browser-installer PowerShell scripts that really download and
+silently run an installer, and 2 Go test archives that really contain a symlink
+entry (zip slip). Detection on real malware is still unmeasured
+(`tools/evaluate.py` in the analysis VM).
+
+### Fixed
+
+- **A 120 KB minified script took 40 s to scan** (and a 300 KB one 140 s): the
+  printable-strings pass used a regular expression that is quadratic on long
+  lines. Now linear. An attacker could have used this to stall scans until the
+  worker timeout.
+- **Every Windows program was rated High** by the YARA rule meant for "a program
+  disguised as a document". YARA rules now get the file's extension (`file_ext`)
+  and that rule skips files named as programs (.exe, .dll, .sys, ...). Programs
+  delivered by mail or in archives are still judged by those layers.
+- **Archives with more than 500 entries were called decompression bombs** (Go's
+  timezone database, an icon set). Now the first 500 are unpacked (programs,
+  scripts and nested archives first), the names of the rest are still checked for
+  executables and double extensions, and the archive gets the Low indicator
+  `archive_partially_scanned`. Bombs are still detected by ratio, size and depth.
+- **VBA keywords in HTML manuals** matched the Office macro rules; small web pages
+  and text files are no longer treated as macro source.
+- **Bitcoin rule on e-mails**: "btc", "pay" and "send" also occur by chance in an
+  attachment's base64 next to address-shaped runs; a bare "BTC" now needs a
+  ransom word (wallet / decrypt).
+- **PDFs looked "random throughout" to the ML fallback** (18% of benign PDFs):
+  a PDF whose object structure is intact counts as a compressed format; one that
+  keeps only its header (partial encryption) still does not.
+
+### Changed
+
+- ssdeep (pure-Python, ~3 MB/s) is only computed when a loaded fuzzy signature has
+  an ssdeep digest; TLSH is always computed.
+- PDF text for the injection check and the LLM stops after 50 pages / 200,000
+  characters (the LLM reads the first 3,000).
+- One shared entropy function (`detectors/entropy.py`) instead of three copies,
+  with a table for the per-window counts; the ML printable ratio is computed in C.
+- The worker-pool loop is a small class instead of one 100-line function.
+- E-mail attachments that the message-level checks flagged (double extension,
+  RTLO, program) carry `mail_flags`, like archive members carry `archive_flags`,
+  so the desktop app never shows `pay.pdf.exe` as a plainly clean attachment.
 
 ### Added
 
+- `tools/profile_layers.py`: time per pipeline layer and the slowest files.
+
+## [4.4.0-beta.2] — 2026-10-21 (pre-release)
+
+### Added
+
+- **QR codes (quishing):** QR codes in images, PDF pages, Office documents and
+  e-mail attachments are decoded and their links judged (bare IP, punycode,
+  user-info trick, URL shortener, script scheme; weaker hints such as plain
+  HTTP, throw-away TLDs and lure words only count in pairs). Links are defanged
+  in reports. Needs an optional decoder: `pyzbar` (plus the zbar library) or
+  OpenCV; without one the layer says QR codes were not checked.
+- **TLSH on Windows:** python-tlsh has no Windows wheels, so Windows installs
+  and the Windows release binary fell back to ssdeep alone. A built-in port
+  (`detectors/tlsh_py.py`, Apache-2.0, from Trend Micro's TLSH) is used when
+  the C library is missing. Its digests and distances are identical (checked
+  against python-tlsh on random and real files, plus golden values tested on
+  every OS); with numpy it hashes about 8 MB/s.
+- **Linux ELF triage:** header (bits, machine, type, static/dynamic), UPX or
+  near-random packing, a removed section table, and behaviour strings (ransom
+  note, cryptominer, reverse shell, download-and-run, log/firewall tampering,
+  persistence). Checked against 2,388 system binaries with no findings.
+- **Script attachments (JS / JSE / VBS / VBE / WSF / HTA / PS1 / BAT / CMD):**
+  download, execute, recovery tampering (T1490), ransom-note wording, Defender /
+  AMSI tampering and persistence markers; Script Encoder output; obfuscation
+  (Chr/fromCharCode chains, eval/Execute, backticks, -join [char]). PowerShell
+  `-EncodedCommand` and `FromBase64String` payloads are decoded one level. A
+  download plus an execute (a dropper) scores High; either alone stays Low.
+  Run over 16,475 scripts on the build machine: 15 High, all of them the same
+  browser-installer scripts that really do download and run an installer.
+- **Archive passwords from the message:** "Password: 4471" (and the same in
+  German, French, Spanish, Portuguese, Italian, Dutch, Polish, Turkish, Arabic
+  and Russian) in a mail's subject or body is tried first on its encrypted ZIP /
+  7z / RAR attachments. An archive opened this way adds
+  `mail_archive_password_in_body` (30, technical): the classic gateway-evasion
+  trick of Emotet / Qakbot campaigns.
+- **Encoded scripts are decoded:** Windows Script Encoder blocks (`.vbe`,
+  `.jse`, encoded blocks in `.hta` / `.wsf`) are decoded and the real source is
+  analysed (decoding tables from Didier Stevens' public-domain decode-vbe.py).
+- **YARA: 11 new original rules** (21 in total, five files): shortcuts that
+  start a script host, HTML Applications, Script Encoder output, OneNote
+  notebooks with embedded scripts, LOLBin downloads, Defender tampering, bulk
+  stopping of database/backup services, Safe Mode boot, event-log clearing,
+  encryptor binaries and Tor ransom notes. Run over 258,666 benign files on the
+  build machine: no matches.
+- **Layered script obfuscation:** up to five nested layers are unwound
+  (base64 / `-enc`, Chr() / fromCharCode / [char] codes, hex and % escapes,
+  split strings, reversal, junk replacement); nesting itself counts as
+  obfuscation. 16,464 real scripts: no new High results.
+- **OneNote, CHM, MSI, XLL and password-protected Office:** embedded files are
+  carved out of OneNote notebooks, CHM help is unpacked (7-Zip), MSI programs and
+  script custom actions are extracted, password-protected Office documents are
+  opened with msoffcrypto-tool (password from the e-mail, Excel's default, the
+  delivery list) - and the content goes through the whole pipeline. XLL add-ins
+  are flagged.
+- **Allowlist** of known-good SHA-256 hashes (`--allow FILE --note "..."`):
+  such files are still scanned and reported, but not scored; a hash in the
+  malware database still wins.
+- **Optional sandbox (CAPEv2):** with `SANDBOX_URL` set, top-level files the
+  static layers rate Medium or worse (or every file, `SANDBOX_SUBMIT=all`) are
+  sent to *your* CAPE server; its behaviour signatures enter a new **dynamic**
+  scoring category (ransomware behaviour 80; other signatures 25 / 12 / 4 by
+  severity, up to 70). Off by default; results cached by SHA-256.
+- `tools/calibrate_weights.py`: scans labelled folders (engine only), fits a
+  logistic regression on the indicators that fired and proposes points per
+  indicator, with detection / false-alarm rates for current vs proposed weights
+  (cross-validated). Never applied automatically.
+- `tools/build_fuzzy_db.py`: build the fuzzy-signature database inside the
+  analysis VM from a folder of confirmed samples (family = sub-folder or a
+  labels CSV). Near-duplicates are kept once, and with `--benign` every
+  signature that matches a known-good file is dropped. The output holds digests
+  only.
+- `tools/mbox_to_eml.py`: split mbox mailboxes (e.g. public phishing corpora)
+  into one `.eml` per message, skipping duplicates.
+- 141 new tests (ELF, QR, scripts and layered encodings, HTML smuggling, mail
+  archive passwords, Script Encoder, OneNote / CHM / MSI / XLL / encrypted
+  Office, allowlist, sandbox, calibration and fuzzy-DB tools, mbox tool, staged
+  pipeline, RAR codec, registry, workers, fuzzing, schema, API, rule packs);
+  647 in total (+1 opt-in GUI test). HTML-smuggling detection now has automated tests.
+
+### Engineering
+
 - **Continuous integration:** GitHub Actions runs the test suite and the v3
   smoke test on Windows, macOS and Linux with Python 3.9 and 3.12 for every
-  push and pull request. Optional packages that have no wheel for a platform
-  are reported as warnings; their tests skip.
+  push and pull request (from 4.3.1's CI work, merged into this release).
+- **Indicator registry** (`detectors/indicators.yaml`): weights, caps, categories
+  and labels in one versioned file; reviewed overrides via `WEIGHTS_OVERRIDE`;
+  the calibration tool writes override files.
+- **Isolated, parallel folder scans** (`engine/workers.py`): per-file time and
+  memory limits; hangs and crashes become `scan_failed` findings; workers never
+  re-run the caller's main script. Every layer runs in a guard (`layer_errors`).
+  Files are read once and shared by the layers.
+- **GUI split** into the `aegis_gui` package (one module per page).
+- **Packaging and gates:** `pyproject.toml` with extras, pinned
+  `requirements.lock`, quality workflow (ruff, mypy, 85 % coverage floor,
+  pip-audit, regression corpus as a test). PyPDF2 replaced by `pypdf`
+  (CVE-2023-36464, a parser hang reported by pip-audit).
+- **Fuzzing** of every parser (Hypothesis in the suite, atheris harness).
+- **Integration:** versioned result schema, JSON Lines (`--jsonl`), HMAC-signed
+  webhook, optional REST API (`aegis-api`).
+- **Signed rule packs** (`tools/rulepack.py`, `--update-rules`).
+- **Release workflow:** three-OS builds, SHA-256 sums, CycloneDX SBOM, Sigstore
+  signatures.
+- **Threat model** of the scanner itself (`docs/THREAT_MODEL.md`) and an
+  architecture overview (`docs/ARCHITECTURE.md`).
+
+### Fixed
+
+- A mutated ZIP (unsupported "version needed" field) made pyzipper raise out of
+  the archive layer and ended the scan of that file (found by fuzzing).
+
+### Changed
+
+- **Generic YARA rules tightened.** The same benign run showed the original
+  rules firing on documentation, dictionaries and binaries (1,128 matches,
+  outside the PE rule). Ransom-note/extortion rules now need wording addressed
+  to the victim plus ransom vocabulary, the Bitcoin rule needs the currency
+  named, the PowerShell cradle needs an encoded blob or download + execute, and
+  the macro rules only apply to Office binaries, VBA source or small files.
+  Matches on the benign set: 1,128 -> under 180, mostly security tools that
+  quote these strings (oletools, pygments) and Chromium translation files.
+  Regression corpus unchanged.
+- **Staged pipeline:** the slow layers (ML, LLM, VirusTotal) run last. When the
+  local layers already give the maximum score they are skipped (the verdict
+  cannot change) and the report lists them under `[Skipped]`; otherwise they
+  run concurrently. Scores are identical to beta.1 on the regression corpus; a
+  benchmark with simulated 0.4 s LLM/VirusTotal latency went from 16.6 s to
+  6.4 s. Switches: `SKIP_HEAVY_WHEN_SATURATED`, `PARALLEL_HEAVY_LAYERS`.
+- **RAR:** when the only extractor is a 7-Zip build without the RAR codec
+  (common with `p7zip` on Linux), members are reported as "no RAR codec"
+  instead of as encrypted.
+- **GUI:** shown as **Aegis Sentinel**; calmer palette, one engine-status panel
+  instead of separate cards, and a "Main reasons" column in the results table.
+  The repository and package names are unchanged.
+
+### Known limitations
+
+- Scripts are judged statically: a legitimate installer script that downloads
+  and runs an installer looks like a dropper.
+
+## [4.4.0-beta.1] — 2026-10-18 (pre-release)
+
+### Added
+
+- **Web content (HTML / SVG):** HTML smuggling (MITRE ATT&CK T1027.006): the
+  Blob + object-URL / download construct, with base64 strings and `data:`
+  URIs decoded and any executable, archive, disc image or Office payload
+  scanned through the full pipeline. Active SVG content, credential forms
+  posting to external hosts, external redirects and obfuscation markers.
+- **Images:** payloads appended after the image data (PNG, JPEG, GIF, BMP,
+  WEBP) and executables renamed to image extensions. Images are supported
+  but excluded from folder scans by default.
+- **macOS installers:** `.pkg` (XAR + gzip/pbzx cpio, pure Python) and `.dmg`
+  (UDIF, through 7-Zip). Installer contents are scanned individually and not
+  scored for merely containing programs; oversized content is reported as
+  not unpacked instead of as a bomb.
+- 62 tests for images, SVG and installers (407 in total).
+
+### Changed
+
+- The random-bytes calibration test tolerates one miss in 200 samples: the
+  threshold rejects about 1 in 100,000 random 1 KiB blocks (measured on
+  300,000), which made the strict assertion fail about once in 500 runs.
+
+### Known limitations
+
+- HTML-smuggling detection has no automated tests yet (verified manually).
+- `.dmg` needs a 7-Zip executable; without it the image is reported as not
+  unpacked.
 
 ## [4.3.1] — 2026-10-17
 

@@ -15,11 +15,11 @@ if os.environ.get("RUN_GUI_TESTS") != "1":
     pytest.skip("GUI tests are opt-in (RUN_GUI_TESTS=1 with a display)",
                 allow_module_level=True)
 
-import gui  # noqa: E402
-import RansomwareScanner as RS  # noqa: E402
-from tests.helpers import make_docx  # noqa: E402
-from tests.test_file_integrity import _pe_bytes  # noqa: E402
-from tests.test_mail_analyzer import make_eml  # noqa: E402
+import gui
+import RansomwareScanner as RS
+from tests.helpers import make_docx
+from tests.test_file_integrity import _pe_bytes
+from tests.test_mail_analyzer import make_eml
 
 
 def _pump(app, seconds=0.3):

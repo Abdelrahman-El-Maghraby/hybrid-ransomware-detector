@@ -47,20 +47,41 @@ except ImportError:
 
 # Engine: configuration first (creates the app folders, logging, .env), then
 # the scanner. Every name below is re-exported for the GUI and older callers.
-from engine.config import (  # noqa: F401
-    APP_DIR, BUNDLED_FUZZY_SIGS, BUNDLED_RULES_DIR, CONFIG, DATA_DIR, ENGINE_VERSION,
-    ENV_FILE, FROZEN, KEYSTORE_DIR, LOG_FILE, QUARANTINE_DIR, REPORT_DIR, SCRIPT_DIR,
-    SUPPORTED_EXTENSIONS, USER_HOME, VERDICT_RANK, _env_bool, _env_float, logger,
-)
-from engine.scanner import RansomwareScanner  # noqa: F401
-from engine.text import extract_suspicious_strings  # noqa: F401
-from detectors import (  # noqa: F401
-    DEFUSEDXML_AVAILABLE, FUZZY_AVAILABLE, MSG_AVAILABLE, OLEVBA_AVAILABLE,
-    SKLEARN_AVAILABLE, YARA_AVAILABLE, FuzzyHasher, MLClassifier,
+from core import WATCHDOG_AVAILABLE, CanaryWatcher, QuarantineError
+from detectors import (
+    DEFUSEDXML_AVAILABLE,
+    FUZZY_AVAILABLE,
+    MSG_AVAILABLE,
+    OLEVBA_AVAILABLE,
+    SKLEARN_AVAILABLE,
+    YARA_AVAILABLE,
+    FuzzyHasher,
+    MLClassifier,
 )
 from detectors.relationship_scanner import defang  # noqa: F401
-from core import WATCHDOG_AVAILABLE, CanaryWatcher, QuarantineError  # noqa: F401
-
+from engine.config import (  # noqa: F401
+    APP_DIR,
+    BUNDLED_FUZZY_SIGS,
+    BUNDLED_RULES_DIR,
+    CONFIG,
+    DATA_DIR,
+    ENGINE_VERSION,
+    ENV_FILE,
+    FROZEN,
+    KEYSTORE_DIR,
+    LOG_FILE,
+    QUARANTINE_DIR,
+    REPORT_DIR,
+    SCRIPT_DIR,
+    SUPPORTED_EXTENSIONS,
+    USER_HOME,
+    VERDICT_RANK,
+    _env_bool,
+    _env_float,
+    logger,
+)
+from engine.scanner import RansomwareScanner
+from engine.text import extract_suspicious_strings  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Cross-platform autostart  (run the scanner automatically at login/startup)
@@ -280,7 +301,8 @@ def remove_autostart() -> bool:
             if shutil.which("crontab"):
                 existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
                 if existing.returncode == 0 and CRON_MARKER in existing.stdout:
-                    filtered = "\n".join(l for l in existing.stdout.splitlines() if CRON_MARKER not in l)
+                    filtered = "\n".join(line for line in existing.stdout.splitlines()
+                                         if CRON_MARKER not in line)
                     filtered = (filtered + "\n") if filtered.strip() else ""
                     subprocess.run(["crontab", "-"], input=filtered, text=True, capture_output=True)
                     removed = True
@@ -367,7 +389,7 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
     try:
         shutil.copy2(source_path, destination_path)
 
-        with open(destination_path, mode="r", encoding="utf-8", newline="") as f:
+        with open(destination_path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
             outcome["entries"] = sum(1 for _ in reader)
@@ -388,6 +410,29 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
         outcome["message"] = str(e)
         logger.error(f"Error importing database: {e}")
         return outcome
+
+
+def _allow_file(path: str, note: str, allowlist_path: str) -> None:
+    """Append a file's SHA-256 (and a note) to the allowlist."""
+    import hashlib
+
+    from core.allowlist import load_allowlist
+    if not os.path.isfile(path):
+        print(f"Error: file not found: {path}")
+        return
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    if digest in load_allowlist(allowlist_path):
+        print(f"Already on the allowlist: {digest}")
+        return
+    os.makedirs(os.path.dirname(allowlist_path) or ".", exist_ok=True)
+    clean_note = " ".join((note or os.path.basename(path)).split())
+    with open(allowlist_path, "a", encoding="utf-8") as fh:
+        fh.write(f"{digest}  # {clean_note}\n")
+    print(f"Added to {allowlist_path}: {digest}  # {clean_note}")
 
 
 def _print_fuzzy_hash(path: str) -> None:
@@ -516,6 +561,18 @@ def main():
     parser.add_argument("--fuzzy-hash", metavar="PATH",
                         help="Print a file's TLSH and ssdeep digests (use these to "
                              "populate your fuzzy signature DB), then exit")
+    parser.add_argument("--update-rules", metavar="PACK",
+                        help="Install a signed rule pack (PACK + PACK.sig), verified against "
+                             "RULEPACK_PUBLIC_KEYS, then exit")
+    parser.add_argument("--allow-downgrade", action="store_true",
+                        help="With --update-rules: accept a pack that is not newer (roll back)")
+    parser.add_argument("--jsonl", metavar="FILE",
+                        help="Also append each result as one JSON line to FILE (for SIEM ingestion)")
+    parser.add_argument("--allow", metavar="PATH",
+                        help="Add a known-good file's SHA-256 to the allowlist (it is still "
+                             "scanned and reported, but not scored), then exit")
+    parser.add_argument("--note", metavar="TEXT", default="",
+                        help="Note stored with --allow (who checked it and why)")
     parser.add_argument("--llm-provider", choices=["auto", "ollama", "openai", "none"],
                         help="Override the LLM backend for this run. 'auto' (default) "
                              "prefers a reachable local Ollama for OPSEC and only falls "
@@ -555,6 +612,8 @@ def main():
                         help="Where --train-ml saves the model (default: ML_MODEL_PATH)")
 
     args = parser.parse_args()
+    if args.jsonl:
+        CONFIG["jsonl_path"] = args.jsonl
 
     # An explicit --llm-provider overrides config/env for this process.
     if args.llm_provider:
@@ -565,6 +624,22 @@ def main():
     if args.train_ml:
         sys.exit(_train_ml_cli(args.train_ml[0], args.train_ml[1],
                                args.ml_model_out or CONFIG["ml_model_path"]))
+
+    if args.allow:
+        _allow_file(args.allow, args.note, CONFIG["allowlist_path"])
+        return
+
+    if args.update_rules:
+        from core.rulepack import RulePackError, install_pack
+        try:
+            info = install_pack(args.update_rules, CONFIG["data_dir"], CONFIG["rulepack_public_keys"],
+                                ENGINE_VERSION, allow_downgrade=args.allow_downgrade)
+        except (RulePackError, OSError, ValueError) as e:
+            print(f"❌ Rule pack rejected: {e}")
+            sys.exit(1)
+        print(f"✅ Rule pack {info['version']} installed ({info['files']} file(s)); "
+              "used from the next scan.")
+        return
 
     # --fuzzy-hash is a standalone utility: it needs no DB, no API keys, no banner.
     if args.fuzzy_hash:
@@ -729,6 +804,8 @@ def main():
             return
         result = scanner.scan_file(args.scan_file)
         print(scanner.generate_report([result]))
+        from core.outputs import deliver
+        deliver([result], CONFIG)
         return
 
     if args.scan_now:
@@ -780,4 +857,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()   # isolated scan workers in frozen builds
     main()

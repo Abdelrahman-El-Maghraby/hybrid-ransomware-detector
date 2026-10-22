@@ -27,8 +27,9 @@ def scanner(tmp_path):
 
 def test_default_pipeline_order():
     names = [layer.name for layer in default_pipeline()]
-    assert names == ["hashes", "fuzzy", "local-db", "macro", "yara", "integrity", "mail",
-                     "prompt-guard", "relationships", "archive", "ml", "llm", "virustotal"]
+    assert names == ["hashes", "allowlist", "fuzzy", "local-db", "macro", "yara", "integrity", "elf", "script", "mail",
+                     "prompt-guard", "relationships", "qr", "archive", "web", "embedded", "ml", "llm",
+                     "virustotal", "sandbox"]
     # The mail container must run before the prompt guard: the guard reads the body.
     assert names.index("mail") < names.index("prompt-guard")
 
@@ -53,6 +54,9 @@ def test_pipeline_order_is_the_report_order(scanner, tmp_path):
     p = tmp_path / "scan" / "letter.pdf"
     p.write_bytes(make_pdf("hello"))
     keys = list(scanner.scan_file(str(p))["scan_results"])
+    # Without a QR decoder (pyzbar + zbar, or OpenCV) the QR layer adds a
+    # "not checked" note; with one, a PDF without images adds nothing.
+    keys = [k for k in keys if k != "qr_codes"]
     assert keys == ["fuzzy_hash", "local_database", "macro_analysis", "yara", "file_integrity",
                     "prompt_guard", "relationships", "ml_classifier", "chatgpt_analysis",
                     "virustotal"]

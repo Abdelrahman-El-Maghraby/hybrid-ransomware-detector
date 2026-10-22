@@ -1,0 +1,99 @@
+name: quality
+
+# Gates that run next to the test matrix (tests.yml): lint, types, coverage,
+# known-vulnerable dependencies, and the regression corpus. Any failure blocks
+# the pull request.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip ruff mypy types-requests types-PyYAML
+      - name: ruff (lint + import order + bug patterns + bandit-style checks)
+        run: ruff check --output-format=github .
+      - name: mypy (engine, core, scoring, API)
+        run: |
+          python -m pip install -e .
+          mypy
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: System packages (RAR, 7-Zip, zbar, Tk for the GUI test)
+        run: sudo apt-get update && sudo apt-get install -y 7zip unar libzbar0 python3-tk xvfb
+      - name: Install (pinned versions from the lock file)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock
+          python -m pip install -e ".[dev]" --no-deps
+          python -m pip install pytest pytest-cov hypothesis qrcode httpx jsonschema
+      - name: Tests with coverage gate (fail under 85 %)
+        env:
+          LLM_PROVIDER: none
+          RUN_GUI_TESTS: "1"
+        # Failures and the coverage total are also reported as annotations, so they
+        # show without opening the raw log.
+        run: |
+          set -o pipefail
+          status=0
+          xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml 2>&1 | tee pytest.log || status=$?
+          { grep -E '^(FAILED|ERROR) |^TOTAL|Required test coverage|FAIL Required' pytest.log || true; } | head -20 | while read -r line; do
+            echo "::error title=coverage job::$line"
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pip-audit
+      - name: Known vulnerabilities in the pinned dependencies
+        run: pip-audit -r requirements.lock --progress-spinner off
+
+  regression-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock pytest
+      - name: Verdicts, scores and indicators of the 13-file corpus are unchanged
+        env:
+          LLM_PROVIDER: none
+        run: python -m pytest -q tests/test_regression_corpus.py tests/test_registry.py

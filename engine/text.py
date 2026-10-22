@@ -6,15 +6,31 @@ import re
 from typing import List
 
 import docx
-import PyPDF2
+
+try:  # pypdf is the maintained successor; PyPDF2 3.0.x has a known parser hang (CVE-2023-36464)
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover
+    from PyPDF2 import PdfReader  # type: ignore[no-redef]
 import pytesseract
 from pdf2image import convert_from_path
 
 from detectors import DEFUSEDXML_AVAILABLE
+from detectors.web_content import WEB_EXTENSIONS, visible_text
 
 logger = logging.getLogger("RansomwareScanner")
 
 _PRINTABLE_RUN = re.compile(rb"[\x20-\x7e]{5,}")
+
+
+_NON_PRINTABLE = re.compile(rb"[^\x20-\x7e]")
+
+
+def _trailing_run_start(data: bytes) -> int:
+    """Index where the trailing printable run of `data` starts. Searched from the
+    end: the obvious `[\x20-\x7e]*$` regex is quadratic on long lines (a 120 KB
+    minified script took 40 s)."""
+    m = _NON_PRINTABLE.search(data[::-1])
+    return len(data) - m.start() if m else 0
 
 
 def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int = 1024 * 1024,
@@ -40,8 +56,7 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
                 data = carry + chunk
                 # Keep a trailing printable run for the next chunk so strings
                 # that straddle a chunk boundary are not split.
-                tail = re.search(rb"[\x20-\x7e]*$", data)
-                cut = tail.start() if tail else len(data)
+                cut = _trailing_run_start(data)
                 if len(data) - cut > 65536:     # one giant run (plain text): flush it
                     cut = len(data)
                 carry, data = data[cut:], data[:cut]
@@ -66,6 +81,9 @@ class TextExtractionMixin:
         file_ext = os.path.splitext(file_path)[1].lower()
 
         try:
+            if file_ext in WEB_EXTENSIONS:
+                with open(file_path, "rb") as fh:
+                    return visible_text(fh.read(2 * 1024 * 1024))
             if file_ext == ".pdf":
                 text = self._extract_text_from_pdf(file_path)
                 if not text.strip() and allow_ocr:
@@ -83,15 +101,27 @@ class TextExtractionMixin:
             logger.error(f"Error extracting text from {file_path}: {str(e)}")
             return ""
 
+    PDF_MAX_PAGES = 50
+    PDF_MAX_CHARS = 200_000
+
     def _extract_text_from_pdf(self, file_path: str) -> str:
-        """Extract text from a PDF file."""
-        text = ""
+        """Extract text from a PDF file.
+
+        Bounded like the OOXML path: the LLM reads the first 3,000 characters and
+        the injection patterns the first 200,000, so long manuals stop early
+        (page-by-page text extraction was half of all scan time)."""
+        chunks: List[str] = []
+        total = 0
         try:
             with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file, strict=False)
-                for page in pdf_reader.pages[:200]:
-                    text += (page.extract_text() or "") + "\n"
-            return text
+                pdf_reader = PdfReader(file, strict=False)
+                for page in pdf_reader.pages[:self.PDF_MAX_PAGES]:
+                    chunk = page.extract_text() or ""
+                    chunks.append(chunk)
+                    total += len(chunk) + 1
+                    if total >= self.PDF_MAX_CHARS:
+                        break
+            return "\n".join(chunks)[:self.PDF_MAX_CHARS]
         except Exception as e:
             logger.warning(f"Could not extract PDF text from {file_path}: {e}")
             return ""
@@ -124,6 +154,7 @@ class TextExtractionMixin:
         if not DEFUSEDXML_AVAILABLE:
             return ""
         import zipfile
+
         import defusedxml.ElementTree as DET
         part_re = re.compile(r"(word/(document|header\d*|footer\d*)\.xml"
                              r"|xl/sharedStrings\.xml|ppt/slides/slide\d+\.xml)$")

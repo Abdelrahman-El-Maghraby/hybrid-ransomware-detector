@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import RansomwareScanner as RS
 import detectors.container_extractor as ce
+import RansomwareScanner as RS
 from detectors.container_extractor import ContainerExtractor, detect_container
 from tests.rar_builder import build_rar
 from tests.test_file_integrity import _pe_bytes
@@ -36,10 +36,12 @@ def no_rar_tool(monkeypatch):
         monkeypatch.setattr(rarfile, setting, "/nonexistent/" + setting.lower())
     monkeypatch.setattr(rarfile, "CURRENT_SETUP", None)
     monkeypatch.setattr(ce, "_rar_tool_state", None)
+    monkeypatch.setattr(ce, "_rar_codec_state", None)
     # On Windows the extractor also looks for 7-Zip / WinRAR in Program Files.
     monkeypatch.setattr(ce, "_WINDOWS_RAR_TOOLS", ())
     yield
     ce._rar_tool_state = None
+    ce._rar_codec_state = None
 
 
 def test_detection_needs_extension_and_magic(tmp_path):
@@ -82,7 +84,8 @@ def test_slip_and_symlink_members_are_never_written(tmp_path):
 def test_limits_apply(tmp_path):
     p = build_rar(tmp_path / "many.rar", [(f"f{i}.txt", b"x") for i in range(30)])
     with ContainerExtractor(max_members=10).open(p) as res:
-        assert res.zip_bomb and "member limit" in res.zip_bomb_reason
+        assert not res.zip_bomb                  # many entries: partial scan, not a bomb
+        assert len(res.members) == 10 and res.skipped_members == 20
     big = build_rar(tmp_path / "big.rar", [("a.bin", b"\0" * 5000), ("b.bin", b"\0" * 5000)])
     with ContainerExtractor(max_total_bytes=6000).open(big) as res:
         assert res.zip_bomb
@@ -178,3 +181,47 @@ def test_integrity_validates_rar_and_7z_signatures(tmp_path):
     exe = tmp_path / "c.7z"                   # an archive extension is not a "document" disguise
     exe.write_bytes(_pe_bytes(2048))
     assert not FileIntegrityAnalyzer().analyze_file(exe).disguised_executable
+
+
+# ---- 4.4.0-beta.2: a 7-Zip without the RAR codec is named, not called "encrypted"
+SEVENZIP_INFO_WITH_RAR = """Formats:
+ 0  ...F....  Rar5  rar r00
+Codecs:
+ 0  ED  40301 Rar1
+ 0  ED  40305 Rar5
+ 0  ED  40108 Deflate
+Hashers:
+ 4  1 CRC32
+"""
+SEVENZIP_INFO_WITHOUT_RAR = """Formats:
+ 0  ...F....  Rar   rar r00
+ 0  ...F....  Rar5  rar r00
+Codecs:
+ 0  ED  30101 LZMA
+ 0  ED  40108 Deflate
+Hashers:
+ 4  1 CRC32
+"""
+
+
+def test_sevenzip_codec_list_is_read_from_the_codecs_section():
+    assert not ce.sevenzip_lacks_rar_codec(SEVENZIP_INFO_WITH_RAR)
+    # the format table mentions "Rar5" too, but only the codec list counts
+    assert ce.sevenzip_lacks_rar_codec(SEVENZIP_INFO_WITHOUT_RAR)
+    assert not ce.sevenzip_lacks_rar_codec("")          # unknown output: no claim
+
+
+def test_codec_less_7zip_is_reported_instead_of_a_password(tmp_path, monkeypatch):
+    import rarfile
+    p = build_rar(tmp_path / "a.rar", [("note.txt", b"hello")])
+
+    def fail(*_a, **_k):
+        raise rarfile.RarExecError("7z: Unsupported Method")
+    monkeypatch.setattr(rarfile.RarFile, "open", fail)
+    monkeypatch.setattr(ce, "_rar_codec_state", ce.RAR_NO_CODEC)
+    with ContainerExtractor().open(p) as res:
+        member = res.members[0]
+        assert not member.extracted
+        assert "no RAR codec" in member.skipped_reason
+        assert "password" not in member.skipped_reason
+        assert any("RAR codec" in m for m in res.missing_support)

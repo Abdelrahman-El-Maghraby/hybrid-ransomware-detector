@@ -57,18 +57,21 @@ Two scores are produced:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from .registry import REGISTRY
 
 # ---- Category weight ceilings ---------------------------------------------
 # Each category's summed contribution is capped here, then categories are added
 # and the total is clamped to MAX_RAW. Caps give diminishing returns when many
 # weak signals of the same kind stack up.
-TECHNICAL_CATEGORY_CAP = 100.0      # technical can drive the score on its own
-REPUTATION_CATEGORY_CAP = 80.0
-SEMANTIC_CATEGORY_CAP = 24.0        # deliberately < the MEDIUM band ceiling (49)
-STATISTICAL_CATEGORY_CAP = 20.0     # ML byte-shape classifier: a weak, broad signal
+TECHNICAL_CATEGORY_CAP = REGISTRY.caps["technical"]      # technical can drive the score on its own
+REPUTATION_CATEGORY_CAP = REGISTRY.caps["reputation"]
+SEMANTIC_CATEGORY_CAP = REGISTRY.caps["semantic"]        # below the top of Medium (49)
+STATISTICAL_CATEGORY_CAP = REGISTRY.caps["statistical"]  # ML byte-shape classifier: weak, broad
+DYNAMIC_CATEGORY_CAP = REGISTRY.caps["dynamic"]          # behaviour observed in a sandbox
 
-MAX_RAW = 100.0
+MAX_RAW = REGISTRY.max_raw
 
 # ---- Verdict bands (on the 0-100 risk score) ------------------------------
 BANDS = [
@@ -79,7 +82,7 @@ BANDS = [
     (80, 100, "Critical"),
 ]
 # A semantic-only result is clamped to the top of this band.
-SEMANTIC_ONLY_MAX = 49      # => "Medium"
+SEMANTIC_ONLY_MAX = REGISTRY.semantic_only_max      # => "Medium"
 
 
 @dataclass
@@ -107,6 +110,7 @@ class ScoreResult:
     is_malicious: bool
     contributions: List[Contribution] = field(default_factory=list)
     category_totals: Dict[str, float] = field(default_factory=dict)
+    registry_version: str = ""
 
     def as_dict(self) -> Dict:
         return {
@@ -115,11 +119,12 @@ class ScoreResult:
             "verdict": self.verdict,
             "is_malicious": self.is_malicious,
             "category_totals": {k: round(v, 2) for k, v in self.category_totals.items()},
+            "registry_version": self.registry_version,
             "contributions": [c.as_dict() for c in self.contributions],
         }
 
 
-def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> "Contribution":
+def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> Contribution:
     return Contribution(
         indicator=f"{prefix}:{c.get('indicator', '?')}",
         category=str(c.get("category", "technical")),
@@ -164,61 +169,17 @@ class ScoringMatrix:
         }
     """
 
-    # ---- per-indicator weights (points when fully triggered) --------------
-    W_LOCAL_DB = 100.0              # exact known-bad hash => maximum
-    W_YARA = {"critical": 90.0, "high": 65.0, "medium": 40.0, "low": 18.0}
-    W_YARA_EXTRA = 8.0              # each additional rule beyond the top one
-    W_FUZZY = 72.0                  # scaled by structural similarity confidence
-    W_MACRO_AUTOEXEC = 22.0        # an auto-run trigger exists
-    W_MACRO_CRITICAL = 40.0        # first exec/download primitive (Shell, etc.)
-    W_MACRO_CRITICAL_EXTRA = 8.0   # each additional critical primitive
-    W_MACRO_SUSPICIOUS = 10.0      # non-critical suspicious call(s), flat
-    W_MACRO_DROPPER_SYNERGY = 20.0 # autoexec AND critical => classic dropper
-    W_VT_RATIO = 80.0              # scaled by detection ratio
-    W_VT_FLOOR = 35.0              # a few engines flag even at a low ratio
-    W_LLM = 24.0                   # scaled by confidence (semantic, capped low)
+    # Weights live in detectors/indicators.yaml (one place for weights, categories
+    # and labels); they are attached to this class as W_* attributes at import
+    # time, and an instance can carry reviewed overrides (see __init__).
 
-    # ---- v4 technical indicators -------------------------------------------
-    W_VBA_STOMPING = 90.0          # P-code/source mismatch = deliberate evasion
-    W_XLM_MACROS = 55.0            # Excel 4.0 macro sheets (rarely legitimate)
-    W_DISGUISED_EXECUTABLE = 90.0  # PE/ELF/Mach-O/LNK/script behind a doc extension
-    W_ENCRYPTED_CONTENT = 70.0     # signature gone + random bytes = ransomware impact
-    W_FORMAT_MISMATCH = 15.0       # content doesn't match the extension
-    W_INJECTION_CONFIRMED = 50.0   # prompt injection hidden in the document
-    W_INJECTION_SUSPICIOUS = 15.0  # injection phrasing in visible text only
-    W_HIDDEN_CONTENT = 15.0        # concealed text (hidden runs, invisible PDF text)
-    W_RTI = {                      # Office external relationships
-        "exploit_scheme": 90.0,          # ms-msdt:, search-ms:, mhtml: ...
-        "follina_style_ole": 90.0,       # external OLE link ending in '!'
-        "remote_template": 70.0,         # T1221 remote template injection
-        "external_ole": 70.0,
-        "unc_ntlm_leak": 70.0,           # T1187 forced NTLM authentication
-        "rtf_remote_template": 70.0,
-        "external_frame": 40.0,
-        "external_subdocument": 40.0,
-        "rtf_ole_autoupdate": 40.0,
-    }
-    W_RTI_EXTRA = 8.0              # each additional distinct relationship kind
-    W_ARCHIVE_SLIP = 80.0          # path traversal / symlink entries
-    W_ARCHIVE_BOMB = 60.0          # decompression bomb
-    W_ARCHIVE_DOUBLE_EXT = 60.0    # invoice.pdf.exe
-    W_ARCHIVE_RTLO = 60.0          # right-to-left-override filename spoof
-    W_ARCHIVE_EXECUTABLE = 35.0    # executable/script/shortcut inside an archive
-    W_ARCHIVE_ENCRYPTED = 20.0     # encrypted content the scanner could not open
+    if TYPE_CHECKING:                     # W_* weights are attached from the registry
+        def __getattr__(self, name: str) -> Any: ...
 
-    # ---- v4.1: MailGuard (.eml / .msg) ---------------------------------------
-    W_MAIL_DMARC_FAIL = 35.0       # receiving server says the From domain is forged
-    W_MAIL_AUTH_FAIL = 20.0        # SPF or DKIM failed (DMARC not failed / absent)
-    W_MAIL_DISPLAY_SPOOF = 30.0    # "billing@bank.com" <x@evil.tld>
-    W_MAIL_REPLY_TO = 15.0         # replies diverted to another organisation
-    W_MAIL_DECEPTIVE_LINK = 25.0   # link text shows one domain, href goes to another
-    W_MAIL_RISKY_ATTACHMENT = 45.0 # executable / script / macro-enabled attachment
-    W_MAIL_DOUBLE_EXT = 60.0
-    W_MAIL_RTLO = 60.0
-    W_MAIL_LURE_SUBJECT = 8.0      # semantic: urgency/payment/credential phrasing
-
-    # ---- v4.1: ML classifier (statistical) --------------------------------------
-    W_ML = 20.0                    # scaled by P(suspicious)
+    def __init__(self, weights_override: Optional[Dict] = None):
+        self.registry = REGISTRY.with_overrides(weights_override) if weights_override else REGISTRY
+        for name, value in (weights_override or {}).items():
+            setattr(self, name, value)
 
     def score(self, signals: Dict) -> ScoreResult:
         contribs: List[Contribution] = []
@@ -285,6 +246,16 @@ class ScoringMatrix:
 
         contribs.extend(self._v4_technical(signals))
         contribs.extend(self._mail(signals))
+        contribs.extend(self._web(signals))
+        contribs.extend(self._elf_and_qr(signals))
+        contribs.extend(self._script(signals))
+        contribs.extend(self._embedded(signals))
+
+        if signals.get("scan_failed"):
+            contribs.append(Contribution(
+                "scan_failed", "technical", self.W_SCAN_FAILED,
+                f"Scanning this file failed ({signals['scan_failed']}). Ordinary documents do "
+                "not hang or crash a parser; inspect it manually."))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -298,6 +269,21 @@ class ScoringMatrix:
                 "ml_classifier", "statistical", self.W_ML * prob,
                 f"Static ML classifier ({ml.get('model', 'rules')}) rates the byte "
                 f"structure suspicious (p={prob:.2f})" + (f": {why}." if why else ".")))
+
+        # ---------------- DYNAMIC (sandbox) ----------------
+        sb = signals.get("sandbox") or {}
+        if sb.get("ransomware"):
+            contribs.append(Contribution(
+                "sandbox_ransomware_behaviour", "dynamic", self.W_SANDBOX_RANSOMWARE,
+                "Sandbox observed ransomware behaviour: " + ", ".join(sb["ransomware"][:3]) + "."))
+        sigs = [s for s in (sb.get("signatures") or []) if s.get("name") not in (sb.get("ransomware") or [])]
+        if sigs:
+            pts = min(self.W_SANDBOX_SIGNATURES_MAX,
+                      sum(self.W_SANDBOX_SIGNATURE.get(int(s.get("severity", 1)), 4.0) for s in sigs))
+            contribs.append(Contribution(
+                "sandbox_behaviour", "dynamic", pts,
+                f"Sandbox behaviour ({len(sigs)} signature(s)): "
+                + ", ".join(s.get("name", "?") for s in sigs[:4]) + "."))
 
         # ---------------- REPUTATION ----------------
         vt = signals.get("virustotal") or {}
@@ -327,9 +313,12 @@ class ScoringMatrix:
             "reputation": REPUTATION_CATEGORY_CAP,
             "semantic": SEMANTIC_CATEGORY_CAP,
             "statistical": STATISTICAL_CATEGORY_CAP,
+            "dynamic": DYNAMIC_CATEGORY_CAP,
         }
         raw_totals = {"technical": 0.0, "reputation": 0.0, "semantic": 0.0,
                       "statistical": 0.0}
+        if any(c.category == "dynamic" for c in contribs):
+            raw_totals["dynamic"] = 0.0
         for c in contribs:
             raw_totals[c.category] = raw_totals.get(c.category, 0.0) + c.points
         category_totals = {cat: min(total, caps.get(cat, total))
@@ -339,9 +328,22 @@ class ScoringMatrix:
 
         # Rule 2: a semantic/statistical-only result cannot exceed MEDIUM.
         has_hard_signal = (category_totals.get("technical", 0) > 0
-                           or category_totals.get("reputation", 0) > 0)
+                           or category_totals.get("reputation", 0) > 0
+                           or category_totals.get("dynamic", 0) > 0)
         if not has_hard_signal:
             raw_score = min(raw_score, SEMANTIC_ONLY_MAX)
+
+        # Allowlist (a SHA-256 the user marked as known-good): the evidence is kept in
+        # the report but not scored - unless the same hash is in the malware database.
+        allowed = signals.get("allowlisted")
+        if allowed and not signals.get("local_db_hit"):
+            raw_score = 0.0
+            contribs = [Contribution(
+                "allowlisted", "technical", 0.0,
+                f"SHA-256 is on the allowlist ({allowed}); "
+                + (f"{len(contribs)} finding(s) kept for reference, not scored."
+                   if contribs else "no findings."))]
+            category_totals = {k: 0.0 for k in category_totals}
 
         risk_score = int(round(raw_score))
         severity_score = round(risk_score / 10.0, 1)   # legacy 0-10
@@ -349,7 +351,7 @@ class ScoringMatrix:
 
         # A file is "malicious" if any layer fired. (Mirrors the original
         # OR-of-layers behaviour; the score then expresses *how* malicious.)
-        is_malicious = bool(contribs) and risk_score > 0
+        is_malicious = risk_score > 0 and any(c.points > 0 for c in contribs)
 
         return ScoreResult(
             risk_score=risk_score,
@@ -358,6 +360,7 @@ class ScoringMatrix:
             is_malicious=is_malicious,
             contributions=contribs,
             category_totals=category_totals,
+            registry_version=self.registry.version + (" +override" if self.registry is not REGISTRY else ""),
         )
 
     # ------------------------------------------------------------------ v4
@@ -396,6 +399,12 @@ class ScoringMatrix:
                 "hidden_content", "technical", self.W_HIDDEN_CONTENT,
                 f"Concealed document content ({reasons})."))
 
+        if integ.get("appended_payload"):
+            out.append(Contribution(
+                "image_appended_payload", "technical", self.W_IMAGE_APPENDED_PAYLOAD,
+                f"{str(integ['appended_payload']).upper()} data appended after the end of an "
+                f"image: a payload hidden in a picture."))
+
         rels = signals.get("relationships") or {}
         kinds = [k for k in (rels.get("kinds") or []) if k in self.W_RTI]
         if kinds:
@@ -408,14 +417,14 @@ class ScoringMatrix:
                 + (f" -> {targets}" if targets else "") + "."))
 
         arc = signals.get("archive") or {}
-        reasons = arc.get("reasons") or {}
+        arc_reasons = arc.get("reasons") or {}
         if arc.get("zip_slip"):
             out.append(Contribution("archive_zip_slip", "technical", self.W_ARCHIVE_SLIP,
                                     f"Archive path traversal / symlink entry. "
-                                    f"{reasons.get('zip_slip', '')}".strip()))
+                                    f"{arc_reasons.get('zip_slip', '')}".strip()))
         if arc.get("zip_bomb"):
             out.append(Contribution("archive_zip_bomb", "technical", self.W_ARCHIVE_BOMB,
-                                    f"Decompression bomb. {reasons.get('zip_bomb', '')}".strip()))
+                                    f"Decompression bomb. {arc_reasons.get('zip_bomb', '')}".strip()))
         if arc.get("double_extension_members"):
             out.append(Contribution(
                 "archive_double_extension", "technical", self.W_ARCHIVE_DOUBLE_EXT,
@@ -431,6 +440,11 @@ class ScoringMatrix:
                 "archive_executable", "technical", self.W_ARCHIVE_EXECUTABLE,
                 "Executable/script/shortcut inside the archive: "
                 + ", ".join(arc["executable_members"][:3]) + "."))
+        if arc.get("skipped_members"):
+            out.append(Contribution(
+                "archive_partially_scanned", "technical", self.W_ARCHIVE_PARTIAL,
+                f"{arc['skipped_members']} archive member(s) past the member limit were not "
+                "unpacked (their names were checked)."))
         if arc.get("encrypted_unreadable"):
             out.append(Contribution(
                 "archive_encrypted", "technical", self.W_ARCHIVE_ENCRYPTED,
@@ -491,7 +505,156 @@ class ScoringMatrix:
             out.append(Contribution(
                 "mail_lure_subject", "semantic", self.W_MAIL_LURE_SUBJECT,
                 f"Subject uses lure phrasing ({', '.join(mail['lure_subject'])})."))
+        if mail.get("archive_password_in_body"):
+            out.append(Contribution(
+                "mail_archive_password_in_body", "technical", self.W_MAIL_ARCHIVE_PASSWORD,
+                "Encrypted archive whose password is written in the message (hides the "
+                "content from mail gateways): "
+                + ", ".join(n.rsplit("!/", 1)[-1] for n in mail["archive_password_in_body"][:3])
+                + "."))
         worst = mail.get("worst_attachment") or {}
         for c in worst.get("contributions", []) or []:
             out.append(_prefixed(worst.get("name", "attachment"), c, "mail_attachment"))
         return out
+
+    # ------------------------------------------------------------------ v4.4
+    def _elf_and_qr(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        elf = signals.get("elf") or {}
+        cats = [c for c in (elf.get("categories") or {}) if c in self.W_ELF_BEHAVIOUR]
+        if cats:
+            cats.sort(key=lambda c: -self.W_ELF_BEHAVIOUR[c])
+            pts = (self.W_ELF_BEHAVIOUR[cats[0]]
+                   + max(0, len(cats) - 1) * self.W_ELF_BEHAVIOUR_EXTRA)
+            examples = "; ".join(f"{c}: {elf['categories'][c][0]}" for c in cats[:3])
+            out.append(Contribution(
+                "elf_behaviour", "technical", pts,
+                f"Linux executable contains hostile-only strings ({examples})."))
+        if elf.get("packed"):
+            out.append(Contribution(
+                "elf_packed", "technical", self.W_ELF_PACKED,
+                f"Linux executable is packed ({elf.get('packer') or 'unknown packer'})."))
+        if elf.get("no_section_table"):
+            out.append(Contribution(
+                "elf_no_section_table", "technical", self.W_ELF_NO_SECTIONS,
+                "Linux executable has its section table removed (anti-analysis)."))
+        qr = signals.get("qr") or {}
+        if qr.get("suspicious"):
+            first = qr["suspicious"][0]
+            out.append(Contribution(
+                "qr_code_suspicious_url", "technical", self.W_QR_SUSPICIOUS_URL,
+                f"QR code leads to {first['url']} ({'; '.join(first['reasons'][:3])})."))
+        elif qr.get("urls"):
+            out.append(Contribution(
+                "qr_code_url", "semantic", self.W_QR_URL,
+                f"QR code carries a web link ({qr['urls'][0]}); "
+                "links in QR codes bypass text filters."))
+        return out
+
+    def _embedded(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        emb = signals.get("embedded") or {}
+        if not emb:
+            return out
+        if emb.get("kind") == "onenote" and emb.get("risky_members"):
+            out.append(Contribution(
+                "onenote_embedded_file", "technical", self.W_ONENOTE_RISKY,
+                "OneNote page carries a runnable file: "
+                + ", ".join(emb["risky_members"][:3]) + "."))
+        if emb.get("chm_shortcut"):
+            out.append(Contribution(
+                "chm_shortcut_command", "technical", self.W_CHM_SHORTCUT,
+                "Help file page runs a command (HTML Help ShortCut object)."))
+        if emb.get("msi_script_actions"):
+            out.append(Contribution(
+                "msi_script_custom_action", "technical", self.W_MSI_SCRIPT_ACTION,
+                "Installer runs a script custom action ("
+                + ", ".join(sorted(set(emb["msi_script_actions"]))) + ")."))
+        if emb.get("xll_addin"):
+            out.append(Contribution(
+                "xll_addin", "technical", self.W_XLL_ADDIN,
+                "Excel add-in DLL (xlAutoOpen): Excel runs its code when the file is opened."))
+        if emb.get("encrypted_unopened"):
+            out.append(Contribution(
+                "office_encrypted_unopened", "technical", self.W_OFFICE_ENCRYPTED,
+                "Password-protected document: its content could not be checked."))
+        if emb.get("password_from_message"):
+            out.append(Contribution(
+                "mail_archive_password_in_body", "technical", self.W_MAIL_ARCHIVE_PASSWORD,
+                "Password-protected document opened with the password written in the message."))
+        worst = emb.get("worst_member") or {}
+        for c in worst.get("contributions", []) or []:
+            out.append(_prefixed(worst.get("name", "embedded file"), c, "embedded_member"))
+        return out
+
+    def _script(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        sc = signals.get("script") or {}
+        if not sc:
+            return out
+        cats = dict(sc.get("categories") or {})
+        if "download" in cats and "execute" in cats:      # the combination is the dropper
+            cats["dropper"] = cats.pop("download") + cats.pop("execute")
+        names = sorted((c for c in cats if c in self.W_SCRIPT_BEHAVIOUR),
+                       key=lambda c: -self.W_SCRIPT_BEHAVIOUR[c])
+        if names:
+            pts = (self.W_SCRIPT_BEHAVIOUR[names[0]]
+                   + max(0, len(names) - 1) * self.W_SCRIPT_BEHAVIOUR_EXTRA)
+            examples = "; ".join(f"{c}: {cats[c][0]}" for c in names[:3])
+            out.append(Contribution(
+                "script_behaviour", "technical", pts,
+                f"{sc.get('language') or 'Script'} ({examples})."))
+        if sc.get("encoded"):
+            out.append(Contribution(
+                "script_encoded", "technical", self.W_SCRIPT_ENCODED,
+                "Script is encoded with the Windows Script Encoder (source hidden)."))
+        obf = [o for o in (sc.get("obfuscation") or []) if not o.startswith("Script Encoder")]
+        if len(obf) >= 2:
+            out.append(Contribution(
+                "script_obfuscation", "technical", self.W_SCRIPT_OBFUSCATION,
+                "Obfuscated script: " + ", ".join(obf[:4]) + "."))
+        return out
+
+    def _web(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        web = signals.get("web") or {}
+        if not web:
+            return out
+        if web.get("smuggling"):
+            out.append(Contribution(
+                "html_smuggling", "technical", self.W_HTML_SMUGGLING,
+                "HTML smuggling (T1027.006): " + "; ".join(web.get("smuggling_reasons") or [])
+                + "."))
+        elif web.get("smuggling_construct"):
+            out.append(Contribution(
+                "web_download_construct", "technical", self.W_WEB_DOWNLOAD_CONSTRUCT,
+                "Page builds a file in the browser and saves it (no embedded payload found)."))
+        if web.get("payloads"):
+            out.append(Contribution(
+                "web_embedded_payload", "technical", self.W_WEB_PAYLOAD,
+                "File embedded in the page: " + ", ".join(web["payloads"][:3]) + "."))
+        if web.get("svg_active"):
+            out.append(Contribution(
+                "svg_active_content", "technical", self.W_SVG_ACTIVE,
+                "SVG image carries active content: " + ", ".join(web["svg_active"]) + "."))
+        if web.get("credential_form"):
+            out.append(Contribution(
+                "web_credential_capture", "technical", self.W_WEB_CREDENTIAL,
+                "Credential capture: " + "; ".join(web.get("credential_reasons") or []) + "."))
+        if web.get("redirects"):
+            out.append(Contribution(
+                "web_redirect", "technical", self.W_WEB_REDIRECT,
+                f"Redirects to {len(web['redirects'])} external URL(s)."))
+        if len(web.get("obfuscation") or []) >= 2:
+            out.append(Contribution(
+                "js_obfuscation", "technical", self.W_JS_OBFUSCATION,
+                "Obfuscated script: " + ", ".join(web["obfuscation"]) + "."))
+        worst = web.get("worst_payload") or {}
+        for c in worst.get("contributions", []) or []:
+            out.append(_prefixed(worst.get("name", "payload"), c, "web_payload"))
+        return out
+
+
+# Attach the registry's weights as class attributes (W_LOCAL_DB, W_YARA, ...).
+for _name, _value in REGISTRY.weights.items():
+    setattr(ScoringMatrix, _name, _value)

@@ -7,9 +7,10 @@
 requests
 schedule
 python-dotenv
+PyYAML              # detectors/indicators.yaml (weights, categories, labels)
 
 # Document parsing
-PyPDF2
+pypdf>=4.0          # PDF text / structure (PyPDF2 3.0.x has a parser hang, CVE-2023-36464)
 python-docx
 pdf2image           # also needs the system package "poppler"
 pytesseract         # also needs the system package "tesseract-ocr"
@@ -23,7 +24,10 @@ customtkinter       # pure-Python; needs Tkinter (bundled on Windows/macOS;
 #     are missing, so a minimal install still runs the hash + DB layers) -------
 
 # Fuzzy / similarity hashing (polymorphic family detection)
-python-tlsh         # TLSH locality-sensitive hash; prebuilt wheels x86_64+arm64
+python-tlsh ; sys_platform != "win32"   # TLSH, C extension (no Windows wheels).
+                    # Without it the built-in port (detectors/tlsh_py.py) gives
+                    # identical digests; numpy makes it fast.
+numpy               # fast built-in TLSH; also used by the ML layer
 ppdeep              # pure-Python ssdeep; no libfuzzy/compiler needed
 
 # VBA / XLM macro analysis for Office documents (dropper detection)
@@ -40,7 +44,7 @@ defusedxml
 # Without it scanning still works; only quarantine is unavailable.
 cryptography
 
-# Tests (optional):  pip install pytest   then   python -m pytest
+# Tests (optional):  pip install pytest qrcode   then   python -m pytest
 
 # Local LLM backend for OPSEC (no extra Python dep — talks to a running Ollama
 # server over HTTP via 'requests', already listed above). Install Ollama itself
@@ -65,3 +69,11 @@ rarfile             # .rar archives. Pure-Python reader; decompression also need
                     # one program already on the machine: 7-Zip (Windows: found in
                     # Program Files automatically), unrar, unar or bsdtar.
                     # Linux: sudo apt-get install 7zip   macOS: brew install sevenzip
+
+# --- v4.4 (optional) -------------------------------------------------------------
+pyzbar              # QR codes in images / PDFs / Office files (quishing). Windows
+                    # wheels include zbar; Linux: sudo apt-get install libzbar0
+                    # macOS: brew install zbar. Alternative decoder:
+                    # pip install opencv-python-headless
+msoffcrypto-tool    # password-protected Office documents: tries the password from the
+                    # e-mail, Excel's default and the delivery list, then scans the content

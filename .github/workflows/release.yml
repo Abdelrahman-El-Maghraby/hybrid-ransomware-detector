@@ -1,0 +1,94 @@
+name: release
+
+# Push a tag like v4.4.0-beta.2 or v4.4.0 to build, smoke-test, sign and publish.
+#   * one build per OS (PyInstaller does not cross-compile), each smoke-tested by build.py
+#   * SHA256SUMS over every archive
+#   * SBOM (CycloneDX) of the pinned dependencies
+#   * keyless Sigstore signatures (*.sigstore.json) - verify with:
+#       python -m sigstore verify github <file> --cert-identity \
+#         https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/<tag>
+#   * a GitHub release, marked pre-release when the tag has a suffix (-beta.N, -rc.N)
+# Windows Authenticode / Apple notarisation need paid certificates and are not done here.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          grep -vE '^\s*(#|$)' requirements.lock | sed 's/#.*//; s/[[:space:]]*$//' | while read -r pkg; do
+            python -m pip install "$pkg" || echo "::warning::could not install $pkg on ${{ runner.os }}"
+          done
+          python -m pip install -r requirements-build.txt
+      - name: Build, smoke-test and package
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -o pipefail
+          python build.py --clean 2>&1 | tee build.log || {
+            # surface the end of the log as annotations (readable without the raw log)
+            tail -n 40 build.log | sed 's/^/::error::/' ; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the release
+      id-token: write        # keyless Sigstore signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Checksums and SBOM
+        run: |
+          python -m pip install cyclonedx-bom
+          cyclonedx-py requirements requirements.lock --of JSON -o dist/sbom.cdx.json
+          cd dist && sha256sum *.zip *.tar.gz sbom.cdx.json > SHA256SUMS && cat SHA256SUMS
+      - name: Sign with Sigstore (keyless, tied to this workflow and tag)
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: ./dist/*.zip ./dist/*.tar.gz ./dist/sbom.cdx.json ./dist/SHA256SUMS
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/sbom.cdx.json
+            dist/SHA256SUMS
+            dist/*.sigstore.json

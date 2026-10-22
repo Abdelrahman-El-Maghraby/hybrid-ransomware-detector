@@ -20,21 +20,27 @@ third-party dependency is not installed:
                           deceptive links, attachment extraction
     ml_classifier         static byte/PE features + RandomForest (or a
                           transparent rule engine when no model is trained)
+    elf_analysis          Linux ELF triage: packing, removed section table,
+                          hostile-only strings (miners, reverse shells...)
+    qr_scanner            QR codes in images / PDF / Office files and the
+                          links they carry (quishing)
     scoring               transparent weighted scoring matrix
 """
 
-from .fuzzy_hash import FuzzyHasher, FuzzyResult, FUZZY_AVAILABLE
-from .macro_analysis import MacroAnalyzer, MacroResult, OLEVBA_AVAILABLE
-from .yara_engine import YaraEngine, YaraResult, YARA_AVAILABLE
-from .llm_backends import build_llm_backend, LLMBackend
-from .file_integrity import FileIntegrityAnalyzer, IntegrityResult, ransom_indicator
-from .prompt_guard import (PromptGuard, PromptGuardResult, DEFUSEDXML_AVAILABLE,
-                           wrap_untrusted_with_nonce)
-from .relationship_scanner import RelationshipScanner, RelationshipResult
 from .container_extractor import ContainerExtractor, ContainerResult
-from .mail_analyzer import MailAnalyzer, MailResult, MSG_AVAILABLE
-from .ml_classifier import MLClassifier, MLResult, SKLEARN_AVAILABLE
-from .scoring import ScoringMatrix, ScoreResult
+from .elf_analysis import ElfAnalyzer, ElfResult
+from .file_integrity import FileIntegrityAnalyzer, IntegrityResult, ransom_indicator
+from .fuzzy_hash import FUZZY_AVAILABLE, FuzzyHasher, FuzzyResult
+from .llm_backends import LLMBackend, build_llm_backend
+from .macro_analysis import OLEVBA_AVAILABLE, MacroAnalyzer, MacroResult
+from .mail_analyzer import MSG_AVAILABLE, MailAnalyzer, MailResult
+from .ml_classifier import SKLEARN_AVAILABLE, MLClassifier, MLResult
+from .prompt_guard import DEFUSEDXML_AVAILABLE, PromptGuard, PromptGuardResult, wrap_untrusted_with_nonce
+from .qr_scanner import QR_AVAILABLE, QRResult, QRScanner
+from .relationship_scanner import RelationshipResult, RelationshipScanner
+from .scoring import ScoreResult, ScoringMatrix
+from .script_analysis import ScriptAnalyzer, ScriptResult
+from .yara_engine import YARA_AVAILABLE, YaraEngine, YaraResult
 
 __all__ = [
     "FuzzyHasher", "FuzzyResult", "FUZZY_AVAILABLE",
@@ -49,4 +55,5 @@ __all__ = [
     "MailAnalyzer", "MailResult", "MSG_AVAILABLE",
     "MLClassifier", "MLResult", "SKLEARN_AVAILABLE",
     "ScoringMatrix", "ScoreResult",
+    "ElfAnalyzer", "ElfResult", "ScriptAnalyzer", "ScriptResult", "QRScanner", "QRResult", "QR_AVAILABLE",
 ]
