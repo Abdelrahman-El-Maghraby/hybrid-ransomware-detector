@@ -31,13 +31,13 @@ import logging
 import os
 import platform
 import secrets
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Union
 
+from core.tools import trusted_which
 from detectors.file_integrity import (
     RANSOM_NOTE_RE,
     detect_format,
@@ -342,14 +342,16 @@ def desktop_notify(title: str, message: str) -> bool:
     """Best-effort desktop notification (macOS / Linux). Never raises."""
     system = platform.system()
     try:
-        if system == "Darwin" and shutil.which("osascript"):
+        osascript = trusted_which("osascript") if system == "Darwin" else None
+        notify_send = trusted_which("notify-send") if system == "Linux" else None
+        if osascript:
             def esc(s: str) -> str:
                 return s.replace("\\", "\\\\").replace('"', '\\"')
             script = f'display notification "{esc(message)}" with title "{esc(title)}"'
-            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+            subprocess.run([osascript, "-e", script], capture_output=True, timeout=10)
             return True
-        if system == "Linux" and shutil.which("notify-send"):
-            subprocess.run(["notify-send", "--urgency=critical", title, message],
+        if notify_send:
+            subprocess.run([notify_send, "--urgency=critical", title, message],
                            capture_output=True, timeout=10)
             return True
     except Exception as e:  # pragma: no cover

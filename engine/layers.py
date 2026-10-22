@@ -127,7 +127,7 @@ class HashLayer(Layer):
         data = ctx.data()
         if data is not None:
             import hashlib
-            ctx.hashes = {"md5": hashlib.md5(data).hexdigest(),
+            ctx.hashes = {"md5": hashlib.md5(data, usedforsecurity=False).hexdigest(),
                           "sha256": hashlib.sha256(data).hexdigest()}
         else:
             ctx.hashes = scanner.calculate_hashes(ctx.path)
@@ -409,6 +409,25 @@ class SandboxLayer(Layer):
                                       "malscore": data.get("malscore", 0)}
 
 
+class EmulationLayer(Layer):
+    """Optional: run JavaScript in box-js and record what it tried to do (off by
+    default; see detectors/emulation.py for why)."""
+    name = "emulation"
+    heavy = True
+
+    def run(self, scanner, ctx):
+        emulator = getattr(scanner, "emulator", None)
+        if emulator is None or not emulator.applies(ctx.path):
+            return
+        res = emulator.emulate(ctx.path, ctx.data())
+        ctx.scan_results["emulation"] = res.as_dict()
+        if res.ran:
+            ctx.signals["emulation"] = {"urls": [defang(u) for u in res.urls[:3]],
+                                        "url_count": len(res.urls),
+                                        "commands": len(res.commands),
+                                        "downloads_and_runs": res.downloads_and_runs}
+
+
 def default_pipeline() -> List[Layer]:
     """The layers in the order they run."""
     return [
@@ -428,6 +447,7 @@ def default_pipeline() -> List[Layer]:
         ContainerLayer(ArchiveHandler()),
         ContainerLayer(WebHandler()),        # HTML smuggling: payloads hidden in a page
         ContainerLayer(EmbeddedHandler()),   # OneNote / CHM / MSI / encrypted Office / XLL
+        EmulationLayer(),
         MLLayer(),
         LLMLayer(),
         VirusTotalLayer(),

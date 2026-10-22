@@ -59,6 +59,7 @@ _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 _P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
 _DOCX_EXTS = (".docx", ".docm", ".dotx", ".dotm")
 _XLSX_EXTS = (".xlsx", ".xlsm", ".xltx", ".xltm")
+_XLS_EXTS = (".xls", ".xlt", ".xla")
 _PPTX_EXTS = (".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm")
 _MAX_CELLS = 200_000                  # cells inspected per workbook
 _MAX_XML_BYTES = 20 * 1024 * 1024     # refuse absurdly large XML parts
@@ -154,6 +155,8 @@ class PromptGuard:
                 return self._inspect_xlsx(path)
             if ext in _PPTX_EXTS:
                 return self._inspect_pptx(path)
+            if ext in _XLS_EXTS:
+                return self._inspect_xls(path)
         except Exception as e:  # a malformed file must never break a scan
             logger.debug("Hidden-content inspection failed for %s: %s", path, e)
         return HiddenTextResult()
@@ -242,13 +245,27 @@ class PromptGuard:
                 hidden_cols = _hidden_columns(root)
                 for cell, text in _cells(root, shared, budget):
                     ref = cell.get("r") or ""
-                    col, row = re.match(r"([A-Z]*)(\d*)", ref).groups()
+                    m = _CELL_REF.match(ref)
+                    col, row = m.groups() if m else ("", "")
                     if row in hidden_rows:
                         found.add("hidden_rows", text)
                     elif _col_index(col) in hidden_cols:
                         found.add("hidden_columns", text)
                     for why in styles.get(cell.get("s") or "0", ()):
                         found.add(why, text)
+        return found.result()
+
+    # ----------------------------------------------------------- legacy Excel
+    def _inspect_xls(self, path: Path) -> HiddenTextResult:
+        """Hidden and "very hidden" sheets in a binary (BIFF8) workbook. A very
+        hidden sheet cannot be shown from Excel's menus - the classic place for
+        Excel 4.0 (XLM) macro droppers."""
+        found = _Findings()
+        for name, state in _xls_sheet_states(path):
+            if state == 2:
+                found.add("very_hidden_sheet", f"[{name}]")
+            elif state == 1:
+                found.add("hidden_sheet", f"[{name}]")
         return found.result()
 
     # ----------------------------------------------------------- PowerPoint
@@ -263,7 +280,7 @@ class PromptGuard:
             slide_w = int(size.get("cx", 0)) if size is not None else 0
             slide_h = int(size.get("cy", 0)) if size is not None else 0
             slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
-                            key=lambda n: int(re.search(r"(\d+)", n.rsplit("/", 1)[-1]).group(1)))
+                            key=_slide_number)
             for part in slides:
                 root = _read_xml(zf, part, found)
                 if root is None:
@@ -315,7 +332,7 @@ class PromptGuard:
             from pypdf import PdfReader
         except ImportError:  # pragma: no cover
             try:
-                from PyPDF2 import PdfReader
+                from PyPDF2 import PdfReader  # type: ignore[no-redef]
             except ImportError:
                 return HiddenTextResult()
         pages: List[int] = []
@@ -397,6 +414,51 @@ class _Findings:
 
     def result(self) -> HiddenTextResult:
         return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets)
+
+
+_CELL_REF = re.compile(r"([A-Z]*)(\d*)")
+
+
+def _slide_number(name: str) -> int:
+    m = re.search(r"(\d+)", name.rsplit("/", 1)[-1])
+    return int(m.group(1)) if m else 0
+
+
+_BIFF_BOUNDSHEET = 0x0085
+_BIFF_EOF = 0x000A
+_MAX_BIFF_BYTES = 64 * 1024 * 1024
+
+
+def _xls_sheet_states(path: Path) -> List[Tuple[str, int]]:
+    """(sheet name, hsState) from the BOUNDSHEET8 records of a BIFF8 workbook:
+    0 visible, 1 hidden, 2 very hidden. Only the workbook globals are read."""
+    try:
+        import olefile
+    except ImportError:
+        return []
+    if not olefile.isOleFile(str(path)):
+        return []
+    with olefile.OleFileIO(str(path)) as ole:
+        stream = next((s for s in ("Workbook", "Book") if ole.exists(s)), None)
+        if stream is None or ole.get_size(stream) > _MAX_BIFF_BYTES:
+            return []
+        data = ole.openstream(stream).read()
+    sheets: List[Tuple[str, int]] = []
+    pos = 0
+    while pos + 4 <= len(data) and len(sheets) < 1024:
+        rtype = int.from_bytes(data[pos:pos + 2], "little")
+        size = int.from_bytes(data[pos + 2:pos + 4], "little")
+        body = data[pos + 4:pos + 4 + size]
+        pos += 4 + size
+        if rtype == _BIFF_EOF and sheets:
+            break                               # end of the workbook globals
+        if rtype != _BIFF_BOUNDSHEET or len(body) < 8:
+            continue
+        state, cch, high = body[4] & 0x03, body[6], body[7] & 0x01
+        raw = body[8:8 + cch * (2 if high else 1)]
+        name = raw.decode("utf-16-le" if high else "latin-1", errors="replace")
+        sheets.append((name, state))
+    return sheets
 
 
 def _read_xml(zf: zipfile.ZipFile, name: str, found: _Findings):
@@ -489,7 +551,7 @@ def _col_index(letters: str) -> int:
 
 
 def _hidden_columns(sheet_root) -> set:
-    cols = set()
+    cols: set = set()
     for col in sheet_root.iter(f"{_S}col"):
         if col.get("hidden") in ("1", "true"):
             try:

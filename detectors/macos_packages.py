@@ -36,13 +36,14 @@ import gzip
 import io
 import lzma
 import os
-import shutil
 import struct
 import subprocess
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, List, Optional, Tuple
+
+from core.tools import trusted_which
 
 try:
     import defusedxml.ElementTree as _DET  # type: ignore
@@ -82,14 +83,11 @@ def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
             raise BudgetExceeded()
         return data
     if "gzip" in enc or "zlib" in enc:
-        d = zlib.decompressobj(zlib.MAX_WBITS | 32)      # zlib or gzip header
-        out = d.decompress(data, budget + 1)
+        out = zlib.decompressobj(zlib.MAX_WBITS | 32).decompress(data, budget + 1)  # zlib/gzip
     elif "bzip2" in enc:
-        d = bz2.BZ2Decompressor()
-        out = d.decompress(data, budget + 1)
+        out = bz2.BZ2Decompressor().decompress(data, budget + 1)
     elif "lzma" in enc or "xz" in enc:
-        d = lzma.LZMADecompressor()
-        out = d.decompress(data, budget + 1)
+        out = lzma.LZMADecompressor().decompress(data, budget + 1)
     else:
         raise FormatError(f"unknown encoding {encoding!r}")
     if len(out) > budget:
@@ -284,7 +282,7 @@ def dmg_kind(path: Path) -> Optional[str]:
 def sevenzip_tool() -> Optional[str]:
     """A 7-Zip command-line program, if one is installed."""
     for name in ("7zz", "7z", "7za"):
-        found = shutil.which(name)
+        found = trusted_which(name)
         if found:
             return found
     if os.name == "nt":

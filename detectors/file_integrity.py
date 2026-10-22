@@ -163,6 +163,8 @@ def looks_encrypted(head: bytes) -> bool:
 KDBX_MAGIC = (b"\x03\xd9\xa2\x9a\x67\xfb\x4b\xb5",   # KeePass 2.x (.kdbx)
               b"\x03\xd9\xa2\x9a\x65\xfb\x4b\xb5")   # KeePass 1.x (.kdb)
 AGE_MAGIC = b"age-encryption.org/v1\n"
+LUKS_MAGIC = b"LUKS\xba\xbe"                        # LUKS1/LUKS2 encrypted volume
+OPENSSL_SALTED = b"Salted__"                        # `openssl enc` output
 
 
 def is_openpgp_message(head: bytes) -> bool:
@@ -187,13 +189,20 @@ def is_openpgp_message(head: bytes) -> bool:
 
 VAULT_EXTENSIONS = {"kdbx": frozenset({".kdbx", ".kdb"}),
                     "pgp": frozenset({".gpg", ".pgp"}),
-                    "age": frozenset({".age"})}
+                    "age": frozenset({".age"}),
+                    "luks": frozenset({".luks", ".img"}),
+                    "openssl": frozenset({".enc"})}
 
 
 def encrypted_container_format(head: bytes) -> str:
-    """'kdbx' | 'pgp' | 'age' for a known encrypted container, else ''."""
+    """'kdbx' | 'pgp' | 'age' | 'luks' | 'openssl' for a known encrypted container,
+    else ''."""
     if head.startswith(KDBX_MAGIC):
         return "kdbx"
+    if head.startswith(LUKS_MAGIC):
+        return "luks"
+    if head.startswith(OPENSSL_SALTED) and len(head) >= 16:
+        return "openssl"
     if head.startswith(AGE_MAGIC):
         return "age"
     if is_openpgp_message(head):

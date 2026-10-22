@@ -68,6 +68,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Iterator, List, Optional, Union
 
+from core.tools import trusted_which
+
 from .macos_packages import (
     FS_IMAGE_SUFFIXES,
     BudgetExceeded,
@@ -129,7 +131,7 @@ LURE_EXTENSIONS = frozenset({
 })
 _EXEC_MAGIC = ((b"MZ", "pe"), (b"\x7fELF", "elf"), (b"\x4c\x00\x00\x00\x01\x14\x02\x00", "lnk"),
                (b"\xcf\xfa\xed\xfe", "macho"), (b"\xce\xfa\xed\xfe", "macho"))
-RTLO = "‮"   # right-to-left override (escaped on purpose: never put it in source)
+RTLO = "\u202e"   # right-to-left override (escaped: never put the raw character in source)
 _STREAM_CHUNK = 64 * 1024
 _CONTAINER_SUFFIXES = frozenset({".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".cab", ".docm",
                                  ".xlsm", ".pptm", ".doc", ".xls", ".eml", ".msg"})
@@ -148,6 +150,8 @@ _MISSING_TOOLS = {_MISSING_LIBRARY["rar-tool"], _MISSING_LIBRARY["rar-codec"],
 # Installers carry programs and scripts by design: listed, scanned, not scored as such.
 _INSTALLER_FORMATS = ("pkg", "dmg")
 # Where the RAR decompressors live on Windows when they are not on PATH.
+_RARFILE_TOOL_SETTINGS = ("UNRAR_TOOL", "UNAR_TOOL", "BSDTAR_TOOL", "SEVENZIP_TOOL",
+                          "SEVENZIP2_TOOL")
 _WINDOWS_RAR_TOOLS = (("SEVENZIP_TOOL", r"7-Zip\7z.exe"), ("UNRAR_TOOL", r"WinRAR\UnRAR.exe"))
 _rar_tool_state: Optional[bool] = None
 _rar_codec_state: Optional[str] = None
@@ -162,9 +166,17 @@ def rar_tool_available() -> bool:
     if not RAR_AVAILABLE:
         return False
     if _rar_tool_state is None:
+        # rarfile runs these by name; give it absolute paths found outside the
+        # current directory (core.tools.trusted_which).
+        for setting in _RARFILE_TOOL_SETTINGS:
+            name = getattr(_rarfile, setting, None)
+            if isinstance(name, str) and name:
+                found = trusted_which(name)
+                if found:
+                    setattr(_rarfile, setting, found)
         if os.name == "nt":
             for setting, rel in _WINDOWS_RAR_TOOLS:
-                if shutil.which(getattr(_rarfile, setting)):
+                if os.path.isabs(getattr(_rarfile, setting)):
                     continue
                 for base in filter(None, (os.environ.get("ProgramFiles"),
                                           os.environ.get("ProgramFiles(x86)"))):

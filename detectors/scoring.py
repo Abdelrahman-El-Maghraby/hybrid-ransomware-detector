@@ -270,7 +270,17 @@ class ScoringMatrix:
                 f"Static ML classifier ({ml.get('model', 'rules')}) rates the byte "
                 f"structure suspicious (p={prob:.2f})" + (f": {why}." if why else ".")))
 
-        # ---------------- DYNAMIC (sandbox) ----------------
+        # ---------------- DYNAMIC (emulation, sandbox) ----------------
+        emu = signals.get("emulation") or {}
+        if emu.get("downloads_and_runs"):
+            contribs.append(Contribution(
+                "emulated_dropper", "dynamic", self.W_EMU_DROPPER,
+                "Emulated script fetched " + ", ".join(emu.get("urls") or []) +
+                " and ran or dropped a program."))
+        elif emu.get("url_count"):
+            contribs.append(Contribution(
+                "emulated_network", "dynamic", self.W_EMU_NETWORK,
+                "Emulated script contacted " + ", ".join(emu.get("urls") or []) + "."))
         sb = signals.get("sandbox") or {}
         if sb.get("ransomware"):
             contribs.append(Contribution(

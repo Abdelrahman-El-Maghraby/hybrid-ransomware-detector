@@ -4,6 +4,71 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.5.0] — 2026-10-22
+
+Includes everything listed under 4.4.1 below (that version was not published
+separately).
+
+### Added
+
+- **IMAP mailbox scanning** (`--scan-imap`, `IMAP_*`, `core/mailbox.py`): messages
+  are read with their transport headers, so authentication and spoofing checks
+  work on mail that saved copies would have stripped. Read-only (EXAMINE +
+  BODY.PEEK[]), TLS only with certificate verification, isolated workers, last
+  UID per folder (reset on UIDVALIDITY change), per-run and per-message limits,
+  scheduled with `--background` and `IMAP_CHECK_MINUTES`. Results carry a
+  `mailbox` field and an `imap://user@host/folder;UID=n` path.
+- **Canary response actions** (`CANARY_RESPONSE`, `core/response.py`):
+  `network_off` (PowerShell Disable-NetAdapter / nmcli / networksetup) and
+  `script` (your script, absolute path, owner-only writable, alert JSON on
+  stdin). Off by default, time-limited, results written into the alert file.
+- **Optional JavaScript emulation** with box-js (`EMULATION_ENABLED`,
+  `detectors/emulation.py`): URLs fetched, files written and commands run by
+  `.js` / `.jse` files, including URLs built at run time. New dynamic indicators
+  `emulated_dropper` (65) and `emulated_network` (25). Off by default because it
+  executes the script in a Node sandbox; documented for analysis VMs.
+
+
+### Added (limits from the README, now closed)
+
+- **Equation Editor 3.0 objects** (CVE-2017-11882 / CVE-2018-0802, still common in
+  RTF droppers): YARA rules for RTF (class name in clear or hex-encoded, or the
+  CLSID; High) and legacy OLE Office files (Medium: old documents with real
+  equations also match).
+- **Hidden and "very hidden" sheets in legacy `.xls`** workbooks, read from the
+  BIFF8 BOUNDSHEET records (the usual home of Excel 4.0 macro droppers).
+- **More encrypted containers recognised** so they are not called "random":
+  LUKS volumes and `openssl enc` output, when the extension agrees.
+
+Benign benchmark unchanged: 27 High/Critical and 25 Low on 3,312 files.
+
+### Security
+
+- Helper programs (7-Zip, unrar, unar, bsdtar, notify-send, osascript) are found
+  with `core.tools.trusted_which`: absolute PATH entries only, never the current
+  directory, and the absolute path is what runs. A planted `7z.exe` in the folder
+  being scanned can no longer be started (Windows looks in the current directory
+  first, and `shutil.which` did too before Python 3.12).
+- ML model files (joblib, i.e. pickle: loading runs code) are refused on POSIX
+  when another user owns them or group/others can write them; trained models are
+  saved with mode 600.
+- The right-to-left-override constant is written as an escape, not as the raw
+  character (bandit B613, "trojan source").
+- MD5 is created with `usedforsecurity=False` (works on FIPS-mode Python; MD5
+  only identifies files, SHA-256 is the security hash).
+- bandit runs in CI; medium and high findings fail the build (there are none).
+
+### Changed
+
+- Text report: one small renderer per layer in `FINDING_SECTIONS` instead of one
+  200-line method (identical output, checked against the old one).
+- CLI `main()` split into parser, overrides, stand-alone commands, banner, setup,
+  protection and scan steps (identical behaviour).
+- `docs/ARCHITECTURE.md` lists the design patterns used and why.
+- Type checking covers every detector (43 files, was 22); the mail, macOS package,
+  ML and hidden-content modules were fixed where mypy found unchecked `None` /
+  wrong-type paths.
+
 ## [4.4.0] — 2026-10-22
 
 Stable release. Everything from 4.4.0-beta.1 and 4.4.0-beta.2 (below), plus the

@@ -77,6 +77,25 @@ Quality gates on every pull request (lint, types, coverage floor, dependency aud
 regression corpus); signed rule packs for content updates; tagged releases built in
 CI with checksums, an SBOM and Sigstore signatures.
 
+## 8. Design patterns, and why each one is here
+
+| Pattern | Where | What it buys |
+|---|---|---|
+| **Pipeline** of independent stages | `engine/layers.py` (`Layer`, `default_pipeline()`) | Each layer is testable alone; order is one visible list; a new layer is one class. |
+| **Template Method** | `engine/containers.py` (`ContainerHandler`: `applies` / `open` / `items` / `decorate` / `signals`) | Archives, e-mails, web pages and embedded files share one recursion, budget and "worst member" logic; a new container type only fills in the hooks. |
+| **Strategy** | `detectors/llm_backends.py` (`LLMBackend` → Ollama / OpenAI / Null) | The provider is chosen at run time; "no LLM" is a real object, not `if` checks everywhere. |
+| **Registry / data-driven configuration** | `detectors/indicators.yaml` + `detectors/registry.py`; `FINDING_SECTIONS` in `engine/report.py` | Weights and report sections are data: tuning, overriding or adding one does not touch the scoring or report code. |
+| **Facade** | `RansomwareScanner` (`engine/scanner.py`) | CLI, GUI, REST API and tools use one object; the layers behind it can change. |
+| **Bulkhead** (process isolation) | `engine/workers.py` (`_IsolatedScan`) | One hostile file can crash or hang only its worker; the scan continues and reports `scan_failed`. |
+| **Null Object** | `NullBackend`, empty `FuzzyResult` / `YaraResult` when a library is missing | Optional dependencies switch a layer off without special cases in the callers. |
+| **Mixins for cohesion** | `ReportMixin`, `ExternalLookupsMixin`, `TextExtractionMixin` | Reporting, network look-ups and text extraction live in their own files instead of one large class. |
+
+Security-relevant conventions: helper programs are resolved with
+`core.tools.trusted_which` (never the current directory), ML model files are
+refused when another user could have changed them, MD5 is marked
+`usedforsecurity=False` (it identifies files; SHA-256 is the security hash), and
+the source contains no raw bidirectional control characters.
+
 ## Questions this design answers
 
 | Question | Short answer |

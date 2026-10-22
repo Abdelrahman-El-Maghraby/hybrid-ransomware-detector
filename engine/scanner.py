@@ -139,6 +139,13 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         # v4.4: HTML smuggling / SVG / phishing pages.
         self.web_analyzer = WebContentAnalyzer()
         self.allowlist = load_allowlist(config.get("allowlist_path"))
+        self.emulator = None
+        if config.get("emulation_enabled"):
+            from detectors.emulation import ScriptEmulator
+            self.emulator = ScriptEmulator(config.get("emulation_tool", "box-js"),
+                                           int(config.get("emulation_timeout", 20)))
+            logger.info("Emulation layer: %s.", f"ON ({self.emulator.tool})"
+                        if self.emulator.available else "enabled but box-js was not found")
         self.sandbox = None
         if config.get("sandbox_url"):
             from core.sandbox import CapeClient
@@ -250,7 +257,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         identifier used for VirusTotal, the result cache, and as the canonical
         file hash.
         """
-        md5_hash = hashlib.md5()
+        md5_hash = hashlib.md5(usedforsecurity=False)
         sha256_hash = hashlib.sha256()
         try:
             with open(file_path, "rb") as f:
@@ -520,6 +527,14 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             lines = ["RANSOMWARE CANARY TRIPWIRE", "=" * 26,
                      f"Time:    {report.checked_at}", f"Summary: {report.summary()}", ""]
             lines += [f"[{f.status}] {f.path}\n    {f.evidence}" for f in report.findings]
+            from core.response import respond
+            actions = respond(self.config, {"summary": report.summary(),
+                                            "checked_at": report.checked_at,
+                                            "findings": [{"path": f.path, "status": f.status,
+                                                          "evidence": f.evidence}
+                                                         for f in report.findings]})
+            if actions:
+                lines += ["", "Automatic response:"] + [f"  {a.line()}" for a in actions]
             lines += ["", "Recommended: disconnect this machine from the network, do not "
                           "reboot, and investigate running processes."]
             try:
@@ -531,6 +546,25 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         return report
 
     # ------------------------------------------------------------------ run
+    def scan_mailbox(self):
+        """Scan new messages in the configured IMAP folder (read-only). Returns
+        (report text, core.mailbox.MailboxRun); raises core.mailbox.MailboxError."""
+        from core.mailbox import ImapSettings, MailboxScanner
+        from core.outputs import deliver
+        run = MailboxScanner(self, ImapSettings.from_config(self.config)).run()
+        deliver(run.results, self.config)
+        report = self.generate_report(run.results) if run.results else (
+            f"No new messages in {self.config.get('imap_folder', 'INBOX')}.")
+        return report, run
+
+    def scan_mailbox_safely(self) -> None:
+        """For the scheduler: never let a mailbox problem stop the background loop."""
+        try:
+            _, run = self.scan_mailbox()
+            logger.info("Mailbox check: %d new message(s) scanned.", len(run.results))
+        except Exception as e:
+            logger.error("Mailbox check failed: %s", e)
+
     def run_scan(self) -> str:
         """Run a complete scan (canary check + all directories) and generate a report."""
         logger.info("Starting scheduled ransomware scan...")

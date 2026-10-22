@@ -528,15 +528,7 @@ def _train_ml_cli(benign_dir: str, malicious_dir: str, out_path: str) -> int:
     return 0
 
 
-def main():
-    """Main entry point for the script."""
-    # Output redirected to a file on Windows uses the ANSI code page (cp1252),
-    # which cannot encode characters such as "→": replace them rather than crash.
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except (AttributeError, ValueError):
-            pass
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Cross-platform ransomware & malicious-document scanner "
                     "(PDF, Office, RTF, ZIP)")
@@ -610,8 +602,14 @@ def main():
                              "to ML_MODEL_PATH (needs requirements-ml.txt)")
     parser.add_argument("--ml-model-out", metavar="PATH",
                         help="Where --train-ml saves the model (default: ML_MODEL_PATH)")
+    parser.add_argument("--scan-imap", action="store_true",
+                        help="Scan new messages in the IMAP mailbox (IMAP_HOST, IMAP_USER, "
+                             "IMAP_PASSWORD; read-only, TLS only), then exit")
+    return parser
 
-    args = parser.parse_args()
+
+def _apply_overrides(args) -> None:
+    """Options that change CONFIG for this run only."""
     if args.jsonl:
         CONFIG["jsonl_path"] = args.jsonl
 
@@ -621,13 +619,16 @@ def main():
     if args.no_cache:
         CONFIG["cache_enabled"] = False
 
+
+def _standalone_command(args) -> bool:
+    """Commands that need no scanner or banner. True when one ran."""
     if args.train_ml:
         sys.exit(_train_ml_cli(args.train_ml[0], args.train_ml[1],
                                args.ml_model_out or CONFIG["ml_model_path"]))
 
     if args.allow:
         _allow_file(args.allow, args.note, CONFIG["allowlist_path"])
-        return
+        return True
 
     if args.update_rules:
         from core.rulepack import RulePackError, install_pack
@@ -639,12 +640,12 @@ def main():
             sys.exit(1)
         print(f"✅ Rule pack {info['version']} installed ({info['files']} file(s)); "
               "used from the next scan.")
-        return
+        return True
 
     # --fuzzy-hash is a standalone utility: it needs no DB, no API keys, no banner.
     if args.fuzzy_hash:
         _print_fuzzy_hash(args.fuzzy_hash)
-        return
+        return True
 
     if args.gui:
         try:
@@ -653,69 +654,76 @@ def main():
             print("The GUI needs the 'customtkinter' package. Install it with:")
             print("    pip install customtkinter")
             print(f"Details: {e}")
-            return
+            return True
         gui.main()
-        return
+        return True
+    return False
 
-    utility_mode = (args.background or args.setup_autostart or args.remove_autostart
+
+def _is_utility_mode(args) -> bool:
+    """A one-off maintenance command (no banner, no API-key warning)."""
+    return bool(args.background or args.setup_autostart or args.remove_autostart
                     or args.create_shortcut or args.import_database
                     or args.deploy_canaries is not None or args.verify_canaries
                     or args.remove_canaries or args.quarantine or args.list_quarantine
                     or args.restore or args.clear_cache or args.export_key
                     or args.import_key)
 
-    # Display a welcome banner for interactive use
-    if not utility_mode:
-        print("=" * 56)
-        print("  HYBRID RANSOMWARE DETECTION SYSTEM  v" + ENGINE_VERSION)
-        print("  Multi-layer document & archive scanner")
-        print("=" * 56)
-        print(f"Platform:          {platform.system()} ({platform.machine()})")
-        print(f"App directory:     {APP_DIR}")
-        print(f"Log file:          {LOG_FILE}")
-        print(f"Report directory:  {CONFIG['report_directory']}")
-        print(f"Database path:     {CONFIG['kaggle_database_path']}")
-        print("-" * 56)
-        print("Detection layers:")
-        print("  Cryptographic hashes ....... enabled")
-        print("  Local hash database ........ enabled")
-        print(f"  Fuzzy hashing (TLSH/ssdeep)  {'enabled' if FUZZY_AVAILABLE else 'unavailable (pip install python-tlsh ppdeep)'}")
-        print(f"  VBA/XLM macro analysis ..... {'enabled' if OLEVBA_AVAILABLE else 'unavailable (pip install oletools)'}")
-        print(f"  YARA structural rules ...... {'enabled' if YARA_AVAILABLE else 'unavailable (pip install yara-python)'}")
-        print("  File integrity heuristics .. enabled")
-        print(f"  Hidden content / injection . {'enabled' if DEFUSEDXML_AVAILABLE else 'PDF only (pip install defusedxml)'}")
-        print(f"  Office external links ...... {'enabled' if DEFUSEDXML_AVAILABLE else 'RTF only (pip install defusedxml)'}")
-        print("  ZIP archive inspection ..... enabled")
-        print(f"  E-mail (.eml/.msg) ......... {'enabled' if MSG_AVAILABLE else '.eml only (pip install oletools)'}")
-        _ml_model = Path(CONFIG.get("ml_model_path", ""))
-        print("  ML classifier .............. " + (
-            "disabled (ML_ENABLED=0)" if not CONFIG.get("ml_enabled", True) else
-            f"trained model ({_ml_model.name})" if _ml_model.is_file() and SKLEARN_AVAILABLE
-            else "rule engine (no trained model)"))
-        print(f"  LLM semantic analysis ...... provider='{CONFIG.get('llm_provider', 'auto')}'")
-        print(f"  VirusTotal reputation ...... {'key set' if CONFIG.get('virustotal_api_key') else 'no key (layer skipped)'}")
-        print("=" * 56)
 
+def _print_banner() -> None:
+    print("=" * 56)
+    print("  HYBRID RANSOMWARE DETECTION SYSTEM  v" + ENGINE_VERSION)
+    print("  Multi-layer document & archive scanner")
+    print("=" * 56)
+    print(f"Platform:          {platform.system()} ({platform.machine()})")
+    print(f"App directory:     {APP_DIR}")
+    print(f"Log file:          {LOG_FILE}")
+    print(f"Report directory:  {CONFIG['report_directory']}")
+    print(f"Database path:     {CONFIG['kaggle_database_path']}")
+    print("-" * 56)
+    print("Detection layers:")
+    print("  Cryptographic hashes ....... enabled")
+    print("  Local hash database ........ enabled")
+    print(f"  Fuzzy hashing (TLSH/ssdeep)  {'enabled' if FUZZY_AVAILABLE else 'unavailable (pip install python-tlsh ppdeep)'}")
+    print(f"  VBA/XLM macro analysis ..... {'enabled' if OLEVBA_AVAILABLE else 'unavailable (pip install oletools)'}")
+    print(f"  YARA structural rules ...... {'enabled' if YARA_AVAILABLE else 'unavailable (pip install yara-python)'}")
+    print("  File integrity heuristics .. enabled")
+    print(f"  Hidden content / injection . {'enabled' if DEFUSEDXML_AVAILABLE else 'PDF only (pip install defusedxml)'}")
+    print(f"  Office external links ...... {'enabled' if DEFUSEDXML_AVAILABLE else 'RTF only (pip install defusedxml)'}")
+    print("  ZIP archive inspection ..... enabled")
+    print(f"  E-mail (.eml/.msg) ......... {'enabled' if MSG_AVAILABLE else '.eml only (pip install oletools)'}")
+    _ml_model = Path(CONFIG.get("ml_model_path", ""))
+    print("  ML classifier .............. " + (
+        "disabled (ML_ENABLED=0)" if not CONFIG.get("ml_enabled", True) else
+        f"trained model ({_ml_model.name})" if _ml_model.is_file() and SKLEARN_AVAILABLE
+        else "rule engine (no trained model)"))
+    print(f"  LLM semantic analysis ...... provider='{CONFIG.get('llm_provider', 'auto')}'")
+    print(f"  VirusTotal reputation ...... {'key set' if CONFIG.get('virustotal_api_key') else 'no key (layer skipped)'}")
+    print("=" * 56)
+
+
+def _setup_command(args) -> bool:
+    """Autostart, shortcut and database import. True when one ran."""
     if args.setup_autostart:
         setup_autostart()
-        return
+        return True
 
     if args.remove_autostart:
         remove_autostart()
-        return
+        return True
 
     if args.create_shortcut:
         create_desktop_shortcut()
-        return
+        return True
 
     if args.import_database:
         outcome = import_hash_database(args.import_database)
         if outcome["error_kind"] == "missing_source":
             print(f"Error: Cannot find database file at {args.import_database}")
-            return
+            return True
         if outcome["error_kind"] == "exception":
             print(f"❌ Error importing database: {outcome['message']}")
-            return
+            return True
         print(f"✅ Successfully imported database from {args.import_database}")
         print(f"   Database saved to {outcome['destination']}")
         if outcome["missing_columns"]:
@@ -723,20 +731,17 @@ def main():
             print("   The scanner may not work properly without these columns.")
         else:
             print(f"✅ Database format validated. Found {outcome['entries']} entries.")
-        return
+        return True
+    return False
 
-    # Warn if API keys are not configured (set them in a local .env file)
-    if not utility_mode and (not CONFIG["chatgpt_api_key"] or not CONFIG["virustotal_api_key"]):
-        print("⚠️  One or more API keys are missing. Copy .env.example to .env and add your keys.")
-        print("    The local layers still work; the VirusTotal and cloud-LLM layers need keys.\n")
 
-    scanner = RansomwareScanner(CONFIG)
-
+def _protection_command(args, scanner) -> bool:
+    """Cache, canaries, key backup and quarantine. True when one ran."""
     # --- protection utilities -------------------------------------------------
     if args.clear_cache:
         removed = scanner.cache.clear() if scanner.cache is not None else 0
         print(f"✅ Cleared {removed} cached result(s).")
-        return
+        return True
 
     if args.deploy_canaries is not None:
         targets = args.deploy_canaries or scanner.scan_dirs
@@ -747,7 +752,7 @@ def main():
         print(f"{len(created)} new canary file(s); {total} registered in total.")
         print("The background mode (--background) checks them every "
               f"{CONFIG['canary_check_minutes']} minute(s).")
-        return
+        return True
 
     if args.verify_canaries:
         report = scanner.check_canaries(notify=False)
@@ -758,7 +763,7 @@ def main():
 
     if args.remove_canaries:
         print(f"✅ Removed {scanner.remove_canaries()} canary file(s).")
-        return
+        return True
 
     if args.export_key or args.import_key:
         try:
@@ -777,7 +782,7 @@ def main():
         except (QuarantineError, OSError) as e:
             print(f"❌ {e}")
             sys.exit(1)
-        return
+        return True
 
     if args.quarantine or args.list_quarantine or args.restore:
         try:
@@ -795,8 +800,31 @@ def main():
         except QuarantineError as e:
             print(f"❌ {e}")
             sys.exit(1)
-        return
+        return True
+    return False
 
+
+def _mailbox_command(args, scanner) -> bool:
+    """--scan-imap: one pass over the mailbox. True when it ran."""
+    if not args.scan_imap:
+        return False
+    from core.mailbox import MailboxError
+    try:
+        report, run = scanner.scan_mailbox()
+    except MailboxError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+    print(report)
+    if run.skipped_too_large:
+        print(f"⚠️  {len(run.skipped_too_large)} message(s) over IMAP_MAX_MB were not scanned "
+              f"(UIDs {', '.join(map(str, run.skipped_too_large[:10]))}).")
+    if run.more_waiting:
+        print("⚠️  More new messages are waiting; run --scan-imap again.")
+    return True
+
+
+def _scan_or_schedule(args, scanner) -> None:
+    """--scan-file, --scan-now and the scheduled background loop."""
     # --scan-file: analyse exactly one file, print its verdict, and exit.
     if args.scan_file:
         if not os.path.exists(args.scan_file):
@@ -842,6 +870,10 @@ def main():
         schedule.every(minutes).minutes.do(scanner.check_canaries)
         # Canaries deployed or removed later (GUI or CLI) are picked up here.
         schedule.every(minutes).minutes.do(watcher.refresh)
+        imap_minutes = int(CONFIG.get("imap_check_minutes", 0) or 0)
+        if imap_minutes > 0 and CONFIG.get("imap_host"):
+            logger.info("Mailbox %s checked every %d minute(s).", CONFIG["imap_folder"], imap_minutes)
+            schedule.every(imap_minutes).minutes.do(scanner.scan_mailbox_safely)
 
         if not args.scan_now:
             scanner.run_scan()
@@ -854,6 +886,34 @@ def main():
             logger.info("Scanner stopped by user.")
         finally:
             watcher.stop()
+
+
+def main():
+    """Main entry point for the script."""
+    # Output redirected to a file on Windows uses the ANSI code page (cp1252),
+    # which cannot encode characters such as "→": replace them rather than crash.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    args = _build_parser().parse_args()
+    _apply_overrides(args)
+    if _standalone_command(args):
+        return
+    utility_mode = _is_utility_mode(args)
+    if not utility_mode:
+        _print_banner()
+    if _setup_command(args):
+        return
+    # Warn if API keys are not configured (set them in a local .env file)
+    if not utility_mode and (not CONFIG["chatgpt_api_key"] or not CONFIG["virustotal_api_key"]):
+        print("⚠️  One or more API keys are missing. Copy .env.example to .env and add your keys.")
+        print("    The local layers still work; the VirusTotal and cloud-LLM layers need keys.\n")
+    scanner = RansomwareScanner(CONFIG)
+    if _protection_command(args, scanner) or _mailbox_command(args, scanner):
+        return
+    _scan_or_schedule(args, scanner)
 
 
 if __name__ == "__main__":
