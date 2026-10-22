@@ -54,6 +54,9 @@ def test_pipeline_order_is_the_report_order(scanner, tmp_path):
     p = tmp_path / "scan" / "letter.pdf"
     p.write_bytes(make_pdf("hello"))
     keys = list(scanner.scan_file(str(p))["scan_results"])
+    # Without a QR decoder (pyzbar + zbar, or OpenCV) the QR layer adds a
+    # "not checked" note; with one, a PDF without images adds nothing.
+    keys = [k for k in keys if k != "qr_codes"]
     assert keys == ["fuzzy_hash", "local_database", "macro_analysis", "yara", "file_integrity",
                     "prompt_guard", "relationships", "ml_classifier", "chatgpt_analysis",
                     "virustotal"]
