@@ -55,6 +55,7 @@ jobs:
         # Failures and the coverage total are also reported as annotations, so they
         # show without opening the raw log.
         run: |
+          set -o pipefail
           status=0
           xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml 2>&1 | tee pytest.log || status=$?
           { grep -E '^(FAILED|ERROR) |^TOTAL|Required test coverage|FAIL Required' pytest.log || true; } | head -20 | while read -r line; do

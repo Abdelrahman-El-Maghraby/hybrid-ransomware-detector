@@ -56,6 +56,9 @@ entry (zip slip). Detection on real malware is still unmeasured
 - One shared entropy function (`detectors/entropy.py`) instead of three copies,
   with a table for the per-window counts; the ML printable ratio is computed in C.
 - The worker-pool loop is a small class instead of one 100-line function.
+- E-mail attachments that the message-level checks flagged (double extension,
+  RTLO, program) carry `mail_flags`, like archive members carry `archive_flags`,
+  so the desktop app never shows `pay.pdf.exe` as a plainly clean attachment.
 
 ### Added
 
