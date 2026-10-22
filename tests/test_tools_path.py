@@ -6,6 +6,8 @@ import stat
 
 from core.tools import trusted_which
 
+EXT = ".exe" if os.name == "nt" else ""        # Windows finds programs by PATHEXT
+
 
 def _exe(path):
     path.write_text("#!/bin/sh\nexit 0\n")
@@ -17,11 +19,12 @@ def test_skips_current_directory_and_relative_entries(tmp_path, monkeypatch):
     planted, good = tmp_path / "downloads", tmp_path / "bin"
     planted.mkdir()
     good.mkdir()
-    _exe(planted / "fake7z")
-    _exe(good / "fake7z")
+    _exe(planted / f"fake7z{EXT}")
+    good_tool = _exe(good / f"fake7z{EXT}")
     monkeypatch.chdir(planted)
     monkeypatch.setenv("PATH", os.pathsep.join([".", "", str(planted), str(good)]))
-    assert trusted_which("fake7z") == str(good / "fake7z")
+    found = trusted_which("fake7z")
+    assert found is not None and os.path.samefile(found, good_tool)
 
 
 def test_not_found_and_explicit_paths(tmp_path, monkeypatch):
