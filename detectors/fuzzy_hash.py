@@ -51,9 +51,11 @@ logger = logging.getLogger("RansomwareScanner.fuzzy")
 
 # --- Optional dependencies: import defensively -----------------------------
 try:
-    import tlsh as _tlsh  # python-tlsh
-except Exception:  # pragma: no cover - absence is a valid runtime state
-    _tlsh = None
+    import tlsh as _tlsh  # python-tlsh (C extension; no Windows wheels)
+    TLSH_BACKEND = "python-tlsh"
+except Exception:  # pragma: no cover - the pure-Python port gives identical digests
+    from detectors import tlsh_py as _tlsh  # type: ignore[no-redef]
+    TLSH_BACKEND = "built-in" + ("" if _tlsh._np is not None else " (no numpy: first 2 MB)")
 
 try:
     import ppdeep as _ppdeep  # pure-Python ssdeep

@@ -14,6 +14,12 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   HTTP, throw-away TLDs and lure words only count in pairs). Links are defanged
   in reports. Needs an optional decoder: `pyzbar` (plus the zbar library) or
   OpenCV; without one the layer says QR codes were not checked.
+- **TLSH on Windows:** python-tlsh has no Windows wheels, so Windows installs
+  and the Windows release binary fell back to ssdeep alone. A built-in port
+  (`detectors/tlsh_py.py`, Apache-2.0, from Trend Micro's TLSH) is used when
+  the C library is missing. Its digests and distances are identical (checked
+  against python-tlsh on random and real files, plus golden values tested on
+  every OS); with numpy it hashes about 8 MB/s.
 - **Linux ELF triage:** header (bits, machine, type, static/dynamic), UPX or
   near-random packing, a removed section table, and behaviour strings (ransom
   note, cryptominer, reverse shell, download-and-run, log/firewall tampering,

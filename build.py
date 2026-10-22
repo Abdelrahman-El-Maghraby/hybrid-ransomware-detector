@@ -51,7 +51,7 @@ APP_NAME = "HybridRansomwareDetector"
 CLI_NAME = "hrd-scanner"
 GUI_NAME = "hrd-scanner-gui"
 REQUIRED = ("requests", "dotenv", "pypdf", "docx")
-OPTIONAL = ("customtkinter", "oletools", "yara", "tlsh", "ppdeep", "defusedxml",
+OPTIONAL = ("customtkinter", "oletools", "yara", "ppdeep", "defusedxml",   # TLSH: built-in port if missing
             "cryptography", "olefile")
 
 

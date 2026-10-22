@@ -141,7 +141,7 @@ python-dotenv==1.2.4
     #   hybrid-ransomware-detector (pyproject.toml)
 python-multipart==0.0.32
     # via hybrid-ransomware-detector
-python-tlsh==4.5.0
+python-tlsh==4.5.0 ; sys_platform != "win32"
     # via hybrid-ransomware-detector
 pyyaml==6.0.3
     # via

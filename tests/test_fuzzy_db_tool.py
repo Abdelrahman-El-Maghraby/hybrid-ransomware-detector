@@ -13,8 +13,8 @@ from tools.build_fuzzy_db import build, main
 
 pytestmark = pytest.mark.skipif(not FUZZY_AVAILABLE, reason="python-tlsh / ppdeep not installed")
 # The corpus below spreads 20 edits over each variant: TLSH still groups them,
-# ssdeep (block hashes) does not. python-tlsh has no Windows wheels.
-needs_tlsh = pytest.mark.skipif(_tlsh is None, reason="python-tlsh not installed")
+# ssdeep (block hashes) does not. (Without python-tlsh the built-in port is used.)
+needs_tlsh = pytest.mark.skipif(_tlsh is None, reason="no TLSH implementation")
 
 
 def family(seed, n, size=40_000):

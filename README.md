@@ -283,7 +283,7 @@ While walking folders, file *names* are checked for ransom notes (`HOW_TO_DECRYP
 
 **Python:** 3.9+ (see `requirements.txt`; every dependency ships x86_64 and ARM64 wheels or is pure Python, so installation needs no compiler).
 
-**Detection-layer libraries (optional, recommended):** `python-tlsh` + `ppdeep` (fuzzy hashing), `oletools` (macros), `yara-python` (YARA), `defusedxml` (hidden-content and external-link layers for Office files), `cryptography` (quarantine vault). If any are absent, that layer or feature is skipped.
+**Detection-layer libraries (optional, recommended):** `python-tlsh` + `ppdeep` (fuzzy hashing; on Windows, where python-tlsh has no wheels, a built-in TLSH port gives the same digests), `oletools` (macros), `yara-python` (YARA), `defusedxml` (hidden-content and external-link layers for Office files), `cryptography` (quarantine vault). If any are absent, that layer or feature is skipped.
 
 **Local LLM (optional, for OPSEC).** Install **[Ollama](https://ollama.com)** and pull a model; the scanner finds it automatically:
 
