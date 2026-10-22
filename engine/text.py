@@ -10,7 +10,7 @@ import docx
 try:  # pypdf is the maintained successor; PyPDF2 3.0.x has a known parser hang (CVE-2023-36464)
     from pypdf import PdfReader
 except ImportError:  # pragma: no cover
-    from PyPDF2 import PdfReader
+    from PyPDF2 import PdfReader  # type: ignore[no-redef]
 import pytesseract
 from pdf2image import convert_from_path
 
