@@ -34,11 +34,14 @@ from typing import Dict, Iterable, List, Optional
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from detectors.fuzzy_hash import FuzzyHasher, _tlsh  # noqa: E402
+from detectors.fuzzy_hash import FuzzyHasher, _ppdeep, _tlsh  # noqa: E402
 
 MAX_BYTES = 50 * 1024 * 1024
 MIN_BYTES = 512                 # smaller files give digests that match too much
 SKIP_NAMES = {".DS_Store", "Thumbs.db", "labels.csv"}
+
+
+SSDEEP_DEDUP = 90      # ssdeep similarity (0-100) treated as "the same sample"
 
 
 def _files(root: Path) -> Iterable[Path]:
@@ -69,6 +72,21 @@ def _digest(path: Path) -> Optional[Dict]:
     return d
 
 
+def _near_duplicate(d: Dict, family: str, signatures: List[Dict], dedup: int) -> bool:
+    """Same family and (TLSH distance < dedup, or - without TLSH, e.g. on Windows
+    where python-tlsh has no wheels - ssdeep similarity >= SSDEEP_DEDUP)."""
+    for s in signatures:
+        if s.get("family") != family:
+            continue
+        if _tlsh is not None and d["tlsh"] and s.get("tlsh"):
+            if _tlsh.diff(d["tlsh"], s["tlsh"]) < dedup:
+                return True
+        elif _ppdeep is not None and d["ssdeep"] and s.get("ssdeep"):
+            if _ppdeep.compare(d["ssdeep"], s["ssdeep"]) >= SSDEEP_DEDUP:
+                return True
+    return False
+
+
 def build(samples: Path, labels: Optional[Path] = None, benign: Optional[Path] = None,
           merge: Optional[Path] = None, dedup: int = 30) -> Dict:
     fam_by_hash = _labels(labels)
@@ -91,9 +109,7 @@ def build(samples: Path, labels: Optional[Path] = None, benign: Optional[Path] =
             continue
         rel = path.relative_to(samples)
         family = fam_by_hash.get(d["sha256"]) or (rel.parts[0] if len(rel.parts) > 1 else "unknown")
-        if d["tlsh"] and _tlsh is not None and any(
-                s.get("family") == family and s.get("tlsh")
-                and _tlsh.diff(d["tlsh"], s["tlsh"]) < dedup for s in signatures):
+        if _near_duplicate(d, family, signatures, dedup):
             stats["near_duplicates"] += 1
             continue
         signatures.append({"family": family, "tlsh": d["tlsh"], "ssdeep": d["ssdeep"],

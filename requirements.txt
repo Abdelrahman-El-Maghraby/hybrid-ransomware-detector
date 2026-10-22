@@ -24,7 +24,8 @@ customtkinter       # pure-Python; needs Tkinter (bundled on Windows/macOS;
 #     are missing, so a minimal install still runs the hash + DB layers) -------
 
 # Fuzzy / similarity hashing (polymorphic family detection)
-python-tlsh         # TLSH locality-sensitive hash; prebuilt wheels x86_64+arm64
+python-tlsh         # TLSH locality-sensitive hash; wheels for Linux/macOS only - on
+                    # Windows it needs a C++ build, else fuzzy matching uses ssdeep alone
 ppdeep              # pure-Python ssdeep; no libfuzzy/compiler needed
 
 # VBA / XLM macro analysis for Office documents (dropper detection)

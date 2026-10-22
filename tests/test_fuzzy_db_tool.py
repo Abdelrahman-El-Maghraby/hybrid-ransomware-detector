@@ -7,10 +7,14 @@ import random
 import pytest
 
 from detectors import FUZZY_AVAILABLE
-from detectors.fuzzy_hash import FuzzyHasher
+from detectors.fuzzy_hash import FuzzyHasher, _ppdeep, _tlsh
+from tools import build_fuzzy_db
 from tools.build_fuzzy_db import build, main
 
 pytestmark = pytest.mark.skipif(not FUZZY_AVAILABLE, reason="python-tlsh / ppdeep not installed")
+# The corpus below spreads 20 edits over each variant: TLSH still groups them,
+# ssdeep (block hashes) does not. python-tlsh has no Windows wheels.
+needs_tlsh = pytest.mark.skipif(_tlsh is None, reason="python-tlsh not installed")
 
 
 def family(seed, n, size=40_000):
@@ -38,6 +42,7 @@ def corpus(tmp_path):
     return root
 
 
+@needs_tlsh
 def test_families_dedup_and_stats(corpus):
     db = build(corpus)
     fams = sorted(s["family"] for s in db["signatures"])
@@ -48,6 +53,7 @@ def test_families_dedup_and_stats(corpus):
     assert all(len(s["sha256"]) == 64 for s in db["signatures"])
 
 
+@needs_tlsh
 def test_signatures_match_new_variants_through_the_scanner_hasher(corpus, tmp_path):
     out = tmp_path / "db.json"
     assert main([str(corpus), "--out", str(out)]) == 0
@@ -57,6 +63,7 @@ def test_signatures_match_new_variants_through_the_scanner_hasher(corpus, tmp_pa
     assert {m.family for m in hasher.match(d["tlsh"], d["ssdeep"])} == {"FamA"}
 
 
+@needs_tlsh
 def test_signature_matching_a_benign_file_is_dropped(corpus, tmp_path):
     benign = tmp_path / "benign"
     benign.mkdir()
@@ -66,6 +73,7 @@ def test_signature_matching_a_benign_file_is_dropped(corpus, tmp_path):
     assert db["dropped"][0]["family"] == "FamB"
 
 
+@needs_tlsh
 def test_labels_csv_overrides_folder_names_and_merge_extends(corpus, tmp_path):
     first = build(corpus)
     sha = next(s["sha256"] for s in first["signatures"] if s["family"] == "FamB")
@@ -78,3 +86,23 @@ def test_labels_csv_overrides_folder_names_and_merge_extends(corpus, tmp_path):
     prev.write_text(json.dumps(first))
     merged = build(corpus, merge=prev)
     assert len(merged["signatures"]) == 2 and merged["stats"]["duplicates"] >= 2
+
+
+@pytest.mark.skipif(_ppdeep is None, reason="ppdeep not installed")
+def test_without_tlsh_near_duplicates_collapse_by_ssdeep(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_fuzzy_db, "_tlsh", None)
+    monkeypatch.setattr(FuzzyHasher, "hash_bytes", staticmethod(
+        lambda data, _orig=FuzzyHasher.hash_bytes: {**_orig(data), "tlsh": None}))
+    rng = random.Random(7)
+    base = bytearray(rng.getrandbits(8) for _ in range(40_000))
+    d = tmp_path / "samples" / "FamC"
+    d.mkdir(parents=True)
+    for i in range(3):                       # one flipped byte each: ssdeep ~99
+        v = bytearray(base)
+        v[rng.randrange(len(v))] ^= 0xFF
+        (d / f"v{i}.bin").write_bytes(bytes(v))
+    (d / "other.bin").write_bytes(bytes(rng.getrandbits(8) for _ in range(40_000)))
+    db = build(tmp_path / "samples")
+    assert db["stats"]["near_duplicates"] == 2
+    assert [s["family"] for s in db["signatures"]] == ["FamC", "FamC"]
+    assert all(s["tlsh"] is None and s["ssdeep"] for s in db["signatures"])
