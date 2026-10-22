@@ -690,15 +690,17 @@ How the project is built to be trusted, not only to detect. Details in [`docs/AR
 
 Being explicit about what the tool does *not* do:
 
-- **Static analysis only.** Nothing is executed; there is no sandbox detonation.
-- **Archives:** ZIP (ZipCrypto and AES), 7z, RAR and ISO/IMG. RAR contents need an external decompressor (7-Zip, unrar, unar or bsdtar); without one only the member names are checked. Multi-volume RAR sets are not reassembled. Encrypted archives open only with a password from the built-in delivery list.
+- **Static analysis by default.** Nothing is executed. Behaviour that only shows at run time (a payload downloaded later, environment checks) is missed unless you connect your own CAPEv2 sandbox (`SANDBOX_URL`, off by default).
+- **Archives:** ZIP (ZipCrypto and AES), 7z, RAR and ISO/IMG. RAR contents need an external decompressor (7-Zip, unrar, unar or bsdtar); without one only the member names are checked. Multi-volume RAR sets are not reassembled. Encrypted archives open only with a password from the built-in delivery list or one written in the e-mail that carried them. Archives with more than 500 entries are partly unpacked (programs and scripts first; every name is still checked).
 - **Encrypted-content detection** needs at least 1 KiB of data, and a raw, headerless compressed stream can look as random as ciphertext. That is why it only runs once a document's own signature is already missing.
 - **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict. OLE objects that are neither a packaged file nor an Office/PDF document (e.g. equations) are counted but not unpacked.
-- **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which can include legitimate encrypted files. KeePass, GPG and age files with their normal extension are recognised; other encrypted formats are not. That's why the layer is capped at 20 points.
+- **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which can include legitimate encrypted files. KeePass, GPG and age files with their normal extension are recognised; other encrypted formats are not (PDFs whose object structure is intact are). That's why the layer is capped at 20 points.
 - **Hidden-content detection** covers Word, Excel, PowerPoint (OOXML) and PDF. Legacy binary `.xls/.ppt` and conditional-formatting tricks are not inspected.
 - **Canaries detect, they don't block.** They catch encryption in the folders where they are planted: within about a second with `watchdog`, otherwise at the check interval. This is a tripwire, not an EDR.
 - **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Use `--export-key` to back it up; a lost key and no backup means quarantined items can't be restored.
 - **Detection content is a starting point:** the bundled YARA rules are original triage heuristics and the fuzzy database ships empty. Real coverage grows with your own signatures.
+- **Windows programs are not classified on their own.** An `.exe` / `.dll` scanned directly is judged by the ML fallback, YARA behaviour rules and VirusTotal; the engine's strength is documents, e-mails, archives and scripts. A program disguised as a document, inside an archive or attached to an e-mail is flagged.
+- **Detection rate on real malware is not measured yet.** False alarms are (0.8% High/Critical on 3,312 benign files); `tools/evaluate.py` measures detection on your own labelled samples.
 
 ---
 
