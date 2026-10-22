@@ -100,3 +100,31 @@ rule Embedded_Executable_In_Document
         // firing on every .exe/.dll); archive / mail layers judge delivered ones.
         $mz at 0 and ($pe or $dos_stub) and not Program_Extension
 }
+
+rule Equation_Editor_Object_In_RTF
+{
+    meta:
+        author      = "hybrid-ransomware-detector"
+        description = "RTF document embedding a Microsoft Equation Editor 3.0 object (CVE-2017-11882 / CVE-2018-0802 carrier; the component was removed from Office in 2018)"
+        severity    = "high"
+    strings:
+        $rtf       = "{\\rt"
+        $eq_name   = "Equation.3" nocase ascii wide
+        $eq_hex    = "4571756174696f6e2e33" nocase          // "Equation.3" as RTF hex
+        $clsid_hex = "02ce020000000000c000000000000046" nocase
+    condition:
+        $rtf at 0 and any of ($eq*, $clsid_hex)
+}
+
+rule Equation_Editor_Object_In_Office_Binary
+{
+    meta:
+        author      = "hybrid-ransomware-detector"
+        description = "Legacy Office file (OLE) embedding a Microsoft Equation Editor 3.0 object; old documents with real equations also match, hence medium"
+        severity    = "medium"
+    strings:
+        $eq_name   = "Equation.3" nocase ascii wide
+        $clsid_bin = { 02 CE 02 00 00 00 00 00 C0 00 00 00 00 00 00 46 }
+    condition:
+        uint32(0) == 0xE011CFD0 and any of them
+}

@@ -6,6 +6,19 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [4.4.1] — 2026-10-22
 
+### Added (limits from the README, now closed)
+
+- **Equation Editor 3.0 objects** (CVE-2017-11882 / CVE-2018-0802, still common in
+  RTF droppers): YARA rules for RTF (class name in clear or hex-encoded, or the
+  CLSID; High) and legacy OLE Office files (Medium: old documents with real
+  equations also match).
+- **Hidden and "very hidden" sheets in legacy `.xls`** workbooks, read from the
+  BIFF8 BOUNDSHEET records (the usual home of Excel 4.0 macro droppers).
+- **More encrypted containers recognised** so they are not called "random":
+  LUKS volumes and `openssl enc` output, when the extension agrees.
+
+Benign benchmark unchanged: 27 High/Critical and 25 Low on 3,312 files.
+
 ### Security
 
 - Helper programs (7-Zip, unrar, unar, bsdtar, notify-send, osascript) are found
