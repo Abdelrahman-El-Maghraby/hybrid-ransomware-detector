@@ -43,6 +43,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.lock
       - name: System packages (RAR, 7-Zip, zbar, Tk for the GUI test)
+        timeout-minutes: 8               # a stuck apt mirror should fail fast, not eat the job
         run: sudo apt-get update && sudo apt-get install -y 7zip unar libzbar0 python3-tk xvfb
       - name: Install (pinned versions from the lock file)
         run: |
