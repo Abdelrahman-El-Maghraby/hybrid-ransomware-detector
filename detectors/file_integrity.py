@@ -51,6 +51,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Union
 
+from .entropy import shannon_entropy
+
 PathLike = Union[str, Path]
 
 HEAD_BYTES = 64 * 1024            # sample used for format + randomness checks
@@ -116,13 +118,6 @@ RANSOM_NOTE_RE = re.compile(
 
 
 # ------------------------------------------------------------------ math
-def shannon_entropy(data: bytes) -> float:
-    """Shannon entropy in bits per byte (0.0 - 8.0)."""
-    n = len(data)
-    if n == 0:
-        return 0.0
-    return -sum((c / n) * math.log2(c / n) for c in Counter(data).values())
-
 
 def chi_square_uniform(data: bytes) -> float:
     """Chi-square statistic of the byte histogram vs. a uniform distribution."""

@@ -203,7 +203,10 @@ def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
         (staging / name).write_bytes(blob)
     try:
         import yara  # type: ignore
-        yara.compile(filepaths={p.name: str(p) for p in (staging / "rules").iterdir()})
+
+        from detectors.yara_engine import YARA_EXTERNALS
+        yara.compile(filepaths={p.name: str(p) for p in (staging / "rules").iterdir()},
+                     externals=YARA_EXTERNALS)
     except ImportError:
         pass
     except Exception as e:

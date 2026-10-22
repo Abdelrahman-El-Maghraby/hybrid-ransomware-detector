@@ -6,6 +6,19 @@
     bytes (useful for OOXML containers and PDFs). Written from scratch.
 */
 
+// file_ext is passed by the scanner (lower-case extension without the dot).
+private rule Doc_Like_Extension
+{
+    condition:
+        file_ext matches /^(html?|xhtml|md|markdown|rst|txt|pdf|svg|json|css)$/
+}
+
+private rule Program_Extension
+{
+    condition:
+        file_ext matches /^(exe|dll|sys|ocx|cpl|drv|efi|mui|scr|com|msi|pyd|node|ax|winmd)$/
+}
+
 rule Office_Macro_AutoExec_Execution
 {
     meta:
@@ -27,7 +40,8 @@ rule Office_Macro_AutoExec_Execution
     condition:
         // 4.4.0-beta.2: only in Office binaries (OLE), Word 2003 XML / MHTML
         // exports, or VBA source - the words also occur in manuals and scripts.
-        (uint32(0) == 0xE011CFD0 or $vb or filesize < 64KB)
+        // 4.4.0-beta.3: small web pages and text are manuals, not macros.
+        (uint32(0) == 0xE011CFD0 or $vb or (filesize < 64KB and not Doc_Like_Extension))
         and (any of ($a*)) and (any of ($x*))
 }
 
@@ -48,7 +62,9 @@ rule Office_Macro_Payload_Download
         $ole = { D0 CF 11 E0 A1 B1 1A E1 }
     condition:
         // 4.4.0-beta.2: Office binaries, VBA source or small dropped scripts only
-        ($ole at 0 or $vb or filesize < 64KB) and (any of ($n*)) and (any of ($h*))
+        // 4.4.0-beta.3: small web pages and text are manuals, not macros.
+        ($ole at 0 or $vb or (filesize < 64KB and not Doc_Like_Extension))
+        and (any of ($n*)) and (any of ($h*))
 }
 
 rule PDF_AutoLaunch_Action
@@ -80,5 +96,7 @@ rule Embedded_Executable_In_Document
         $pe = "PE\x00\x00"
         $dos_stub = "This program cannot be run in DOS mode"
     condition:
-        $mz at 0 and ($pe or $dos_stub)
+        // 4.4.0-beta.3: a program named as a program is not masquerading (it was
+        // firing on every .exe/.dll); archive / mail layers judge delivered ones.
+        $mz at 0 and ($pe or $dos_stub) and not Program_Extension
 }

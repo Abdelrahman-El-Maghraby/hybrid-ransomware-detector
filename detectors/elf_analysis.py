@@ -24,13 +24,13 @@ finding, not an exception.
 
 from __future__ import annotations
 
-import math
 import re
 import struct
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+
+from .entropy import shannon_entropy
 
 PathLike = Union[str, Path]
 
@@ -128,12 +128,6 @@ def is_elf(path: PathLike) -> bool:
         return False
 
 
-def _entropy(data: bytes) -> float:
-    if not data:
-        return 0.0
-    n = len(data)
-    return -sum(c / n * math.log2(c / n) for c in Counter(data).values())
-
 
 class ElfAnalyzer:
     def __init__(self, max_read: int = _MAX_READ):
@@ -155,7 +149,7 @@ class ElfAnalyzer:
             return res
         res.is_elf = True
         self._header(data, res)
-        res.entropy = _entropy(data[:2 * 1024 * 1024])
+        res.entropy = shannon_entropy(data[:2 * 1024 * 1024])
         if b"UPX!" in data[:64 * 1024] or b"UPX!" in data[-4096:]:
             res.packed, res.packer = True, "UPX"
         elif (len(data) >= _MIN_PACKED_SIZE and res.entropy >= _PACKED_ENTROPY

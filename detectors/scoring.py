@@ -440,6 +440,11 @@ class ScoringMatrix:
                 "archive_executable", "technical", self.W_ARCHIVE_EXECUTABLE,
                 "Executable/script/shortcut inside the archive: "
                 + ", ".join(arc["executable_members"][:3]) + "."))
+        if arc.get("skipped_members"):
+            out.append(Contribution(
+                "archive_partially_scanned", "technical", self.W_ARCHIVE_PARTIAL,
+                f"{arc['skipped_members']} archive member(s) past the member limit were not "
+                "unpacked (their names were checked)."))
         if arc.get("encrypted_unreadable"):
             out.append(Contribution(
                 "archive_encrypted", "technical", self.W_ARCHIVE_ENCRYPTED,

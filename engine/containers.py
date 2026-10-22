@@ -161,6 +161,7 @@ class ArchiveHandler(ContainerHandler):
             "zip_slip": d["zip_slip"],
             "zip_bomb": d["zip_bomb"],
             "encrypted_unreadable": d["encrypted_unreadable"],
+            "skipped_members": d.get("skipped_members", 0),
             "executable_members": d["executable_members"],
             "double_extension_members": d["double_extension_members"],
             "rtlo_members": d["rtlo_members"],
@@ -273,10 +274,19 @@ class MailHandler(ContainerHandler):
     def capture(self, view, ctx):
         ctx.text = view.body_text   # the prompt-guard and LLM layers read the body
 
+    FLAG_SOURCES = (("double_extension", "double_extension_attachments"),
+                    ("rtlo_spoof", "rtlo_attachments"), ("executable", "executable_attachments"))
+
     def decorate(self, view_dict, summaries):
         written = set(view_dict.get("archive_passwords") or [])
         view_dict["archives_opened_with_mail_password"] = [
             s["name"] for s in summaries if s.get("archive_password") in written]
+        # Like archive members: an attachment the message-level checks flagged
+        # (pay.pdf.exe) is never shown as plainly "Clean".
+        for summary in summaries:
+            inner = str(summary.get("name", "")).split("!/", 1)[-1]
+            summary["mail_flags"] = [flag for flag, key in self.FLAG_SOURCES
+                                     if inner in (view_dict.get(key) or [])]
 
     def signals(self, d):
         return {

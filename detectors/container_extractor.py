@@ -131,6 +131,8 @@ _EXEC_MAGIC = ((b"MZ", "pe"), (b"\x7fELF", "elf"), (b"\x4c\x00\x00\x00\x01\x14\x
                (b"\xcf\xfa\xed\xfe", "macho"), (b"\xce\xfa\xed\xfe", "macho"))
 RTLO = "‮"   # right-to-left override (escaped on purpose: never put it in source)
 _STREAM_CHUNK = 64 * 1024
+_CONTAINER_SUFFIXES = frozenset({".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".cab", ".docm",
+                                 ".xlsm", ".pptm", ".doc", ".xls", ".eml", ".msg"})
 _SEVENZIP_MAGIC = b"7z\xbc\xaf\x27\x1c"
 _RAR_MAGICS = (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")      # RAR 1.5-4.x, RAR 5
 _ISO_DESCRIPTOR_OFFSETS = (0x8001, 0x8801, 0x9001)
@@ -250,6 +252,7 @@ class ContainerResult:
     zip_slip: bool = False
     zip_slip_reason: str = ""
     unreadable_members: int = 0
+    skipped_members: int = 0        # past the member limit: names checked, not unpacked
     password_used: Optional[str] = None
     executable_members: List[str] = field(default_factory=list)
     double_extension_members: List[str] = field(default_factory=list)
@@ -277,6 +280,7 @@ class ContainerResult:
             "zip_slip": self.zip_slip,
             "zip_slip_reason": self.zip_slip_reason,
             "unreadable_members": self.unreadable_members,
+            "skipped_members": self.skipped_members,
             "encrypted_unreadable": self.encrypted_unreadable,
             "password_used": self.password_used,
             "executable_members": self.executable_members[:50],
@@ -291,6 +295,12 @@ def visible_name(name: str) -> str:
     """Render a member name safely for reports (control chars + RTLO shown)."""
     out = name.replace(RTLO, "[RTLO]")
     return re.sub(r"[\x00-\x1f\x7f]", "?", out)
+
+
+def _priority_name(name: str) -> bool:
+    """Unpack these first when an archive has more entries than the member limit."""
+    suffix = PurePosixPath(name.replace("\\", "/").replace(RTLO, "")).suffix.lower()
+    return RTLO in name or suffix in EXECUTABLE_EXTENSIONS or suffix in _CONTAINER_SUFFIXES
 
 
 def _unsafe_member_path(name: str) -> Optional[str]:
@@ -468,6 +478,23 @@ class ContainerExtractor:
             return False
         return True
 
+    def _cap(self, items: list, name_of, display: str, res: ContainerResult) -> list:
+        """More entries than the member limit (a timezone database, an icon set):
+        unpack the first ones - programs, scripts and nested archives first - and
+        check only the names of the rest. Many entries alone are not a bomb."""
+        room = max(0, self.max_members - len(res.members))
+        if len(items) <= room:
+            return items
+        ordered = sorted(items, key=lambda it: 0 if _priority_name(name_of(it)) else 1)
+        keep, rest = ordered[:room], ordered[room:]
+        for it in rest:
+            name = name_of(it)
+            base = PurePosixPath(name.replace("\\", "/")).name or "member"
+            self._classify_name(base, f"{display}!/{visible_name(name)}",
+                                ArchiveMember(name), res)
+        res.skipped_members += len(rest)
+        return keep
+
     def _limits_ok(self, count: int, declared: int, res: ContainerResult) -> bool:
         if len(res.members) + count > self.max_members:
             res.zip_bomb = True
@@ -543,7 +570,8 @@ class ContainerExtractor:
             logger.debug("Unreadable archive %s: %s", display, e)
             return
         with zf:
-            infos = [i for i in zf.infolist() if not i.is_dir()]
+            infos = self._cap([i for i in zf.infolist() if not i.is_dir()],
+                              lambda i: i.filename, display, res)
             if not self._limits_ok(len(infos), sum(i.file_size for i in infos), res):
                 return
             for info in infos:
@@ -630,7 +658,8 @@ class ContainerExtractor:
             logger.debug("Unreadable 7z %s: %s", display, e)
             return
 
-        files = [i for i in infos if not i.is_directory]
+        files = self._cap([i for i in infos if not i.is_directory],
+                          lambda i: i.filename, display, res)
         if not self._limits_ok(len(files), sum(i.uncompressed or 0 for i in files), res):
             return
         admitted = []
@@ -714,6 +743,7 @@ class ContainerExtractor:
             logger.debug("Unreadable RAR %s: %s", display, e)
             return
         with contextlib.closing(rf):
+            infos = self._cap(infos, lambda i: i.filename, display, res)
             if not self._limits_ok(len(infos), sum(int(i.file_size or 0) for i in infos), res):
                 return
             for info in infos:
@@ -787,6 +817,7 @@ class ContainerExtractor:
                 for fn in files:
                     p = dirname.rstrip("/") + "/" + fn
                     entries.append((p, iso.get_record(**{key: p})))
+            entries = self._cap(entries, lambda e: e[0], display, res)
             if not self._limits_ok(len(entries),
                                    sum(r.get_data_length() for _, r in entries), res):
                 return
@@ -1011,6 +1042,9 @@ class ContainerExtractor:
             bits.append(f"ZIP BOMB: {res.zip_bomb_reason}")
         if res.zip_slip:
             bits.append(f"ZIP SLIP: {res.zip_slip_reason}")
+        if res.skipped_members:
+            bits.append(f"{res.skipped_members} member(s) past the member limit: "
+                        "names checked, contents not scanned")
         if res.executable_members:
             bits.append(f"{len(res.executable_members)} executable/script member(s)")
         if res.installer_executables:

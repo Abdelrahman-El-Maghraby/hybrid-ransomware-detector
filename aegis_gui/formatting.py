@@ -199,7 +199,7 @@ def layers_summary(result: dict) -> str:
     mail = sr.get("mail", {})
     if mail:
         bad = sum(1 for m in mail.get("attachment_results", []) or []
-                  if m.get("verdict", "Clean") != "Clean")
+                  if m.get("verdict", "Clean") != "Clean" or m.get("mail_flags"))
         parts.append(f"mail{mail.get('attachment_count', 0)}" + (f"!{bad}" if bad else ""))
         if (mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof"):
             parts.append("spoof!")       # authentication failure / display-name spoof
