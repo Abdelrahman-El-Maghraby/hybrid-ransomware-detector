@@ -118,7 +118,7 @@ def _known_compressed(data: bytes, ext: str) -> bool:
     """A format whose body is compressed by design, so high entropy is expected.
     A PDF counts only while its object structure is intact (an encryptor that keeps
     the header destroys the 'endobj' markers): Flate streams made 18% of benign
-    PDFs look 'random throughout' (4.4.0-beta.3 benchmark)."""
+    PDFs look 'random throughout' (4.4.0 benchmark)."""
     if any(data[o:o + len(m)] == m for o, m in _COMPRESSED_MAGIC):
         return True
     if data.startswith(b"%PDF-") and data.count(b"endobj") >= 3:

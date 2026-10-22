@@ -1,4 +1,4 @@
-"""Fixes from the 4.4.0-beta.3 benign-corpus benchmark (see CHANGELOG)."""
+"""Fixes from the 4.4.0 benign-corpus benchmark (see CHANGELOG)."""
 
 import json
 import time

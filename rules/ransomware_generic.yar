@@ -82,7 +82,7 @@ rule Bitcoin_Address_With_Payment_Context
     condition:
         // 4.4.0-beta.2: the address shape alone matches random identifiers in
         // documentation and binaries, so the currency must be named as well.
-        // 4.4.0-beta.3: "btc", "pay" and "send" also turn up by chance inside the
+        // 4.4.0: "btc", "pay" and "send" also turn up by chance inside the
         // base64 of an e-mail attachment, next to address-shaped runs; a bare
         // "BTC" now needs a ransom word (wallet / decrypt) too.
         filesize < 5MB and $btc and (any of ($ctx*))

@@ -4,7 +4,12 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 4.4.0-beta.3 work
+## [4.4.0] — 2026-10-22
+
+Stable release. Everything from 4.4.0-beta.1 and 4.4.0-beta.2 (below), plus the
+benchmark fixes in this section. Known limit: the detection rate on real malware
+samples has not been measured yet (`tools/evaluate.py`); the numbers below are
+about false alarms and speed on benign files.
 
 Measured on 3,312 benign files from a Linux workstation (system binaries, Python /
 Node / Go packages, PDFs, HTML, scripts, Windows launchers found in Python

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hybrid-ransomware-detector"
 description = "Aegis Sentinel: hybrid, explainable static scanner for ransomware and phishing delivery files"
-version = "4.4.0b2"
+version = "4.4.0"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Abdelrahman El-Maghraby" }]
