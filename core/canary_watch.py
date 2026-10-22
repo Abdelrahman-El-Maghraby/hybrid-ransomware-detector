@@ -25,8 +25,9 @@ import os
 import threading
 from typing import Callable, Optional, Set
 
-from .canary import CanaryManager, _norm
 from detectors.file_integrity import RANSOM_NOTE_RE
+
+from .canary import CanaryManager, _norm
 
 logger = logging.getLogger("RansomwareScanner.canary")
 
@@ -44,11 +45,11 @@ _CHANGE_EVENTS = frozenset({"created", "deleted", "modified", "moved", "closed"}
 
 
 class _Handler(FileSystemEventHandler):  # type: ignore[misc]
-    def __init__(self, watcher: "CanaryWatcher"):
+    def __init__(self, watcher: CanaryWatcher):
         super().__init__()
         self.watcher = watcher
 
-    def on_any_event(self, event):  # noqa: D401 - watchdog callback
+    def on_any_event(self, event):
         if event.event_type not in _CHANGE_EVENTS or event.is_directory:
             return
         for path in (event.src_path, getattr(event, "dest_path", "") or ""):

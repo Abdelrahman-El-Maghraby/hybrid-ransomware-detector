@@ -6,7 +6,11 @@ import re
 from typing import List
 
 import docx
-import PyPDF2
+
+try:  # pypdf is the maintained successor; PyPDF2 3.0.x has a known parser hang (CVE-2023-36464)
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover
+    from PyPDF2 import PdfReader  # type: ignore[no-redef]
 import pytesseract
 from pdf2image import convert_from_path
 
@@ -92,7 +96,7 @@ class TextExtractionMixin:
         text = ""
         try:
             with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file, strict=False)
+                pdf_reader = PdfReader(file, strict=False)
                 for page in pdf_reader.pages[:200]:
                     text += (page.extract_text() or "") + "\n"
             return text
@@ -128,6 +132,7 @@ class TextExtractionMixin:
         if not DEFUSEDXML_AVAILABLE:
             return ""
         import zipfile
+
         import defusedxml.ElementTree as DET
         part_re = re.compile(r"(word/(document|header\d*|footer\d*)\.xml"
                              r"|xl/sharedStrings\.xml|ppt/slides/slide\d+\.xml)$")

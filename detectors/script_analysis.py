@@ -42,7 +42,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 PathLike = Union[str, Path]
 
@@ -324,18 +324,21 @@ class ScriptAnalyzer:
     def __init__(self, max_read: int = MAX_READ):
         self.max_read = max_read
 
-    def analyze_file(self, path: PathLike) -> ScriptResult:
+    def analyze_file(self, path: PathLike, data: Optional[bytes] = None) -> ScriptResult:
         p = Path(path)
         res = ScriptResult(is_script=is_script(p), language=_LANG.get(p.suffix.lower(), ""))
         if not res.is_script:
             res.detail = "Not a script file."
             return res
-        try:
-            with open(p, "rb") as fh:
-                raw = fh.read(self.max_read + 1)
-        except OSError as e:
-            res.detail = f"Could not read script: {e}"
-            return res
+        if data is not None:
+            raw = data[: self.max_read + 1]
+        else:
+            try:
+                with open(p, "rb") as fh:
+                    raw = fh.read(self.max_read + 1)
+            except OSError as e:
+                res.detail = f"Could not read script: {e}"
+                return res
         if len(raw) > self.max_read:
             raw, res.truncated = raw[: self.max_read], True
         return self.analyze_bytes(raw, res)

@@ -10,8 +10,8 @@ import zipfile
 
 import pytest
 
-from detectors.script_analysis import ScriptAnalyzer, ScriptResult, is_script
 from detectors.scoring import ScoringMatrix
+from detectors.script_analysis import ScriptAnalyzer, ScriptResult, is_script
 from tests.test_mail_analyzer import make_eml
 from tests.test_scanner_integration import _indicators, scanner  # noqa: F401  (fixture)
 

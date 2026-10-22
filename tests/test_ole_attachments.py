@@ -9,8 +9,8 @@ import pytest
 
 import RansomwareScanner as RS
 from detectors.mail_analyzer import MSG_AVAILABLE, MailAnalyzer, parse_ole10native
-from tests.msg_builder import Ole, build_msg, compobj, msg_tree, ole10native
 from tests.helpers import make_pdf
+from tests.msg_builder import Ole, build_msg, compobj, msg_tree, ole10native
 from tests.test_file_integrity import _pe_bytes
 from tests.test_scanner_integration import _config, _indicators
 

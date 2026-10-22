@@ -6,7 +6,7 @@ import json
 import pytest
 
 import RansomwareScanner as RS
-from core.sandbox import CapeClient, summarise_report, SandboxResult
+from core.sandbox import CapeClient, SandboxResult, summarise_report
 from detectors.scoring import ScoringMatrix
 from tests.test_scanner_integration import _config
 

@@ -57,19 +57,21 @@ Two scores are produced:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from .registry import REGISTRY
 
 # ---- Category weight ceilings ---------------------------------------------
 # Each category's summed contribution is capped here, then categories are added
 # and the total is clamped to MAX_RAW. Caps give diminishing returns when many
 # weak signals of the same kind stack up.
-TECHNICAL_CATEGORY_CAP = 100.0      # technical can drive the score on its own
-REPUTATION_CATEGORY_CAP = 80.0
-SEMANTIC_CATEGORY_CAP = 24.0        # deliberately < the MEDIUM band ceiling (49)
-STATISTICAL_CATEGORY_CAP = 20.0     # ML byte-shape classifier: a weak, broad signal
-DYNAMIC_CATEGORY_CAP = 100.0        # observed behaviour in a sandbox: as strong as technical
+TECHNICAL_CATEGORY_CAP = REGISTRY.caps["technical"]      # technical can drive the score on its own
+REPUTATION_CATEGORY_CAP = REGISTRY.caps["reputation"]
+SEMANTIC_CATEGORY_CAP = REGISTRY.caps["semantic"]        # below the top of Medium (49)
+STATISTICAL_CATEGORY_CAP = REGISTRY.caps["statistical"]  # ML byte-shape classifier: weak, broad
+DYNAMIC_CATEGORY_CAP = REGISTRY.caps["dynamic"]          # behaviour observed in a sandbox
 
-MAX_RAW = 100.0
+MAX_RAW = REGISTRY.max_raw
 
 # ---- Verdict bands (on the 0-100 risk score) ------------------------------
 BANDS = [
@@ -80,7 +82,7 @@ BANDS = [
     (80, 100, "Critical"),
 ]
 # A semantic-only result is clamped to the top of this band.
-SEMANTIC_ONLY_MAX = 49      # => "Medium"
+SEMANTIC_ONLY_MAX = REGISTRY.semantic_only_max      # => "Medium"
 
 
 @dataclass
@@ -108,6 +110,7 @@ class ScoreResult:
     is_malicious: bool
     contributions: List[Contribution] = field(default_factory=list)
     category_totals: Dict[str, float] = field(default_factory=dict)
+    registry_version: str = ""
 
     def as_dict(self) -> Dict:
         return {
@@ -116,11 +119,12 @@ class ScoreResult:
             "verdict": self.verdict,
             "is_malicious": self.is_malicious,
             "category_totals": {k: round(v, 2) for k, v in self.category_totals.items()},
+            "registry_version": self.registry_version,
             "contributions": [c.as_dict() for c in self.contributions],
         }
 
 
-def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> "Contribution":
+def _prefixed(member: str, c: Dict, prefix: str = "archive_member") -> Contribution:
     return Contribution(
         indicator=f"{prefix}:{c.get('indicator', '?')}",
         category=str(c.get("category", "technical")),
@@ -165,99 +169,17 @@ class ScoringMatrix:
         }
     """
 
-    # ---- per-indicator weights (points when fully triggered) --------------
-    W_LOCAL_DB = 100.0              # exact known-bad hash => maximum
-    W_YARA = {"critical": 90.0, "high": 65.0, "medium": 40.0, "low": 18.0}
-    W_YARA_EXTRA = 8.0              # each additional rule beyond the top one
-    W_FUZZY = 72.0                  # scaled by structural similarity confidence
-    W_MACRO_AUTOEXEC = 22.0        # an auto-run trigger exists
-    W_MACRO_CRITICAL = 40.0        # first exec/download primitive (Shell, etc.)
-    W_MACRO_CRITICAL_EXTRA = 8.0   # each additional critical primitive
-    W_MACRO_SUSPICIOUS = 10.0      # non-critical suspicious call(s), flat
-    W_MACRO_DROPPER_SYNERGY = 20.0 # autoexec AND critical => classic dropper
-    W_VT_RATIO = 80.0              # scaled by detection ratio
-    W_VT_FLOOR = 35.0              # a few engines flag even at a low ratio
-    W_LLM = 24.0                   # scaled by confidence (semantic, capped low)
+    # Weights live in detectors/indicators.yaml (one place for weights, categories
+    # and labels); they are attached to this class as W_* attributes at import
+    # time, and an instance can carry reviewed overrides (see __init__).
 
-    # ---- v4 technical indicators -------------------------------------------
-    W_VBA_STOMPING = 90.0          # P-code/source mismatch = deliberate evasion
-    W_XLM_MACROS = 55.0            # Excel 4.0 macro sheets (rarely legitimate)
-    W_DISGUISED_EXECUTABLE = 90.0  # PE/ELF/Mach-O/LNK/script behind a doc extension
-    W_ENCRYPTED_CONTENT = 70.0     # signature gone + random bytes = ransomware impact
-    W_FORMAT_MISMATCH = 15.0       # content doesn't match the extension
-    W_INJECTION_CONFIRMED = 50.0   # prompt injection hidden in the document
-    W_INJECTION_SUSPICIOUS = 15.0  # injection phrasing in visible text only
-    W_HIDDEN_CONTENT = 15.0        # concealed text (hidden runs, invisible PDF text)
-    W_RTI = {                      # Office external relationships
-        "exploit_scheme": 90.0,          # ms-msdt:, search-ms:, mhtml: ...
-        "follina_style_ole": 90.0,       # external OLE link ending in '!'
-        "remote_template": 70.0,         # T1221 remote template injection
-        "external_ole": 70.0,
-        "unc_ntlm_leak": 70.0,           # T1187 forced NTLM authentication
-        "rtf_remote_template": 70.0,
-        "external_frame": 40.0,
-        "external_subdocument": 40.0,
-        "rtf_ole_autoupdate": 40.0,
-    }
-    W_RTI_EXTRA = 8.0              # each additional distinct relationship kind
-    W_ARCHIVE_SLIP = 80.0          # path traversal / symlink entries
-    W_ARCHIVE_BOMB = 60.0          # decompression bomb
-    W_ARCHIVE_DOUBLE_EXT = 60.0    # invoice.pdf.exe
-    W_ARCHIVE_RTLO = 60.0          # right-to-left-override filename spoof
-    W_ARCHIVE_EXECUTABLE = 35.0    # executable/script/shortcut inside an archive
-    W_ARCHIVE_ENCRYPTED = 20.0     # encrypted content the scanner could not open
+    if TYPE_CHECKING:                     # W_* weights are attached from the registry
+        def __getattr__(self, name: str) -> Any: ...
 
-    # ---- v4.1: MailGuard (.eml / .msg) ---------------------------------------
-    W_MAIL_DMARC_FAIL = 35.0       # receiving server says the From domain is forged
-    W_MAIL_AUTH_FAIL = 20.0        # SPF or DKIM failed (DMARC not failed / absent)
-    W_MAIL_DISPLAY_SPOOF = 30.0    # "billing@bank.com" <x@evil.tld>
-    W_MAIL_REPLY_TO = 15.0         # replies diverted to another organisation
-    W_MAIL_DECEPTIVE_LINK = 25.0   # link text shows one domain, href goes to another
-    W_MAIL_RISKY_ATTACHMENT = 45.0 # executable / script / macro-enabled attachment
-    W_MAIL_DOUBLE_EXT = 60.0
-    W_MAIL_RTLO = 60.0
-    W_MAIL_LURE_SUBJECT = 8.0      # semantic: urgency/payment/credential phrasing
-    W_MAIL_ARCHIVE_PASSWORD = 30.0 # encrypted archive + its password in the mail (gateway evasion)
-
-    # ---- v4.4: web content + images ------------------------------------------------
-    W_HTML_SMUGGLING = 70.0        # Blob download construct + embedded payload (T1027.006)
-    W_WEB_PAYLOAD = 60.0           # executable / archive / disc image embedded in a page
-    W_WEB_DOWNLOAD_CONSTRUCT = 15.0  # the construct alone (web apps use it for exports)
-    W_SVG_ACTIVE = 40.0            # script / event handlers / foreignObject in an SVG
-    W_WEB_CREDENTIAL = 35.0        # password captured and sent out (phishing page)
-    W_WEB_REDIRECT = 20.0          # page forwards to an external URL
-    W_JS_OBFUSCATION = 15.0        # two or more obfuscation markers
-    W_IMAGE_APPENDED_PAYLOAD = 70.0  # executable / archive after the end of an image
-
-    # ---- 4.4.0-beta.2: Linux ELF triage and QR codes ------------------------------
-    W_ELF_BEHAVIOUR = {             # hostile-only strings in an ELF, by category
-        "ransom_note": 60.0, "miner": 45.0, "reverse_shell": 45.0,
-        "download_exec": 35.0, "evasion": 25.0, "persistence": 20.0,
-    }
-    W_ELF_BEHAVIOUR_EXTRA = 8.0     # each additional category
-    W_ELF_PACKED = 20.0             # UPX or near-random content with few sections
-    W_ELF_NO_SECTIONS = 10.0        # runnable ELF with its section table removed
-    W_QR_SUSPICIOUS_URL = 35.0      # QR code leads to an IP / shortener / punycode / lure URL
-    W_QR_URL = 8.0                  # semantic: a QR code carries a web link (quishing pattern)
-    W_SCRIPT_BEHAVIOUR = {          # script attachments (JS / VBS / HTA / PS1 / BAT), by category
-        "recovery": 70.0, "dropper": 65.0, "ransom_note": 60.0, "defence_evasion": 40.0,
-        "persistence": 25.0, "download": 20.0, "execute": 20.0,
-    }
-    W_SCRIPT_BEHAVIOUR_EXTRA = 8.0  # each additional category
-    W_SCRIPT_ENCODED = 30.0         # Script Encoder output (.vbe / .jse): hides the source
-    W_SCRIPT_OBFUSCATION = 20.0     # two or more obfuscation markers
-    W_ONENOTE_RISKY = 45.0          # OneNote page carrying a script / program / shortcut
-    W_CHM_SHORTCUT = 60.0           # help page that runs a command (HTML Help ShortCut object)
-    W_MSI_SCRIPT_ACTION = 40.0      # VBScript / JScript custom action in an installer
-    W_XLL_ADDIN = 40.0              # Excel add-in DLL: code that runs when Excel opens it
-    W_OFFICE_ENCRYPTED = 10.0       # password-protected document no password opened
-    # ---- dynamic (optional self-hosted CAPEv2 sandbox) ----------------------------
-    W_SANDBOX_RANSOMWARE = 80.0     # encryption / shadow-copy deletion / ransom note observed
-    W_SANDBOX_SIGNATURE = {3: 25.0, 2: 12.0, 1: 4.0}   # per behaviour signature, by severity
-    W_SANDBOX_SIGNATURES_MAX = 70.0
-
-    # ---- v4.1: ML classifier (statistical) --------------------------------------
-    W_ML = 20.0                    # scaled by P(suspicious)
+    def __init__(self, weights_override: Optional[Dict] = None):
+        self.registry = REGISTRY.with_overrides(weights_override) if weights_override else REGISTRY
+        for name, value in (weights_override or {}).items():
+            setattr(self, name, value)
 
     def score(self, signals: Dict) -> ScoreResult:
         contribs: List[Contribution] = []
@@ -328,6 +250,12 @@ class ScoringMatrix:
         contribs.extend(self._elf_and_qr(signals))
         contribs.extend(self._script(signals))
         contribs.extend(self._embedded(signals))
+
+        if signals.get("scan_failed"):
+            contribs.append(Contribution(
+                "scan_failed", "technical", self.W_SCAN_FAILED,
+                f"Scanning this file failed ({signals['scan_failed']}). Ordinary documents do "
+                "not hang or crash a parser; inspect it manually."))
 
         # ---------------- STATISTICAL ----------------
         ml = signals.get("ml") or {}
@@ -432,6 +360,7 @@ class ScoringMatrix:
             is_malicious=is_malicious,
             contributions=contribs,
             category_totals=category_totals,
+            registry_version=self.registry.version + (" +override" if self.registry is not REGISTRY else ""),
         )
 
     # ------------------------------------------------------------------ v4
@@ -488,14 +417,14 @@ class ScoringMatrix:
                 + (f" -> {targets}" if targets else "") + "."))
 
         arc = signals.get("archive") or {}
-        reasons = arc.get("reasons") or {}
+        arc_reasons = arc.get("reasons") or {}
         if arc.get("zip_slip"):
             out.append(Contribution("archive_zip_slip", "technical", self.W_ARCHIVE_SLIP,
                                     f"Archive path traversal / symlink entry. "
-                                    f"{reasons.get('zip_slip', '')}".strip()))
+                                    f"{arc_reasons.get('zip_slip', '')}".strip()))
         if arc.get("zip_bomb"):
             out.append(Contribution("archive_zip_bomb", "technical", self.W_ARCHIVE_BOMB,
-                                    f"Decompression bomb. {reasons.get('zip_bomb', '')}".strip()))
+                                    f"Decompression bomb. {arc_reasons.get('zip_bomb', '')}".strip()))
         if arc.get("double_extension_members"):
             out.append(Contribution(
                 "archive_double_extension", "technical", self.W_ARCHIVE_DOUBLE_EXT,
@@ -719,3 +648,8 @@ class ScoringMatrix:
         for c in worst.get("contributions", []) or []:
             out.append(_prefixed(worst.get("name", "payload"), c, "web_payload"))
         return out
+
+
+# Attach the registry's weights as class attributes (W_LOCAL_DB, W_YARA, ...).
+for _name, _value in REGISTRY.weights.items():
+    setattr(ScoringMatrix, _name, _value)

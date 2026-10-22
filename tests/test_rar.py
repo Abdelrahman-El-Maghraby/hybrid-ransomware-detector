@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import RansomwareScanner as RS
 import detectors.container_extractor as ce
+import RansomwareScanner as RS
 from detectors.container_extractor import ContainerExtractor, detect_container
 from tests.rar_builder import build_rar
 from tests.test_file_integrity import _pe_bytes

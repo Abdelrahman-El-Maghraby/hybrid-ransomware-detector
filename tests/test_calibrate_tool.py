@@ -58,6 +58,23 @@ def test_cli_with_saved_features(tmp_path):
     assert main(["--features-in", str(feats), "--out", str(out)]) == 0
     assert "| strong |" in (out / "summary.md").read_text()
     assert json.loads((out / "weights.json").read_text())["files"] == 120
+    assert (out / "weights.override.yaml").read_text().startswith("# Proposed")
+
+
+def test_override_file_loads_into_the_scoring_matrix(tmp_path):
+    from detectors.registry import load_overrides
+    from detectors.scoring import ScoringMatrix
+    from tools.calibrate_weights import override_yaml
+    res = {"files": 50, "indicators": [
+        {"indicator": "disguised_executable", "proposed": 77.0, "current": 90.0,
+         "kept_current": False, "malicious": 30, "benign": 0},
+        {"indicator": "yara_match", "proposed": 20.0, "current": 65.0,      # dict weight: skipped
+         "kept_current": False, "malicious": 30, "benign": 5}]}
+    p = tmp_path / "o.yaml"
+    p.write_text(override_yaml(res))
+    assert load_overrides(p) == {"W_DISGUISED_EXECUTABLE": 77.0}
+    assert ScoringMatrix(load_overrides(p)).score(
+        {"integrity": {"disguised_executable": "pe"}}).risk_score == 77
 
 
 def test_cli_scans_labelled_folders(tmp_path):

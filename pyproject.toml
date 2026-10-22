@@ -1,0 +1,116 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hybrid-ransomware-detector"
+description = "Aegis Sentinel: hybrid, explainable static scanner for ransomware and phishing delivery files"
+version = "4.4.0b2"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Abdelrahman El-Maghraby" }]
+requires-python = ">=3.9"
+# Core: the engine runs with these; every detection layer below is optional and the
+# scanner degrades gracefully without it. `pip install -e ".[all]"` from a clone.
+dependencies = [
+    "requests>=2.31",
+    "schedule>=1.2",
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "Pillow>=10.0",
+    "defusedxml>=0.7",
+    "cryptography>=42",
+    "olefile>=0.46",
+]
+
+[project.optional-dependencies]
+gui = ["customtkinter>=5.2"]
+fuzzy = ["python-tlsh>=4.5", "ppdeep>=20200505"]
+macro = ["oletools>=0.60"]
+yara = ["yara-python>=4.3"]
+archives = ["pyzipper>=0.3.6", "py7zr>=0.20", "pycdlib>=1.14", "rarfile>=4.1"]
+office = ["msoffcrypto-tool>=5.4"]
+qr = ["pyzbar>=0.1.9"]
+ocr = ["pdf2image>=1.16", "pytesseract>=0.3.10"]
+watch = ["watchdog>=4.0"]
+ml = ["scikit-learn>=1.3", "joblib>=1.3", "numpy>=1.24"]
+api = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
+build = ["pyinstaller>=6.6"]
+all = [
+    "hybrid-ransomware-detector[gui,fuzzy,macro,yara,archives,office,qr,ocr,watch,ml,api]",
+]
+dev = [
+    "hybrid-ransomware-detector[all]",
+    "pytest>=8", "pytest-cov>=5", "hypothesis>=6.100", "qrcode>=7.4", "httpx>=0.27",
+    "jsonschema>=4.20", "ruff>=0.5", "mypy>=1.10", "pip-audit>=2.7", "types-requests", "types-PyYAML",
+]
+
+[project.scripts]
+hrd-scanner = "RansomwareScanner:main"
+hrd-scanner-gui = "gui:main"
+aegis-api = "api.server:main"
+
+[project.urls]
+Repository = "https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector"
+
+[tool.setuptools]
+py-modules = ["RansomwareScanner", "gui"]
+
+[tool.setuptools.packages.find]
+include = ["engine*", "detectors*", "core*", "aegis_gui*", "api*", "tools*"]
+
+[tool.setuptools.package-data]
+detectors = ["indicators.yaml"]
+api = ["*.json"]
+
+# ------------------------------------------------------------------ tooling
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:oletools.*",
+]
+
+[tool.coverage.run]
+source = ["engine", "detectors", "core", "api"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = false
+skip_covered = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+# Errors, pyflakes, import order, common bug patterns, and safer subprocess / IO use.
+select = ["E", "F", "W", "I", "B", "UP", "S", "PIE", "RUF100"]
+ignore = [
+    "E501",    # long lines: the formatter's limit is advisory in reports / messages
+    "UP006", "UP007", "UP035", "UP045",   # keep typing.List / Optional (Python 3.9 support)
+    "S101",    # assert (tests and invariants)
+    "S110", "S112",   # try/except/pass is deliberate around hostile-input parsers
+    "S603", "S607",   # subprocess with fixed argument lists (7-Zip, unrar, ...)
+    "S311",    # random: only for test data and jitter, never for secrets
+    "S324",    # MD5: required for the malware-hash dataset lookup, not for security
+    "B008", "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B", "E731", "F811", "E702", "E741"]
+"test_smoke.py" = ["E701", "E702", "E402", "S"]
+"tools/*" = ["S"]
+"gui.py" = ["F401", "F403"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "silent"
+explicit_package_bases = true
+warn_unused_ignores = false
+check_untyped_defs = false
+files = ["engine", "core", "detectors/registry.py", "detectors/scoring.py", "api"]

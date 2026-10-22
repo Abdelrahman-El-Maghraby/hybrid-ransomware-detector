@@ -3,7 +3,6 @@
 Every sample is built here and is inert: the "embedded scripts" only echo text,
 the "add-in" is a bare MZ/PE header with an export name, and nothing is run."""
 
-import io
 import struct
 
 import pytest

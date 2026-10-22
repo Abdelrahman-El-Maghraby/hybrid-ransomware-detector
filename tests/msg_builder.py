@@ -7,11 +7,11 @@ uses it too). Only the MAPI property streams MailAnalyzer reads are emitted.
 from __future__ import annotations
 
 import struct
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
-from detectors.cfb_writer import Tree, write_cfb  # noqa: F401  (re-exported)
+from detectors.cfb_writer import Tree, write_cfb
 
 
 @dataclass

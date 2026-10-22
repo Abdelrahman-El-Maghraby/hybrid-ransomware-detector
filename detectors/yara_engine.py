@@ -113,7 +113,7 @@ class YaraEngine:
             self._rules = None
             self._rules_count = 0
 
-    def scan_file(self, file_path: str) -> YaraResult:
+    def scan_file(self, file_path: str, data: Optional[bytes] = None) -> YaraResult:
         if not YARA_AVAILABLE:
             return YaraResult(available=False,
                               detail="YARA scanning skipped: install 'yara-python'.")
@@ -121,7 +121,8 @@ class YaraEngine:
             return YaraResult(available=True, rules_loaded=0,
                               detail="No YARA rules loaded.")
         try:
-            raw_matches = self._rules.match(filepath=file_path, timeout=60)
+            raw_matches = (self._rules.match(data=data, timeout=60) if data is not None
+                           else self._rules.match(filepath=file_path, timeout=60))
         except Exception as e:
             logger.error("YARA scan failed for %s: %s", file_path, e)
             return YaraResult(available=True, rules_loaded=self._rules_count,

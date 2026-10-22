@@ -20,26 +20,49 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core import (
-    CanaryManager, QUARANTINE_AVAILABLE, QuarantineError, QuarantineVault,
-    RateLimiter, ResultCache, build_session,
+    QUARANTINE_AVAILABLE,
+    CanaryManager,
+    QuarantineError,
+    QuarantineVault,
+    RateLimiter,
+    ResultCache,
+    build_session,
 )
+from core.allowlist import load_allowlist
 from core.canary import desktop_notify
 from detectors import (
-    DEFUSEDXML_AVAILABLE, FUZZY_AVAILABLE, MSG_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE,
-    ContainerExtractor, FileIntegrityAnalyzer, FuzzyHasher, MacroAnalyzer, MailAnalyzer,
-    MLClassifier, PromptGuard, RelationshipScanner, ScoringMatrix, YaraEngine,
-    build_llm_backend, ransom_indicator,
+    DEFUSEDXML_AVAILABLE,
+    FUZZY_AVAILABLE,
+    MSG_AVAILABLE,
+    OLEVBA_AVAILABLE,
+    YARA_AVAILABLE,
+    ContainerExtractor,
+    FileIntegrityAnalyzer,
+    FuzzyHasher,
+    MacroAnalyzer,
+    MailAnalyzer,
+    MLClassifier,
+    PromptGuard,
+    RelationshipScanner,
+    ScoringMatrix,
+    YaraEngine,
+    build_llm_backend,
+    ransom_indicator,
 )
-
 from detectors.elf_analysis import ElfAnalyzer
-from detectors.script_analysis import ScriptAnalyzer
-from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
-from core.allowlist import load_allowlist
-from detectors.web_content import WebContentAnalyzer
 from detectors.embedded_content import EmbeddedContentAnalyzer
+from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
+from detectors.script_analysis import ScriptAnalyzer
+from detectors.web_content import WebContentAnalyzer
 
 from .config import (
-    BUNDLED_FUZZY_SIGS, DATA_DIR, ENGINE_VERSION, KEYSTORE_DIR, QUARANTINE_DIR, VERDICT_RANK,
+    BUNDLED_FUZZY_SIGS,
+    BUNDLED_RULES_DIR,
+    DATA_DIR,
+    ENGINE_VERSION,
+    KEYSTORE_DIR,
+    QUARANTINE_DIR,
+    VERDICT_RANK,
 )
 from .external import ExternalLookupsMixin
 from .layers import Layer, ScanContext, default_pipeline
@@ -68,7 +91,14 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
         # --- Initialise the modular detection engines -----------------------
         # Fuzzy hashing: prefer a per-user signature DB, else the bundled sample.
+        # An installed, signed rule pack (core/rulepack.py) replaces the bundled
+        # rules and signatures, unless the user pointed at their own folders.
+        from core.rulepack import FUZZY_NAME, active_pack
+        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR)
         fuzzy_db = config.get("fuzzy_signature_db")
+        if (not (fuzzy_db and os.path.exists(fuzzy_db)) and self.rulepack
+                and self.rulepack.get("has_fuzzy")):
+            fuzzy_db = os.path.join(self.rulepack["path"], FUZZY_NAME)
         if not (fuzzy_db and os.path.exists(fuzzy_db)) and BUNDLED_FUZZY_SIGS.exists():
             fuzzy_db = str(BUNDLED_FUZZY_SIGS)
         self.fuzzy_hasher = FuzzyHasher(signature_db_path=fuzzy_db)
@@ -78,7 +108,12 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         self.macro_analyzer = MacroAnalyzer()
 
         # YARA engine over the configured rules directory.
-        self.yara_engine = YaraEngine(rules_dir=config.get("yara_rules_dir"))
+        rules_dir = config.get("yara_rules_dir")
+        if self.rulepack and (not rules_dir
+                              or os.path.abspath(rules_dir) == os.path.abspath(BUNDLED_RULES_DIR)):
+            rules_dir = os.path.join(self.rulepack["path"], "rules")
+            logger.info("YARA rules from signed rule pack %s.", self.rulepack["version"])
+        self.yara_engine = YaraEngine(rules_dir=rules_dir)
 
         # LLM backend (local Ollama by default; cloud OpenAI optional).
         self.llm_backend = build_llm_backend(config)
@@ -123,7 +158,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
         # Weighted scoring matrix that fuses every layer's signals, and the
         # ordered list of layers that produce them (engine/layers.py).
-        self.scoring = ScoringMatrix()
+        from detectors.registry import load_overrides
+        self.scoring = ScoringMatrix(load_overrides(config.get("weights_override")) or None)
         self.pipeline: List[Layer] = default_pipeline()
         self._heavy_pool: Optional[ThreadPoolExecutor] = None
 
@@ -182,7 +218,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
 
     def _load_kaggle_database(self) -> set:
         """Load malicious MD5 hashes into a memory-efficient set (streaming CSV, no pandas)."""
-        malicious_hashes = set()
+        malicious_hashes: set = set()
         try:
             if not os.path.exists(self.kaggle_db_path):
                 logger.warning(f"Malware database not found at {self.kaggle_db_path}. "
@@ -190,7 +226,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
                 return malicious_hashes
 
             logger.info(f"Loading malware database from {self.kaggle_db_path}")
-            with open(self.kaggle_db_path, mode="r", encoding="utf-8", newline="") as f:
+            with open(self.kaggle_db_path, encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     # A row is malicious when the 'Benign' flag is false/0/no
@@ -250,7 +286,7 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
                 continue
             self._run_heavy(heavy, ctx)          # a fast layer after slow ones keeps its order
             heavy = []
-            layer.run(self, ctx)
+            self._run_layer(layer, ctx)
         self._run_heavy(heavy, ctx)
 
         # Fuse every signal through the weighted scoring matrix
@@ -267,6 +303,17 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             display, result["verdict"], result["risk_score"], result["severity_score"],
         )
         return result
+
+    def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
+        """Run one layer; a parser that raises on a hostile file costs that layer's
+        evidence, not the whole file's verdict. The error is kept in the result."""
+        try:
+            layer.run(self, ctx)
+        except Exception as e:
+            logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
+                           type(e).__name__, e)
+            ctx.scan_results.setdefault("layer_errors", {})[layer.name] = (
+                f"{type(e).__name__}: {str(e)[:200]}")
 
     def _run_heavy(self, layers: List[Layer], ctx: ScanContext) -> None:
         """Run a group of slow layers: skipped at a saturated score, else concurrently."""
@@ -288,14 +335,14 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             return
         if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
             for layer in layers:
-                layer.run(self, ctx)
+                self._run_layer(layer, ctx)
             return
 
         def run_on_copy(layer: Layer) -> ScanContext:
             sub = copy.copy(ctx)
             sub.result = {**ctx.result, "scan_results": {}}
             sub.signals = dict(ctx.signals)
-            layer.run(self, sub)
+            self._run_layer(layer, sub)
             return sub
 
         if self._heavy_pool is None:
@@ -363,6 +410,27 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         """
         results = []
         total = len(targets)
+        if self.config.get("isolate_scans", True) and total > 1:
+            from engine.workers import default_workers, scan_isolated
+
+            def collect(index, file_path, result):
+                try:
+                    self._maybe_auto_quarantine(result)
+                except Exception as e:
+                    logger.error(f"Auto-quarantine failed for {file_path}: {e}")
+                results.append(result)
+                if progress_callback is not None:
+                    try:
+                        progress_callback(index, total, file_path, result)
+                    except Exception as e:
+                        logger.error(f"Progress callback error: {str(e)}")
+
+            scan_isolated(self, targets, default_workers(self.config),
+                          float(self.config.get("scan_timeout_seconds", 300)),
+                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
+            order = {p: i for i, p in enumerate(targets)}
+            results.sort(key=lambda r: order.get(r.get("file_path"), 0))
+            return results
         for index, file_path in enumerate(targets, start=1):
             if cancel_event is not None and cancel_event.is_set():
                 logger.info(f"Scan cancelled by user after {len(results)}/{total} files.")
@@ -470,6 +538,8 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
         results = self.scan_all_directories()
         report = self.generate_report(results, impact=self.last_impact,
                                       canary_report=canary_report)
+        from core.outputs import deliver
+        deliver(results, self.config)
         logger.info("Scan complete.")
         return report
 

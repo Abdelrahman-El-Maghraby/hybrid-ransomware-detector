@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -38,14 +38,14 @@ def build_session(total_retries: int = 3, backoff_factor: float = 2.0,
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
     if Retry is not None and total_retries > 0:
-        kwargs = dict(total=total_retries, connect=total_retries, read=total_retries,
+        kwargs: Dict[str, Any] = dict(total=total_retries, connect=total_retries, read=total_retries,
                       status=total_retries, backoff_factor=backoff_factor,
                       status_forcelist=tuple(statuses),
                       respect_retry_after_header=True, raise_on_status=False)
         try:
             retry = Retry(allowed_methods=frozenset({"GET", "HEAD"}), **kwargs)
         except TypeError:  # pragma: no cover - urllib3 < 1.26
-            retry = Retry(method_whitelist=frozenset({"GET", "HEAD"}), **kwargs)
+            retry = Retry(method_whitelist=frozenset({"GET", "HEAD"}), **kwargs)  # type: ignore[call-arg]
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("https://", adapter)
         session.mount("http://", adapter)

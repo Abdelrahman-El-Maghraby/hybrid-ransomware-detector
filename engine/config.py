@@ -106,6 +106,21 @@ CONFIG = {
     "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
     "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
+    # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
+    "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
+    # Folder scans: each file in a worker process with a time and memory limit
+    "isolate_scans": _env_bool("ISOLATE_SCANS", True),
+    "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
+    "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
+    "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
+    # Machine-readable outputs (SIEM / SOC): JSON Lines file and alert webhook
+    "jsonl_path": os.getenv("JSONL_PATH", ""),
+    "webhook_url": os.getenv("WEBHOOK_URL", ""),
+    "webhook_secret": os.getenv("WEBHOOK_SECRET", ""),
+    "webhook_min_verdict": os.getenv("WEBHOOK_MIN_VERDICT", "High"),
+    # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
+    "rulepack_public_keys": [k for k in os.getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
+    "data_dir": str(DATA_DIR),
     # Known-good files: one SHA-256 per line, optional "# note" after it
     "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
     "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),

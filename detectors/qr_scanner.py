@@ -31,7 +31,7 @@ import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Union
 from urllib.parse import urlsplit
 
 logger = logging.getLogger("RansomwareScanner")

@@ -19,6 +19,8 @@ logger = logging.getLogger("RansomwareScanner")
 class ReportMixin:
     """Builds the human-readable report and writes the JSON evidence trail."""
 
+    report_dir: str          # provided by RansomwareScanner
+
     def generate_report(self, results: List[Dict], impact: Optional[Dict] = None,
                         canary_report=None) -> str:
         """Generate a comprehensive report based on scan results.

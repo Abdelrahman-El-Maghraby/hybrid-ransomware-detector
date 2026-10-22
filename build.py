@@ -50,7 +50,7 @@ WORK = ROOT / "build"
 APP_NAME = "HybridRansomwareDetector"
 CLI_NAME = "hrd-scanner"
 GUI_NAME = "hrd-scanner-gui"
-REQUIRED = ("requests", "dotenv", "PyPDF2", "docx")
+REQUIRED = ("requests", "dotenv", "pypdf", "docx")
 OPTIONAL = ("customtkinter", "oletools", "yara", "tlsh", "ppdeep", "defusedxml",
             "cryptography", "olefile")
 
@@ -77,8 +77,6 @@ def exe_name(name: str) -> str:
 
 
 def preflight(with_ml: bool) -> None:
-    if sys.version_info < (3, 9):
-        sys.exit("Python 3.9+ is required.")
     try:
         import PyInstaller  # noqa: F401
     except ImportError:

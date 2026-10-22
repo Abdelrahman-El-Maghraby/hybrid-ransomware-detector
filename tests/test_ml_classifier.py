@@ -12,9 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from detectors.ml_classifier import (FEATURE_NAMES, SKLEARN_AVAILABLE, MLClassifier,
-                                     collect_files, extract_features, pe_features,
-                                     rule_score, shannon_entropy)
+from detectors.ml_classifier import (
+    FEATURE_NAMES,
+    SKLEARN_AVAILABLE,
+    MLClassifier,
+    collect_files,
+    extract_features,
+    pe_features,
+    rule_score,
+    shannon_entropy,
+)
 
 needs_sklearn = pytest.mark.skipif(not SKLEARN_AVAILABLE, reason="scikit-learn not installed")
 
