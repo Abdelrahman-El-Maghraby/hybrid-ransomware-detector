@@ -245,7 +245,8 @@ class PromptGuard:
                 hidden_cols = _hidden_columns(root)
                 for cell, text in _cells(root, shared, budget):
                     ref = cell.get("r") or ""
-                    col, row = re.match(r"([A-Z]*)(\d*)", ref).groups()
+                    m = _CELL_REF.match(ref)
+                    col, row = m.groups() if m else ("", "")
                     if row in hidden_rows:
                         found.add("hidden_rows", text)
                     elif _col_index(col) in hidden_cols:
@@ -279,7 +280,7 @@ class PromptGuard:
             slide_w = int(size.get("cx", 0)) if size is not None else 0
             slide_h = int(size.get("cy", 0)) if size is not None else 0
             slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
-                            key=lambda n: int(re.search(r"(\d+)", n.rsplit("/", 1)[-1]).group(1)))
+                            key=_slide_number)
             for part in slides:
                 root = _read_xml(zf, part, found)
                 if root is None:
@@ -415,6 +416,14 @@ class _Findings:
         return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets)
 
 
+_CELL_REF = re.compile(r"([A-Z]*)(\d*)")
+
+
+def _slide_number(name: str) -> int:
+    m = re.search(r"(\d+)", name.rsplit("/", 1)[-1])
+    return int(m.group(1)) if m else 0
+
+
 _BIFF_BOUNDSHEET = 0x0085
 _BIFF_EOF = 0x000A
 _MAX_BIFF_BYTES = 64 * 1024 * 1024
@@ -542,7 +551,7 @@ def _col_index(letters: str) -> int:
 
 
 def _hidden_columns(sheet_root) -> set:
-    cols = set()
+    cols: set = set()
     for col in sheet_root.iter(f"{_S}col"):
         if col.get("hidden") in ("1", "true"):
             try:

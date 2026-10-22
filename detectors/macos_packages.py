@@ -83,14 +83,11 @@ def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
             raise BudgetExceeded()
         return data
     if "gzip" in enc or "zlib" in enc:
-        d = zlib.decompressobj(zlib.MAX_WBITS | 32)      # zlib or gzip header
-        out = d.decompress(data, budget + 1)
+        out = zlib.decompressobj(zlib.MAX_WBITS | 32).decompress(data, budget + 1)  # zlib/gzip
     elif "bzip2" in enc:
-        d = bz2.BZ2Decompressor()
-        out = d.decompress(data, budget + 1)
+        out = bz2.BZ2Decompressor().decompress(data, budget + 1)
     elif "lzma" in enc or "xz" in enc:
-        d = lzma.LZMADecompressor()
-        out = d.decompress(data, budget + 1)
+        out = lzma.LZMADecompressor().decompress(data, budget + 1)
     else:
         raise FormatError(f"unknown encoding {encoding!r}")
     if len(out) > budget:

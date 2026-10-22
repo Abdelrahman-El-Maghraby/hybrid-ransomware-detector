@@ -433,13 +433,14 @@ class MLClassifier:
             "false_positive_rate": float(fp / (fp + tn)) if (fp + tn) else 0.0,
             "confusion": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
         }
-        self.model = forest().fit(X_arr, y_arr)        # final model uses every sample
+        model = forest().fit(X_arr, y_arr)             # final model uses every sample
+        self.model = model
         self.model_name = "in-memory"
         self.model_info = {
             "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "metrics": metrics,
             "feature_importances": dict(zip(FEATURE_NAMES, map(
-                float, self.model.feature_importances_))),
+                float, model.feature_importances_))),
         }
         return metrics
 

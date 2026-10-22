@@ -42,6 +42,9 @@ Benign benchmark unchanged: 27 High/Critical and 25 Low on 3,312 files.
 - CLI `main()` split into parser, overrides, stand-alone commands, banner, setup,
   protection and scan steps (identical behaviour).
 - `docs/ARCHITECTURE.md` lists the design patterns used and why.
+- Type checking covers every detector (43 files, was 22); the mail, macOS package,
+  ML and hidden-content modules were fixed where mypy found unchecked `None` /
+  wrong-type paths.
 
 ## [4.4.0] — 2026-10-22
 

@@ -362,7 +362,7 @@ class MailAnalyzer:
                     self._add_attachment(data, name, ctype, sandbox, res)
             elif disposition == "attachment" or filename or not ctype.startswith("text/"):
                 payload = part.get_payload(decode=True)
-                if payload is not None:
+                if isinstance(payload, bytes):
                     self._add_attachment(payload, filename, ctype, sandbox, res)
             elif ctype == "text/html":
                 html_parts.append(_decode_text(part))
@@ -383,8 +383,9 @@ class MailAnalyzer:
             else:
                 hdr_msg = Message()
             # Fill gaps from MAPI properties (drafts / sent items have no headers).
-            if not hdr_msg.get("Subject") and prop(_P_SUBJECT):
-                hdr_msg["Subject"] = prop(_P_SUBJECT)
+            subject = prop(_P_SUBJECT)
+            if not hdr_msg.get("Subject") and subject:
+                hdr_msg["Subject"] = subject
             if not hdr_msg.get("From"):
                 addr = prop(_P_SENDER_SMTP) or prop(_P_SENDER_EMAIL) or ""
                 if addr and "@" not in addr:
@@ -506,7 +507,8 @@ def _leaf_parts(msg: Message) -> Iterator[Message]:
         yield msg
     elif msg.is_multipart():
         for sub in msg.get_payload() or []:
-            yield from _leaf_parts(sub)
+            if isinstance(sub, Message):
+                yield from _leaf_parts(sub)
     else:
         yield msg
 
@@ -515,7 +517,7 @@ def _rfc822_bytes(part: Message) -> bytes:
     """Raw bytes of an attached message, undoing a (non-standard but common)
     base64 / quoted-printable transfer encoding on the message/rfc822 part."""
     inner = part.get_payload()
-    if isinstance(inner, list) and inner:
+    if isinstance(inner, list) and inner and isinstance(inner[0], Message):
         raw = inner[0].as_bytes()
     elif isinstance(inner, (str, bytes)):
         raw = inner.encode("latin-1", "replace") if isinstance(inner, str) else inner
@@ -544,7 +546,9 @@ def _decode_words(value: str) -> str:
 
 
 def _decode_text(part: Message) -> str:
-    payload = part.get_payload(decode=True) or b""
+    payload = part.get_payload(decode=True)
+    if not isinstance(payload, bytes):
+        payload = b""
     charset = part.get_content_charset() or "utf-8"
     try:
         return payload.decode(charset, errors="replace")
@@ -802,8 +806,9 @@ def _embedded_msg_to_eml(ole, base: str, depth: int) -> bytes:
         for key, value in parsed.items():
             if key.lower() not in ("content-type", "mime-version", "content-transfer-encoding"):
                 out[key] = value
-    if not out.get("Subject") and prop(_P_SUBJECT):
-        out["Subject"] = prop(_P_SUBJECT)
+    subject = prop(_P_SUBJECT)
+    if not out.get("Subject") and subject:
+        out["Subject"] = subject
     if not out.get("From"):
         addr = prop(_P_SENDER_SMTP) or prop(_P_SENDER_EMAIL) or ""
         name = prop(_P_SENDER_NAME) or ""
@@ -836,9 +841,9 @@ def _embedded_msg_to_eml(ole, base: str, depth: int) -> bytes:
             continue
         if data is None:
             continue
-        part = MIMEApplication(data, Name=name)
-        part.add_header("Content-Disposition", "attachment", filename=name)
-        out.attach(part)
+        att = MIMEApplication(data, Name=name)
+        att.add_header("Content-Disposition", "attachment", filename=name)
+        out.attach(att)
     return out.as_bytes()
 
 
