@@ -552,6 +552,25 @@ The suite covers each detector and protection feature in isolation, the full sca
 
 All test samples are **synthetic** and built at test time (a relationship pointing at a documentation IP, an `MZ` header, random bytes, a ZipCrypto archive). No live malware is stored or used.
 
+### Measuring detection on real samples
+
+The unit tests prove each check works; `tools/evaluate.py` measures how the engine does on real files. Point it at a folder of malicious samples and a folder of benign files (for example MalwareBazaar samples and Govdocs1 / SpamAssassin files, kept in an isolated VM):
+
+```bash
+python tools/evaluate.py --malicious ~/samples/malicious --benign ~/samples/benign \
+                         --labels ~/samples/labels.csv --out eval_out
+```
+
+It reports the detection rate and the false-positive rate at the Low, Medium and High thresholds, broken down by file type, malware family (from an optional `sha256,type,family` CSV) and folder, plus every miss and every false alarm with the indicators behind it (`eval_out/summary.md`, one row per file in `eval_out/results.csv`). It measures the **engine only** by default: VirusTotal, the LLM layer and the cache are off, because a reputation hit on a known sample says nothing about the detection logic (`--with-vt` / `--with-llm` measure the full product). Each file is scanned in a worker process with a time limit, so one pathological file cannot stop the run.
+
+#### Dataset credits
+
+Evaluation runs on public research datasets that are **not** redistributed in this repository. If you use the CIC-Trap4Phish 2025 dataset, cite:
+
+> F. Nejati, M. Rabbani, M. Eskandarian, M. Mirani, G. Piya, I. Opushnyev, A. A. Ghorbani, and S. Dadkhah, "CIC-Trap4Phish: A Unified Multi-Format Dataset for Phishing and Quishing Attachment Detection," arXiv:2602.09015, 2026. Canadian Institute for Cybersecurity, University of New Brunswick. https://www.unb.ca/cic/datasets/trap4phish2025.html
+
+The dataset is licensed for non-commercial use (CC BY-NC 4.0).
+
 ---
 
 ## 📂 Project structure
