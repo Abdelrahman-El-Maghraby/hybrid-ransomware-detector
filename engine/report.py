@@ -175,7 +175,8 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "elf", "script", "prompt-guard", "relationships", "archives", "mail", "web"]
+        layers += ["integrity", "elf", "script", "prompt-guard", "relationships", "archives", "mail",
+                   "web", "embedded"]
         qr = getattr(self, "qr_scanner", None)
         if qr is not None and QR_AVAILABLE:
             layers.append("qr")
@@ -183,6 +184,11 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("ml")
         layers.append("llm")
         layers.append("virustotal")
+        emulator = getattr(self, "emulator", None)
+        if emulator is not None and emulator.available:
+            layers.append("emulation")
+        if getattr(self, "sandbox", None) is not None:
+            layers.append("sandbox")
         return ", ".join(layers)
 
     def _llm_posture_label(self) -> str:
