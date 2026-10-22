@@ -57,13 +57,17 @@ res = sc.scan_all_directories(progress_callback=lambda d, t, p, r: events.append
 assert len(res) == 3 and [e[0] for e in events] == [1, 2, 3] and all(e[1] == 3 for e in events)
 print(f"progress callback: OK — {events}")
 
-# 7. Cancellation: cancel after first file -> exactly 1 result
+# 7. Cancellation: cancel after first file -> exactly 1 result. Files already in
+#    flight are finished, so with parallel workers the count depends on timing:
+#    pin one worker to make "exactly 1" deterministic.
+sc.config["scan_workers"] = 1
 ev = threading.Event()
 def cb(done, total, path, result):
     if done == 1: ev.set()
 partial = sc.scan_all_directories(progress_callback=cb, cancel_event=ev)
 assert len(partial) == 1, f"expected 1 partial result, got {len(partial)}"
 print("cancellation: OK — stopped after 1/3 files")
+sc.config.pop("scan_workers", None)
 
 # 8. A failing progress callback must not break the scan
 res2 = sc.scan_directory(str(scan_dir), progress_callback=lambda *a: 1 / 0)
