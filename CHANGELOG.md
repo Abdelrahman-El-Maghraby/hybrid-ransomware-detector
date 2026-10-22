@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Continuous integration:** GitHub Actions runs the test suite and the v3
+  smoke test on Windows, macOS and Linux with Python 3.9 and 3.12 for every
+  push and pull request. Optional packages that have no wheel for a platform
+  are reported as warnings; their tests skip.
+
 ## [4.3.1] — 2026-10-17
 
 ### Fixed

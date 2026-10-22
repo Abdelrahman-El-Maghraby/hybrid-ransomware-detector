@@ -97,14 +97,14 @@ def test_cli_export_then_import(tmp_path):
     env = dict(os.environ, LLM_PROVIDER="none", HRD_KEY_PASSPHRASE=PHRASE)
     run = lambda home, *a: subprocess.run(
         [sys.executable, str(ROOT / "RansomwareScanner.py"), *a], capture_output=True,
-        text=True, timeout=120, env=dict(env, HOME=str(home), USERPROFILE=str(home)))
+        encoding="utf-8", errors="replace", timeout=120, env=dict(env, HOME=str(home), USERPROFILE=str(home)))
     out = run(tmp_path / "h1", "--export-key", str(tmp_path / "k.hrdkey"))
     assert out.returncode == 0 and "fingerprint" in out.stdout, out.stdout + out.stderr
     fp = re.search(r"fingerprint ([0-9a-f]{16}) - keep", out.stdout).group(1)
     out = run(tmp_path / "h2", "--import-key", str(tmp_path / "k.hrdkey"))
     assert out.returncode == 0 and f"installed (fingerprint {fp})" in out.stdout
     bad = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), "--import-key",
-                          str(tmp_path / "k.hrdkey")], capture_output=True, text=True,
+                          str(tmp_path / "k.hrdkey")], capture_output=True, encoding="utf-8", errors="replace",
                          timeout=120, env=dict(env, HOME=str(tmp_path / "h4"),
                                                HRD_KEY_PASSPHRASE="wrong passphrase!!"))
     assert bad.returncode == 1 and "Wrong passphrase" in bad.stdout
