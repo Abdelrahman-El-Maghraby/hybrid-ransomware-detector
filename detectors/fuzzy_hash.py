@@ -73,6 +73,7 @@ TLSH_STRONG_DISTANCE = 50
 DEFAULT_SSDEEP_THRESHOLD = 70
 
 FUZZY_AVAILABLE = (_tlsh is not None) or (_ppdeep is not None)
+PLACEHOLDER_FAMILY = "Example.Placeholder"   # the sample DB's format example
 
 
 @dataclass
@@ -149,6 +150,12 @@ class FuzzyHasher:
         if signature_db_path:
             self._load_signatures(signature_db_path)
 
+    @property
+    def needs_ssdeep(self) -> bool:
+        """True when a real (non-placeholder) signature can be matched by ssdeep."""
+        return any(sig.get("ssdeep") and sig.get("family") != PLACEHOLDER_FAMILY
+                   for sig in self.signatures)
+
     # -- signature DB ------------------------------------------------------
     def _load_signatures(self, path: str) -> None:
         p = Path(path)
@@ -165,8 +172,11 @@ class FuzzyHasher:
 
     # -- hashing -----------------------------------------------------------
     @staticmethod
-    def hash_bytes(data: bytes) -> Dict[str, Optional[str]]:
-        """Return {'tlsh': ..., 'ssdeep': ...} for raw bytes (None where N/A)."""
+    def hash_bytes(data: bytes, with_ssdeep: bool = True) -> Dict[str, Optional[str]]:
+        """Return {'tlsh': ..., 'ssdeep': ...} for raw bytes (None where N/A).
+
+        ssdeep (pure-Python ppdeep, ~3 MB/s) is 50x slower than TLSH; scans skip it
+        when no loaded signature carries an ssdeep digest (see `needs_ssdeep`)."""
         result: Dict[str, Optional[str]] = {"tlsh": None, "ssdeep": None}
         if _tlsh is not None:
             try:
@@ -177,7 +187,7 @@ class FuzzyHasher:
                     result["tlsh"] = digest
             except Exception as e:  # pragma: no cover
                 logger.debug("TLSH hashing failed: %s", e)
-        if _ppdeep is not None:
+        if _ppdeep is not None and with_ssdeep:
             try:
                 result["ssdeep"] = _ppdeep.hash(data)
             except Exception as e:  # pragma: no cover

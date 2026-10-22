@@ -161,6 +161,7 @@ class ArchiveHandler(ContainerHandler):
             "zip_slip": d["zip_slip"],
             "zip_bomb": d["zip_bomb"],
             "encrypted_unreadable": d["encrypted_unreadable"],
+            "skipped_members": d.get("skipped_members", 0),
             "executable_members": d["executable_members"],
             "double_extension_members": d["double_extension_members"],
             "rtlo_members": d["rtlo_members"],

@@ -157,81 +157,117 @@ def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, mem
                   cancel_event=None) -> None:
     """Scan `targets` in worker processes; call on_result(index, path, result) as files
     finish (index is the 1-based count of finished files)."""
-    ctx = mp.get_context("spawn")           # same behaviour on Linux, macOS and Windows
-    config = dict(scanner.config)
-    pending = list(targets)
-    pool: List[_Worker] = []
-    state = {"done": 0, "failed_starts": 0}
+    _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
+                  cancel_event).run()
 
-    def finish(path: str, result: Dict) -> None:
-        state["done"] += 1
-        on_result(state["done"], path, result)
 
-    def fail(path: str, reason: str) -> None:
+class _IsolatedScan:
+    """One folder scan over a pool of worker processes (see the module docstring)."""
+
+    MAX_FAILED_STARTS = 3
+    POLL_SECONDS = 0.05
+
+    def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
+                 memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event):
+        self.scanner = scanner
+        self.total = len(targets)
+        self.pending = list(targets)
+        self.timeout = timeout
+        self.memory_mb = memory_mb
+        self.on_result = on_result
+        self.cancel_event = cancel_event
+        self.ctx = mp.get_context("spawn")     # same behaviour on Linux, macOS and Windows
+        self.config = dict(scanner.config)
+        self.done = 0
+        self.failed_starts = 0
+        self.pool: List[_Worker] = [_Worker(self.ctx, self.config, memory_mb)
+                                    for _ in range(max(1, min(workers, len(targets))))]
+
+    # ---------------------------------------------------------------- flow
+    def run(self) -> None:
+        broken = False
+        try:
+            while (self.pending and not self.cancelled()) or any(w.path for w in self.pool):
+                if not all(self._step(i) for i in range(len(self.pool))):
+                    broken = True
+                    break
+        finally:
+            self._shutdown()
+        if broken and self.pending:
+            self._scan_in_process()
+        if self.cancelled():
+            logger.info("Scan cancelled by user after %d/%d files.", self.done, self.total)
+
+    def cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
+
+    def _step(self, i: int) -> bool:
+        """Feed and poll worker i once. False when workers evidently cannot start."""
+        w = self.pool[i]
+        if w.ready and w.path is None and self.pending and not self.cancelled():
+            self._dispatch(w)
+        kind, payload = self._receive(w)
+        if kind == "ready":
+            w.ready = True
+            return True
+        if kind in ("ok", "error"):
+            path, w.path = w.path, None
+            if path is not None:
+                if kind == "ok" and isinstance(payload, dict):
+                    self._finish(path, payload)
+                else:
+                    self._fail(path, payload or "scan error")
+            return True
+        dead = kind == "dead" or not w.proc.is_alive()
+        overdue = w.path is not None and time.monotonic() - w.started > self.timeout
+        if not (dead or overdue):
+            return True
+        if w.path is not None:
+            path, w.path = w.path, None
+            self._fail(path, f"timed out after {int(self.timeout)}s" if overdue and not dead
+                       else f"the worker process died (exit code {w.proc.exitcode})")
+        return self._replace(i)
+
+    # ---------------------------------------------------------------- helpers
+    def _dispatch(self, w: _Worker) -> None:
+        w.path, w.started = self.pending.pop(0), time.monotonic()
+        try:
+            w.parent.send(w.path)
+        except Exception:
+            pass                              # noticed as a dead worker on the next poll
+
+    def _receive(self, w: _Worker):
+        try:
+            has = w.parent.poll(self.POLL_SECONDS)
+        except Exception:
+            has = True                        # closed pipe: treat as a dead worker
+        if not has:
+            return "", None
+        try:
+            return w.parent.recv()
+        except Exception:
+            return "dead", None
+
+    def _finish(self, path: str, result: Dict) -> None:
+        self.done += 1
+        self.on_result(self.done, path, result)
+
+    def _fail(self, path: str, reason: str) -> None:
         logger.warning("Scan of %s failed: %s", path, reason)
-        finish(path, failure_result(scanner, path, reason))
+        self._finish(path, failure_result(self.scanner, path, reason))
 
-    def replace(i: int) -> bool:
-        """Replace worker i; False when workers evidently cannot start here."""
-        w = pool[i]
+    def _replace(self, i: int) -> bool:
+        w = self.pool[i]
         if not w.ready:
-            state["failed_starts"] += 1
+            self.failed_starts += 1
         w.kill()
-        if state["failed_starts"] >= 3:
+        if self.failed_starts >= self.MAX_FAILED_STARTS:
             return False
-        pool[i] = _Worker(ctx, config, memory_mb)
+        self.pool[i] = _Worker(self.ctx, self.config, self.memory_mb)
         return True
 
-    def cancelled() -> bool:
-        return cancel_event is not None and cancel_event.is_set()
-
-    for _ in range(max(1, min(workers, len(pending)))):
-        pool.append(_Worker(ctx, config, memory_mb))
-    broken = False
-    try:
-        while (pending and not cancelled()) or any(w.path for w in pool):
-            for i, w in enumerate(pool):
-                if w.ready and w.path is None and pending and not cancelled():
-                    w.path, w.started = pending.pop(0), time.monotonic()
-                    try:
-                        w.parent.send(w.path)
-                    except Exception:
-                        pass
-                try:
-                    has = w.parent.poll(0.05)
-                except Exception:
-                    has = True                     # closed pipe: treat as a dead worker
-                kind, payload = "", None
-                if has:
-                    try:
-                        kind, payload = w.parent.recv()
-                    except Exception:
-                        kind = "dead"
-                if kind == "ready":
-                    w.ready = True
-                    continue
-                if kind in ("ok", "error"):
-                    path, w.path = w.path, None
-                    if path is not None:
-                        if kind == "ok" and isinstance(payload, dict):
-                            finish(path, payload)
-                        else:
-                            fail(path, payload or "scan error")
-                    continue
-                dead = kind == "dead" or not w.proc.is_alive()
-                overdue = w.path is not None and time.monotonic() - w.started > timeout
-                if dead or overdue:
-                    if w.path is not None:
-                        path, w.path = w.path, None
-                        fail(path, f"timed out after {int(timeout)}s" if overdue and not dead
-                             else f"the worker process died (exit code {w.proc.exitcode})")
-                    if not replace(i):
-                        broken = True
-                        break
-            if broken:
-                break
-    finally:
-        for w in pool:
+    def _shutdown(self) -> None:
+        for w in self.pool:
             try:
                 w.parent.send(None)
             except Exception:
@@ -239,19 +275,18 @@ def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, mem
             w.proc.join(2)
             if w.proc.is_alive():
                 w.kill()
-    if broken and pending:
+
+    def _scan_in_process(self) -> None:
         # Worker processes cannot start here (e.g. an embedded interpreter without an
         # importable __main__): finish without isolation instead of looping.
         logger.warning("Worker processes cannot start; scanning the remaining %d file(s) "
-                       "in this process without isolation.", len(pending))
-        while pending and not cancelled():
-            path = pending.pop(0)
+                       "in this process without isolation.", len(self.pending))
+        while self.pending and not self.cancelled():
+            path = self.pending.pop(0)
             try:
-                finish(path, scanner.scan_file(path))
+                self._finish(path, self.scanner.scan_file(path))
             except Exception as e:
-                fail(path, f"{type(e).__name__}: {e}")
-    if cancelled():
-        logger.info("Scan cancelled by user after %d/%d files.", state["done"], len(targets))
+                self._fail(path, f"{type(e).__name__}: {e}")
 
 
 def default_workers(config: Dict) -> int:

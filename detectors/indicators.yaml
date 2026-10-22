@@ -6,7 +6,7 @@
 # Change a weight here, run the test suite and the regression corpus, and bump
 # `version` - reports record which registry version scored a file.
 
-version: "2026.10.21-1"
+version: "2026.10.22-1"
 
 caps:            # each category's total is capped, then the total is clamped to max_raw
   technical: 100.0
@@ -59,6 +59,7 @@ weights:         # points when an indicator fires fully
   W_ARCHIVE_RTLO: 60.0   # right-to-left-override filename spoof
   W_ARCHIVE_EXECUTABLE: 35.0   # executable/script/shortcut inside an archive
   W_ARCHIVE_ENCRYPTED: 20.0   # encrypted content the scanner could not open
+  W_ARCHIVE_PARTIAL: 10.0   # more members than the limit: the rest not unpacked
   W_MAIL_DMARC_FAIL: 35.0   # receiving server says the From domain is forged
   W_MAIL_AUTH_FAIL: 20.0   # SPF or DKIM failed (DMARC not failed / absent)
   W_MAIL_DISPLAY_SPOOF: 30.0   # "billing@bank.com" <x@evil.tld>
@@ -144,6 +145,7 @@ indicators:      # name -> category, the weight it uses, label in the app
   archive_rtlo_spoof: {category: technical, weight: W_ARCHIVE_RTLO, label: "spoofed file name"}
   archive_executable: {category: technical, weight: W_ARCHIVE_EXECUTABLE, label: "program inside archive"}
   archive_encrypted: {category: technical, weight: W_ARCHIVE_ENCRYPTED, label: "locked archive"}
+  archive_partially_scanned: {category: technical, weight: W_ARCHIVE_PARTIAL, label: "archive only partly unpacked"}
   mail_dmarc_fail: {category: technical, weight: W_MAIL_DMARC_FAIL, label: "sender fails DMARC"}
   mail_auth_fail: {category: technical, weight: W_MAIL_AUTH_FAIL, label: "sender fails SPF/DKIM"}
   mail_display_name_spoof: {category: technical, weight: W_MAIL_DISPLAY_SPOOF, label: "spoofed sender name"}

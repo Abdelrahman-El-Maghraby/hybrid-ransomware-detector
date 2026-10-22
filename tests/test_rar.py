@@ -84,7 +84,8 @@ def test_slip_and_symlink_members_are_never_written(tmp_path):
 def test_limits_apply(tmp_path):
     p = build_rar(tmp_path / "many.rar", [(f"f{i}.txt", b"x") for i in range(30)])
     with ContainerExtractor(max_members=10).open(p) as res:
-        assert res.zip_bomb and "member limit" in res.zip_bomb_reason
+        assert not res.zip_bomb                  # many entries: partial scan, not a bomb
+        assert len(res.members) == 10 and res.skipped_members == 20
     big = build_rar(tmp_path / "big.rar", [("a.bin", b"\0" * 5000), ("b.bin", b"\0" * 5000)])
     with ContainerExtractor(max_total_bytes=6000).open(big) as res:
         assert res.zip_bomb

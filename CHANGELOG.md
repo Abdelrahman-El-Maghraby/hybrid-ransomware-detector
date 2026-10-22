@@ -4,6 +4,63 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — 4.4.0-beta.3 work
+
+Measured on 3,312 benign files from a Linux workstation (system binaries, Python /
+Node / Go packages, PDFs, HTML, scripts, Windows launchers found in Python
+packages) plus 105 documents made with LibreOffice and 100 synthetic e-mails /
+archives. The project's own test fixtures were excluded.
+
+| | before | after |
+|---|---|---|
+| High / Critical on benign files | 160 (4.8%) | 27 (0.8%) |
+| Low on benign files | 97 | 25 |
+| In-process scan time | 589 s | 91 s (6.5x) |
+| Folder scan, 662 files, 2 cores (workers) | 57.5 s | 16.4 s (3.5x) |
+
+The 27 left: 25 browser-installer PowerShell scripts that really download and
+silently run an installer, and 2 Go test archives that really contain a symlink
+entry (zip slip). Detection on real malware is still unmeasured
+(`tools/evaluate.py` in the analysis VM).
+
+### Fixed
+
+- **A 120 KB minified script took 40 s to scan** (and a 300 KB one 140 s): the
+  printable-strings pass used a regular expression that is quadratic on long
+  lines. Now linear. An attacker could have used this to stall scans until the
+  worker timeout.
+- **Every Windows program was rated High** by the YARA rule meant for "a program
+  disguised as a document". YARA rules now get the file's extension (`file_ext`)
+  and that rule skips files named as programs (.exe, .dll, .sys, ...). Programs
+  delivered by mail or in archives are still judged by those layers.
+- **Archives with more than 500 entries were called decompression bombs** (Go's
+  timezone database, an icon set). Now the first 500 are unpacked (programs,
+  scripts and nested archives first), the names of the rest are still checked for
+  executables and double extensions, and the archive gets the Low indicator
+  `archive_partially_scanned`. Bombs are still detected by ratio, size and depth.
+- **VBA keywords in HTML manuals** matched the Office macro rules; small web pages
+  and text files are no longer treated as macro source.
+- **Bitcoin rule on e-mails**: "btc", "pay" and "send" also occur by chance in an
+  attachment's base64 next to address-shaped runs; a bare "BTC" now needs a
+  ransom word (wallet / decrypt).
+- **PDFs looked "random throughout" to the ML fallback** (18% of benign PDFs):
+  a PDF whose object structure is intact counts as a compressed format; one that
+  keeps only its header (partial encryption) still does not.
+
+### Changed
+
+- ssdeep (pure-Python, ~3 MB/s) is only computed when a loaded fuzzy signature has
+  an ssdeep digest; TLSH is always computed.
+- PDF text for the injection check and the LLM stops after 50 pages / 200,000
+  characters (the LLM reads the first 3,000).
+- One shared entropy function (`detectors/entropy.py`) instead of three copies,
+  with a table for the per-window counts; the ML printable ratio is computed in C.
+- The worker-pool loop is a small class instead of one 100-line function.
+
+### Added
+
+- `tools/profile_layers.py`: time per pipeline layer and the slowest files.
+
 ## [4.4.0-beta.2] — 2026-10-21 (pre-release)
 
 ### Added

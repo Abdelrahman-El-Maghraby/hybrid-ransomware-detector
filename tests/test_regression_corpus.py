@@ -27,13 +27,17 @@ EXPECTED = {
     "lure.eml": ("Critical", 100, {"mail_attachment:disguised_executable", "mail_attachment:yara_match",
                                    "mail_deceptive_link", "mail_display_name_spoof", "mail_dmarc_fail",
                                    "mail_lure_subject", "mail_reply_to_mismatch"}),
-    "lure.msg": ("Critical", 100, {"mail_attachment:yara_match", "mail_double_extension",
+    # beta.3: the "PE masquerading as a document" YARA rule no longer fires on a
+    # program that is named as one (.exe); the double extension still does.
+    "lure.msg": ("Critical", 100, {"mail_double_extension",
                                    "mail_lure_subject", "mail_risky_attachment"}),
     "notes.rtf": ("High", 70, {"external_relationship"}),
     "notes.txt": ("Medium", 40, {"yara_match"}),
     "parcel.zip": ("Critical", 100, {"archive_double_extension", "archive_executable",
-                                     "archive_member:yara_match", "archive_zip_slip"}),
-    "setup.exe": ("Critical", 85, {"yara_match"}),
+                                     "archive_zip_slip"}),
+    # beta.3: was Critical only because that rule fired on every PE (all 119 benign
+    # .exe files in the benchmark too). A packed program is now left to the ML layer.
+    "setup.exe": ("Low", 20, set()),
     "statement.eml": ("Clean", 0, set()),
     "template.docx": ("High", 70, {"external_relationship"}),
 }

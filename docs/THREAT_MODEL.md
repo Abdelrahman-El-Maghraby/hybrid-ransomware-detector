@@ -40,6 +40,9 @@ library cannot handle; an archive nests 50 levels deep.*
 - **Fuzzing** of every parser (`tests/test_fuzz_parsers.py`, `fuzz/`). Found and
   fixed: a pyzipper `NotImplementedError` that ended a file's scan; a known infinite
   loop in PyPDF2 3.0.x (CVE-2023-36464), removed by moving to `pypdf`.
+- **Timing on a benign corpus** (`tools/profile_layers.py`). Found and fixed: a
+  quadratic regular expression in the strings pass (a 300 KB single-line script
+  took 140 s).
 - `pip-audit` in CI against the pinned lock file.
 
 *Residual:* Windows and macOS do not enforce the memory limit (time limit still

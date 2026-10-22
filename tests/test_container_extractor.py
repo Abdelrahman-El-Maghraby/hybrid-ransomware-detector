@@ -72,9 +72,20 @@ def test_compression_ratio_bomb(tmp_path):
 
 
 def test_member_count_and_size_limits(tmp_path):
-    many = _zip(tmp_path / "many.zip", [(f"f{i}.txt", "x") for i in range(20)])
+    # Many entries are not a bomb: the first ones are unpacked (programs first),
+    # the names of the rest are still checked.
+    entries = [(f"f{i}.txt", "x") for i in range(20)] + [("late.pdf.exe", "MZ")]
+    many = _zip(tmp_path / "many.zip", entries)
     with ContainerExtractor(max_members=10).open(many) as res:
-        assert res.zip_bomb and "entries" in res.zip_bomb_reason
+        assert not res.zip_bomb
+        assert len(res.members) == 10 and res.skipped_members == 11
+        assert any(m.name.endswith("late.pdf.exe") and m.extracted for m in res.members)
+    names_only = _zip(tmp_path / "names.zip",
+                      [(f"f{i}.txt", "x") for i in range(10)] + [("a.exe", "x"), ("b.pdf.scr", "x")])
+    with ContainerExtractor(max_members=1).open(names_only) as res:
+        assert res.skipped_members == 11
+        assert any(n.endswith("b.pdf.scr") for n in res.double_extension_members)
+        assert len(res.executable_members) == 2
     big = _zip(tmp_path / "big.zip", [("r.bin", os.urandom(300_000))])
     with ContainerExtractor(max_total_bytes=100_000).open(big) as res:
         assert res.zip_bomb

@@ -154,7 +154,9 @@ class FuzzyHashLayer(Layer):
     def run(self, scanner, ctx):
         if ctx.result["file_size"] <= scanner.fuzzy_max_bytes:
             data = ctx.data()
-            pre = scanner.fuzzy_hasher.hash_bytes(data) if data is not None else None
+            hasher = scanner.fuzzy_hasher
+            pre = (hasher.hash_bytes(data, with_ssdeep=hasher.needs_ssdeep)
+                   if data is not None else None)
             fuzzy = scanner.fuzzy_hasher.analyze_file(ctx.path, precomputed=pre)
         else:
             from detectors.fuzzy_hash import FuzzyResult

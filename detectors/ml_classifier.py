@@ -61,6 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+from .entropy import shannon_entropy
 from .file_integrity import trusted_vault
 
 logger = logging.getLogger("RansomwareScanner.ml")
@@ -111,6 +112,18 @@ _COMPRESSED_MAGIC: Tuple[Tuple[int, bytes], ...] = (
     (0, b"OggS"), (0, b"fLaC"), (0, b"ID3"), (0, b"RIFF"), (0, b"MSCF"),
 )
 _SCN_EXEC = 0x20000000
+
+
+def _known_compressed(data: bytes, ext: str) -> bool:
+    """A format whose body is compressed by design, so high entropy is expected.
+    A PDF counts only while its object structure is intact (an encryptor that keeps
+    the header destroys the 'endobj' markers): Flate streams made 18% of benign
+    PDFs look 'random throughout' (4.4.0-beta.3 benchmark)."""
+    if any(data[o:o + len(m)] == m for o, m in _COMPRESSED_MAGIC):
+        return True
+    if data.startswith(b"%PDF-") and data.count(b"endobj") >= 3:
+        return True
+    return bool(trusted_vault(data[:64], ext))
 _SCN_WRITE = 0x80000000
 
 
@@ -143,11 +156,7 @@ class MLResult:
 # Feature extraction (standard library only)
 # ---------------------------------------------------------------------------
 
-def shannon_entropy(data: bytes) -> float:
-    if not data:
-        return 0.0
-    n = len(data)
-    return -sum((c / n) * math.log2(c / n) for c in Counter(data).values())
+_TEXT_BYTES = bytes([9, 10, 13, *range(32, 127)])   # printable ASCII + tab/LF/CR
 
 
 def _window_ratio(data: bytes) -> float:
@@ -242,10 +251,8 @@ def extract_features(file_path: PathLike) -> Dict[str, float]:
     feats.update({
         "log2_size": math.log2(size + 1),
         "null_ratio": data.count(0) / n,
-        "printable_ratio": sum(1 for b in data if 32 <= b < 127 or b in (9, 10, 13)) / n,
-        "known_compressed_format": float(any(data[o:o + len(m)] == m
-                                             for o, m in _COMPRESSED_MAGIC)
-                                         or bool(trusted_vault(data[:64], ext))),
+        "printable_ratio": (len(data) - len(data.translate(None, _TEXT_BYTES))) / n,
+        "known_compressed_format": float(_known_compressed(data, ext)),
         "ext_risk": (3.0 if ext in _EXECUTABLE_EXT else 2.0 if ext in _DOCUMENT_EXT
                      else 1.0 if ext else 0.0),
     })

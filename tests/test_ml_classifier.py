@@ -260,3 +260,17 @@ def test_foreign_or_stale_model_falls_back_to_rules(tmp_path):
 def test_missing_model_path_uses_rules(tmp_path):
     clf = MLClassifier(tmp_path / "does-not-exist.joblib")
     assert not clf.has_model and clf.load_error == ""
+
+
+def test_pdf_with_compressed_streams_is_not_random_but_header_only_pdf_is(tmp_path):
+    rng = random.Random(4)
+    body = b"".join(b"%d 0 obj\n<< /Filter /FlateDecode >>\nstream\n" % i
+                    + bytes(rng.getrandbits(8) for _ in range(30_000))
+                    + b"\nendstream\nendobj\n" for i in range(1, 8))
+    real = tmp_path / "report.pdf"
+    real.write_bytes(b"%PDF-1.7\n" + body + b"trailer\n%%EOF\n")
+    assert rule_score(extract_features(real))[0] < 0.5
+    # an encryptor that keeps the first bytes: header survives, structure does not
+    locked = tmp_path / "locked.pdf"
+    locked.write_bytes(b"%PDF-1.7\n" + bytes(rng.getrandbits(8) for _ in range(200_000)))
+    assert rule_score(extract_features(locked))[0] >= 0.5
