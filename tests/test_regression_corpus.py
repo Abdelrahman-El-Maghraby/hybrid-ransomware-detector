@@ -22,22 +22,27 @@ EXPECTED = {
     "budget.xlsx": ("High", 70, {"encrypted_content"}),
     "clean.docx": ("Clean", 0, set()),
     "hidden.docx": ("High", 65, {"hidden_content", "prompt_injection"}),
-    "invoice.pdf": ("Critical", 100, {"disguised_executable", "yara_match"}),
+    # 4.6.0: the disguised programs in this corpus are bare MZ/PE stubs with no
+    # optional header, which the new PE layer reports as malformed.
+    "invoice.pdf": ("Critical", 100, {"disguised_executable", "yara_match", "pe_malformed"}),
     "letter.pdf": ("Clean", 0, set()),
     "lure.eml": ("Critical", 100, {"mail_attachment:disguised_executable", "mail_attachment:yara_match",
                                    "mail_deceptive_link", "mail_display_name_spoof", "mail_dmarc_fail",
-                                   "mail_lure_subject", "mail_reply_to_mismatch"}),
+                                   "mail_lure_subject", "mail_reply_to_mismatch",
+                                   "mail_attachment:pe_malformed"}),
     # 4.4.0: the "PE masquerading as a document" YARA rule no longer fires on a
     # program that is named as one (.exe); the double extension still does.
     "lure.msg": ("Critical", 100, {"mail_double_extension",
-                                   "mail_lure_subject", "mail_risky_attachment"}),
+                                   "mail_lure_subject", "mail_risky_attachment",
+                                   "mail_attachment:pe_malformed"}),
     "notes.rtf": ("High", 70, {"external_relationship"}),
     "notes.txt": ("Medium", 40, {"yara_match"}),
     "parcel.zip": ("Critical", 100, {"archive_double_extension", "archive_executable",
-                                     "archive_zip_slip"}),
+                                     "archive_zip_slip", "archive_member:pe_malformed"}),
     # 4.4.0: was Critical only because that rule fired on every PE (all 119 benign
-    # .exe files in the benchmark too). A packed program is now left to the ML layer.
-    "setup.exe": ("Low", 20, set()),
+    # .exe files in the benchmark too). 4.6.0: the PE layer scores the UPX packing
+    # (technical, 20) and the ML layer's opinion on the same sections is not added.
+    "setup.exe": ("Low", 20, {"pe_packed"}),
     "statement.eml": ("Clean", 0, set()),
     "template.docx": ("High", 70, {"external_relationship"}),
 }

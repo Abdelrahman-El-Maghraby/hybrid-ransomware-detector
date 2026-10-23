@@ -248,6 +248,7 @@ class ScoringMatrix:
         contribs.extend(self._mail(signals))
         contribs.extend(self._web(signals))
         contribs.extend(self._elf_and_qr(signals))
+        contribs.extend(self._pe(signals))
         contribs.extend(self._script(signals))
         contribs.extend(self._embedded(signals))
 
@@ -261,7 +262,10 @@ class ScoringMatrix:
         ml = signals.get("ml") or {}
         # When the integrity layer already proved the content is encrypted,
         # the ML layer is looking at the same evidence: don't count it twice.
-        same_evidence = bool((signals.get("integrity") or {}).get("encrypted_likely"))
+        # Likewise a packed Windows program: the PE layer already scored the
+        # packer sections and entropy the ML rules look at.
+        same_evidence = bool((signals.get("integrity") or {}).get("encrypted_likely")
+                             or (signals.get("pe") or {}).get("packed"))
         if ml.get("suspicious") and not same_evidence:
             prob = float(ml.get("probability", 0) or 0)
             why = "; ".join((ml.get("indicators") or [])[:3])
@@ -559,6 +563,60 @@ class ScoringMatrix:
                 "qr_code_url", "semantic", self.W_QR_URL,
                 f"QR code carries a web link ({qr['urls'][0]}); "
                 "links in QR codes bypass text filters."))
+        return out
+
+    # ------------------------------------------------------------------ v4.6
+    def _pe(self, signals: Dict) -> List[Contribution]:
+        out: List[Contribution] = []
+        pe = signals.get("pe") or {}
+        if not pe:
+            return out
+        if pe.get("recovery_inhibition"):
+            out.append(Contribution(
+                "pe_recovery_inhibition", "technical", self.W_PE_RECOVERY_INHIBITION,
+                "Windows program carries a command that deletes shadow copies or backups "
+                f"(T1490): {pe['recovery_inhibition'][0]}."))
+        if pe.get("injection"):
+            out.append(Contribution(
+                "pe_injection_imports", "technical", self.W_PE_INJECTION,
+                "Imports the process-injection chain (T1055): "
+                + " + ".join(pe["injection"]) + "."))
+        if pe.get("ransomware_apis"):
+            out.append(Contribution(
+                "pe_ransomware_imports", "technical", self.W_PE_RANSOM_APIS,
+                "Unsigned program imports encryption, directory walking and file writing: "
+                + " + ".join(pe["ransomware_apis"]) + "."))
+        if pe.get("packed"):
+            # Packers make writable code sections and hide imports by design:
+            # that is the same evidence, so it is not added again.
+            out.append(Contribution(
+                "pe_packed", "technical", self.W_PE_PACKED,
+                f"Windows program is packed ({pe.get('packer') or 'unknown packer'})."))
+        else:
+            if pe.get("wx_sections"):
+                out.append(Contribution(
+                    "pe_writable_code", "technical", self.W_PE_WX_SECTION,
+                    "Writable and executable section(s): "
+                    + ", ".join(pe["wx_sections"][:3]) + " (self-modifying code)."))
+            if pe.get("runtime_imports_only"):
+                out.append(Contribution(
+                    "pe_runtime_imports", "technical", self.W_PE_RUNTIME_IMPORTS,
+                    "Imports almost nothing but LoadLibrary/GetProcAddress: "
+                    "the real API calls are resolved at run time."))
+        if pe.get("overlay_executable"):
+            out.append(Contribution(
+                "pe_overlay_executable", "technical", self.W_PE_OVERLAY_EXECUTABLE,
+                f"Another program is appended after the sections ({pe.get('overlay_size', 0)} "
+                "bytes): a binder or dropper."))
+        elif pe.get("overlay_encrypted"):
+            out.append(Contribution(
+                "pe_overlay_encrypted", "technical", self.W_PE_OVERLAY_ENCRYPTED,
+                f"Unsigned program carries {pe.get('overlay_size', 0)} bytes of near-random "
+                "appended data that is no known installer format."))
+        if pe.get("malformed"):
+            out.append(Contribution(
+                "pe_malformed", "technical", self.W_PE_MALFORMED,
+                "Malformed Windows program: " + "; ".join(pe["malformed"][:2]) + "."))
         return out
 
     def _embedded(self, signals: Dict) -> List[Contribution]:

@@ -32,6 +32,7 @@ from detectors import FUZZY_AVAILABLE
 from detectors.elf_analysis import is_elf
 from detectors.embedded_content import sniff as embedded_sniff
 from detectors.file_integrity import IMAGE_EXTENSIONS
+from detectors.pe_analysis import is_pe
 from detectors.relationship_scanner import defang
 from detectors.script_analysis import is_script
 
@@ -244,6 +245,26 @@ class ElfLayer(Layer):
                               "packer": res.packer, "no_section_table": res.no_section_table}
 
 
+class PeLayer(Layer):
+    """Windows PE triage: sections, imports, recovery-inhibition commands,
+    overlay and signature directory. Only PE files get a `pe_analysis` entry."""
+    name = "pe"
+
+    def run(self, scanner, ctx):
+        if ctx.is_mail or not is_pe(ctx.path):
+            return
+        res = scanner.pe_analyzer.analyze_file(ctx.path, data=ctx.data())
+        ctx.scan_results["pe_analysis"] = res.as_dict()
+        ctx.signals["pe"] = {
+            "packed": res.packed, "packer": res.packer, "wx_sections": res.wx_sections,
+            "injection": res.injection, "ransomware_apis": res.ransomware_apis,
+            "runtime_imports_only": res.runtime_imports_only,
+            "recovery_inhibition": res.recovery_inhibition,
+            "overlay_executable": res.overlay_executable,
+            "overlay_encrypted": res.overlay_encrypted, "overlay_size": res.overlay_size,
+            "malformed": res.malformed, "signature_present": res.signature_present}
+
+
 class ScriptLayer(Layer):
     """Windows script files (JS / VBS / HTA / WSF / PS1 / BAT): download, execute,
     recovery tampering, defence evasion, persistence and obfuscation markers."""
@@ -439,6 +460,7 @@ def default_pipeline() -> List[Layer]:
         YaraLayer(),
         IntegrityLayer(),
         ElfLayer(),
+        PeLayer(),
         ScriptLayer(),
         ContainerLayer(MailHandler()),       # before the prompt guard: it reads the body
         PromptGuardLayer(),

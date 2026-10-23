@@ -6,7 +6,7 @@
 # Change a weight here, run the test suite and the regression corpus, and bump
 # `version` - reports record which registry version scored a file.
 
-version: "2026.10.22-2"
+version: "2026.10.23-1"
 
 caps:            # each category's total is capped, then the total is clamped to max_raw
   technical: 100.0
@@ -88,6 +88,15 @@ weights:         # points when an indicator fires fully
   W_ELF_BEHAVIOUR_EXTRA: 8.0   # each additional category
   W_ELF_PACKED: 20.0   # UPX or near-random content with few sections
   W_ELF_NO_SECTIONS: 10.0   # runnable ELF with its section table removed
+  W_PE_RECOVERY_INHIBITION: 60.0   # Windows program deletes shadow copies / backups (T1490)
+  W_PE_INJECTION: 20.0   # imports alloc + write + thread in another process (T1055)
+  W_PE_RANSOM_APIS: 15.0   # unsigned: encrypt API + directory walk + file write
+  W_PE_PACKED: 20.0   # packer section names or a near-random code section
+  W_PE_WX_SECTION: 10.0   # writable+executable section in an unpacked program
+  W_PE_RUNTIME_IMPORTS: 10.0   # imports only LoadLibrary/GetProcAddress (not packed)
+  W_PE_OVERLAY_EXECUTABLE: 25.0   # another program appended after the sections
+  W_PE_OVERLAY_ENCRYPTED: 8.0   # unsigned, large near-random overlay of no known installer
+  W_PE_MALFORMED: 10.0   # headers the Windows loader would reject or that point outside the file
   W_QR_SUSPICIOUS_URL: 35.0   # QR code leads to an IP / shortener / punycode / lure URL
   W_QR_URL: 8.0   # semantic: a QR code carries a web link (quishing pattern)
   W_SCRIPT_BEHAVIOUR:   # script attachments (JS / VBS / HTA / PS1 / BAT), by category
@@ -163,6 +172,15 @@ indicators:      # name -> category, the weight it uses, label in the app
   elf_behaviour: {category: technical, label: "hostile Linux program"}
   elf_packed: {category: technical, weight: W_ELF_PACKED, label: "packed Linux program"}
   elf_no_section_table: {category: technical, weight: W_ELF_NO_SECTIONS, label: "stripped Linux program"}
+  pe_recovery_inhibition: {category: technical, weight: W_PE_RECOVERY_INHIBITION, label: "program deletes backups"}
+  pe_injection_imports: {category: technical, weight: W_PE_INJECTION, label: "process-injection imports"}
+  pe_ransomware_imports: {category: technical, weight: W_PE_RANSOM_APIS, label: "encrypt-and-rewrite imports"}
+  pe_packed: {category: technical, weight: W_PE_PACKED, label: "packed Windows program"}
+  pe_writable_code: {category: technical, weight: W_PE_WX_SECTION, label: "writable code section"}
+  pe_runtime_imports: {category: technical, weight: W_PE_RUNTIME_IMPORTS, label: "hidden imports"}
+  pe_overlay_executable: {category: technical, weight: W_PE_OVERLAY_EXECUTABLE, label: "program appended to program"}
+  pe_overlay_encrypted: {category: technical, weight: W_PE_OVERLAY_ENCRYPTED, label: "encrypted appended data"}
+  pe_malformed: {category: technical, weight: W_PE_MALFORMED, label: "malformed Windows program"}
   qr_code_suspicious_url: {category: technical, weight: W_QR_SUSPICIOUS_URL, label: "QR code to a risky link"}
   qr_code_url: {category: semantic, weight: W_QR_URL, label: "QR code with a link"}
   onenote_embedded_file: {category: technical, weight: W_ONENOTE_RISKY, label: "OneNote with runnable file"}

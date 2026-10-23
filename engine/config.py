@@ -72,6 +72,7 @@ SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xl
                         ".eml", ".msg", ".html", ".htm", ".svg",
                         ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta", ".ps1", ".bat", ".cmd",
                         ".one", ".chm", ".msi", ".xll",
+                        ".exe", ".dll", ".scr", ".cpl", ".sys",
                         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
 # Pictures are supported but not scanned in folder scans by default: a Downloads
 # folder can hold thousands, and each one would cost a VirusTotal lookup. Images

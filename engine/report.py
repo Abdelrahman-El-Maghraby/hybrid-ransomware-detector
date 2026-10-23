@@ -175,7 +175,7 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("macro")
         if YARA_AVAILABLE:
             layers.append("yara")
-        layers += ["integrity", "elf", "script", "prompt-guard", "relationships", "archives", "mail",
+        layers += ["integrity", "elf", "pe", "script", "prompt-guard", "relationships", "archives", "mail",
                    "web", "embedded"]
         qr = getattr(self, "qr_scanner", None)
         if qr is not None and QR_AVAILABLE:
@@ -291,6 +291,15 @@ def _elf(sr: Dict) -> Lines:
     elf = sr.get("elf_analysis", {})
     if elf.get("behaviour") or elf.get("packed") or elf.get("no_section_table"):
         return [f"  [ELF]       {elf.get('detail', '')}"]
+    return []
+
+
+def _pe(sr: Dict) -> Lines:
+    pe = sr.get("pe_analysis", {})
+    if any(pe.get(k) for k in ("packed", "wx_sections", "injection_apis", "ransomware_apis",
+                               "runtime_imports_only", "recovery_inhibition",
+                               "overlay_executable", "overlay_encrypted", "malformed")):
+        return [f"  [PE]        {pe.get('detail', '')}"]
     return []
 
 
@@ -430,7 +439,7 @@ def _skipped(sr: Dict) -> Lines:
 
 
 FINDING_SECTIONS: Tuple[Callable[[Dict], Lines], ...] = (
-    _local_db, _fuzzy, _macro, _yara, _integrity, _prompt_guard, _elf, _sandbox,
+    _local_db, _fuzzy, _macro, _yara, _integrity, _prompt_guard, _elf, _pe, _sandbox,
     _allowlist, _script, _embedded, _qr, _relationships, _archive, _mail, _web, _ml,
     _virustotal, _llm, _emulation, _skipped,
 )

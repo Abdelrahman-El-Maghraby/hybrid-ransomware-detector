@@ -129,3 +129,95 @@ def make_zipcrypto_zip(path: Path, name: str, data: bytes, password: str) -> Pat
     eocd = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 1, 1, len(central), cd_offset, 0)
     path.write_bytes(local + payload + central + eocd)
     return path
+
+
+# --------------------------------------------------------------------- PE files
+SCN_CODE_RX = 0x60000020      # code, execute, read
+SCN_DATA_RW = 0xC0000040      # initialised data, read, write
+SCN_RWX = 0xE0000020
+
+
+def make_pe(sections=((".text", b"\x90" * 0x400, SCN_CODE_RX),), imports=None, bits=32,
+            kind="exe", overlay=b"", cert=b"", strings=b"") -> bytes:
+    """A structurally valid PE file built from scratch (nothing runs: the code
+    sections are NOPs). `imports` maps a DLL name to imported function names;
+    `strings` lands in a data section; `cert` becomes the Authenticode
+    directory, appended after `overlay` as signed files have it."""
+    plus = bits == 64
+    file_align, sect_align = 0x200, 0x1000
+    secs = [list(s) for s in sections]
+    if strings:
+        secs.append([".rdata", strings, 0x40000040])
+    n = len(secs) + (1 if imports else 0)
+    opt_size = 240 if plus else 224
+    table = 0x80 + 24 + opt_size
+    headers_end = _align(table + 40 * n, file_align)
+
+    def va(i):
+        return sect_align * (i + 1)
+
+    if imports:                                   # build .idata at its final RVA
+        base = va(len(secs))
+        secs.append([".idata", _idata(imports, base, plus), SCN_DATA_RW])
+    raw, layout, off = bytearray(), [], headers_end
+    for i, (name, data, chars) in enumerate(secs):
+        size = _align(len(data), file_align)
+        layout.append((name, va(i), len(data), off, size, chars))
+        raw += data + bytes(size - len(data))
+        off += size
+    body_end = headers_end + len(raw)
+
+    h = bytearray(headers_end)
+    h[0:2] = b"MZ"
+    struct.pack_into("<I", h, 0x3C, 0x80)
+    h[0x80:0x84] = b"PE\x00\x00"
+    chars = 0x0102 | (0x2000 if kind == "dll" else 0)
+    struct.pack_into("<HHIIIHH", h, 0x84, 0x8664 if plus else 0x14C, len(layout), 0, 0, 0,
+                     opt_size, chars)
+    opt = 0x98
+    struct.pack_into("<H", h, opt, 0x20B if plus else 0x10B)
+    struct.pack_into("<II", h, opt + 32, sect_align, file_align)
+    struct.pack_into("<H", h, opt + 68, 1 if kind == "driver" else 2)
+    struct.pack_into("<I", h, opt + (108 if plus else 92), 16)
+    dirs = opt + (112 if plus else 96)
+    if imports:
+        idata = layout[-1]
+        struct.pack_into("<II", h, dirs + 8, idata[1], idata[2])
+    if cert:
+        struct.pack_into("<II", h, dirs + 32, body_end + len(overlay), len(cert))
+    for i, (name, v, vsize, ptr, size, c) in enumerate(layout):
+        o = table + 40 * i
+        h[o:o + 8] = name.encode()[:8].ljust(8, b"\x00")
+        struct.pack_into("<IIII", h, o + 8, vsize, v, size, ptr)
+        struct.pack_into("<I", h, o + 36, c)
+    return bytes(h) + bytes(raw) + overlay + cert
+
+
+def _align(n, a):
+    return (n + a - 1) // a * a
+
+
+def _idata(imports, base, plus):
+    """Import descriptors, lookup tables, hint/name entries and DLL names."""
+    width = 8 if plus else 4
+    dlls = list(imports.items())
+    desc_size = 20 * (len(dlls) + 1)
+    names_blob, thunks_blob = bytearray(), bytearray()
+    thunk_start = desc_size
+    thunk_len = sum((len(f) + 1) * width for _, f in dlls)
+    names_start = thunk_start + thunk_len
+    descs = bytearray()
+    for dll, funcs in dlls:
+        ilt_rva = base + thunk_start + len(thunks_blob)
+        for f in funcs:
+            entry_rva = base + names_start + len(names_blob)
+            names_blob += b"\x00\x00" + f.encode() + b"\x00"
+            if len(names_blob) % 2:
+                names_blob += b"\x00"
+            thunks_blob += entry_rva.to_bytes(width, "little")
+        thunks_blob += bytes(width)
+        dll_rva = base + names_start + len(names_blob)
+        names_blob += dll.encode() + b"\x00"
+        descs += struct.pack("<IIIII", ilt_rva, 0, 0, dll_rva, ilt_rva)
+    descs += bytes(20)
+    return bytes(descs + thunks_blob + names_blob)

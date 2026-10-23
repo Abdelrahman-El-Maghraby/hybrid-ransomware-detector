@@ -142,6 +142,9 @@ def test_ml_contributes_when_it_sees_something_new(scanner, tmp_path):
     p = tmp_path / "scan" / "setup.exe"
     p.write_bytes(make_pe([("UPX0", b"\0" * 512, SCN_WX), ("UPX1", os.urandom(20_000), SCN_WX)],
                           imports=("KERNEL32.dll",)))
+    # With the PE layer in the pipeline the packing is already scored (see
+    # test_pe_analysis); without it, the ML layer is the only one that sees it.
+    scanner.pipeline = [layer for layer in scanner.pipeline if layer.name != "pe"]
     r = scanner.scan_file(str(p))
     contrib = [c for c in r["score_breakdown"]["contributions"] if c["indicator"] == "ml_classifier"]
     assert contrib and contrib[0]["category"] == "statistical" and contrib[0]["points"] <= 20

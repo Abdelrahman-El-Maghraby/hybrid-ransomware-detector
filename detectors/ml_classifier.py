@@ -64,6 +64,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from .entropy import shannon_entropy
 from .file_integrity import trusted_vault
+from .pe_analysis import PACKER_SECTIONS
 
 logger = logging.getLogger("RansomwareScanner.ml")
 
@@ -101,11 +102,7 @@ _DOCUMENT_EXT = frozenset({
     ".pdf", ".doc", ".docx", ".docm", ".dotm", ".xls", ".xlsx", ".xlsm", ".ppt", ".pptx",
     ".pptm", ".rtf", ".zip", ".iso", ".img", ".eml", ".msg", ".one",
 })
-_PACKER_SECTIONS = frozenset({
-    "upx0", "upx1", "upx2", ".upx", ".vmp0", ".vmp1", ".vmp2", ".themida", ".winlice",
-    ".aspack", ".adata", ".nsp0", ".nsp1", ".nsp2", ".mpress1", ".mpress2", ".petite",
-    ".packed", ".enigma1", ".enigma2", "pec2", ".pelock", ".yp", ".perplex",
-})
+_PACKER_SECTIONS = frozenset(PACKER_SECTIONS)       # shared with the PE layer
 _COMPRESSED_MAGIC: Tuple[Tuple[int, bytes], ...] = (
     (0, b"PK\x03\x04"), (0, b"PK\x05\x06"), (0, b"\x1f\x8b"), (0, b"7z\xbc\xaf\x27\x1c"),
     (0, b"Rar!\x1a\x07"), (0, b"\x89PNG\r\n\x1a\n"), (0, b"\xff\xd8\xff"), (0, b"GIF8"),
