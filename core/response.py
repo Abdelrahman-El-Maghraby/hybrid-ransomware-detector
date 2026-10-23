@@ -6,9 +6,21 @@ the encrypting process needs operating-system hooks (an EDR's job), but cutting
 the machine off the network stops the spread to shares and other machines and
 stops exfiltration - the step every incident-response playbook starts with.
 
-Configured with CANARY_RESPONSE (comma-separated, off when empty):
-  network_off  disable the network adapters (needs admin / root rights)
-  script       run CANARY_RESPONSE_SCRIPT with the alert as JSON on stdin
+Configured with CANARY_RESPONSE (comma-separated, off when empty). Whatever
+the order there, actions run fastest-containment first:
+  stop_writers   suspend (CANARY_CONTAIN_MODE=terminate: kill) the processes
+                 that have files open for writing in the canary folders, with
+                 their child processes (core/containment.py)
+  lock_folders   remove write access to CANARY_LOCK_DIRS (default: the canary
+                 folders); undo with --unlock-folders
+  controlled_folder_access
+                 Windows: turn on Defender's Controlled Folder Access and add
+                 the lock folders to it (needs admin rights)
+  network_off    disable the network adapters (needs admin / root rights)
+  script         run CANARY_RESPONSE_SCRIPT with the alert as JSON on stdin
+
+This is a rapid-containment and damage-mitigation tripwire, not prevention:
+by the time a canary changes, encryption is already running.
 
 Each action is a small strategy class; new ones register in ACTIONS. Programs
 are found with core.tools.trusted_which and the response script must be an
@@ -26,10 +38,11 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Type
 
 from core.tools import trusted_which
 
@@ -51,6 +64,7 @@ class ActionResult:
 
 class ResponseAction:
     name = ""
+    priority = 50                                        # lower runs first
 
     def __init__(self, config: Dict, runner: Runner = subprocess.run, system: str = ""):
         self.config = config
@@ -65,9 +79,87 @@ class ResponseAction:
                            timeout=TIMEOUT, check=False)
 
 
+def canary_dirs(alert: Dict) -> List[str]:
+    """Folders where a canary changed or a file event was seen."""
+    paths = [f.get("path", "") for f in alert.get("findings") or []]
+    paths += list(alert.get("touched") or [])
+    return sorted({os.path.dirname(os.path.abspath(p)) for p in paths if p})
+
+
+class StopWritersAction(ResponseAction):
+    """Suspend or kill the processes writing in the canary folders."""
+    name = "stop_writers"
+    priority = 10
+
+    def run(self, alert: Dict) -> ActionResult:
+        from core.containment import contain
+        terminate = str(self.config.get("canary_contain_mode") or "suspend").lower() == "terminate"
+        extra = str(self.config.get("canary_contain_exclude") or "").split(",")
+        touched = [p for p in alert.get("touched") or []]
+        touched += [f.get("path", "") for f in alert.get("findings") or []]
+        res = contain(canary_dirs(alert), touched, terminate=terminate, extra_protected=extra,
+                      system=self.system, runner=self.runner)
+        alert.setdefault("contained_pids", []).extend(res.pids)
+        verb = "killed" if terminate else "suspended"
+        detail = res.summary(verb)
+        if res.pids and not terminate:
+            detail += (" (investigate, then kill them or undo with "
+                       "--resume-pid " + ",".join(map(str, res.pids)) + ")")
+        return ActionResult(self.name, res.ok, detail)
+
+
+class LockFoldersAction(ResponseAction):
+    """Remove write access to the protected folders."""
+    name = "lock_folders"
+    priority = 20
+
+    def folders(self, alert: Dict) -> List[str]:
+        raw = str(self.config.get("canary_lock_dirs") or "")
+        # ";" everywhere; ":" too on POSIX (it is part of a Windows drive path).
+        seps = r";" if self.system == "Windows" else r"[;:]"
+        dirs = [d.strip() for d in re.split(seps, raw) if d.strip()]
+        return dirs or canary_dirs(alert)
+
+    def run(self, alert: Dict) -> ActionResult:
+        from core.containment import lock_folders
+        state = Path(self.config.get("containment_state_file") or "containment_state.json")
+        locked, problems = lock_folders(self.folders(alert), state, system=self.system,
+                                        runner=self.runner)
+        detail = (f"write access removed from {len(locked)} folder(s): " + ", ".join(locked)
+                  if locked else "no folder locked")
+        if problems:
+            detail += "; problems: " + "; ".join(problems[:3])
+        return ActionResult(self.name, bool(locked) and not problems,
+                            detail + (" (undo with --unlock-folders)" if locked else ""))
+
+
+class ControlledFolderAccessAction(ResponseAction):
+    """Windows: turn on Defender's Controlled Folder Access for the lock folders."""
+    name = "controlled_folder_access"
+    priority = 25
+
+    def run(self, alert: Dict) -> ActionResult:
+        if self.system != "Windows":
+            return ActionResult(self.name, False, "Controlled Folder Access exists only on Windows")
+        ps = trusted_which("powershell") or trusted_which("powershell.exe")
+        if not ps:
+            return ActionResult(self.name, False, "powershell not found")
+        folders = LockFoldersAction(self.config, self.runner, self.system).folders(alert)
+        script = "Set-MpPreference -EnableControlledFolderAccess Enabled"
+        for d in folders:
+            quoted = d.replace("'", "''")
+            script += f"; Add-MpPreference -ControlledFolderAccessProtectedFolders '{quoted}'"
+        done = self._exec([ps, "-NoProfile", "-NonInteractive", "-Command", script])
+        if done.returncode != 0:
+            return ActionResult(self.name, False, (done.stderr or "").strip()[:200]
+                                + " (admin rights needed?)")
+        return ActionResult(self.name, True, f"enabled, {len(folders)} folder(s) protected")
+
+
 class NetworkOffAction(ResponseAction):
     """Disable network adapters with the operating system's own tool."""
     name = "network_off"
+    priority = 30
 
     def commands(self) -> List[List[str]]:
         if self.system == "Windows":
@@ -103,6 +195,7 @@ class NetworkOffAction(ResponseAction):
 class ScriptAction(ResponseAction):
     """Run the user's own response script with the alert as JSON on stdin."""
     name = "script"
+    priority = 40
 
     def run(self, alert: Dict) -> ActionResult:
         script = str(self.config.get("canary_response_script") or "")
@@ -116,7 +209,9 @@ class ScriptAction(ResponseAction):
         return ActionResult(self.name, True, f"{Path(script).name} finished")
 
 
-ACTIONS: Dict[str, type] = {cls.name: cls for cls in (NetworkOffAction, ScriptAction)}
+ACTIONS: Dict[str, Type[ResponseAction]] = {cls.name: cls for cls in (
+    StopWritersAction, LockFoldersAction, ControlledFolderAccessAction, NetworkOffAction,
+    ScriptAction)}
 
 
 def _script_problem(script: str) -> str:
@@ -144,7 +239,8 @@ def configured_actions(config: Dict) -> List[str]:
     unknown = [n for n in names if n not in ACTIONS]
     if unknown:
         logger.warning("Unknown CANARY_RESPONSE action(s) ignored: %s", ", ".join(unknown))
-    return [n for n in names if n in ACTIONS]
+    known = list(dict.fromkeys(n for n in names if n in ACTIONS))
+    return sorted(known, key=lambda n: ACTIONS[n].priority)
 
 
 def respond(config: Dict, alert: Dict, runner: Runner = subprocess.run,

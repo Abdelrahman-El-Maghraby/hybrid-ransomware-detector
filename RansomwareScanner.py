@@ -571,12 +571,18 @@ def _build_parser() -> argparse.ArgumentParser:
                              "back to OpenAI if a key is set; 'none' disables the layer.")
     # --- v4: protection features ------------------------------------------
     parser.add_argument("--deploy-canaries", nargs="*", metavar="DIR",
-                        help="Plant ransomware canary files in DIR(s) "
+                        help="Plant canary files in DIR(s): a rapid-containment and "
+                             "damage-mitigation tripwire, not kernel-level prevention "
                              "(default: the configured scan directories)")
     parser.add_argument("--verify-canaries", action="store_true",
                         help="Check every canary file now (exit code 2 if tripped)")
     parser.add_argument("--remove-canaries", action="store_true",
                         help="Delete all canary files this tool planted")
+    parser.add_argument("--resume-pid", metavar="PID[,PID...]",
+                        help="Resume processes the stop_writers response suspended "
+                             "(after you checked they are not ransomware)")
+    parser.add_argument("--unlock-folders", action="store_true",
+                        help="Give back the write access the lock_folders response removed")
     parser.add_argument("--quarantine", metavar="PATH",
                         help="Move a file into the encrypted quarantine vault")
     parser.add_argument("--list-quarantine", action="store_true",
@@ -667,7 +673,7 @@ def _is_utility_mode(args) -> bool:
                     or args.deploy_canaries is not None or args.verify_canaries
                     or args.remove_canaries or args.quarantine or args.list_quarantine
                     or args.restore or args.clear_cache or args.export_key
-                    or args.import_key)
+                    or args.import_key or args.resume_pid or args.unlock_folders)
 
 
 def _print_banner() -> None:
@@ -735,6 +741,26 @@ def _setup_command(args) -> bool:
     return False
 
 
+def _release_containment(args) -> None:
+    """--resume-pid / --unlock-folders: undo the canary containment actions."""
+    from core.containment import resume, unlock_folders
+    failed = False
+    for raw in (args.resume_pid or "").split(","):
+        if raw.strip():
+            pid = int(raw)
+            error = resume(pid)
+            failed |= bool(error)
+            print(f"❌ pid {pid}: {error}" if error else f"✅ Resumed pid {pid}.")
+    if args.unlock_folders:
+        restored, problems = unlock_folders(Path(CONFIG["containment_state_file"]))
+        print(f"✅ Write access restored on {restored} file(s) / folder(s).")
+        for p in problems:
+            failed = True
+            print(f"❌ {p}")
+    if failed:
+        sys.exit(1)
+
+
 def _protection_command(args, scanner) -> bool:
     """Cache, canaries, key backup and quarantine. True when one ran."""
     # --- protection utilities -------------------------------------------------
@@ -763,6 +789,10 @@ def _protection_command(args, scanner) -> bool:
 
     if args.remove_canaries:
         print(f"✅ Removed {scanner.remove_canaries()} canary file(s).")
+        return True
+
+    if args.resume_pid or args.unlock_folders:
+        _release_containment(args)
         return True
 
     if args.export_key or args.import_key:
@@ -859,7 +889,8 @@ def _scan_or_schedule(args, scanner) -> None:
         # Always scheduled: with no canaries deployed the check is a no-op, and
         # canaries deployed later (from the GUI or CLI) are picked up live.
         minutes = max(1, int(CONFIG.get("canary_check_minutes", 5)))
-        watcher = CanaryWatcher(scanner.canaries, scanner.check_canaries)
+        watcher = CanaryWatcher(
+            scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
         if scanner.canaries.entries():
             realtime = watcher.start()
             logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",

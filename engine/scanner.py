@@ -17,7 +17,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from core import (
     QUARANTINE_AVAILABLE,
@@ -514,9 +514,11 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
     def remove_canaries(self) -> int:
         return self.canaries.remove()
 
-    def check_canaries(self, notify: bool = True):
-        """Verify every canary. On a NEW trigger: write an alert file next to the
-        reports and raise a desktop notification (repeat findings stay quiet)."""
+    def check_canaries(self, notify: bool = True, touched: Iterable[str] = ()):
+        """Verify every canary. On a NEW trigger: run the configured containment
+        actions (core/response.py), write an alert file next to the reports and
+        raise a desktop notification (repeat findings stay quiet). `touched` are
+        the paths the real-time watcher saw change."""
         report = self.canaries.verify()
         if not report.triggered:
             self._last_canary_signature = None
@@ -526,19 +528,23 @@ class RansomwareScanner(ReportMixin, ExternalLookupsMixin, TextExtractionMixin):
             self._last_canary_signature = signature
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             alert = Path(self.report_dir) / f"canary_alert_{stamp}.txt"
-            lines = ["RANSOMWARE CANARY TRIPWIRE", "=" * 26,
+            lines = ["RANSOMWARE CANARY TRIPWIRE - rapid containment & damage mitigation",
+                     "=" * 68,
                      f"Time:    {report.checked_at}", f"Summary: {report.summary()}", ""]
             lines += [f"[{f.status}] {f.path}\n    {f.evidence}" for f in report.findings]
             from core.response import respond
             actions = respond(self.config, {"summary": report.summary(),
                                             "checked_at": report.checked_at,
+                                            "touched": sorted(set(touched)),
                                             "findings": [{"path": f.path, "status": f.status,
                                                           "evidence": f.evidence}
                                                          for f in report.findings]})
             if actions:
                 lines += ["", "Automatic response:"] + [f"  {a.line()}" for a in actions]
-            lines += ["", "Recommended: disconnect this machine from the network, do not "
-                          "reboot, and investigate running processes."]
+            lines += ["", "This tripwire limits damage; it cannot undo encryption that already "
+                          "happened.",
+                      "Recommended: disconnect this machine from the network, do not reboot, "
+                      "and investigate running processes."]
             try:
                 alert.write_text("\n".join(lines) + "\n", encoding="utf-8")
             except OSError as e:

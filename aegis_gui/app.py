@@ -328,7 +328,8 @@ class App(ctk.CTk):
 
         def work():
             try:
-                report = self.scanner.check_canaries(notify=True)
+                report = self.scanner.check_canaries(
+                    notify=True, touched=self.canary_watcher.take_touched())
             except Exception:
                 self.gui_log.exception("Canary check failed")
                 report = None

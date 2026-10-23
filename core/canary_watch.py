@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Callable, Optional, Set
+from typing import Callable, List, Optional, Set
 
 from detectors.file_integrity import RANSOM_NOTE_RE
 
@@ -54,7 +54,7 @@ class _Handler(FileSystemEventHandler):  # type: ignore[misc]
             return
         for path in (event.src_path, getattr(event, "dest_path", "") or ""):
             if path and self.watcher.is_relevant(path):
-                self.watcher.poke()
+                self.watcher.poke(path)
                 return
 
 
@@ -72,6 +72,7 @@ class CanaryWatcher:
         self._canaries: Set[str] = set()
         self._timer: Optional[threading.Timer] = None
         self._lock = threading.Lock()
+        self._touched: Set[str] = set()      # paths seen changing since the last check
         self.fired = 0                       # verifications started (for status / tests)
 
     @property
@@ -129,14 +130,23 @@ class CanaryWatcher:
             return True
         return bool(RANSOM_NOTE_RE.search(os.path.basename(path)))
 
-    def poke(self) -> None:
+    def poke(self, path: str = "") -> None:
         """Schedule one verification `debounce` seconds from the first event."""
         with self._lock:
+            if path and len(self._touched) < 1000:
+                self._touched.add(path)
             if self._timer is not None:
                 return
             self._timer = threading.Timer(self.debounce, self._fire)
             self._timer.daemon = True
             self._timer.start()
+
+    def take_touched(self) -> List[str]:
+        """The changed paths seen since the last call (for containment: they
+        point at the folders where the encrypting process is working)."""
+        with self._lock:
+            out, self._touched = sorted(self._touched), set()
+        return out
 
     def _fire(self) -> None:
         with self._lock:

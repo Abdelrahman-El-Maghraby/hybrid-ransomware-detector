@@ -205,6 +205,10 @@ CONFIG = {
     # On a NEW trigger: "" (alert only, default) or any of "network_off,script"
     "canary_response": os.getenv("CANARY_RESPONSE", ""),
     "canary_response_script": os.getenv("CANARY_RESPONSE_SCRIPT", ""),
+    "canary_contain_mode": os.getenv("CANARY_CONTAIN_MODE", "suspend"),   # or "terminate"
+    "canary_contain_exclude": os.getenv("CANARY_CONTAIN_EXCLUDE", ""),    # extra process names
+    "canary_lock_dirs": os.getenv("CANARY_LOCK_DIRS", ""),                # default: canary folders
+    "containment_state_file": str(DATA_DIR / "containment_state.json"),
 
     "report_directory": str(REPORT_DIR),
     "scan_interval_hours": 6,  # Scan every 6 hours
