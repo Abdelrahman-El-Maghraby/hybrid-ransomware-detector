@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _run(code, home, **env):
     e = dict(os.environ, HOME=str(home), USERPROFILE=str(home), **env)
-    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                          timeout=120, cwd=ROOT, env=e)
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, encoding="utf-8",
+                          errors="replace", timeout=120, cwd=ROOT, env=e)
 
 
 def test_importing_creates_nothing_and_configures_no_logging(tmp_path):
@@ -165,9 +165,11 @@ def test_env_problems_are_errors():
 
 def test_cli_stops_on_a_bad_configuration(tmp_path):
     out = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), "--verify-canaries"],
-                         capture_output=True, text=True, timeout=120, cwd=tmp_path,
+                         capture_output=True, encoding="utf-8", errors="replace", timeout=120,
+                         cwd=tmp_path,
                          env=dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path),
-                                  SCAN_WORKERS="four", CANARY_RESPONSE="reboot"))
+                                  SCAN_WORKERS="four", CANARY_RESPONSE="reboot",
+                                  PYTHONIOENCODING="utf-8"))
     assert out.returncode == 2
     assert "SCAN_WORKERS='four' is not a number" in out.stdout
     assert "unknown action(s) reboot" in out.stdout

@@ -100,6 +100,7 @@ def test_lsof_output_parsing():
     assert [(h.pid, h.name, h.files) for h in holders] == [(77, "evil", ["/home/u/Docs/a.docx"])]
 
 
+@pytest.mark.skipif(not POSIX, reason="lsof is a macOS / Linux tool")
 def test_lsof_command(monkeypatch):
     monkeypatch.setattr(C, "trusted_which", lambda n: "/usr/sbin/lsof")
     rec = Recorder(stdout="p9\ncx\nf1\nau\nn/d/f\n")
@@ -363,13 +364,15 @@ def test_respond_runs_the_new_actions(monkeypatch):
 
 # ------------------------------------------------------------- CLI
 def test_cli_resume_and_unlock(tmp_path):
-    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path),
+               PYTHONIOENCODING="utf-8")
+    run = dict(capture_output=True, encoding="utf-8", errors="replace", timeout=120,
+               cwd=tmp_path, env=env)
     out = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), "--unlock-folders"],
-                         capture_output=True, text=True, timeout=120, cwd=tmp_path, env=env)
+                         **run)
     assert out.returncode == 0 and "restored on 0" in out.stdout, out.stderr[-1500:]
     out = subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), "--resume-pid",
-                          "999999"], capture_output=True, text=True, timeout=120, cwd=tmp_path,
-                         env=env)
+                          "999999"], **run)
     assert out.returncode == 1 and "pid 999999" in out.stdout
 
 
