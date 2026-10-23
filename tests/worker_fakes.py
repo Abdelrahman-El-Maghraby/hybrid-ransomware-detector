@@ -18,6 +18,10 @@ class MisbehavingScanner(RansomwareScanner):
             os._exit(3)
         if name.startswith("hog"):
             bytearray(8 * 1024 * 1024 * 1024)
+        if name.startswith("slow"):              # tells the test which worker has it
+            with open(file_path + ".pid", "w") as fh:
+                fh.write(str(os.getpid()))
+            time.sleep(30)
         return super().scan_file(file_path, _depth, _display_name)
 
 

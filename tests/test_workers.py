@@ -4,8 +4,6 @@ is reported (scan_failed) and the scan carries on."""
 import sys
 import threading
 
-import pytest
-
 import RansomwareScanner as RS
 from engine.workers import default_workers
 from tests.helpers import make_pdf
@@ -45,8 +43,8 @@ def test_hang_and_crash_become_findings_and_the_scan_continues(tmp_path):
     assert res["ok1.pdf"]["verdict"] == "Clean" and res["ok2.pdf"]["verdict"] == "Clean"
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="RLIMIT_AS is enforced on Linux")
 def test_memory_limit_stops_runaway_allocation(tmp_path):
+    """RLIMIT_AS on Linux, a Job Object on Windows, the RSS watchdog on macOS."""
     s = _setup(tmp_path, ["hog.pdf", "ok.pdf"], worker_memory_mb=1024)
     res = {r["file_name"]: r for r in s.scan_all_directories()}
     assert "MemoryError" in res["hog.pdf"]["scan_results"]["scan_failed"]["reason"]
