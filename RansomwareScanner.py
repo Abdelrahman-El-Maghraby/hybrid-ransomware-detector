@@ -78,10 +78,12 @@ from engine.config import (  # noqa: F401
     VERDICT_RANK,
     _env_bool,
     _env_float,
+    init_runtime,
     logger,
 )
 from engine.scanner import RansomwareScanner
 from engine.text import extract_suspicious_strings  # noqa: F401
+from engine.validation import ConfigError, check_config
 
 # ---------------------------------------------------------------------------
 # Cross-platform autostart  (run the scanner automatically at login/startup)
@@ -929,7 +931,13 @@ def main():
         except (AttributeError, ValueError):
             pass
     args = _build_parser().parse_args()
+    init_runtime()                      # folders, .env, logging: only for the program
     _apply_overrides(args)
+    try:
+        check_config(CONFIG)
+    except ConfigError as e:
+        print(f"❌ {e}")
+        sys.exit(2)
     if _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)

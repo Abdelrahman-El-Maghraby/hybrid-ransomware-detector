@@ -73,6 +73,8 @@ class _ScanService:
 def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                isolate: bool = True) -> FastAPI:
     from engine.config import CONFIG, ENGINE_VERSION
+    from engine.validation import check_config
+    check_config(config or CONFIG, env_problems=None if config is None else ())
     token = token if token is not None else os.getenv("AEGIS_API_TOKEN", "")
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
@@ -127,9 +129,17 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
 
 def main() -> None:
     import uvicorn
+
+    from engine.config import init_runtime
+    from engine.validation import ConfigError
+    init_runtime()
+    try:
+        app = create_app()           # fails fast on a bad token or configuration
+    except (ConfigError, RuntimeError) as e:
+        raise SystemExit(f"aegis-api: {e}") from e
     host = os.getenv("AEGIS_API_HOST", "127.0.0.1")
     port = int(os.getenv("AEGIS_API_PORT", "8765"))
-    uvicorn.run(create_app(), host=host, port=port, workers=1)
+    uvicorn.run(app, host=host, port=port, workers=1)
 
 
 if __name__ == "__main__":

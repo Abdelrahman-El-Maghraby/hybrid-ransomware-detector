@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from api import SCHEMA_VERSION
 from detectors import FUZZY_AVAILABLE
@@ -35,6 +35,24 @@ from detectors.file_integrity import IMAGE_EXTENSIONS
 from detectors.pe_analysis import is_pe
 from detectors.relationship_scanner import defang
 from detectors.script_analysis import is_script
+from detectors.signals import (
+    ElfSignal,
+    EmulationSignal,
+    FuzzySignal,
+    IntegritySignal,
+    LlmSignal,
+    MacroSignal,
+    MlSignal,
+    PeSignal,
+    PromptGuardSignal,
+    QrSignal,
+    RelationshipSignal,
+    SandboxSignal,
+    ScriptSignal,
+    Signals,
+    VirusTotalSignal,
+    YaraSignal,
+)
 
 from .containers import ArchiveHandler, EmbeddedHandler, MailHandler, WebHandler, scan_container
 from .text import extract_suspicious_strings
@@ -77,7 +95,7 @@ class ScanContext:
     hashes: Dict = field(default_factory=dict)
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
-    signals: Dict = field(default_factory=lambda: {"archive": {}, "mail": {}, "ml": {}})
+    signals: Signals = field(default_factory=Signals)
 
     @classmethod
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
@@ -124,7 +142,7 @@ class HashLayer(Layer):
     """MD5 + SHA-256 (chunked). Everything that is cached or looked up keys on these."""
     name = "hashes"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         data = ctx.data()
         if data is not None:
             import hashlib
@@ -141,18 +159,18 @@ class AllowlistLayer(Layer):
     that looks like a dropper). Every other layer still runs and is reported."""
     name = "allowlist"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         note = scanner.allowlist.get(ctx.hashes.get("sha256", ""))
         if note is not None:
             ctx.scan_results["allowlist"] = {"allowlisted": True, "note": note}
-            ctx.signals["allowlisted"] = note or "no note"
+            ctx.signals.allowlisted = note or "no note"
 
 
 class FuzzyHashLayer(Layer):
     """TLSH + ssdeep similarity to known families (skipped above fuzzy_max_bytes)."""
     name = "fuzzy"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if ctx.result["file_size"] <= scanner.fuzzy_max_bytes:
             data = ctx.data()
             hasher = scanner.fuzzy_hasher
@@ -165,70 +183,59 @@ class FuzzyHashLayer(Layer):
                                 detail=f"Skipped: file exceeds fuzzy_max_bytes "
                                        f"({scanner.fuzzy_max_bytes} bytes).")
         ctx.scan_results["fuzzy_hash"] = fuzzy.as_dict()
-        ctx.signals["fuzzy"] = {
-            "matched": fuzzy.matched,
-            "best_confidence": fuzzy.best_confidence,
-            "families": sorted({m.family for m in fuzzy.matches}),
-        }
+        ctx.signals.fuzzy = FuzzySignal(
+            matched=fuzzy.matched, best_confidence=fuzzy.best_confidence,
+            families=sorted({m.family for m in fuzzy.matches}))
 
 
 class LocalDatabaseLayer(Layer):
     """Exact known-bad MD5 from the local dataset."""
     name = "local-db"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         hit, info = scanner.check_hash_in_database(ctx.hashes.get("md5", ""))
         ctx.scan_results["local_database"] = {
             "is_malicious": hit,
             "details": info if hit else "Not found in local database",
         }
-        ctx.signals["local_db_hit"] = hit
+        ctx.signals.local_db_hit = bool(hit)
 
 
 class MacroLayer(Layer):
     """olevba triage of VBA/XLM macros, VBA stomping."""
     name = "macro"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         macro = scanner.macro_analyzer.analyze_file(ctx.path)
         ctx.scan_results["macro_analysis"] = macro.as_dict()
-        ctx.signals["macro"] = {
-            "has_macros": macro.has_macros,
-            "autoexec": macro.autoexec,
-            "critical": macro.critical,
-            "suspicious": macro.suspicious,
-            "vba_stomping": macro.vba_stomping,
-            "xlm_macros": macro.xlm_macros,
-        }
+        ctx.signals.macro = MacroSignal(
+            has_macros=macro.has_macros, autoexec=macro.autoexec, critical=macro.critical,
+            suspicious=macro.suspicious, vba_stomping=macro.vba_stomping,
+            xlm_macros=macro.xlm_macros)
 
 
 class YaraLayer(Layer):
     name = "yara"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         res = scanner.yara_engine.scan_file(ctx.path, data=ctx.data())
         ctx.scan_results["yara"] = res.as_dict()
-        ctx.signals["yara"] = {
-            "matched": res.matched,
-            "top_severity": res.top_severity or "medium",
-            "rules": sorted({m.rule for m in res.matches}),
-        }
+        ctx.signals.yara = YaraSignal(matched=res.matched,
+                                      top_severity=res.top_severity or "medium",
+                                      rules=sorted({m.rule for m in res.matches}))
 
 
 class IntegrityLayer(Layer):
     """Format vs extension, disguised executables, encrypted content."""
     name = "integrity"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         res = scanner.integrity.analyze_file(ctx.path)
         ctx.scan_results["file_integrity"] = res.as_dict()
-        ctx.signals["integrity"] = {
-            "disguised_executable": res.disguised_executable,
-            "encrypted_likely": res.encrypted_likely,
-            "format_mismatch": res.format_mismatch,
-            "appended_payload": res.appended_payload,
-            "detail": res.detail,
-        }
+        ctx.signals.integrity = IntegritySignal(
+            disguised_executable=res.disguised_executable, encrypted_likely=res.encrypted_likely,
+            format_mismatch=res.format_mismatch, appended_payload=res.appended_payload,
+            detail=res.detail)
 
 
 class ElfLayer(Layer):
@@ -236,13 +243,13 @@ class ElfLayer(Layer):
     Only ELF files get an `elf_analysis` entry."""
     name = "elf"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if ctx.is_archive or ctx.is_mail or not is_elf(ctx.path):
             return
         res = scanner.elf_analyzer.analyze_file(ctx.path, data=ctx.data())
         ctx.scan_results["elf_analysis"] = res.as_dict()
-        ctx.signals["elf"] = {"categories": res.categories, "packed": res.packed,
-                              "packer": res.packer, "no_section_table": res.no_section_table}
+        ctx.signals.elf = ElfSignal(categories=res.categories, packed=res.packed,
+                                    packer=res.packer, no_section_table=res.no_section_table)
 
 
 class PeLayer(Layer):
@@ -250,19 +257,19 @@ class PeLayer(Layer):
     overlay and signature directory. Only PE files get a `pe_analysis` entry."""
     name = "pe"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if ctx.is_mail or not is_pe(ctx.path):
             return
         res = scanner.pe_analyzer.analyze_file(ctx.path, data=ctx.data())
         ctx.scan_results["pe_analysis"] = res.as_dict()
-        ctx.signals["pe"] = {
-            "packed": res.packed, "packer": res.packer, "wx_sections": res.wx_sections,
-            "injection": res.injection, "ransomware_apis": res.ransomware_apis,
-            "runtime_imports_only": res.runtime_imports_only,
-            "recovery_inhibition": res.recovery_inhibition,
-            "overlay_executable": res.overlay_executable,
-            "overlay_encrypted": res.overlay_encrypted, "overlay_size": res.overlay_size,
-            "malformed": res.malformed, "signature_present": res.signature_present}
+        ctx.signals.pe = PeSignal(
+            packed=res.packed, packer=res.packer, wx_sections=res.wx_sections,
+            injection=res.injection, ransomware_apis=res.ransomware_apis,
+            runtime_imports_only=res.runtime_imports_only,
+            recovery_inhibition=res.recovery_inhibition,
+            overlay_executable=res.overlay_executable, overlay_encrypted=res.overlay_encrypted,
+            overlay_size=res.overlay_size, malformed=res.malformed,
+            signature_present=res.signature_present)
 
 
 class ScriptLayer(Layer):
@@ -270,13 +277,13 @@ class ScriptLayer(Layer):
     recovery tampering, defence evasion, persistence and obfuscation markers."""
     name = "script"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if ctx.is_archive or ctx.is_mail or not is_script(ctx.path):
             return
         res = scanner.script_analyzer.analyze_file(ctx.path, data=ctx.data())
         ctx.scan_results["script_analysis"] = res.as_dict()
-        ctx.signals["script"] = {"language": res.language, "categories": res.categories,
-                                 "encoded": res.encoded, "obfuscation": res.obfuscation}
+        ctx.signals.script = ScriptSignal(language=res.language, categories=res.categories,
+                                          encoded=res.encoded, obfuscation=res.obfuscation)
 
 
 class ContainerLayer(Layer):
@@ -286,7 +293,7 @@ class ContainerLayer(Layer):
         self.handler = handler
         self.name = handler.result_key
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if self.handler.applies(ctx):
             scan_container(scanner, self.handler, ctx)
 
@@ -296,7 +303,7 @@ class PromptGuardLayer(Layer):
     hidden content and prompt-injection attempts."""
     name = "prompt-guard"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if ctx.is_archive:
             ctx.text = ""
         elif not ctx.is_mail:      # an e-mail's body was captured by its container
@@ -306,25 +313,20 @@ class PromptGuardLayer(Layer):
         hidden = scanner.prompt_guard.inspect_hidden_content(ctx.path)
         guard = scanner.prompt_guard.analyze(ctx.text, ctx.strings, hidden)
         ctx.scan_results["prompt_guard"] = guard.as_dict()
-        ctx.signals["prompt_guard"] = {
-            "injection_status": guard.injection_status,
-            "indicators": guard.injection_indicators,
-            "hidden_text_found": guard.hidden_text_found,
-            "hidden_reasons": guard.hidden_reasons,
-        }
+        ctx.signals.prompt_guard = PromptGuardSignal(
+            injection_status=guard.injection_status, indicators=guard.injection_indicators,
+            hidden_text_found=guard.hidden_text_found, hidden_reasons=guard.hidden_reasons)
 
 
 class RelationshipLayer(Layer):
     """Office external links: remote templates, Follina-style OLE, UNC paths."""
     name = "relationships"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         rels = scanner.relationship_scanner.scan_file(ctx.path)
         ctx.scan_results["relationships"] = rels.as_dict()
-        ctx.signals["relationships"] = {
-            "kinds": rels.kinds,
-            "targets": [defang(f.target) for f in rels.findings[:3]],
-        }
+        ctx.signals.relationships = RelationshipSignal(
+            kinds=rels.kinds, targets=[defang(f.target) for f in rels.findings[:3]])
 
 
 class QRLayer(Layer):
@@ -332,7 +334,7 @@ class QRLayer(Layer):
     Only files that can hold images get a `qr_codes` entry."""
     name = "qr"
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if (scanner.qr_scanner is None or ctx.is_archive or ctx.is_mail
                 or not scanner.qr_scanner.applies(ctx.path)):
             return
@@ -340,11 +342,10 @@ class QRLayer(Layer):
         if res.available and not res.images_checked:
             return                      # nothing that could hold a QR code
         ctx.scan_results["qr_codes"] = res.as_dict()
-        ctx.signals["qr"] = {
-            "urls": [defang(u) for u in res.urls],
-            "suspicious": [{"url": defang(c.payload), "reasons": c.suspicious_reasons}
-                           for c in res.suspicious],
-        }
+        ctx.signals.qr = QrSignal(
+            urls=[defang(u) for u in res.urls],
+            suspicious=[{"url": defang(c.payload), "reasons": c.suspicious_reasons}
+                        for c in res.suspicious])
 
 
 class MLLayer(Layer):
@@ -352,13 +353,13 @@ class MLLayer(Layer):
     name = "ml"
     heavy = True
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         if scanner.ml is None or ctx.is_archive or ctx.is_mail:
             return
         res = scanner.ml.classify(ctx.path)
         ctx.scan_results["ml_classifier"] = res.as_dict()
-        ctx.signals["ml"] = {"suspicious": res.suspicious, "probability": res.probability,
-                             "model": res.model, "indicators": res.indicators}
+        ctx.signals.ml = MlSignal(suspicious=res.suspicious, probability=res.probability,
+                                  model=res.model, indicators=res.indicators)
 
 
 class LLMLayer(Layer):
@@ -366,7 +367,8 @@ class LLMLayer(Layer):
     name = "llm"
     heavy = True
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
+        llm: Dict[str, Any]
         if ctx.is_archive:
             llm = {"is_malicious": False, "confidence": 0, "suspicious_elements": [],
                    "details": "Archive: members are analysed individually; "
@@ -378,11 +380,9 @@ class LLMLayer(Layer):
             llm = scanner.analyze_with_llm(ctx.path, ctx.text, ctx.strings,
                                            sha256=ctx.hashes.get("sha256"))
         ctx.scan_results["chatgpt_analysis"] = llm      # legacy key name kept
-        ctx.signals["llm"] = {
-            "is_suspicious": llm.get("is_malicious", False),
-            "confidence": llm.get("confidence", 0),
-            "elements": llm.get("suspicious_elements", []),
-        }
+        ctx.signals.llm = LlmSignal(is_suspicious=bool(llm.get("is_malicious", False)),
+                                    confidence=float(llm.get("confidence", 0) or 0),
+                                    elements=list(llm.get("suspicious_elements", []) or []))
 
 
 class VirusTotalLayer(Layer):
@@ -390,15 +390,14 @@ class VirusTotalLayer(Layer):
     name = "virustotal"
     heavy = True
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         vt = scanner.scan_file_with_virustotal(ctx.path, ctx.hashes)
         ctx.scan_results["virustotal"] = vt
-        ctx.signals["virustotal"] = {
-            "malicious": vt.get("malicious_detections", 0),
-            "suspicious": vt.get("suspicious_detections", 0),
-            "total": vt.get("total_engines", 0),
-            "ratio": vt.get("detection_ratio", 0),
-        }
+        ctx.signals.virustotal = VirusTotalSignal(
+            malicious=int(vt.get("malicious_detections", 0) or 0),
+            suspicious=int(vt.get("suspicious_detections", 0) or 0),
+            total=int(vt.get("total_engines", 0) or 0),
+            ratio=float(vt.get("detection_ratio", 0) or 0))
 
 
 class SandboxLayer(Layer):
@@ -408,7 +407,7 @@ class SandboxLayer(Layer):
     name = "sandbox"
     heavy = True
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         client = getattr(scanner, "sandbox", None)
         if client is None or ctx.depth > 0:
             return
@@ -425,9 +424,9 @@ class SandboxLayer(Layer):
                 scanner.cache.put(sha, "sandbox", data)
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
-            ctx.signals["sandbox"] = {"signatures": data.get("signatures", []),
-                                      "ransomware": data.get("ransomware", []),
-                                      "malscore": data.get("malscore", 0)}
+            ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),
+                                                ransomware=data.get("ransomware", []),
+                                                malscore=data.get("malscore", 0))
 
 
 class EmulationLayer(Layer):
@@ -436,17 +435,17 @@ class EmulationLayer(Layer):
     name = "emulation"
     heavy = True
 
-    def run(self, scanner, ctx):
+    def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         emulator = getattr(scanner, "emulator", None)
         if emulator is None or not emulator.applies(ctx.path):
             return
         res = emulator.emulate(ctx.path, ctx.data())
         ctx.scan_results["emulation"] = res.as_dict()
         if res.ran:
-            ctx.signals["emulation"] = {"urls": [defang(u) for u in res.urls[:3]],
-                                        "url_count": len(res.urls),
-                                        "commands": len(res.commands),
-                                        "downloads_and_runs": res.downloads_and_runs}
+            ctx.signals.emulation = EmulationSignal(urls=[defang(u) for u in res.urls[:3]],
+                                                    url_count=len(res.urls),
+                                                    commands=len(res.commands),
+                                                    downloads_and_runs=res.downloads_and_runs)
 
 
 def default_pipeline() -> List[Layer]:

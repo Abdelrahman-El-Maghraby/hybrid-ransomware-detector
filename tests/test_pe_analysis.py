@@ -317,7 +317,8 @@ def test_layer_signals_match_the_scorer_contract(tmp_path):
     from engine.layers import ScanContext
     ctx = ScanContext.start(scanner, str(p), 0, str(p), "x")
     PeLayer().run(scanner, ctx)
-    assert ctx.signals["pe"] == _signals(A.analyze_bytes(p.read_bytes()))
+    from detectors.signals import PeSignal
+    assert ctx.signals.pe == PeSignal(**_signals(A.analyze_bytes(p.read_bytes())))
     assert ctx.scan_results["pe_analysis"]["ransomware_apis"]
 
 

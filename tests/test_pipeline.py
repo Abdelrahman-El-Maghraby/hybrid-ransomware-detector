@@ -129,7 +129,8 @@ def test_scan_context_start(scanner, tmp_path):
     ctx = ScanContext.start(scanner, str(p), 1, "outer.zip!/m.eml", "x")
     assert ctx.is_mail and not ctx.is_archive
     assert ctx.result["file_name"] == "m.eml" and ctx.result["file_path"] == "outer.zip!/m.eml"
-    assert ctx.signals == {"archive": {}, "mail": {}, "ml": {}}
+    from detectors.signals import Signals
+    assert ctx.signals == Signals()
 
 
 @pytest.mark.parametrize("name", [
