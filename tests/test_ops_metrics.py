@@ -152,6 +152,7 @@ def test_body_limit_streaming_and_declared():
 # ------------------------------------------------------------------ API
 @pytest.fixture
 def api(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")               # the [api] extra is optional
     from fastapi.testclient import TestClient
 
     from api.server import create_app
@@ -196,6 +197,7 @@ def test_busy_scanner_answers_503(api, monkeypatch):
 
 
 def test_bad_api_setting_fails_fast(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
     import importlib
 
     import api.server as srv
