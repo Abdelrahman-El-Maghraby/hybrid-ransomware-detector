@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
@@ -36,7 +37,8 @@ class StagedPipelineMixin:
         members of a container (e.g. "invoice.zip!/payload.docm").
         """
         display = _display_name or file_path
-        logger.info("Scanning file: %s", display)
+        started = time.perf_counter()
+        logger.info("Scanning file: %s", display, extra={"event": "scan_started", "path": display})
         ctx = ScanContext.start(cast("RansomwareScanner", self), file_path, _depth, display, ENGINE_VERSION)
         heavy: List[Layer] = []
         for layer in self.pipeline:
@@ -56,11 +58,15 @@ class StagedPipelineMixin:
         result["risk_score"] = score.risk_score            # 0-100
         result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
         result["score_breakdown"] = score.as_dict()        # full evidence trail
+        result["scan_duration_ms"] = int((time.perf_counter() - started) * 1000)
 
         logger.info(
             "Scan completed for %s. Verdict: %s (risk %d/100, severity %.1f/10).",
             display, result["verdict"], result["risk_score"], result["severity_score"],
-        )
+            extra={"event": "scan_completed", "path": display,
+                   "sha256": result.get("sha256_hash", ""), "verdict": result["verdict"],
+                   "risk_score": result["risk_score"],
+                   "duration_ms": result["scan_duration_ms"]})
         return result
 
     def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
@@ -70,7 +76,9 @@ class StagedPipelineMixin:
             layer.run(cast("RansomwareScanner", self), ctx)
         except Exception as e:
             logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
-                           type(e).__name__, e)
+                           type(e).__name__, e,
+                           extra={"event": "layer_error", "layer": layer.name,
+                                  "path": ctx.display, "error": type(e).__name__})
             ctx.scan_results.setdefault("layer_errors", {})[layer.name] = (
                 f"{type(e).__name__}: {str(e)[:200]}")
 

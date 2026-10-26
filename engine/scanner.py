@@ -13,6 +13,7 @@ import csv
 import hashlib
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
@@ -58,6 +59,7 @@ from .config import (
 )
 from .external import ExternalLookupsMixin
 from .layers import Layer, default_pipeline
+from .metrics import METRICS
 from .protection import ProtectionMixin
 from .report import ReportMixin
 from .staging import StagedPipelineMixin
@@ -303,46 +305,56 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
             cleanly after the file currently being scanned (a file mid-scan is never
             left half-analysed).
         """
-        results = []
+        started = time.perf_counter()
+        results: List[Dict] = []
         total = len(targets)
-        if self.config.get("isolate_scans", True) and total > 1:
-            from engine.workers import default_workers, scan_isolated
 
-            def collect(index, file_path, result):
-                try:
-                    self._maybe_auto_quarantine(result)
-                except Exception as e:
-                    logger.error("Auto-quarantine failed for %s: %s", file_path, e)
-                results.append(result)
-                if progress_callback is not None:
-                    try:
-                        progress_callback(index, total, file_path, result)
-                    except Exception as e:
-                        logger.error("Progress callback error: %s", str(e))
-
-            scan_isolated(self, targets, default_workers(self.config),
-                          float(self.config.get("scan_timeout_seconds", 300)),
-                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
-            order = {p: i for i, p in enumerate(targets)}
-            results.sort(key=lambda r: order.get(r.get("file_path"), 0))
-            return results
-        for index, file_path in enumerate(targets, start=1):
-            if cancel_event is not None and cancel_event.is_set():
-                logger.info("Scan cancelled by user after %s/%s files.", len(results), total)
-                break
+        def collect(index, file_path, result):
             try:
-                result = self.scan_file(file_path)
                 self._maybe_auto_quarantine(result)
-                results.append(result)
             except Exception as e:
-                logger.error("Error scanning file %s: %s", file_path, str(e))
-                continue
+                logger.error("Auto-quarantine failed for %s: %s", file_path, e)
+            results.append(result)
+            METRICS.record_result(result)
             if progress_callback is not None:
                 try:
                     progress_callback(index, total, file_path, result)
                 except Exception as e:
-                    logger.error("Progress callback error: %s", str(e))
+                    logger.error("Progress callback error: %s", e)
+
+        if self.config.get("isolate_scans", True) and total > 1:
+            from engine.workers import default_workers, scan_isolated
+            scan_isolated(self, targets, default_workers(self.config),
+                          float(self.config.get("scan_timeout_seconds", 300)),
+                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
+            order = {p: i for i, p in enumerate(targets)}
+            results.sort(key=lambda r: order.get(str(r.get("file_path")), 0))
+        else:
+            self._scan_in_order(targets, collect, cancel_event)
+        if total:
+            summary = METRICS.batch_summary(results, time.perf_counter() - started)
+            logger.info("Scanned %d file(s) in %.1fs (%.2f files/s): %s", summary["files"],
+                        summary["seconds"], summary["files_per_sec"],
+                        ", ".join(f"{v} {n}" for v, n in summary["verdicts"].items() if n),
+                        extra={"event": "scan_batch", "files": summary["files"],
+                               "files_per_sec": summary["files_per_sec"],
+                               "duration_ms": int(summary["seconds"] * 1000)})
         return results
+
+    def _scan_in_order(self, targets: List[str], collect, cancel_event) -> None:
+        """Scan in this process, one file after the other."""
+        done = 0
+        for file_path in targets:
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Scan cancelled by user after %s/%s files.", done, len(targets))
+                break
+            try:
+                result = self.scan_file(file_path)
+            except Exception as e:
+                logger.error("Error scanning file %s: %s", file_path, e)
+                continue
+            done += 1
+            collect(done, file_path, result)
 
     def scan_directory(self, directory: str, progress_callback=None,
                        cancel_event=None) -> List[Dict]:

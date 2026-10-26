@@ -10,12 +10,19 @@ Endpoints
     GET  /health        liveness (no token)
     GET  /version       engine, registry and schema versions
     GET  /schema        the JSON schema of a result
+    GET  /metrics       counters (files, files/s, verdicts, layer errors, rejections);
+                        ?format=prometheus for the Prometheus text format
     POST /scan          multipart "file" -> one result (api/scan_result.schema.json)
 
 Security
   * A bearer token is required for everything except /health; the server refuses
     to start without one. Tokens are compared in constant time.
   * Binds to 127.0.0.1 by default; put it behind a TLS reverse proxy to expose it.
+  * Abuse limits (api/limits.py): uploads over AEGIS_API_MAX_UPLOAD_MB are
+    refused before they are parsed (413); each client (IP + token) gets
+    AEGIS_API_RATE_PER_MINUTE requests with AEGIS_API_BURST in hand (429);
+    at most AEGIS_API_MAX_CONCURRENT_SCANS scans run at once (503). Behind a
+    reverse proxy set AEGIS_API_TRUST_PROXY=1. TLS: see docs/DEPLOYMENT.md.
   * Uploads are size-limited, written to a private temporary folder with a
     generated name (the client's file name is only used for its extension and
     for display), scanned, and deleted.
@@ -37,10 +44,22 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi.responses import PlainTextResponse
 
 from api import SCHEMA_VERSION, load_schema
+from api.limits import BodyLimit, RateLimit, ScanSlots, TokenBuckets
+from engine.metrics import METRICS
 
-MAX_UPLOAD_MB = float(os.getenv("AEGIS_API_MAX_UPLOAD_MB", "50"))
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "") or default)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a number") from None
+
+
+MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50)
+MULTIPART_OVERHEAD = 64 * 1024              # form boundaries and headers around the file
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 
 
@@ -81,6 +100,12 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     service = _ScanService(config or CONFIG, isolate=isolate)
     app = FastAPI(title="Aegis Sentinel API", version=ENGINE_VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None)
+    limit = int(MAX_UPLOAD_MB * 1024 * 1024)
+    slots = ScanSlots(int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2)))
+    app.add_middleware(BodyLimit, max_bytes=limit + MULTIPART_OVERHEAD)
+    app.add_middleware(RateLimit, buckets=TokenBuckets(
+        _env_number("AEGIS_API_RATE_PER_MINUTE", 60), int(_env_number("AEGIS_API_BURST", 10))),
+        trust_proxy=os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"))
 
     def require_token(authorization: str = Header(default="")) -> None:
         scheme, _, given = authorization.partition(" ")
@@ -101,14 +126,24 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     def schema() -> Dict:
         return load_schema()
 
+    @app.get("/metrics", dependencies=[Depends(require_token)])
+    def metrics(format: str = "json"):
+        if format == "prometheus":
+            return PlainTextResponse(METRICS.prometheus(),
+                                     media_type="text/plain; version=0.0.4")
+        return METRICS.snapshot()
+
     @app.post("/scan", dependencies=[Depends(require_token)])
     def scan(file: UploadFile = File(...)) -> Dict:
+        if not slots.try_acquire():
+            raise HTTPException(status_code=503, detail="scanner busy, retry shortly",
+                                headers={"Retry-After": "5"})
         name = Path(file.filename or "upload").name[:200] or "upload"
         ext = Path(name).suffix if _SAFE_EXT.match(Path(name).suffix or "") else ""
         work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
         try:
             target = work / f"upload{ext.lower()}"
-            limit = int(MAX_UPLOAD_MB * 1024 * 1024)
+            file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
             written = 0
             with open(target, "wb") as out:
                 while True:
@@ -116,12 +151,16 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                     if not chunk:
                         break
                     written += len(chunk)
-                    if written > limit:
+                    if written > file_limit:
+                        METRICS.reject("too_large")
                         raise HTTPException(status_code=413,
                                             detail=f"file larger than {MAX_UPLOAD_MB:g} MB")
                     out.write(chunk)
-            return service.scan(str(target), name)
+            result = service.scan(str(target), name)
+            METRICS.record_result(result)
+            return result
         finally:
+            slots.release()
             shutil.rmtree(work, ignore_errors=True)
 
     return app
