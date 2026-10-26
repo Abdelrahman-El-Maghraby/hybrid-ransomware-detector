@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 from dotenv import dotenv_values, load_dotenv
 
-ENGINE_VERSION = "4.5.0"
+ENGINE_VERSION = "4.6.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()

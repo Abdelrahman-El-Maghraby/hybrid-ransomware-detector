@@ -45,8 +45,14 @@ library cannot handle; an archive nests 50 levels deep.*
   took 140 s).
 - `pip-audit` in CI against the pinned lock file.
 
-*Residual:* Windows and macOS do not enforce the memory limit (time limit still
-applies). A determined attacker can still make one file slow up to the time limit.
+Memory is capped on every OS: RLIMIT_AS on Linux, a Job Object
+(JOB_OBJECT_LIMIT_PROCESS_MEMORY) on Windows, and on macOS, where RLIMIT_AS is not
+enforced, the parent reads each busy worker's resident size four times a second
+and stops it over the limit.
+
+*Residual:* on macOS a burst of allocation between two watchdog reads can go above
+the limit for up to 0.25 s. A determined attacker can still make one file slow up
+to the time limit.
 
 ### 2. Escape the extraction sandbox (path traversal, links)
 *Archive members named `../../.bashrc`, absolute paths, symlinks, device files.*
@@ -105,6 +111,17 @@ or point the config elsewhere - protect that folder like the rest of the account
   worker's memory limit; its result files are parsed as untrusted JSON.
 - **Canary response scripts** run with the user's rights when an attack is under
   way: only an absolute path, owned by the user, not writable by group/others.
+- **Process containment** (`stop_writers`) could be aimed at a legitimate program
+  by touching a canary while that program has a file open in the same folder.
+  It suspends rather than kills by default (undo: `--resume-pid`), only processes
+  with files open *for writing* there (Linux, macOS), never this tool or its
+  ancestors, system, indexing or antivirus processes, or other users' processes.
+  On Windows the Restart Manager cannot tell reads from writes, so the protected
+  list matters more; add sync clients to `CANARY_CONTAIN_EXCLUDE` if needed.
+- **Folder lock** (`lock_folders`) is reversible: original POSIX modes are saved
+  and restored by `--unlock-folders`; on Windows a single deny ACE for Everyone is
+  added and removed with icacls. A process running as the same user can undo it,
+  so it slows ransomware down rather than stopping a determined one.
 - **Helper programs** (7-Zip, unrar, nmcli, ...) are resolved outside the current
   directory, so a planted `7z.exe` in a scanned folder is never started.
 - **IMAP credentials**: an app password from `.env`, never logged, never in
@@ -119,11 +136,17 @@ or point the config elsewhere - protect that folder like the rest of the account
 
 ### 7. Abuse the API
 - Bearer token required (constant-time compare); the server refuses to start with
-  a short token; binds to 127.0.0.1 unless configured; uploads are size-limited
-  and isolated; documentation endpoints are off.
+  a short token; binds to 127.0.0.1 unless configured; documentation endpoints are
+  off.
+- Uploads over the limit are refused before they are parsed (declared length,
+  then a streaming count), so a client cannot fill the disk through the
+  multipart spool; scans are isolated.
+- Per-client token buckets (IP + token) answer 429 with Retry-After; at most N
+  concurrent scans, then 503. Rejections are counted in `/metrics`.
 
-*Residual:* no TLS of its own - put it behind a reverse proxy. No rate limiting
-beyond the worker pool.
+*Residual:* no TLS of its own - put it behind a reverse proxy (`docs/DEPLOYMENT.md`).
+With `AEGIS_API_TRUST_PROXY=1` the client address comes from X-Forwarded-For, so
+the API must only be reachable through that proxy.
 
 ### 8. Tamper with quarantine
 - AES-256-GCM per file with authenticated header, chunks and end marker
@@ -142,7 +165,8 @@ beyond the worker pool.
 |---|---|---|
 | Run-time-only behaviour | High | Use the CAPE sandbox layer for suspicious files |
 | Detection rate on real samples unknown | High | `tools/evaluate.py` on labelled data |
-| Memory limit not enforced on Windows/macOS | Medium | Job objects (Windows) / separate VM |
+| Canary containment misses a fast encryptor (no file open at check time) | Medium | Folder lock + network off; Controlled Folder Access on Windows; an EDR |
+| macOS memory watchdog reacts within 0.25 s, not instantly | Low | Run the API on Linux or in a VM |
 | Local tampering with config / allowlist | Medium | OS file permissions; signed config (future) |
 | Unsigned binaries | Medium | Code-signing certificates |
 | Slow-file DoS up to the timeout | Low | Lower SCAN_TIMEOUT_SECONDS where latency matters |
