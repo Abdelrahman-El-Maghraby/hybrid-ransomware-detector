@@ -107,7 +107,7 @@ INJECT = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]
 
 def test_injection_needs_the_whole_chain():
     r = analyze(make_pe(imports={K32: INJECT + ["ExitProcess"]}))
-    assert r.injection == ["virtualallocex", "writeprocessmemory", "createremotethread"]
+    assert r.injection == ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]
     for missing in INJECT:
         partial = [f for f in INJECT if f != missing]
         assert not analyze(make_pe(imports={K32: partial})).injection
@@ -122,7 +122,7 @@ RANSOM = {"ADVAPI32.dll": ["CryptEncrypt"],
 
 def test_ransomware_imports_only_when_unsigned():
     r = analyze(make_pe(imports=RANSOM))
-    assert r.ransomware_apis == ["cryptencrypt", "findfirstfilew", "movefileexw"]
+    assert r.ransomware_apis == ["CryptEncrypt", "FindFirstFileW", "MoveFileExW"]
     signed = analyze(make_pe(imports=RANSOM, cert=b"\x00" * 8 + b"cert" * 64))
     assert signed.signature_present and not signed.ransomware_apis
     no_walk = analyze(make_pe(imports={"bcrypt.dll": ["BCryptEncrypt"], K32: ["WriteFile"]}))

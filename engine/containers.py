@@ -102,7 +102,7 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                         member_results.append(scanner.scan_file(
                             member_path, _depth=ctx.depth + 1, _display_name=display_name))
                     except Exception as e:
-                        logger.error(f"Error scanning {handler.error_label} {label}: {e}")
+                        logger.error("Error scanning %s %s: %s", handler.error_label, label, e)
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 

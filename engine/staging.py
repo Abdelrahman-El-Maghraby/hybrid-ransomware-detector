@@ -36,7 +36,7 @@ class StagedPipelineMixin:
         members of a container (e.g. "invoice.zip!/payload.docm").
         """
         display = _display_name or file_path
-        logger.info(f"Scanning file: {display}")
+        logger.info("Scanning file: %s", display)
         ctx = ScanContext.start(cast("RansomwareScanner", self), file_path, _depth, display, ENGINE_VERSION)
         heavy: List[Layer] = []
         for layer in self.pipeline:

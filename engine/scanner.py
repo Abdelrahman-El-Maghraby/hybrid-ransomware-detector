@@ -209,11 +209,10 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         malicious_hashes: set = set()
         try:
             if not os.path.exists(self.kaggle_db_path):
-                logger.warning(f"Malware database not found at {self.kaggle_db_path}. "
-                               f"Expected columns: FileName, md5Hash, Benign.")
+                logger.warning("Malware database not found at %s. Expected columns: FileName, md5Hash, Benign.", self.kaggle_db_path)
                 return malicious_hashes
 
-            logger.info(f"Loading malware database from {self.kaggle_db_path}")
+            logger.info("Loading malware database from %s", self.kaggle_db_path)
             with open(self.kaggle_db_path, encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
@@ -225,10 +224,10 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                         if md5:
                             malicious_hashes.add(md5.strip().lower())
 
-            logger.info(f"Loaded {len(malicious_hashes)} malicious hashes into memory.")
+            logger.info("Loaded %s malicious hashes into memory.", len(malicious_hashes))
             return malicious_hashes
         except Exception as e:
-            logger.error(f"Error loading malware database: {str(e)}")
+            logger.error("Error loading malware database: %s", str(e))
             return set()
 
     def calculate_hashes(self, file_path: str) -> Dict[str, str]:
@@ -247,7 +246,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                     sha256_hash.update(chunk)
             return {"md5": md5_hash.hexdigest(), "sha256": sha256_hash.hexdigest()}
         except Exception as e:
-            logger.error(f"Error calculating hashes for {file_path}: {str(e)}")
+            logger.error("Error calculating hashes for %s: %s", file_path, str(e))
             return {"md5": "", "sha256": ""}
 
     def check_hash_in_database(self, file_hash: str) -> Tuple[bool, Dict]:
@@ -291,7 +290,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                         continue
                     targets.append(full_path)
         except Exception as e:
-            logger.error(f"Error walking directory {directory}: {str(e)}")
+            logger.error("Error walking directory %s: %s", directory, str(e))
         return targets
 
     def _scan_targets(self, targets: List[str], progress_callback=None,
@@ -313,13 +312,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                 try:
                     self._maybe_auto_quarantine(result)
                 except Exception as e:
-                    logger.error(f"Auto-quarantine failed for {file_path}: {e}")
+                    logger.error("Auto-quarantine failed for %s: %s", file_path, e)
                 results.append(result)
                 if progress_callback is not None:
                     try:
                         progress_callback(index, total, file_path, result)
                     except Exception as e:
-                        logger.error(f"Progress callback error: {str(e)}")
+                        logger.error("Progress callback error: %s", str(e))
 
             scan_isolated(self, targets, default_workers(self.config),
                           float(self.config.get("scan_timeout_seconds", 300)),
@@ -329,20 +328,20 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
             return results
         for index, file_path in enumerate(targets, start=1):
             if cancel_event is not None and cancel_event.is_set():
-                logger.info(f"Scan cancelled by user after {len(results)}/{total} files.")
+                logger.info("Scan cancelled by user after %s/%s files.", len(results), total)
                 break
             try:
                 result = self.scan_file(file_path)
                 self._maybe_auto_quarantine(result)
                 results.append(result)
             except Exception as e:
-                logger.error(f"Error scanning file {file_path}: {str(e)}")
+                logger.error("Error scanning file %s: %s", file_path, str(e))
                 continue
             if progress_callback is not None:
                 try:
                     progress_callback(index, total, file_path, result)
                 except Exception as e:
-                    logger.error(f"Progress callback error: {str(e)}")
+                    logger.error("Progress callback error: %s", str(e))
         return results
 
     def scan_directory(self, directory: str, progress_callback=None,
@@ -361,10 +360,10 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
 
         for directory in self.scan_dirs:
             if os.path.exists(directory):
-                logger.info(f"Scanning directory: {directory}")
+                logger.info("Scanning directory: %s", directory)
                 targets.extend(self._collect_target_files(directory, impact))
             else:
-                logger.warning(f"Directory does not exist: {directory}")
+                logger.warning("Directory does not exist: %s", directory)
 
         self.last_impact = impact
         return self._scan_targets(targets, progress_callback, cancel_event)

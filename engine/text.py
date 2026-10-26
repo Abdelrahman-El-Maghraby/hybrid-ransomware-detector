@@ -69,7 +69,7 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
             if carry and len(carry) >= min_len and total_chars < max_chars:
                 strings.append(carry.decode("ascii"))
     except Exception as e:
-        logger.error(f"Error extracting strings from {file_path}: {str(e)}")
+        logger.error("Error extracting strings from %s: %s", file_path, str(e))
     return "\n".join(strings)[:max_chars]
 
 
@@ -87,7 +87,7 @@ class TextExtractionMixin:
             if file_ext == ".pdf":
                 text = self._extract_text_from_pdf(file_path)
                 if not text.strip() and allow_ocr:
-                    logger.info(f"No text found in PDF. Using OCR fallback for {file_path}")
+                    logger.info("No text found in PDF. Using OCR fallback for %s", file_path)
                     text = self._extract_text_with_ocr_from_pdf(file_path)
                 return text
             elif file_ext == ".docx":
@@ -98,7 +98,7 @@ class TextExtractionMixin:
             else:
                 return ""     # legacy binary formats: the strings pass covers them
         except Exception as e:
-            logger.error(f"Error extracting text from {file_path}: {str(e)}")
+            logger.error("Error extracting text from %s: %s", file_path, str(e))
             return ""
 
     PDF_MAX_PAGES = 50
@@ -123,7 +123,7 @@ class TextExtractionMixin:
                         break
             return "\n".join(chunks)[:self.PDF_MAX_CHARS]
         except Exception as e:
-            logger.warning(f"Could not extract PDF text from {file_path}: {e}")
+            logger.warning("Could not extract PDF text from %s: %s", file_path, e)
             return ""
 
     def _extract_text_with_ocr_from_pdf(self, file_path: str) -> str:
@@ -135,7 +135,7 @@ class TextExtractionMixin:
                 text += pytesseract.image_to_string(img)
             return text
         except Exception as e:
-            logger.error(f"OCR failed for PDF {file_path}: {str(e)}")
+            logger.error("OCR failed for PDF %s: %s", file_path, str(e))
             return ""
 
     def _extract_text_from_word(self, file_path: str) -> str:
@@ -144,7 +144,7 @@ class TextExtractionMixin:
             doc = docx.Document(file_path)
             return "\n".join([paragraph.text for paragraph in doc.paragraphs])
         except Exception as e:
-            logger.debug(f"python-docx could not read {file_path}: {e}")
+            logger.debug("python-docx could not read %s: %s", file_path, e)
             return ""
 
     @staticmethod
@@ -174,6 +174,6 @@ class TextExtractionMixin:
                             if total > max_chars:
                                 return " ".join(chunks)[:max_chars]
         except Exception as e:
-            logger.debug(f"OOXML text extraction failed for {file_path}: {e}")
+            logger.debug("OOXML text extraction failed for %s: %s", file_path, e)
         return " ".join(chunks)
 

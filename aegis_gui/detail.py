@@ -35,6 +35,9 @@ from aegis_gui.widgets import Section
 # --- Result detail window --------------------------------------------------------
 
 class DetailWindow(ctk.CTkToplevel):
+    """One window per file: a header, then one section per detection layer
+    (SECTIONS, in pipeline order), the score breakdown and the actions."""
+
     def __init__(self, app, result: dict):
         super().__init__(app, fg_color=BG)
         self.app = app
@@ -44,15 +47,48 @@ class DetailWindow(ctk.CTkToplevel):
         self.minsize(560, 480)
         self.after(80, lambda: (self.lift(), self.focus_force()))
 
-        outer = ctk.CTkScrollableFrame(self, fg_color=BG)
-        outer.pack(fill="both", expand=True, padx=16, pady=16)
-        self.scroll_area = outer
+        self.scroll_area = ctk.CTkScrollableFrame(self, fg_color=BG)
+        self.scroll_area.pack(fill="both", expand=True, padx=16, pady=16)
+        self._header()
+        sr = result.get("scan_results", {})
+        for section in self.SECTIONS:
+            section(self, sr)
+        self._actions()
 
+    # ------------------------------------------------------------- building blocks
+    def _section(self, title):
+        sec = Section(self.scroll_area, title, self.app)
+        sec.pack(fill="x", pady=(12, 0))
+        return sec.body
+
+    def _line(self, body, text, color=MUTED, font=None, pad=(0, 0)):
+        ctk.CTkLabel(body, text=text, text_color=color, font=font or self.app.font_small,
+                     anchor="w", wraplength=540, justify="left").pack(fill="x", padx=14, pady=pad)
+
+    def _status(self, body, text, color, pady=10):
+        """The one-line state of a layer (skipped / clean / found)."""
+        ctk.CTkLabel(body, text=text, text_color=color, font=self.app.font_ui, anchor="w",
+                     wraplength=540, justify="left").pack(fill="x", padx=14, pady=pady)
+
+    def _spacer(self, body):
+        ctk.CTkLabel(body, text="").pack(pady=2)
+
+    def _members(self, body, members, limit, flags_key=None):
+        for m in (members or [])[:limit]:
+            v = m.get("verdict", "Clean")
+            name = str(m.get("name", "?")).split("!/", 1)[-1]
+            flags = (m.get(flags_key) or []) if flags_key else []
+            tag = f"   ← {', '.join(f.replace('_', ' ') for f in flags)}" if flags else ""
+            color = RED_SOFT if flags and v == "Clean" else verdict_color(v)
+            self._line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
+                       color, self.app.font_mono_small)
+
+    # ----------------------------------------------------------------- header
+    def _header(self):
+        app, result = self.app, self.result
         verdict = result_verdict(result)
-        risk = result_risk(result)
         vcolor = verdict_color(verdict)
-
-        head = ctk.CTkFrame(outer, fg_color=PANEL, corner_radius=10,
+        head = ctk.CTkFrame(self.scroll_area, fg_color=PANEL, corner_radius=10,
                             border_width=1, border_color=BORDER)
         head.pack(fill="x")
         ctk.CTkLabel(head, text=result.get("file_name", "?"), font=app.font_h2,
@@ -62,17 +98,15 @@ class DetailWindow(ctk.CTkToplevel):
                      justify="left").pack(fill="x", padx=14)
         vrow = ctk.CTkFrame(head, fg_color="transparent")
         vrow.pack(fill="x", padx=14, pady=(8, 12))
-        ctk.CTkLabel(vrow, text=risk_bar(risk), font=app.font_mono,
+        ctk.CTkLabel(vrow, text=risk_bar(result_risk(result)), font=app.font_mono,
                      text_color=vcolor).pack(side="left")
         ctk.CTkLabel(vrow, text=f"   {verdict}", font=app.font_bold,
                      text_color=vcolor).pack(side="left")
 
-        def info_section(title):
-            sec = Section(outer, title, app)
-            sec.pack(fill="x", pady=(12, 0))
-            return sec.body
-
-        body = info_section("File")
+    # --------------------------------------------------------------- sections
+    def _file_info(self, sr):
+        result, app = self.result, self.app
+        body = self._section("File")
         size_kb = (result.get("file_size", 0) or 0) / 1024
         for label, value in [("Scanned", result.get("scan_time", "—")),
                              ("Size", f"{size_kb:,.1f} KB"),
@@ -86,325 +120,290 @@ class DetailWindow(ctk.CTkToplevel):
                          font=app.font_mono_small, wraplength=440,
                          justify="left").pack(side="left", fill="x", expand=True)
 
-        sr = result.get("scan_results", {})
+    def _local_db(self, sr):
+        body = self._section("Layer 1 — local hash database")
+        flagged = sr.get("local_database", {}).get("is_malicious")
+        self._status(body, "Match found in local malware database" if flagged
+                     else "Not found in local database", RED_SOFT if flagged else ACCENT_SOFT)
 
-        local = sr.get("local_database", {})
-        body = info_section("Layer 1 — local hash database")
-        flagged = local.get("is_malicious")
-        ctk.CTkLabel(body, text="Match found in local malware database" if flagged
-                     else "Not found in local database",
-                     text_color=RED_SOFT if flagged else ACCENT_SOFT,
-                     font=app.font_ui, anchor="w").pack(fill="x", padx=14, pady=10)
-
-        # --- Layer 2: fuzzy / structural hashing -----------------------------
+    def _fuzzy(self, sr):
         fuzzy = sr.get("fuzzy_hash", {})
-        body = info_section("Layer 2 — fuzzy / structural hashing")
+        body = self._section("Layer 2 — fuzzy / structural hashing")
         if not fuzzy.get("available", False):
-            ctk.CTkLabel(body, text="Skipped — fuzzy-hash libraries not installed "
-                                    "(python-tlsh / ppdeep).",
-                         text_color=AMBER_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
+            self._status(body, "Skipped — fuzzy-hash libraries not installed "
+                               "(python-tlsh / ppdeep).", AMBER_SOFT)
+            return
+        matched = fuzzy.get("matched")
+        if matched:
+            fams = sorted({m.get("family", "") for m in fuzzy.get("matches", [])
+                           if m.get("family")})
+            conf = float(fuzzy.get("best_confidence", 0) or 0)
+            msg = (f"Structural match to {', '.join(fams) or 'a known family'} "
+                   f"(confidence {conf:.2f})")
         else:
-            matched = fuzzy.get("matched")
-            if matched:
-                fams = sorted({m.get("family", "") for m in fuzzy.get("matches", [])
-                               if m.get("family")})
-                conf = float(fuzzy.get("best_confidence", 0) or 0)
-                msg = (f"Structural match to {', '.join(fams) or 'a known family'} "
-                       f"(confidence {conf:.2f})")
-            else:
-                msg = fuzzy.get("detail") or "No structural match in the signature database."
-            ctk.CTkLabel(body, text=msg,
-                         text_color=RED_SOFT if matched else ACCENT_SOFT,
-                         font=app.font_ui, anchor="w", wraplength=540,
-                         justify="left").pack(fill="x", padx=14, pady=(10, 2))
-            digest_bits = []
-            if fuzzy.get("tlsh"):
-                digest_bits.append(f"TLSH    {fuzzy['tlsh']}")
-            if fuzzy.get("ssdeep"):
-                digest_bits.append(f"ssdeep  {fuzzy['ssdeep']}")
-            if digest_bits:
-                ctk.CTkLabel(body, text="\n".join(digest_bits), text_color=MUTED,
-                             font=app.font_mono_small, anchor="w", wraplength=540,
-                             justify="left").pack(fill="x", padx=14, pady=(0, 10))
-            else:
-                ctk.CTkLabel(body, text="").pack(pady=2)
+            msg = fuzzy.get("detail") or "No structural match in the signature database."
+        self._status(body, msg, RED_SOFT if matched else ACCENT_SOFT, (10, 2))
+        digests = [f"{label:<8}{fuzzy[key]}" for key, label in (("tlsh", "TLSH"),
+                                                                ("ssdeep", "ssdeep"))
+                   if fuzzy.get(key)]
+        if digests:
+            self._line(body, "\n".join(digests), MUTED, self.app.font_mono_small, (0, 10))
+        else:
+            self._spacer(body)
 
-        # --- Layer 3: VBA macro analysis -------------------------------------
+    def _macro(self, sr):
         macro = sr.get("macro_analysis", {})
-        body = info_section("Layer 3 — VBA macro analysis")
+        body = self._section("Layer 3 — VBA macro analysis")
         if not macro.get("available", False):
-            ctk.CTkLabel(body, text="Skipped — oletools not installed.",
-                         text_color=AMBER_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
-        elif not macro.get("has_macros"):
-            ctk.CTkLabel(body, text=macro.get("detail") or "No VBA macros found.",
-                         text_color=ACCENT_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
-        else:
-            autoexec = macro.get("autoexec") or []
-            critical = macro.get("critical") or []
-            suspicious = macro.get("suspicious") or []
-            iocs = macro.get("iocs") or []
-            dropper = bool(autoexec and critical)
-            headline = ("Auto-executing macro with an exec/download primitive "
-                        "(classic dropper pattern)" if dropper else "Macros present")
-            ctk.CTkLabel(body, text=headline,
-                         text_color=RED_SOFT if (critical or dropper) else AMBER_SOFT,
-                         font=app.font_ui, anchor="w", wraplength=540,
-                         justify="left").pack(fill="x", padx=14, pady=(10, 2))
-            for label, items in [("Auto-run", autoexec), ("Critical", critical),
-                                 ("Suspicious", suspicious[:8]), ("IOCs", iocs[:6])]:
-                if items:
-                    ctk.CTkLabel(body, text=f"{label}: " + ", ".join(map(str, items)),
-                                 text_color=MUTED, font=app.font_small, anchor="w",
-                                 wraplength=540, justify="left").pack(fill="x", padx=14)
-            if macro.get("vba_stomping"):
-                ctk.CTkLabel(body, text="VBA stomping: the compiled P-code differs from the "
-                                        "visible source (deliberate evasion).",
-                             text_color=RED_SOFT, font=app.font_small, anchor="w",
-                             wraplength=540, justify="left").pack(fill="x", padx=14)
-            if macro.get("xlm_macros"):
-                ctk.CTkLabel(body, text="Excel 4.0 (XLM) macro sheet(s): "
-                                        + ", ".join(macro.get("xlm_evidence") or []),
-                             text_color=RED_SOFT, font=app.font_small, anchor="w",
-                             wraplength=540, justify="left").pack(fill="x", padx=14)
-            ctk.CTkLabel(body, text="").pack(pady=2)
+            self._status(body, "Skipped — oletools not installed.", AMBER_SOFT)
+            return
+        if not macro.get("has_macros"):
+            self._status(body, macro.get("detail") or "No VBA macros found.", ACCENT_SOFT)
+            return
+        autoexec = macro.get("autoexec") or []
+        critical = macro.get("critical") or []
+        dropper = bool(autoexec and critical)
+        self._status(body, "Auto-executing macro with an exec/download primitive "
+                           "(classic dropper pattern)" if dropper else "Macros present",
+                     RED_SOFT if (critical or dropper) else AMBER_SOFT, (10, 2))
+        for label, items in [("Auto-run", autoexec), ("Critical", critical),
+                             ("Suspicious", (macro.get("suspicious") or [])[:8]),
+                             ("IOCs", (macro.get("iocs") or [])[:6])]:
+            if items:
+                self._line(body, f"{label}: " + ", ".join(map(str, items)))
+        if macro.get("vba_stomping"):
+            self._line(body, "VBA stomping: the compiled P-code differs from the "
+                             "visible source (deliberate evasion).", RED_SOFT)
+        if macro.get("xlm_macros"):
+            self._line(body, "Excel 4.0 (XLM) macro sheet(s): "
+                             + ", ".join(macro.get("xlm_evidence") or []), RED_SOFT)
+        self._spacer(body)
 
-        # --- Layer 4: YARA rules ---------------------------------------------
+    def _yara(self, sr):
         yara = sr.get("yara", {})
-        body = info_section("Layer 4 — YARA rules")
+        body = self._section("Layer 4 — YARA rules")
         if not yara.get("available", False):
-            ctk.CTkLabel(body, text="Skipped — yara-python not installed.",
-                         text_color=AMBER_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
-        elif not yara.get("matched"):
-            ctk.CTkLabel(body, text=yara.get("detail") or "No YARA rules matched.",
-                         text_color=ACCENT_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
-        else:
-            top = yara.get("top_severity", "medium")
-            matches = yara.get("matches", []) or []
-            ctk.CTkLabel(body, text=f"{len(matches)} rule(s) matched · top severity: {top}",
-                         text_color=RED_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=(10, 2))
-            for m in matches:
-                desc = m.get("description", "")
-                line = f"•  {m.get('rule', '?')}  [{m.get('severity', 'medium')}]"
-                if desc:
-                    line += f" — {desc}"
-                ctk.CTkLabel(body, text=line, text_color=MUTED, font=app.font_small,
-                             anchor="w", wraplength=540,
-                             justify="left").pack(fill="x", padx=14)
-            ctk.CTkLabel(body, text="").pack(pady=2)
+            self._status(body, "Skipped — yara-python not installed.", AMBER_SOFT)
+            return
+        if not yara.get("matched"):
+            self._status(body, yara.get("detail") or "No YARA rules matched.", ACCENT_SOFT)
+            return
+        matches = yara.get("matches", []) or []
+        self._status(body, f"{len(matches)} rule(s) matched · top severity: "
+                           f"{yara.get('top_severity', 'medium')}", RED_SOFT, (10, 2))
+        for m in matches:
+            text = f"•  {m.get('rule', '?')}  [{m.get('severity', 'medium')}]"
+            if m.get("description"):
+                text += f" — {m['description']}"
+            self._line(body, text)
+        self._spacer(body)
 
-        def line(body, text, color=MUTED, font=None, pad=(0, 0)):
-            ctk.CTkLabel(body, text=text, text_color=color, font=font or app.font_small,
-                         anchor="w", wraplength=540, justify="left").pack(fill="x", padx=14,
-                                                                          pady=pad)
-
-        # --- Layer 5: file integrity -----------------------------------------
+    def _integrity(self, sr):
         integ = sr.get("file_integrity")
-        if integ is not None:
-            body = info_section("Layer 5 — file integrity (disguise / encryption)")
-            flagged = (integ.get("disguised_executable") or integ.get("encrypted_likely")
-                       or integ.get("format_mismatch"))
-            line(body, integ.get("detail") or "—", RED_SOFT if flagged else ACCENT_SOFT,
-                 app.font_ui, (10, 2))
-            line(body, f"Detected format: {integ.get('detected_format', '?')}   ·   "
-                       f"entropy {float(integ.get('sample_entropy', 0) or 0):.3f} bits/byte   ·   "
-                       f"chi² {float(integ.get('sample_chi_square', 0) or 0):.0f}")
-            for note in integ.get("notes", []) or []:
-                line(body, note, AMBER_SOFT)
-            line(body, "", pad=(0, 4))
+        if integ is None:
+            return
+        body = self._section("Layer 5 — file integrity (disguise / encryption)")
+        flagged = (integ.get("disguised_executable") or integ.get("encrypted_likely")
+                   or integ.get("format_mismatch"))
+        self._line(body, integ.get("detail") or "—", RED_SOFT if flagged else ACCENT_SOFT,
+                   self.app.font_ui, (10, 2))
+        self._line(body, f"Detected format: {integ.get('detected_format', '?')}   ·   "
+                         f"entropy {float(integ.get('sample_entropy', 0) or 0):.3f} bits/byte"
+                         f"   ·   chi² {float(integ.get('sample_chi_square', 0) or 0):.0f}")
+        for note in integ.get("notes", []) or []:
+            self._line(body, note, AMBER_SOFT)
+        self._line(body, "", pad=(0, 4))
 
-        # --- Layer 6: hidden content / prompt injection ----------------------
+    def _pe(self, sr):
+        pe = sr.get("pe_analysis")
+        if not pe or not pe.get("is_pe"):
+            return
+        body = self._section("Windows program — sections, imports, overlay")
+        bad = any(pe.get(k) for k in ("packed", "injection_apis", "ransomware_apis",
+                                      "recovery_inhibition", "overlay_executable",
+                                      "malformed"))
+        self._line(body, pe.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                   self.app.font_ui, (10, 2))
+        for s in (pe.get("sections") or [])[:12]:
+            self._line(body, f"{s.get('name', '?'):<10} {s.get('flags', ''):<4} "
+                             f"{s.get('raw_size', 0):>10,} bytes   entropy {s.get('entropy', 0):.2f}",
+                       MUTED, self.app.font_mono_small)
+        self._line(body, "", pad=(0, 4))
+
+    def _guard(self, sr):
         guard = sr.get("prompt_guard")
-        if guard is not None:
-            body = info_section("Layer 6 — hidden content & prompt injection")
-            status = guard.get("injection_status", "none")
-            hit = status != "none" or guard.get("hidden_text_found")
-            line(body, guard.get("detail") or "—",
-                 RED_SOFT if status == "confirmed" else (AMBER_SOFT if hit else ACCENT_SOFT),
-                 app.font_ui, (10, 2))
-            for snippet in (guard.get("hidden_text_snippets") or [])[:4]:
-                line(body, f"hidden: “{snippet[:160]}”")
-            line(body, "", pad=(0, 4))
+        if guard is None:
+            return
+        body = self._section("Layer 6 — hidden content & prompt injection")
+        status = guard.get("injection_status", "none")
+        hit = status != "none" or guard.get("hidden_text_found")
+        self._line(body, guard.get("detail") or "—",
+                   RED_SOFT if status == "confirmed" else (AMBER_SOFT if hit else ACCENT_SOFT),
+                   self.app.font_ui, (10, 2))
+        for snippet in (guard.get("hidden_text_snippets") or [])[:4]:
+            self._line(body, f"hidden: “{snippet[:160]}”")
+        self._line(body, "", pad=(0, 4))
 
-        # --- Layer 7: Office external relationships --------------------------
+    def _relationships(self, sr):
         rels = sr.get("relationships")
-        if rels is not None:
-            body = info_section("Layer 7 — Office external links (template / OLE / UNC)")
-            line(body, rels.get("detail") or "—",
-                 RED_SOFT if rels.get("suspicious") else ACCENT_SOFT, app.font_ui, (10, 2))
-            for f in (rels.get("findings") or [])[:6]:
-                line(body, f"•  {f.get('kind')}  →  {RS.defang(str(f.get('target', '')))}")
-            line(body, "", pad=(0, 4))
+        if rels is None:
+            return
+        body = self._section("Layer 7 — Office external links (template / OLE / UNC)")
+        self._line(body, rels.get("detail") or "—",
+                   RED_SOFT if rels.get("suspicious") else ACCENT_SOFT, self.app.font_ui, (10, 2))
+        for f in (rels.get("findings") or [])[:6]:
+            self._line(body, f"•  {f.get('kind')}  →  {RS.defang(str(f.get('target', '')))}")
+        self._line(body, "", pad=(0, 4))
 
-        # --- Layer 8: archive contents ----------------------------------------
+    def _archive(self, sr):
         arc = sr.get("archive")
-        if arc:
-            body = info_section("Layer 8 — archive contents")
-            bad = (arc.get("zip_bomb") or arc.get("zip_slip") or arc.get("executable_members")
-                   or arc.get("encrypted_unreadable"))
-            line(body, arc.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
-                 app.font_ui, (10, 4))
-            for m in (arc.get("member_results") or [])[:30]:
-                v = m.get("verdict", "Clean")
-                name = str(m.get("name", "?")).split("!/", 1)[-1]
-                flags = m.get("archive_flags") or []
-                tag = f"   ← {', '.join(f.replace('_', ' ') for f in flags)}" if flags else ""
-                color = RED_SOFT if flags and v == "Clean" else verdict_color(v)
-                line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
-                     color, app.font_mono_small)
-            if arc.get("not_scanned_budget"):
-                line(body, f"+{arc['not_scanned_budget']} more member(s) listed but not "
-                           f"deep-scanned (per-archive budget).", AMBER_SOFT)
-            line(body, "", pad=(0, 4))
-        elif integ is not None:          # v4 result for a non-archive file
-            body = info_section("Layer 8 — archive contents")
-            line(body, "Not an archive.", ACCENT_SOFT, app.font_ui, (10, 10))
+        if not arc:
+            if sr.get("file_integrity") is not None:      # v4 result for a non-archive file
+                body = self._section("Layer 8 — archive contents")
+                self._line(body, "Not an archive.", ACCENT_SOFT, self.app.font_ui, (10, 10))
+            return
+        body = self._section("Layer 8 — archive contents")
+        bad = (arc.get("zip_bomb") or arc.get("zip_slip") or arc.get("executable_members")
+               or arc.get("encrypted_unreadable"))
+        self._line(body, arc.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                   self.app.font_ui, (10, 4))
+        self._members(body, arc.get("member_results"), 30, flags_key="archive_flags")
+        if arc.get("not_scanned_budget"):
+            self._line(body, f"+{arc['not_scanned_budget']} more member(s) listed but not "
+                             f"deep-scanned (per-archive budget).", AMBER_SOFT)
+        self._line(body, "", pad=(0, 4))
 
-        # --- v4.1: e-mail (MailGuard) -----------------------------------------
+    def _mail(self, sr):
         mail = sr.get("mail")
-        if mail:
-            body = info_section("E-mail — sender, links & attachments (MailGuard)")
-            auth = mail.get("auth") or {}
-            bad = (auth.get("failures") or mail.get("display_name_spoof")
-                   or mail.get("reply_to_mismatch") or mail.get("deceptive_links")
-                   or mail.get("executable_attachments"))
-            line(body, mail.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
-                 app.font_ui, (10, 4))
-            if mail.get("subject"):
-                line(body, f"Subject:  {mail['subject'][:140]}")
-            if auth.get("ignored_headers"):
-                line(body, f"{auth['ignored_headers']} lower authentication header(s) ignored "
-                           "(written by the sender, not your mail server).", AMBER_SOFT)
-            for link in (mail.get("deceptive_links") or [])[:4]:
-                line(body, f"•  {RS.defang(link)}", RED_SOFT)
-            for a in (mail.get("attachment_results") or [])[:30]:
-                v = a.get("verdict", "Clean")
-                name = str(a.get("name", "?")).split("!/", 1)[-1]
-                line(body, f"{v:<8}  {a.get('risk_score', 0):>3}/100   {name}",
-                     verdict_color(v), app.font_mono_small)
-            if mail.get("attachments_skipped") or mail.get("not_scanned_budget"):
-                line(body, f"{mail.get('attachments_skipped', 0) + mail.get('not_scanned_budget', 0)}"
-                           " attachment(s) not deep-scanned (limits / embedded objects).", AMBER_SOFT)
-            line(body, "", pad=(0, 4))
+        if not mail:
+            return
+        body = self._section("E-mail — sender, links & attachments (MailGuard)")
+        auth = mail.get("auth") or {}
+        bad = (auth.get("failures") or mail.get("display_name_spoof")
+               or mail.get("reply_to_mismatch") or mail.get("deceptive_links")
+               or mail.get("executable_attachments"))
+        self._line(body, mail.get("detail") or "—", RED_SOFT if bad else ACCENT_SOFT,
+                   self.app.font_ui, (10, 4))
+        if mail.get("subject"):
+            self._line(body, f"Subject:  {mail['subject'][:140]}")
+        if auth.get("ignored_headers"):
+            self._line(body, f"{auth['ignored_headers']} lower authentication header(s) "
+                             "ignored (written by the sender, not your mail server).",
+                       AMBER_SOFT)
+        for link in (mail.get("deceptive_links") or [])[:4]:
+            self._line(body, f"•  {RS.defang(link)}", RED_SOFT)
+        self._members(body, mail.get("attachment_results"), 30)
+        skipped = mail.get("attachments_skipped", 0) + mail.get("not_scanned_budget", 0)
+        if skipped:
+            self._line(body, f"{skipped} attachment(s) not deep-scanned (limits / embedded "
+                             "objects).", AMBER_SOFT)
+        self._line(body, "", pad=(0, 4))
 
-        # --- v4.4: web page (HTML smuggling, active SVG, phishing form) -------
+    def _web(self, sr):
         web = sr.get("web")
-        if web:
-            body = info_section("Web page — HTML smuggling, active SVG, phishing")
-            bad = (web.get("smuggling") or web.get("payloads") or web.get("svg_active")
-                   or web.get("credential_form"))
-            detail = re.sub(r"https?://[^\s;,'\")]+", lambda m: RS.defang(m.group(0)),
-                            web.get("detail") or "—")
-            line(body, detail, RED_SOFT if bad else ACCENT_SOFT, app.font_ui, (10, 4))
-            for url in (web.get("redirects") or [])[:4]:
-                line(body, f"•  redirects to {RS.defang(url)}", AMBER_SOFT)
-            for m in (web.get("payload_results") or [])[:5]:
-                v = m.get("verdict", "Clean")
-                name = str(m.get("name", "?")).split("!/", 1)[-1]
-                line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}",
-                     verdict_color(v), app.font_mono_small)
-            line(body, "", pad=(0, 4))
+        if not web:
+            return
+        body = self._section("Web page — HTML smuggling, active SVG, phishing")
+        bad = (web.get("smuggling") or web.get("payloads") or web.get("svg_active")
+               or web.get("credential_form"))
+        detail = re.sub(r"https?://[^\s;,'\")]+", lambda m: RS.defang(m.group(0)),
+                        web.get("detail") or "—")
+        self._line(body, detail, RED_SOFT if bad else ACCENT_SOFT, self.app.font_ui, (10, 4))
+        for url in (web.get("redirects") or [])[:4]:
+            self._line(body, f"•  redirects to {RS.defang(url)}", AMBER_SOFT)
+        self._members(body, web.get("payload_results"), 5)
+        self._line(body, "", pad=(0, 4))
 
-        # --- v4.1: ML classifier --------------------------------------------
+    def _ml(self, sr):
         ml = sr.get("ml_classifier")
-        if ml:
-            body = info_section("ML classifier — byte & PE structure (statistical)")
-            susp = ml.get("label") == "suspicious"
-            line(body, f"{ml.get('label', '?').capitalize()}  ·  p(suspicious) = "
-                       f"{float(ml.get('probability', 0)):.2f}  ·  "
-                       f"{'trained model ' + str(ml.get('model')) if ml.get('model') != 'rules' else 'rule engine (no trained model)'}",
-                 RED_SOFT if susp else ACCENT_SOFT, app.font_ui, (10, 4))
-            for why in (ml.get("indicators") or [])[:4]:
-                line(body, f"•  {why}")
-            line(body, "", pad=(0, 4))
+        if not ml:
+            return
+        body = self._section("ML classifier — byte & PE structure (statistical)")
+        model = ("rule engine (no trained model)" if ml.get("model") == "rules"
+                 else f"trained model {ml.get('model')}")
+        self._line(body, f"{ml.get('label', '?').capitalize()}  ·  p(suspicious) = "
+                         f"{float(ml.get('probability', 0)):.2f}  ·  {model}",
+                   RED_SOFT if ml.get("label") == "suspicious" else ACCENT_SOFT,
+                   self.app.font_ui, (10, 4))
+        for why in (ml.get("indicators") or [])[:4]:
+            self._line(body, f"•  {why}")
+        self._line(body, "", pad=(0, 4))
 
-        # --- Layer 9: VirusTotal ---------------------------------------------
+    def _virustotal(self, sr):
         vt = sr.get("virustotal", {})
-        body = info_section("Layer 9 — VirusTotal reputation")
+        body = self._section("Layer 9 — VirusTotal reputation")
         if "not configured" in str(vt.get("details", "")):
-            ctk.CTkLabel(body, text="Skipped — API key not configured (add it in Settings).",
-                         text_color=AMBER_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
-        elif vt.get("not_found"):
-            ctk.CTkLabel(body, text=vt.get("details") or "Unknown to VirusTotal.",
-                         text_color=MUTED, font=app.font_ui, anchor="w", wraplength=540,
-                         justify="left").pack(fill="x", padx=14, pady=10)
+            self._status(body, "Skipped — API key not configured (add it in Settings).",
+                         AMBER_SOFT)
+            return
+        if vt.get("not_found"):
+            self._status(body, vt.get("details") or "Unknown to VirusTotal.", MUTED)
+            return
+        hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
+        ratio = float(vt.get("detection_ratio", 0) or 0)
+        self._status(body, f"{hits} of {vt.get('total_engines', 0)} engines flagged this file "
+                           f"(detection ratio {ratio:.2f})",
+                     RED_SOFT if hits else ACCENT_SOFT, (10, 4))
+        if vt.get("error"):
+            self._line(body, f"Error: {vt['error']}", AMBER_SOFT)
+        if vt.get("permalink"):
+            ctk.CTkButton(body, text="Open VirusTotal report", height=30,
+                          fg_color="transparent", hover_color=PANEL_2,
+                          border_width=1, border_color=BORDER_2, text_color=BLUE,
+                          font=self.app.font_small,
+                          command=lambda: webbrowser.open(vt["permalink"])
+                          ).pack(anchor="w", padx=14, pady=(2, 10))
         else:
-            hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
-            total = vt.get("total_engines", 0)
-            ratio = float(vt.get("detection_ratio", 0) or 0)
-            ctk.CTkLabel(body, text=f"{hits} of {total} engines flagged this file "
-                                    f"(detection ratio {ratio:.2f})",
-                         text_color=RED_SOFT if hits else ACCENT_SOFT,
-                         font=app.font_ui, anchor="w").pack(fill="x", padx=14, pady=(10, 4))
-            if vt.get("error"):
-                ctk.CTkLabel(body, text=f"Error: {vt['error']}", text_color=AMBER_SOFT,
-                             font=app.font_small, anchor="w",
-                             wraplength=540, justify="left").pack(fill="x", padx=14)
-            if vt.get("permalink"):
-                ctk.CTkButton(body, text="Open VirusTotal report", height=30,
-                              fg_color="transparent", hover_color=PANEL_2,
-                              border_width=1, border_color=BORDER_2, text_color=BLUE,
-                              font=app.font_small,
-                              command=lambda: webbrowser.open(vt["permalink"])
-                              ).pack(anchor="w", padx=14, pady=(2, 10))
-            else:
-                ctk.CTkLabel(body, text="").pack(pady=2)
+            self._spacer(body)
 
-        # --- Layer 6: LLM semantic analysis ----------------------------------
+    def _llm(self, sr):
         ai = sr.get("chatgpt_analysis", {})
-        body = info_section("Layer 10 — LLM semantic analysis")
+        body = self._section("Layer 10 — LLM semantic analysis")
         if llm_skipped(ai):
-            ctk.CTkLabel(body, text="Skipped — no LLM backend available "
-                                    "(start a local Ollama or set an OpenAI key).",
-                         text_color=AMBER_SOFT, font=app.font_ui,
-                         anchor="w").pack(fill="x", padx=14, pady=10)
+            self._status(body, "Skipped — no LLM backend available "
+                               "(start a local Ollama or set an OpenAI key).", AMBER_SOFT)
+            return
+        flagged = ai.get("is_malicious")
+        self._status(body, f"Confidence: {float(ai.get('confidence', 0) or 0):.2f} — "
+                           f"{'flagged as suspicious' if flagged else 'no ransomware indicators'}",
+                     RED_SOFT if flagged else ACCENT_SOFT, (10, 2))
+        elements = ai.get("suspicious_elements") or []
+        if elements:
+            self._line(body, "Suspicious elements: " + ", ".join(map(str, elements)), AMBER_SOFT)
+        details = str(ai.get("details", "")).strip()
+        if details:
+            self._line(body, details, pad=(2, 10))
         else:
-            conf = float(ai.get("confidence", 0) or 0)
-            ctk.CTkLabel(body, text=f"Confidence: {conf:.2f} — "
-                                    f"{'flagged as suspicious' if ai.get('is_malicious') else 'no ransomware indicators'}",
-                         text_color=RED_SOFT if ai.get("is_malicious") else ACCENT_SOFT,
-                         font=app.font_ui, anchor="w").pack(fill="x", padx=14, pady=(10, 2))
-            elements = ai.get("suspicious_elements") or []
-            if elements:
-                ctk.CTkLabel(body, text="Suspicious elements: " + ", ".join(map(str, elements)),
-                             text_color=AMBER_SOFT, font=app.font_small, anchor="w",
-                             wraplength=540, justify="left").pack(fill="x", padx=14)
-            details = str(ai.get("details", "")).strip()
-            if details:
-                ctk.CTkLabel(body, text=details, text_color=MUTED, font=app.font_small,
-                             anchor="w", wraplength=540,
-                             justify="left").pack(fill="x", padx=14, pady=(2, 10))
-            else:
-                ctk.CTkLabel(body, text="").pack(pady=2)
+            self._spacer(body)
 
-        # --- Why this verdict: weighted score breakdown ----------------------
-        breakdown = result.get("score_breakdown", {})
+    def _breakdown(self, sr):
+        breakdown = self.result.get("score_breakdown", {})
         contribs = breakdown.get("contributions", []) or []
-        if contribs:
-            body = info_section("Score breakdown — why this verdict")
-            for c in contribs:
-                rowf = ctk.CTkFrame(body, fg_color="transparent")
-                rowf.pack(fill="x", padx=14, pady=2)
-                ctk.CTkLabel(rowf, text=f"+{float(c.get('points', 0)):>5.1f}", width=52,
-                             anchor="w", text_color=TEXT,
-                             font=app.font_mono_small).pack(side="left")
-                ctk.CTkLabel(rowf, text=f"[{c.get('category', '?')}] {c.get('indicator', '?')}",
-                             anchor="w", text_color=TEXT, font=app.font_small,
-                             wraplength=440, justify="left").pack(side="left",
-                                                                  fill="x", expand=True)
-            totals = breakdown.get("category_totals", {})
-            tnz = ", ".join(f"{k} {v:g}" for k, v in totals.items() if v)
-            ctk.CTkLabel(body, text=f"Category totals: {tnz}" if tnz else "",
-                         text_color=MUTED, font=app.font_small,
-                         anchor="w").pack(fill="x", padx=14, pady=(4, 10))
+        if not contribs:
+            return
+        app = self.app
+        body = self._section("Score breakdown — why this verdict")
+        for c in contribs:
+            rowf = ctk.CTkFrame(body, fg_color="transparent")
+            rowf.pack(fill="x", padx=14, pady=2)
+            ctk.CTkLabel(rowf, text=f"+{float(c.get('points', 0)):>5.1f}", width=52,
+                         anchor="w", text_color=TEXT, font=app.font_mono_small).pack(side="left")
+            ctk.CTkLabel(rowf, text=f"[{c.get('category', '?')}] {c.get('indicator', '?')}",
+                         anchor="w", text_color=TEXT, font=app.font_small,
+                         wraplength=440, justify="left").pack(side="left", fill="x", expand=True)
+        totals = breakdown.get("category_totals", {})
+        tnz = ", ".join(f"{k} {v:g}" for k, v in totals.items() if v)
+        ctk.CTkLabel(body, text=f"Category totals: {tnz}" if tnz else "",
+                     text_color=MUTED, font=app.font_small,
+                     anchor="w").pack(fill="x", padx=14, pady=(4, 10))
 
-        actions = ctk.CTkFrame(outer, fg_color="transparent")
+    SECTIONS = (_file_info, _local_db, _fuzzy, _macro, _yara, _integrity, _pe, _guard,
+                _relationships, _archive, _mail, _web, _ml, _virustotal, _llm, _breakdown)
+
+    # ---------------------------------------------------------------- actions
+    def _actions(self):
+        app, result = self.app, self.result
+        actions = ctk.CTkFrame(self.scroll_area, fg_color="transparent")
         actions.pack(fill="x", pady=(14, 0))
         ctk.CTkButton(actions, text="Show in folder", height=32, font=app.font_small,
                       fg_color="transparent", hover_color=PANEL_2, border_width=1,

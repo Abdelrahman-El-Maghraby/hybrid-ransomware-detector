@@ -413,15 +413,16 @@ class PeAnalyzer:
             res.packer = "unknown (near-random code section)"
         res.packed = bool(res.packer)
 
-        names: Set[str] = {n.lower() for v in res.imports.values() for n in v}
+        shown = {n.lower(): n for v in res.imports.values() for n in v}   # original case
+        names: Set[str] = set(shown)
         alloc, write, run = (sorted(names & g) for g in (_INJECT_ALLOC, _INJECT_WRITE,
                                                           _INJECT_EXEC))
         if alloc and write and run:
-            res.injection = [alloc[0], write[0], run[0]]
+            res.injection = [shown[alloc[0]], shown[write[0]], shown[run[0]]]
         crypt, walk, writes = (sorted(names & g) for g in (_CRYPT_ENCRYPT, _FILE_WALK,
                                                             _FILE_WRITE))
         if crypt and walk and writes and not res.signature_present:
-            res.ransomware_apis = [crypt[0], walk[0], writes[0]]
+            res.ransomware_apis = [shown[crypt[0]], shown[walk[0]], shown[writes[0]]]
         resolvers = names & _RUNTIME_RESOLVE
         res.runtime_imports_only = (bool(res.imports) and "getprocaddress" in resolvers
                                     and len(resolvers) >= 2 and res.import_count <= 6)

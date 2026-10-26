@@ -49,7 +49,7 @@ import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from .entropy import shannon_entropy
 
@@ -225,70 +225,76 @@ _SHEBANG = re.compile(rb"#![ \t]*/[A-Za-z0-9_.+/-]+(?:[ \t][ -~]*)?\r?\n")
 _SHEBANG_MAX = 256
 
 
+class _Head(NamedTuple):
+    raw: bytes
+    stripped: bytes          # without a BOM / leading whitespace
+    low: bytes               # first 512 stripped bytes, lower-cased
+
+
+def _starts(*magics: bytes) -> Callable[[_Head], bool]:
+    return lambda h: h.raw.startswith(magics)
+
+
+def _is_bmp(h: _Head) -> bool:
+    r = h.raw
+    return (len(r) >= 18 and r[:2] == b"BM" and r[6:10] == b"\x00\x00\x00\x00"
+            and int.from_bytes(r[14:18], "little") in (12, 40, 52, 56, 64, 108, 124))
+
+
+def _is_zlib(h: _Head) -> bool:
+    r = h.raw
+    return len(r) >= 2 and r[0] == 0x78 and r[1] in (0x01, 0x5E, 0x9C, 0xDA) and _inflates(r)
+
+
+def _mostly_printable(h: _Head) -> bool:
+    sample = h.raw[:4096]
+    printable = sum(1 for b in sample if 32 <= b < 127 or b in (9, 10, 13))
+    return printable / max(1, len(sample)) > 0.95
+
+
+_MACHO = (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe",
+          b"\xca\xfe\xba\xbe")
+_HTML_STARTS = (b"<!doctype html", b"<html", b"<head", b"<body", b"<meta")
+
+# (format, test) in priority order: the first test that passes names the format.
+FORMAT_RULES: Tuple[Tuple[str, Callable[[_Head], bool]], ...] = (
+    ("pe", lambda h: h.raw.startswith(b"MZ") and _has_pe_header(h.raw)),
+    ("elf", _starts(b"\x7fELF")),
+    ("macho", lambda h: h.raw[:4] in _MACHO),
+    ("lnk", _starts(b"\x4c\x00\x00\x00\x01\x14\x02\x00")),
+    ("script", lambda h: bool(_SHEBANG.match(h.raw[:_SHEBANG_MAX]))),
+    ("zip", _starts(b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")),
+    ("ole", _starts(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")),
+    ("pdf", lambda h: b"%PDF-" in h.raw[:1024]),
+    ("rtf", lambda h: h.stripped.startswith(b"{\\rt")),
+    ("gzip", _starts(b"\x1f\x8b")),
+    ("bzip2", _starts(b"BZh")),
+    ("xz", _starts(b"\xfd7zXZ\x00")),
+    ("7z", _starts(b"7z\xbc\xaf\x27\x1c")),
+    ("rar", _starts(b"Rar!\x1a\x07")),
+    ("zstd", _starts(b"\x28\xb5\x2f\xfd")),
+    ("cab", _starts(b"MSCF")),
+    ("png", _starts(b"\x89PNG")),
+    ("jpeg", _starts(b"\xff\xd8\xff")),
+    ("gif", _starts(b"GIF87a", b"GIF89a")),
+    ("webp", lambda h: h.raw[:4] == b"RIFF" and h.raw[8:12] == b"WEBP"),
+    ("bmp", _is_bmp),
+    ("zlib", _is_zlib),
+    ("mht", lambda h: h.low.startswith(b"mime-version:")
+     or b"content-type: multipart/related" in h.low),
+    ("html", lambda h: h.low.startswith(_HTML_STARTS)),
+    ("xml", lambda h: h.low.startswith(b"<?xml")),
+    ("text", _mostly_printable),
+)
+
+
 def detect_format(head: bytes) -> str:
-    """Identify a file's real format from its first bytes."""
+    """Identify a file's real format from its first bytes (see FORMAT_RULES)."""
     if not head:
         return "empty"
-    h = head
-    stripped = h.lstrip(b"\xef\xbb\xbf\xff\xfe\xfe\xff \t\r\n")
-    low = stripped[:512].lower()
-    if h.startswith(b"MZ") and _has_pe_header(h):
-        return "pe"
-    if h.startswith(b"\x7fELF"):
-        return "elf"
-    if h[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
-                 b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
-        return "macho"
-    if h.startswith(b"\x4c\x00\x00\x00\x01\x14\x02\x00"):
-        return "lnk"
-    if _SHEBANG.match(h[:_SHEBANG_MAX]):
-        return "script"
-    if h.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
-        return "zip"
-    if h.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
-        return "ole"
-    if b"%PDF-" in h[:1024]:
-        return "pdf"
-    if stripped.startswith(b"{\\rt"):
-        return "rtf"
-    if h.startswith(b"\x1f\x8b"):
-        return "gzip"
-    if h.startswith(b"BZh"):
-        return "bzip2"
-    if h.startswith(b"\xfd7zXZ\x00"):
-        return "xz"
-    if h.startswith(b"7z\xbc\xaf\x27\x1c"):
-        return "7z"
-    if h.startswith(b"Rar!\x1a\x07"):
-        return "rar"
-    if h.startswith(b"\x28\xb5\x2f\xfd"):
-        return "zstd"
-    if h.startswith(b"MSCF"):
-        return "cab"
-    if h.startswith(b"\x89PNG"):
-        return "png"
-    if h.startswith(b"\xff\xd8\xff"):
-        return "jpeg"
-    if h.startswith((b"GIF87a", b"GIF89a")):
-        return "gif"
-    if h[:4] == b"RIFF" and h[8:12] == b"WEBP":
-        return "webp"
-    if (len(h) >= 18 and h[:2] == b"BM" and h[6:10] == b"\x00\x00\x00\x00"
-            and int.from_bytes(h[14:18], "little") in (12, 40, 52, 56, 64, 108, 124)):
-        return "bmp"
-    if len(h) >= 2 and h[0] == 0x78 and h[1] in (0x01, 0x5E, 0x9C, 0xDA) and _inflates(h):
-        return "zlib"
-    if low.startswith(b"mime-version:") or b"content-type: multipart/related" in low:
-        return "mht"
-    if low.startswith((b"<!doctype html", b"<html", b"<head", b"<body", b"<meta")):
-        return "html"
-    if low.startswith(b"<?xml"):
-        return "xml"
-    sample = h[:4096]
-    printable = sum(1 for b in sample if 32 <= b < 127 or b in (9, 10, 13))
-    if printable / max(1, len(sample)) > 0.95:
-        return "text"
-    return "unknown"
+    stripped = head.lstrip(b"\xef\xbb\xbf\xff\xfe\xfe\xff \t\r\n")
+    h = _Head(head, stripped, stripped[:512].lower())
+    return next((name for name, test in FORMAT_RULES if test(h)), "unknown")
 
 
 def appended_payload_format(tail: bytes) -> Optional[str]:
@@ -311,80 +317,103 @@ def appended_payload_format(tail: bytes) -> Optional[str]:
     return None
 
 
+def _png_end(data: bytes) -> Optional[int]:
+    pos = 8
+    while pos + 12 <= len(data):
+        length = int.from_bytes(data[pos:pos + 4], "big")
+        ctype = data[pos + 4:pos + 8]
+        pos += 12 + length
+        if ctype == b"IEND":
+            return pos
+    return None
+
+
+def _jpeg_skip_scan(data: bytes, pos: int) -> Optional[int]:
+    """Past the entropy-coded data after SOS: FF00 is stuffing, FFD0-D7 a restart."""
+    n = len(data)
+    while True:
+        i = data.find(b"\xff", pos)
+        if i < 0 or i + 1 >= n:
+            return None
+        nxt = data[i + 1]
+        if nxt == 0x00 or 0xD0 <= nxt <= 0xD7:
+            pos = i + 2
+            continue
+        return i
+
+
+def _jpeg_end(data: bytes) -> Optional[int]:
+    pos, n = 2, len(data)
+    while pos + 2 <= n:
+        if data[pos] != 0xFF:
+            return None
+        marker = data[pos + 1]
+        if marker == 0xFF:                        # fill byte
+            pos += 1
+        elif marker == 0xD9:                      # EOI
+            return pos + 2
+        elif marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            pos += 2
+        elif pos + 4 > n:
+            return None
+        else:
+            pos += 2 + int.from_bytes(data[pos + 2:pos + 4], "big")
+            if marker == 0xDA:                    # SOS: skip entropy-coded data
+                skipped = _jpeg_skip_scan(data, pos)
+                if skipped is None:
+                    return None
+                pos = skipped
+    return None
+
+
+def _gif_end(data: bytes) -> Optional[int]:
+    pos = 13
+    flags = data[10]
+    if flags & 0x80:
+        pos += 3 * (2 << (flags & 7))
+    while pos < len(data):
+        block = data[pos]
+        if block == 0x3B:
+            return pos + 1
+        if block == 0x21:                         # extension: label + sub-blocks
+            pos += 2
+        elif block == 0x2C:                       # image descriptor
+            lflags = data[pos + 9]
+            pos += 10
+            if lflags & 0x80:
+                pos += 3 * (2 << (lflags & 7))
+            pos += 1                              # LZW minimum code size
+        else:
+            return None
+        while pos < len(data) and data[pos]:
+            pos += data[pos] + 1
+        pos += 1
+    return None
+
+
+def _bmp_end(data: bytes) -> Optional[int]:
+    end = int.from_bytes(data[2:6], "little")
+    return end if 26 <= end <= len(data) else None
+
+
+def _webp_end(data: bytes) -> Optional[int]:
+    end = 8 + int.from_bytes(data[4:8], "little")
+    return end + (end & 1) if end <= len(data) + 1 else None
+
+
+_IMAGE_END: Dict[str, Callable[[bytes], Optional[int]]] = {
+    "png": _png_end, "jpeg": _jpeg_end, "gif": _gif_end, "bmp": _bmp_end, "webp": _webp_end}
+
+
 def image_end(data: bytes, fmt: str) -> Optional[int]:
     """Offset just past the image's own data, or None if it cannot be parsed."""
+    parser = _IMAGE_END.get(fmt)
+    if parser is None:
+        return None
     try:
-        if fmt == "png":
-            pos = 8
-            while pos + 12 <= len(data):
-                length = int.from_bytes(data[pos:pos + 4], "big")
-                ctype = data[pos + 4:pos + 8]
-                pos += 12 + length
-                if ctype == b"IEND":
-                    return pos
-            return None
-        if fmt == "jpeg":
-            pos, n = 2, len(data)
-            while pos + 2 <= n:
-                if data[pos] != 0xFF:
-                    return None
-                marker = data[pos + 1]
-                if marker == 0xFF:                    # fill byte
-                    pos += 1
-                    continue
-                if marker == 0xD9:                    # EOI
-                    return pos + 2
-                if marker == 0x01 or 0xD0 <= marker <= 0xD7:
-                    pos += 2
-                    continue
-                if pos + 4 > n:
-                    return None
-                seg = int.from_bytes(data[pos + 2:pos + 4], "big")
-                pos += 2 + seg
-                if marker == 0xDA:                    # SOS: skip entropy-coded data
-                    while True:                       # FF00 = stuffing, FFD0-D7 = restart
-                        i = data.find(b"\xff", pos)
-                        if i < 0 or i + 1 >= n:
-                            return None
-                        nxt = data[i + 1]
-                        if nxt == 0x00 or 0xD0 <= nxt <= 0xD7:
-                            pos = i + 2
-                            continue
-                        pos = i
-                        break
-            return None
-        if fmt == "gif":
-            pos = 13
-            flags = data[10]
-            if flags & 0x80:
-                pos += 3 * (2 << (flags & 7))
-            while pos < len(data):
-                block = data[pos]
-                if block == 0x3B:
-                    return pos + 1
-                if block == 0x21:                     # extension: label + sub-blocks
-                    pos += 2
-                elif block == 0x2C:                   # image descriptor
-                    lflags = data[pos + 9]
-                    pos += 10
-                    if lflags & 0x80:
-                        pos += 3 * (2 << (lflags & 7))
-                    pos += 1                          # LZW minimum code size
-                else:
-                    return None
-                while pos < len(data) and data[pos]:
-                    pos += data[pos] + 1
-                pos += 1
-            return None
-        if fmt == "bmp":
-            end = int.from_bytes(data[2:6], "little")
-            return end if 26 <= end <= len(data) else None
-        if fmt == "webp":
-            end = 8 + int.from_bytes(data[4:8], "little")
-            return end + (end & 1) if end <= len(data) + 1 else None
+        return parser(data)
     except IndexError:
         return None
-    return None
 
 
 def _has_pe_header(h: bytes) -> bool:

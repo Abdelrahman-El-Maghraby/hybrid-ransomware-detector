@@ -63,7 +63,7 @@ class ProtectionMixin:
             result["quarantine"] = {"id": meta["id"], "vault_file": meta["vault_file"],
                                     "original_removed": meta["original_removed"]}
         except Exception as e:
-            logger.error(f"Auto-quarantine failed for {result.get('file_path')}: {e}")
+            logger.error("Auto-quarantine failed for %s: %s", result.get('file_path'), e)
             result["quarantine"] = {"error": str(e)}
 
     # --------------------------------------------------------------- canaries

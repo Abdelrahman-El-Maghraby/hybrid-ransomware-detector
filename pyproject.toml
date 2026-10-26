@@ -88,7 +88,9 @@ extend-exclude = ["build", "dist"]
 
 [tool.ruff.lint]
 # Errors, pyflakes, import order, common bug patterns, and safer subprocess / IO use.
-select = ["E", "F", "W", "I", "B", "UP", "S", "PIE", "RUF100"]
+# C90: every function stays under cyclomatic complexity 20; G: lazy logging
+# arguments (no f-strings in log calls).
+select = ["E", "F", "W", "I", "B", "UP", "S", "PIE", "RUF100", "C90", "G"]
 ignore = [
     "E501",    # long lines: the formatter's limit is advisory in reports / messages
     "UP006", "UP007", "UP035", "UP045",   # keep typing.List / Optional (Python 3.9 support)
@@ -99,6 +101,9 @@ ignore = [
     "S324",    # MD5: required for the malware-hash dataset lookup, not for security
     "B008", "B905",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 19
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "B", "E731", "F811", "E702", "E741"]
