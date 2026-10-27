@@ -229,7 +229,11 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self.http_timeout = int(config.get("http_timeout", 30))
         self.vt_limiter = RateLimiter(float(config.get("virustotal_requests_per_minute", 4)))
         self.cache: Optional[ResultCache] = None
-        if config.get("cache_enabled", True) and config.get("cache_db_path"):
+        # With the intel service the answers are cached there, written only from the
+        # real reply: a cache here would be writable by the scan workers, which open
+        # hostile files, so one exploited parser could plant clean answers.
+        if (self.intel is None and config.get("cache_enabled", True)
+                and config.get("cache_db_path")):
             self.cache = ResultCache(config["cache_db_path"],
                                      float(config.get("cache_ttl_hours", 24)) * 3600)
 
@@ -240,7 +244,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self.capability_states = states      # read by engine/completeness.py per scan
         self.provenance = scanner_provenance(self, states)
         logger.info("Detection layers -> %s  cache:%s", summary_line(states),
-                    "on" if (self.cache and self.cache.enabled) else "off",
+                    "intel" if self.intel is not None
+                    else "on" if (self.cache and self.cache.enabled) else "off",
                     extra={"event": "layers", "layers": {n: s["state"] for n, s in states.items()}})
         logger.info("External services -> %s",
                     "  ".join(f"{n}:{v}" for n, v in external_services(states).items()))

@@ -196,8 +196,8 @@ class IntelSandbox:
             headers = {"X-Aegis-Extension": ext} if 1 < len(ext) <= 9 and ext[1:].isalnum() else {}
             submitted = self.client.call("POST", "/v1/sandbox/submit", data=data,
                                          headers=headers, timeout=120)
-            if not submitted.get("submitted"):
-                return _result(submitted)
+            if submitted.get("status") == "cached" or not submitted.get("submitted"):
+                return _result(submitted)          # intel's cached report, or refused
             task_id = int(submitted["task_id"])
             deadline = self.clock() + self.wait_seconds
             while True:
