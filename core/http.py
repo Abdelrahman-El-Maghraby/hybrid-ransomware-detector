@@ -11,6 +11,10 @@ Two problems this fixes in the earlier versions:
    (GET/HEAD) on 429/5xx with exponential backoff and honours `Retry-After`,
    and `RateLimiter` spaces requests out *before* they hit the quota.
    POSTs (uploads, LLM calls) are deliberately not auto-retried.
+
+The intel service (api/intel.py) also restricts where a session may connect:
+`build_session(allowed_origins=...)` returns an `AllowlistSession` that refuses
+any request - redirects included - to an origin not named in the configuration.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any, Dict, Iterable, Optional
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -31,11 +36,50 @@ DEFAULT_TIMEOUT = 30
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+class EgressDenied(requests.exceptions.RequestException):
+    """A request to a destination outside the allowlist (nothing was sent)."""
+
+
+def origin(url: str) -> str:
+    """`scheme://host:port` of a URL, lower-case, with the default port filled in.
+    Raises ValueError for a URL that is not plain http(s) to a host (user info in
+    the URL is refused: `https://allowed@evil` must not look like `allowed`)."""
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme.lower()
+    if scheme not in _DEFAULT_PORTS or not parts.hostname or "@" in parts.netloc:
+        raise ValueError(f"not an http(s) URL to a host: {url[:80]!r}")
+    return f"{scheme}://{parts.hostname.lower()}:{parts.port or _DEFAULT_PORTS[scheme]}"
+
+
+class AllowlistSession(requests.Session):
+    """A session that only connects to the given origins. The check is in send(),
+    which requests also calls for every redirect it follows."""
+
+    def __init__(self, allowed_origins: Iterable[str]):
+        super().__init__()
+        self.allowed = frozenset(origin(o) for o in allowed_origins)
+
+    def send(self, request, **kwargs):          # type: ignore[override]
+        try:
+            target = origin(request.url or "")
+        except ValueError:
+            target = ""
+        if target not in self.allowed:
+            raise EgressDenied(f"destination {target or 'unknown'} is not in the allowlist")
+        return super().send(request, **kwargs)
+
+
 def build_session(total_retries: int = 3, backoff_factor: float = 2.0,
                   statuses: Iterable[int] = RETRY_STATUSES,
-                  user_agent: str = "hybrid-ransomware-detector/4.0") -> requests.Session:
-    """A `requests.Session` that retries GET/HEAD on 429/5xx with backoff."""
-    session = requests.Session()
+                  user_agent: str = "hybrid-ransomware-detector/4.0",
+                  allowed_origins: Optional[Iterable[str]] = None) -> requests.Session:
+    """A `requests.Session` that retries GET/HEAD on 429/5xx with backoff; with
+    `allowed_origins`, one that refuses every other destination."""
+    session = (AllowlistSession(allowed_origins) if allowed_origins is not None
+               else requests.Session())
     session.headers.update({"User-Agent": user_agent})
     if Retry is not None and total_retries > 0:
         kwargs: Dict[str, Any] = dict(total=total_retries, connect=total_retries, read=total_retries,

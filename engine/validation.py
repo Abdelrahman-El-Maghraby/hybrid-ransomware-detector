@@ -140,9 +140,15 @@ def _is_local(url: str) -> bool:
 
 
 def _canary(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
-    from core.response import ACTIONS
     raw = str(cfg.get("canary_response") or "")
     names = [n.strip().lower() for n in raw.split(",") if n.strip()]
+    try:
+        from core.response import ACTIONS
+    except ImportError:              # the server image ships without containment
+        if names:
+            errors.append("CANARY_RESPONSE is set, but this build has no containment "
+                          "(canary responses are part of the desktop builds only)")
+        return
     unknown = [n for n in names if n not in ACTIONS]
     if unknown:
         errors.append(f"CANARY_RESPONSE has unknown action(s) {', '.join(unknown)}; "
@@ -234,6 +240,29 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
                         "instead of being reported as a failed scan")
 
 
+# Secrets and destinations that belong to the intel service, not to analysis.
+INTEL_OWNED = (("virustotal_api_key", "VIRUSTOTAL_API_KEY"), ("chatgpt_api_key", "OPENAI_API_KEY"),
+               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"))
+
+
+def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """With AEGIS_INTEL_SOCKET the external services are the intel service's: the
+    analysis side needs the token and must not hold their secrets (in the
+    production profile that is an error - the point is that a compromised parser
+    finds no key to steal)."""
+    if not cfg.get("intel_socket"):
+        return
+    from engine.secret_store import from_environment
+    if not (cfg.get("intel_token") or from_environment("AEGIS_INTEL_TOKEN")):
+        errors.append("AEGIS_INTEL_SOCKET is set but AEGIS_INTEL_TOKEN (or _FILE) is not")
+    held = [env for key, env in INTEL_OWNED if cfg.get(key)]
+    if held:
+        text = (f"{', '.join(held)} set on the analysis side: with AEGIS_INTEL_SOCKET these "
+                "belong to the intel service only")
+        production = str(cfg.get("profile") or "").strip().lower() == "production"
+        (errors if production else warnings).append(text)
+
+
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
 CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts,
-                             _profile)
+                             _profile, _intel)
