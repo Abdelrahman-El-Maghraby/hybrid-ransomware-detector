@@ -29,7 +29,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Tuple
 
 from engine.metrics import METRICS
 
@@ -49,7 +49,7 @@ async def _reply(send: Send, status: int, detail: str,
     await send({"type": "http.response.body", "body": body})
 
 
-def _header(scope: Scope, name: bytes) -> str:
+def _header(scope: Mapping[str, Any], name: bytes) -> str:
     for k, v in scope.get("headers") or []:
         if k.lower() == name:
             return v.decode("latin-1")
@@ -137,7 +137,7 @@ class TokenBuckets:
             return wait
 
 
-def client_ip(scope: Scope, trust_proxy: bool) -> str:
+def client_ip(scope: Mapping[str, Any], trust_proxy: bool) -> str:
     ip = (scope.get("client") or ("unknown", 0))[0]
     if trust_proxy:
         forwarded = _header(scope, b"x-forwarded-for").split(",")[0].strip()
@@ -145,7 +145,7 @@ def client_ip(scope: Scope, trust_proxy: bool) -> str:
     return str(ip)
 
 
-def client_key(scope: Scope, trust_proxy: bool) -> str:
+def client_key(scope: Mapping[str, Any], trust_proxy: bool) -> str:
     """IP address + a fingerprint of the bearer token: the authenticated quota."""
     auth = _header(scope, b"authorization")
     token = hashlib.sha256(auth.encode()).hexdigest()[:12] if auth else "anonymous"
