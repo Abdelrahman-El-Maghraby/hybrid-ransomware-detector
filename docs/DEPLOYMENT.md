@@ -87,6 +87,20 @@ aegis.example.internal {
 Caddy obtains and renews the certificate itself. For an internal name, use
 `tls internal` or your own CA.
 
+### Liveness and readiness
+
+| Endpoint | Answers | Token |
+|---|---|---|
+| `GET /health` | 200 while the process runs | not needed |
+| `GET /ready` | 200 when a scan would be correct and complete, else 503 | without it only `{"ready": true/false}`; with it, every check and layer state |
+
+`/ready` checks that the YARA rules compiled, the indicator registry is valid, the
+report, data and temporary folders are writable, and isolated workers start (proved
+once by a warm-up scan at start-up). With `AEGIS_PROFILE=production` it also needs
+every layer the production profile requires (docs/RELEASE_SCOPE.md) to be up: route
+traffic to an instance only when `/ready` says so. `hrd-scanner --capabilities`
+prints the same layer states on the command line.
+
 ### Limits the API enforces
 
 | Limit | Setting | Answer |

@@ -9,6 +9,8 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
+- **`GET /ready`**, distinct from `/health` (process alive): 200 only when the YARA rules compiled, the indicator registry loaded with every category cap, the report / data / temporary folders accept a file, isolated workers start (a warm-up scan at start-up), and, in the production profile, every required layer is up. Otherwise 503. With the bearer token it lists each check and every layer's state; without it, only `{"ready": ...}`. The API logs ready / not ready at start-up.
+- **`AEGIS_PROFILE`** (`standard` or `production`, validated at start-up).
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 
 ### Changed

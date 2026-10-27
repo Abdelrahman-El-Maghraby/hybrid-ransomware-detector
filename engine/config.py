@@ -127,6 +127,9 @@ DEFAULT_EXTENSIONS = [e for e in SUPPORTED_EXTENSIONS if e not in IMAGE_SCAN_EXT
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
 CONFIG = {
+    # "production" = the supported on-prem edition (docs/RELEASE_SCOPE.md): every
+    # required layer must be available and enabled, emulation is refused.
+    "profile": _getenv("AEGIS_PROFILE", "standard").strip().lower(),
     "scan_directories": [
         str(USER_HOME / "Downloads"),
         # Add more folders to scan as needed

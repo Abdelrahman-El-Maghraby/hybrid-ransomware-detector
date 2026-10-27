@@ -56,6 +56,7 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
 
 # key -> (environment variable, allowed values, case-insensitive)
 CHOICES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "profile": ("AEGIS_PROFILE", ("standard", "production")),
     "llm_provider": ("LLM_PROVIDER", ("auto", "ollama", "openai", "none")),
     "sandbox_submit": ("SANDBOX_SUBMIT", ("suspicious", "all")),
     "webhook_min_verdict": ("WEBHOOK_MIN_VERDICT", VERDICTS),
