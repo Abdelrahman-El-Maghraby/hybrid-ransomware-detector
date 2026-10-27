@@ -344,3 +344,13 @@ def test_validation_keeps_secrets_on_the_intel_side(monkeypatch):
     errors, _ = validate_config(dict(cfg, profile="production", sandbox_token="t"), ())
     assert any("VIRUSTOTAL_API_KEY, SANDBOX_TOKEN" in e for e in errors)
     assert validate_config({"intel_socket": "", "virustotal_api_key": "k"}, ())[0] == []
+
+
+@pytestmark_unix
+def test_probe_reports_health(intel_socket):
+    from api.probe import main
+    path, _ = intel_socket
+    assert main([path]) == 0
+    assert main([path, "/v1/capabilities"]) == 1                     # needs the token
+    assert main([path + ".missing"]) == 1
+    assert main([]) == 2

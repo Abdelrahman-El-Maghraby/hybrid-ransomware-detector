@@ -18,6 +18,8 @@ Security
   * A bearer token is required for everything except /health; the server refuses
     to start without one. Tokens are compared in constant time.
   * Binds to 127.0.0.1 by default; put it behind a TLS reverse proxy to expose it.
+    With AEGIS_API_SOCKET it listens on that Unix socket instead (the Docker
+    deployment: the analysis container has no network interface at all).
   * Abuse limits (api/limits.py): uploads over AEGIS_API_MAX_UPLOAD_MB are
     refused before they are parsed (413); each client (IP + token) gets
     AEGIS_API_RATE_PER_MINUTE requests with AEGIS_API_BURST in hand (429);
@@ -273,6 +275,10 @@ def main() -> None:
         app = create_app()           # fails fast on a bad token or configuration
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-api: {e}") from e
+    socket_path = os.getenv("AEGIS_API_SOCKET", "")
+    if socket_path:              # Docker: the TLS proxy connects over a shared volume
+        uvicorn.run(app, uds=socket_path, workers=1)
+        return
     host = os.getenv("AEGIS_API_HOST", "127.0.0.1")
     port = int(os.getenv("AEGIS_API_PORT", "8765"))
     uvicorn.run(app, host=host, port=port, workers=1)
