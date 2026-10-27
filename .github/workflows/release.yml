@@ -30,8 +30,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - name: Install pinned dependencies + PyInstaller
@@ -53,7 +53,7 @@ jobs:
           python build.py --clean 2>&1 | tee build.log || {
             # surface the end of the log as annotations (readable without the raw log)
             tail -n 40 build.log | sed 's/^/::error::/' ; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-${{ matrix.os }}
           path: |
@@ -68,12 +68,12 @@ jobs:
       contents: write        # create the release
       id-token: write        # keyless Sigstore signing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: dist
           merge-multiple: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - name: Checksums and SBOM
@@ -82,11 +82,11 @@ jobs:
           cyclonedx-py requirements requirements.lock --of JSON -o dist/sbom.cdx.json
           cd dist && sha256sum *.zip *.tar.gz sbom.cdx.json > SHA256SUMS && cat SHA256SUMS
       - name: Sign with Sigstore (keyless, tied to this workflow and tag)
-        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        uses: sigstore/gh-action-sigstore-python@f514d46b907ebcd5bedc05145c03b69c1edd8b46  # v3.0.0
         with:
           inputs: ./dist/*.zip ./dist/*.tar.gz ./dist/sbom.cdx.json ./dist/SHA256SUMS
       - name: Create the GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

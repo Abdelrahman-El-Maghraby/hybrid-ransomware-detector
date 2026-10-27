@@ -105,3 +105,13 @@ def test_proxy_terminates_tls_with_the_operators_certificate():
     directives = [ln for ln in caddy.splitlines() if not ln.strip().startswith("#")]
     assert not any("trusted_proxies" in ln for ln in directives)   # XFF is the real peer
     assert SERVICES["analysis"]["environment"]["AEGIS_API_TRUST_PROXY"] == "1"
+
+
+def test_workflow_actions_are_pinned_to_commits():
+    """A tag can be moved to other code; a commit SHA cannot (A10-1)."""
+    import re
+    for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for n, line in enumerate(wf.read_text().splitlines(), 1):
+            m = re.search(r"uses:\s*(\S+)", line)
+            if m and not m.group(1).startswith("./"):
+                assert re.search(r"@[0-9a-f]{40}$", m.group(1)), f"{wf.name}:{n} {m.group(1)}"
