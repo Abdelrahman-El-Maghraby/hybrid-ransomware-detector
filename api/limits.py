@@ -138,9 +138,13 @@ class TokenBuckets:
 
 
 def client_ip(scope: Mapping[str, Any], trust_proxy: bool) -> str:
+    """The peer address, or behind the one trusted reverse proxy the address that
+    proxy saw: the LAST X-Forwarded-For entry. Earlier entries come from the client
+    (a proxy that appends keeps them), so trusting the first one would let every
+    request pick a fresh address and escape the rate limit and the lockout."""
     ip = (scope.get("client") or ("unknown", 0))[0]
     if trust_proxy:
-        forwarded = _header(scope, b"x-forwarded-for").split(",")[0].strip()
+        forwarded = _header(scope, b"x-forwarded-for").split(",")[-1].strip()
         ip = forwarded or ip
     return str(ip)
 

@@ -56,3 +56,7 @@ Thumbs.db
 .coverage
 .coverage.*
 coverage.xml
+
+# --- Docker deployment: secrets and certificates (never commit) ---
+deploy/secrets/
+deploy/tls/

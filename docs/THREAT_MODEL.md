@@ -23,6 +23,10 @@ what the code does about each, and what is left.
 3. **Detection content** (trusted only when signed or written locally): rule packs, the allowlist, weight overrides.
 4. **Local user and configuration** (trusted): `.env`, the OS keyring, the GUI, CLI arguments.
 5. **API clients** (authenticated, otherwise untrusted): anyone who can reach the REST port.
+6. **The analysis service** (assume compromised): in the Docker deployment it opens
+   the hostile files, so a parser exploit is planned for. It has no network and
+   no external-service secret; the intel service treats its requests as untrusted
+   input (section 10).
 
 ## Threats and mitigations
 
@@ -63,6 +67,15 @@ to the time limit.
 - Rule packs refuse any entry that is not a plain file under `rules/`.
 - API uploads are saved under a generated name; the client's file name is only used
   for its extension and for display.
+- RAR members are streamed to stdout by the external tool with `--` before every
+  name, so a member called `-x...` is not an option and the tool's own path
+  handling is never used. 7z members are extracted into a private folder, then
+  only names that passed the checks and resolve inside it are moved, never links.
+- Unpacked data has a budget (`ARCHIVE_MAX_TOTAL_MB`, member count, nesting); in
+  Docker it lands on a size-limited `noexec,nosuid,nodev` tmpfs.
+- A worker killed for a timeout or the memory limit cannot run its own clean-up;
+  each worker has its own temporary folder, which the parent deletes when it kills
+  or stops the worker, so hostile files cannot fill `/tmp` one timeout at a time.
 
 ### 3. Evade detection
 *Obfuscation, password-protected archives, payloads fetched later, QR codes,
@@ -100,8 +113,19 @@ covers part of this; without it, this is the largest gap.
 - Weight overrides must name existing weights with the same shape; reports record
   the registry version and "+override".
 
-*Residual:* anyone who can write to the user's data folder can edit the allowlist
-or point the config elsewhere - protect that folder like the rest of the account.
+- **Rule-pack updates in Docker:** the content volume (rule packs, allowlist, hash
+  and fuzzy databases) is mounted read-only in the analysis service and written
+  only by the one-off `content` tool, which has no network. A compromised parser
+  cannot add its own hash to the allowlist or swap the rules. The running service
+  reloads changed content before the next scan and every result records the pack
+  version and rules hash (`provenance`), so an unexpected change is visible.
+- Pickled ML models (joblib) run code when loaded: on POSIX only a model owned by
+  the user or root and not group/world-writable is loaded; the server image has no
+  scikit-learn, so it loads none.
+
+*Residual:* on a desktop, anyone who can write to the user's data folder can edit
+the allowlist or point the config elsewhere - protect that folder like the rest of
+the account.
 
 ### 5b. Turn the scanner's own features against the host
 - **Emulation** (box-js) executes the attacker's JavaScript in a Node sandbox;
@@ -155,8 +179,10 @@ or point the config elsewhere - protect that folder like the rest of the account
   are counted in `/metrics`.
 
 *Residual:* no TLS of its own - put it behind a reverse proxy (`docs/DEPLOYMENT.md`).
-With `AEGIS_API_TRUST_PROXY=1` the client address comes from X-Forwarded-For, so
-the API must only be reachable through that proxy.
+With `AEGIS_API_TRUST_PROXY=1` the client address is the last X-Forwarded-For entry
+(the one the proxy added; earlier ones are the client's and are ignored), so the API
+must only be reachable through that proxy. In Docker it listens only on a socket
+that only the proxy can open.
 
 ### 8. Tamper with quarantine
 - AES-256-GCM per file with authenticated header, chunks and end marker
@@ -169,6 +195,41 @@ the API must only be reachable through that proxy.
 
 *Residual:* binaries are not Authenticode-signed / notarised (needs paid certificates).
 
+### 10. Compromise a parser (code execution in the analysis service)
+*A crafted file exploits a bug in pypdf, olefile, py7zr, libyara or libzbar and runs
+code inside a scan worker.*
+
+The worker pool stops a parser from hanging or exhausting the service; it is not a
+security boundary. In the Docker deployment the boundary is the container:
+
+- **No network.** `network_mode: none`: no interface but loopback, no route, no DNS.
+  The code cannot download a second stage, exfiltrate scanned documents, reach the
+  LAN or the cloud metadata address, or attack the proxy.
+- **Nothing to steal.** The VirusTotal, OpenAI and sandbox secrets live only in the
+  intel service; the production profile refuses them on the analysis side.
+- **Intel is not a proxy.** The worker can call intel (it needs the intel token for
+  the external layers), but only the fixed operations, with exact input checks, a
+  rate limit per operation, and destinations taken from intel's own configuration.
+  It cannot name a URL; redirects to other origins are refused.
+- **Little to change.** Non-root, read-only root file system, read-only detection
+  content, `noexec` tmpfs, all capabilities dropped, no-new-privileges, Docker's
+  default seccomp profile, memory / CPU / process limits.
+- **Nothing to act with.** The containment code (suspend or kill processes, lock
+  folders, disable the network) is not in the server image.
+
+*Residual:*
+- The compromised worker can **forge the result of the file that exploited it**
+  (each API upload gets a fresh worker, so not other uploads' results), and can
+  write to the result cache, so it could plant a clean VirusTotal or LLM answer for
+  a hash. Verdicts are never cached; moving the
+  cache behind the intel service is backlog.
+- With the intel token it can spend the configured quotas: hash look-ups, LLM calls
+  and - only when the operator switched them on - VirusTotal uploads and sandbox
+  submissions, each limited per minute. Data it sends this way goes only to the
+  operator's own destinations.
+- A kernel or container-runtime escape is outside what the application can stop;
+  keep the host kernel and Docker patched.
+
 ## Summary of residual risk
 
 | Risk | Level | Next step |
@@ -180,3 +241,6 @@ the API must only be reachable through that proxy.
 | Local tampering with config / allowlist | Medium | OS file permissions; signed config (future) |
 | Unsigned binaries | Medium | Code-signing certificates |
 | Slow-file DoS up to the timeout | Low | Lower SCAN_TIMEOUT_SECONDS where latency matters |
+| Parser exploit forges results or plants cache entries | Medium | Cache behind the intel service; external layers out of the workers (backlog) |
+| Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
+| Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |

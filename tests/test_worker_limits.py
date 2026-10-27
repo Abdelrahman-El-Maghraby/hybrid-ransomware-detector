@@ -278,7 +278,8 @@ def test_shutdown_kills_a_worker_that_does_not_stop():
 
         def is_alive(self):
             return True
-    w = SimpleNamespace(parent=BrokenPipe(), proc=Proc(), kill=lambda: killed.append(1))
+    w = SimpleNamespace(parent=BrokenPipe(), proc=Proc(), kill=lambda: killed.append(1),
+                        remove_temp=lambda: None)
     scan = _bare_scan()
     scan.pool = [w]
     scan._shutdown()
@@ -310,7 +311,7 @@ def test_failure_result_without_hashes(tmp_path):
     assert r["file_size"] == 0 and r["sha256_hash"] == "" and r["verdict"] == "Medium"
 
 
-def test_kill_tolerates_a_dead_process():
+def test_kill_tolerates_a_dead_process(tmp_path):
     class Dead:
         def kill(self):
             raise ProcessLookupError
@@ -320,7 +321,10 @@ def test_kill_tolerates_a_dead_process():
     w = object.__new__(W._Worker)
     w.proc, w.parent = Dead(), BrokenPipe()
     w.parent.close = lambda: (_ for _ in ()).throw(OSError())
+    w.temp_dir = str(tmp_path / "worker")
+    (tmp_path / "worker" / "member").mkdir(parents=True)
     w.kill()                                             # no exception
+    assert not (tmp_path / "worker").exists()            # and its temp folder is gone
 
 
 def test_cancel_before_start_returns_quickly(tmp_path):

@@ -52,6 +52,7 @@ dev = [
 hrd-scanner = "RansomwareScanner:main"
 hrd-scanner-gui = "gui:main"
 aegis-api = "api.server:main"
+aegis-intel = "api.intel:main"
 
 [project.urls]
 Repository = "https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector"

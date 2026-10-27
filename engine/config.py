@@ -165,6 +165,10 @@ CONFIG = {
     "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
     "sandbox_submit": _getenv("SANDBOX_SUBMIT", "suspicious"),
+    # Docker deployment: the analysis service has no network and reaches VirusTotal,
+    # the LLM and the sandbox through the intel service on this Unix socket
+    # (api/intel.py; the token is AEGIS_INTEL_TOKEN or AEGIS_INTEL_TOKEN_FILE).
+    "intel_socket": _getenv("AEGIS_INTEL_SOCKET", ""),
     # Optional JavaScript emulation with box-js. Runs the attacker's script in a
     # Node sandbox: enable inside an analysis VM / container only.
     "emulation_enabled": _env_bool("EMULATION_ENABLED", False),
@@ -206,7 +210,7 @@ CONFIG = {
 
     # --- Result cache (VirusTotal + LLM answers, keyed by SHA-256) ---------
     "cache_enabled": _env_bool("CACHE_ENABLED", True),
-    "cache_db_path": str(DATA_DIR / "scan_cache.sqlite3"),
+    "cache_db_path": _getenv("CACHE_DB_PATH", str(DATA_DIR / "scan_cache.sqlite3")),
     "cache_ttl_hours": _env_float("CACHE_TTL_HOURS", 24),
 
     # --- Archives -----------------------------------------------------------

@@ -173,11 +173,12 @@ class OpenAIBackend(LLMBackend):
     is_local = False
 
     def __init__(self, api_key: str, api_url: str, model: str = "gpt-4",
-                 timeout: int = 30):
+                 timeout: int = 30, session=None):
         self.api_key = api_key
         self.api_url = api_url
         self.model = model
         self.timeout = timeout
+        self.http = session or requests      # the intel service passes an allowlisted session
 
     @property
     def available(self) -> bool:
@@ -197,7 +198,7 @@ class OpenAIBackend(LLMBackend):
             "max_tokens": 1000,
         }
         try:
-            resp = requests.post(self.api_url, headers=headers, json=payload,
+            resp = self.http.post(self.api_url, headers=headers, json=payload,
                                  timeout=self.timeout)
             if resp.status_code == 200:
                 content = resp.json()["choices"][0]["message"]["content"]
@@ -215,15 +216,16 @@ class OllamaBackend(LLMBackend):
     is_local = True
 
     def __init__(self, host: str = "http://localhost:11434",
-                 model: str = "llama3.1", timeout: int = 120):
+                 model: str = "llama3.1", timeout: int = 120, session=None):
         self.host = host.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.http = session or requests
 
     def is_reachable(self) -> bool:
         """Quick liveness check so 'auto' selection can prefer local silently."""
         try:
-            r = requests.get(f"{self.host}/api/tags", timeout=3)
+            r = self.http.get(f"{self.host}/api/tags", timeout=3)
             return r.status_code == 200
         except Exception:
             return False
@@ -238,7 +240,7 @@ class OllamaBackend(LLMBackend):
             "options": {"temperature": 0.0},
         }
         try:
-            resp = requests.post(url, json=payload, timeout=self.timeout)
+            resp = self.http.post(url, json=payload, timeout=self.timeout)
             if resp.status_code == 200:
                 content = resp.json().get("message", {}).get("content", "")
                 return _parse_analysis(content)
@@ -249,7 +251,7 @@ class OllamaBackend(LLMBackend):
             return _empty_analysis("Local LLM (Ollama) unreachable; semantic layer skipped.", error=True)
 
 
-def build_llm_backend(config: Dict) -> LLMBackend:
+def build_llm_backend(config: Dict, session=None) -> LLMBackend:
     """Factory: pick a backend from config.
 
     config keys used:
@@ -265,11 +267,13 @@ def build_llm_backend(config: Dict) -> LLMBackend:
     ollama = OllamaBackend(
         host=config.get("ollama_host", "http://localhost:11434"),
         model=config.get("ollama_model", "llama3.1"),
+        session=session,
     )
     openai = OpenAIBackend(
         api_key=config.get("chatgpt_api_key", ""),
         api_url=config.get("chatgpt_api_url", "https://api.openai.com/v1/chat/completions"),
         model=config.get("openai_model", "gpt-4"),
+        session=session,
     )
 
     if provider == "none":

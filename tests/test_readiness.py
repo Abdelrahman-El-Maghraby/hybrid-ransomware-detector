@@ -59,6 +59,19 @@ def test_rules_storage_registry_and_workers_each_block_readiness(tmp_path, monke
     report = R.readiness(scanner, WORKERS_OK)
     assert not report["checks"]["storage"]["ok"] and str(blocker) in report["checks"]["storage"]["detail"]
 
+    content = tmp_path / "content"           # read-only detection content is fine
+    content.mkdir()
+    ro = RS.RansomwareScanner(_config(tmp_path, data_dir=str(content),
+                                      cache_db_path=str(tmp_path / "cache" / "c.db")))
+    content.chmod(0o555)
+    try:
+        assert R.storage_check(ro) == (True, "writable")
+    finally:
+        content.chmod(0o755)
+    ro.cache = object()
+    ro.config["cache_db_path"] = str(blocker / "cache.db")
+    assert str(blocker) in R.storage_check(ro)[1]
+
     report = R.readiness(_scanner(tmp_path), (False, "warm-up scan failed: timeout"))
     assert "workers: warm-up scan failed: timeout" in report["problems"]
 

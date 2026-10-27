@@ -18,6 +18,8 @@ Security
   * A bearer token is required for everything except /health; the server refuses
     to start without one. Tokens are compared in constant time.
   * Binds to 127.0.0.1 by default; put it behind a TLS reverse proxy to expose it.
+    With AEGIS_API_SOCKET it listens on that Unix socket instead (the Docker
+    deployment: the analysis container has no network interface at all).
   * Abuse limits (api/limits.py): uploads over AEGIS_API_MAX_UPLOAD_MB are
     refused before they are parsed (413); each client (IP + token) gets
     AEGIS_API_RATE_PER_MINUTE requests with AEGIS_API_BURST in hand (429);
@@ -161,7 +163,9 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     from engine.config import CONFIG, ENGINE_VERSION
     from engine.validation import check_config
     check_config(config or CONFIG, env_problems=None if config is None else ())
-    token = token if token is not None else os.getenv("AEGIS_API_TOKEN", "")
+    if token is None:                 # AEGIS_API_TOKEN, or AEGIS_API_TOKEN_FILE (a Docker secret)
+        from engine.secret_store import from_environment
+        token = from_environment("AEGIS_API_TOKEN") or os.getenv("AEGIS_API_TOKEN", "")
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
     service = _ScanService(config or CONFIG, isolate=isolate)
@@ -273,6 +277,10 @@ def main() -> None:
         app = create_app()           # fails fast on a bad token or configuration
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-api: {e}") from e
+    socket_path = os.getenv("AEGIS_API_SOCKET", "")
+    if socket_path:              # Docker: the TLS proxy connects over a shared volume
+        uvicorn.run(app, uds=socket_path, workers=1)
+        return
     host = os.getenv("AEGIS_API_HOST", "127.0.0.1")
     port = int(os.getenv("AEGIS_API_PORT", "8765"))
     uvicorn.run(app, host=host, port=port, workers=1)

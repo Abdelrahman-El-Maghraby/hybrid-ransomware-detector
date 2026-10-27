@@ -11,8 +11,13 @@ try:  # pypdf is the maintained successor; PyPDF2 3.0.x has a known parser hang 
     from pypdf import PdfReader
 except ImportError:  # pragma: no cover
     from PyPDF2 import PdfReader  # type: ignore[no-redef]
-import pytesseract
-from pdf2image import convert_from_path
+try:  # OCR is optional (the "ocr" extra plus the tesseract and poppler programs)
+    import pytesseract
+    from pdf2image import convert_from_path
+    OCR_AVAILABLE = True
+except ImportError:
+    pytesseract = convert_from_path = None  # type: ignore[assignment]
+    OCR_AVAILABLE = False
 
 from detectors import DEFUSEDXML_AVAILABLE
 from detectors.web_content import WEB_EXTENSIONS, visible_text
@@ -128,6 +133,8 @@ class TextExtractionMixin:
 
     def _extract_text_with_ocr_from_pdf(self, file_path: str) -> str:
         """Extract text from a PDF file using OCR if it is image-based."""
+        if not OCR_AVAILABLE:
+            return ""
         try:
             images = convert_from_path(file_path, last_page=20)
             text = ""

@@ -57,7 +57,21 @@ def test_guard_table_is_bounded():
 
 def test_client_ip_and_proxy():
     scope = {"client": ("10.0.0.5", 1), "headers": [(b"x-forwarded-for", b"1.2.3.4, 10.0.0.1")]}
-    assert client_ip(scope, False) == "10.0.0.5" and client_ip(scope, True) == "1.2.3.4"
+    assert client_ip(scope, False) == "10.0.0.5" and client_ip(scope, True) == "10.0.0.1"
+
+
+def test_spoofed_forwarded_for_cannot_escape_the_lockout():
+    """A proxy that appends (nginx $proxy_add_x_forwarded_for) keeps what the client
+    sent; only the entry the proxy added counts."""
+    def scope(spoofed):
+        return {"client": ("172.18.0.2", 1),
+                "headers": [(b"x-forwarded-for", f"{spoofed}, 198.51.100.7".encode())]}
+    g = AuthGuard(threshold=3, clock=Clock())
+    for i in range(3):
+        g.failure(client_ip(scope(f"203.0.113.{i}"), True))
+    assert g.locked_for(client_ip(scope("203.0.113.99"), True)) > 0
+    assert client_ip({"client": None, "headers": [(b"x-forwarded-for", b" 198.51.100.7 ")]},
+                     True) == "198.51.100.7"                      # Unix socket peer: no address
 
 
 @pytest.fixture
@@ -139,3 +153,19 @@ def test_ready_cannot_be_used_to_guess_tokens(make_api):
         assert set(r.json()) == {"ready"}                   # no details for a wrong token
     assert _get(api, "/ready", token=TOKEN).status_code == 429
     assert set(_get(api, "/ready").json()) == {"ready"}     # anonymous probes still answer
+
+
+def test_token_can_come_from_a_secret_file(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    secret = tmp_path / "api_token"
+    secret.write_text("s" * 32 + "\n")
+    monkeypatch.delenv("AEGIS_API_TOKEN", raising=False)
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(secret))
+    from fastapi.testclient import TestClient
+    api = TestClient(create_app(_config(tmp_path), isolate=False))
+    assert api.get("/version", headers={"Authorization": "Bearer " + "s" * 32}).status_code == 200
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN"):
+        create_app(_config(tmp_path), isolate=False)

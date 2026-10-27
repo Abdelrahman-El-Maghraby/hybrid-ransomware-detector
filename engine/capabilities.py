@@ -135,13 +135,28 @@ def _emulation(s: RansomwareScanner) -> State:
 
 
 def _llm(s: RansomwareScanner) -> State:
+    if getattr(s, "intel", None) is not None:
+        return _via_intel(s, "llm", lambda i: f"{i.get('name')} "
+                          f"({'local' if i.get('is_local') else 'cloud'})")
     backend = s.llm_backend
     if backend.name == "none":
         return _state(disabled=f"LLM_PROVIDER={s.config.get('llm_provider', 'auto')}: no backend")
     return _state(detail=f"{backend.name} ({'local' if backend.is_local else 'cloud'})")
 
 
+def _via_intel(s: RansomwareScanner, name: str, detail: Callable[[Dict], str]) -> State:
+    info = s.intel.service(name)
+    if info.get("unreachable"):
+        return _state(["intel service"])
+    if not info.get("enabled"):
+        return _state(disabled="not configured on the intel service")
+    return _state(detail=f"{detail(info)} via intel")
+
+
 def _virustotal(s: RansomwareScanner) -> State:
+    if getattr(s, "intel", None) is not None:
+        return _via_intel(s, "virustotal", lambda i: "hash look-up + upload" if i.get("upload")
+                          else "hash look-up")
     if not s.config.get("virustotal_api_key"):
         return _state(disabled="no VIRUSTOTAL_API_KEY")
     return _state(detail="hash look-up + upload" if s.config.get("virustotal_upload_unknown")
@@ -149,6 +164,8 @@ def _virustotal(s: RansomwareScanner) -> State:
 
 
 def _sandbox(s: RansomwareScanner) -> State:
+    if getattr(s, "intel", None) is not None:
+        return _via_intel(s, "sandbox", lambda i: f"submit={s.config.get('sandbox_submit', 'suspicious')}")
     if s.sandbox is None:
         return _state(disabled="no SANDBOX_URL")
     return _state(detail=f"submit={s.config.get('sandbox_submit', 'suspicious')}")

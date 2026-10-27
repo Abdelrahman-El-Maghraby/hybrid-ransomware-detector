@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core import (
     CanaryManager,
@@ -85,6 +85,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self.hash_database = self._load_kaggle_database()
 
         self._init_signatures(config)
+        from core.intel_client import client_from_config
+        self.intel = client_from_config(config)      # external services via api/intel.py
         self._init_static_layers(config)
         self._init_optional_layers(config)
         from detectors.registry import load_overrides
@@ -169,7 +171,11 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     def _init_static_layers(self, config: Dict) -> None:
         total_bytes = int(float(config.get("archive_max_total_mb", 100)) * 1024 * 1024)
         self.macro_analyzer = MacroAnalyzer()
-        self.llm_backend = build_llm_backend(config)
+        if self.intel is not None:
+            from core.intel_client import IntelLLMBackend
+            self.llm_backend: Any = IntelLLMBackend(self.intel)
+        else:
+            self.llm_backend = build_llm_backend(config)
         self.integrity = FileIntegrityAnalyzer()
         self.prompt_guard = PromptGuard()
         self.relationship_scanner = RelationshipScanner()
@@ -203,8 +209,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                                            int(config.get("emulation_timeout", 20)))
             logger.info("Emulation layer: %s.", f"ON ({self.emulator.tool})"
                         if self.emulator.available else "enabled but box-js was not found")
-        self.sandbox = None
-        if config.get("sandbox_url"):
+        self.sandbox: Any = None
+        if self.intel is not None:
+            if self.intel.service("sandbox").get("enabled"):
+                from core.intel_client import IntelSandbox
+                self.sandbox = IntelSandbox(self.intel,
+                                            wait_seconds=int(config.get("sandbox_wait_seconds", 600)))
+        elif config.get("sandbox_url"):
             from core.sandbox import CapeClient
             self.sandbox = CapeClient(config["sandbox_url"], token=config.get("sandbox_token", ""),
                                       wait_seconds=int(config.get("sandbox_wait_seconds", 600)))
