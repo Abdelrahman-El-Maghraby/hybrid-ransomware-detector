@@ -447,3 +447,11 @@ def test_llm_and_virustotal_through_intel(tmp_path):
     assert scanner.scan_file_with_virustotal(str(f))["error"] == "HTTP 401"
     scanner.intel = ScriptedIntel({"virustotal": {"enabled": False}}, {})
     assert "not configured" in scanner.scan_file_with_virustotal(str(f))["details"]
+
+
+def test_no_unix_sockets_means_unreachable_not_a_crash(monkeypatch):
+    """Windows Python may have no AF_UNIX: the client reports intel unreachable."""
+    from core import intel_client as IC
+    monkeypatch.delattr(IC.socket, "AF_UNIX", raising=False)
+    with pytest.raises(IC.IntelError, match="unreachable"):
+        IC.IntelClient("/run/aegis/intel/intel.sock", TOKEN).vt_lookup(SHA)

@@ -42,7 +42,10 @@ class _UnixConnection(http.client.HTTPConnection):
         self.path = path
 
     def connect(self) -> None:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # type: ignore[attr-defined]
+        family = getattr(socket, "AF_UNIX", None)
+        if family is None:                  # Windows builds without Unix sockets
+            raise OSError("Unix domain sockets are not available on this platform")
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(self.timeout)
         try:
             sock.connect(self.path)
