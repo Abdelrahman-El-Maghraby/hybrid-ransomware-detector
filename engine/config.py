@@ -210,7 +210,7 @@ CONFIG = {
 
     # --- Result cache (VirusTotal + LLM answers, keyed by SHA-256) ---------
     "cache_enabled": _env_bool("CACHE_ENABLED", True),
-    "cache_db_path": str(DATA_DIR / "scan_cache.sqlite3"),
+    "cache_db_path": _getenv("CACHE_DB_PATH", str(DATA_DIR / "scan_cache.sqlite3")),
     "cache_ttl_hours": _env_float("CACHE_TTL_HOURS", 24),
 
     # --- Archives -----------------------------------------------------------

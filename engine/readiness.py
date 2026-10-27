@@ -52,7 +52,11 @@ def _writable(folder: str) -> Optional[str]:
 
 
 def storage_check(scanner: RansomwareScanner) -> Check:
-    folders = [scanner.report_dir, str(scanner.config.get("data_dir") or ""),
+    """Where a scan writes: reports, the result cache, temporary files. Not the
+    data folder itself: a Docker deployment mounts the detection content there
+    read-only, so that a compromised parser cannot change rules or the allowlist."""
+    cache = str(scanner.config.get("cache_db_path") or "") if scanner.cache is not None else ""
+    folders = [scanner.report_dir, os.path.dirname(cache) if cache else "",
                tempfile.gettempdir()]
     problems = [p for p in (_writable(f) for f in folders if f) if p]
     return (not problems), ("; ".join(problems) if problems else "writable")
