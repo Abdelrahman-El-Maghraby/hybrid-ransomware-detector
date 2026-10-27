@@ -29,6 +29,16 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 
+### Fixed / security
+
+- **API authentication throttling.** The rate-limit buckets were keyed on IP address + token, so a client rotating wrong tokens got a fresh bucket for every guess. Now:
+  - a per-IP limit applies before authentication (`AEGIS_API_IP_RATE_PER_MINUTE`, `AEGIS_API_IP_BURST`);
+  - an address that is locked out is refused before the token is compared;
+  - each failed constant-time compare is recorded against the address, and `AEGIS_API_AUTH_FAILURES` failures within `AEGIS_API_AUTH_WINDOW_SECONDS` lock it out for `AEGIS_API_AUTH_LOCKOUT_SECONDS` (429 with Retry-After);
+  - a valid token keeps its per-client quota.
+
+  `GET /ready` shows its details only to a valid token, through the same policy, so it cannot be used to guess tokens. Lockouts are logged (`auth_lockout`) and counted in `/metrics` (`auth_failed`, `auth_locked`).
+
 ### Changed
 
 - LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".

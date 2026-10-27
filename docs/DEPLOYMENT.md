@@ -66,7 +66,9 @@ server {
 ```
 
 `X-Forwarded-For $remote_addr` overwrites whatever the client sent, so the
-first address the API sees is the real peer.
+first address the API sees is the real peer. Without `AEGIS_API_TRUST_PROXY=1`
+behind a proxy, every client shares the proxy's address: one client's wrong
+tokens would then lock everyone out.
 
 ### Caddy
 
@@ -106,7 +108,9 @@ prints the same layer states on the command line.
 | Limit | Setting | Answer |
 |---|---|---|
 | Upload size: the declared `Content-Length` is checked before reading, then the body is counted as it streams | `AEGIS_API_MAX_UPLOAD_MB` | 413 |
-| Requests per client (IP and token), as a token bucket | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |
+| Requests per IP address, before authentication | `AEGIS_API_IP_RATE_PER_MINUTE` (120), `AEGIS_API_IP_BURST` (30) | 429 + `Retry-After` |
+| Failed bearer tokens per IP address: N failures within the window lock the address out, checked before the token is compared | `AEGIS_API_AUTH_FAILURES` (5), `AEGIS_API_AUTH_WINDOW_SECONDS` (300), `AEGIS_API_AUTH_LOCKOUT_SECONDS` (900) | 401, then 429 + `Retry-After` |
+| Requests per authenticated client (IP and valid token) | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |
 | Scans running at once | `AEGIS_API_MAX_CONCURRENT_SCANS` | 503 + `Retry-After` |
 | Time and memory per scan, in an isolated worker | `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | result with `scan_failed` |
 

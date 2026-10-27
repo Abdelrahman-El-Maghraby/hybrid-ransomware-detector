@@ -141,8 +141,13 @@ or point the config elsewhere - protect that folder like the rest of the account
 - Uploads over the limit are refused before they are parsed (declared length,
   then a streaming count), so a client cannot fill the disk through the
   multipart spool; scans are isolated.
-- Per-client token buckets (IP + token) answer 429 with Retry-After; at most N
-  concurrent scans, then 503. Rejections are counted in `/metrics`.
+- A per-IP token bucket applies before authentication. Failed bearer tokens are
+  counted per IP address (not per token, so rotating guesses does not help): after
+  `AEGIS_API_AUTH_FAILURES` failures within the window, the address is refused
+  before the compare until the lockout ends (429 with Retry-After). `/ready` shows
+  details only for a valid token and goes through the same policy. A valid token
+  has its own per-client quota; at most N concurrent scans, then 503. Rejections
+  are counted in `/metrics`.
 
 *Residual:* no TLS of its own - put it behind a reverse proxy (`docs/DEPLOYMENT.md`).
 With `AEGIS_API_TRUST_PROXY=1` the client address comes from X-Forwarded-For, so

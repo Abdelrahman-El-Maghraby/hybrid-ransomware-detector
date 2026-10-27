@@ -44,11 +44,11 @@ import threading
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from api import SCHEMA_VERSION, load_schema
-from api.limits import BodyLimit, RateLimit, ScanSlots, TokenBuckets
+from api.limits import AuthGuard, BodyLimit, RateLimit, ScanSlots, TokenBuckets, client_ip, client_key
 from engine.metrics import METRICS
 from engine.readiness import readiness
 
@@ -111,6 +111,51 @@ class _ScanService:
         return True, "isolated workers start"
 
 
+class _Auth:
+    """Bearer-token check with the failed-attempt policy (api/limits.py): a locked
+    address is refused before the compare, a wrong token counts against the
+    address, a valid token then has its own quota."""
+
+    def __init__(self, token: str, trust_proxy: bool):
+        self.token, self.trust_proxy = token, trust_proxy
+        self.guard = AuthGuard(int(_env_number("AEGIS_API_AUTH_FAILURES", 5)),
+                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300),
+                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900))
+        self.quota = TokenBuckets(_env_number("AEGIS_API_RATE_PER_MINUTE", 60),
+                                  int(_env_number("AEGIS_API_BURST", 10)))
+
+    def token_ok(self, authorization: str) -> bool:
+        scheme, _, given = authorization.partition(" ")
+        return scheme.lower() == "bearer" and hmac.compare_digest(given.encode(),
+                                                                   self.token.encode())
+
+    @staticmethod
+    def _too_many(detail: str, wait: float) -> HTTPException:
+        return HTTPException(status_code=429, detail=detail,
+                             headers={"Retry-After": str(max(1, int(wait + 0.999)))})
+
+    def problem(self, request: Request, authorization: str) -> Optional[HTTPException]:
+        """None when the request may go on; otherwise the answer to send."""
+        ip = client_ip(request.scope, self.trust_proxy)
+        wait = self.guard.locked_for(ip)
+        if wait > 0:                                   # before the compare
+            METRICS.reject("auth_locked")
+            return self._too_many("too many failed authentication attempts", wait)
+        if not self.token_ok(authorization):
+            if self.guard.failure(ip):
+                logger.warning("API: %s locked out after repeated wrong bearer tokens", ip,
+                               extra={"event": "auth_lockout", "client": ip})
+            METRICS.reject("auth_failed")
+            return HTTPException(status_code=401, detail="missing or wrong bearer token",
+                                 headers={"WWW-Authenticate": "Bearer"})
+        self.guard.success(ip)
+        wait = self.quota.take(client_key(request.scope, self.trust_proxy))
+        if wait > 0:
+            METRICS.reject("rate_limited")
+            return self._too_many("too many requests", wait)
+        return None
+
+
 def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                isolate: bool = True) -> FastAPI:
     from engine.config import CONFIG, ENGINE_VERSION
@@ -131,19 +176,19 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                   docs_url=None, redoc_url=None, openapi_url=None)
     limit = int(MAX_UPLOAD_MB * 1024 * 1024)
     slots = ScanSlots(int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2)))
+    trust_proxy = os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes")
     app.add_middleware(BodyLimit, max_bytes=limit + MULTIPART_OVERHEAD)
+    # 1. every request, before authentication: a bucket per IP address
     app.add_middleware(RateLimit, buckets=TokenBuckets(
-        _env_number("AEGIS_API_RATE_PER_MINUTE", 60), int(_env_number("AEGIS_API_BURST", 10))),
-        trust_proxy=os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"))
+        _env_number("AEGIS_API_IP_RATE_PER_MINUTE", 120), int(_env_number("AEGIS_API_IP_BURST", 30))),
+        trust_proxy=trust_proxy)
+    auth = _Auth(token, trust_proxy)
+    auth_problem = auth.problem
 
-    def token_ok(authorization: str) -> bool:
-        scheme, _, given = authorization.partition(" ")
-        return scheme.lower() == "bearer" and hmac.compare_digest(given.encode(), token.encode())
-
-    def require_token(authorization: str = Header(default="")) -> None:
-        if not token_ok(authorization):
-            raise HTTPException(status_code=401, detail="missing or wrong bearer token",
-                                headers={"WWW-Authenticate": "Bearer"})
+    def require_token(request: Request, authorization: str = Header(default="")) -> None:
+        problem = auth_problem(request, authorization)
+        if problem is not None:
+            raise problem
 
     @app.get("/health")
     def health() -> Dict:
@@ -151,11 +196,19 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return {"status": "ok"}
 
     @app.get("/ready")
-    def ready(authorization: str = Header(default="")) -> JSONResponse:
+    def ready(request: Request, authorization: str = Header(default="")) -> JSONResponse:
         """200 when a scan would be correct and complete, else 503. Without the token
-        only the yes/no is shown; the checks and layer states need it."""
+        only the yes/no is shown; the checks and layer states need it. A token sent
+        here goes through the same failed-attempt policy as everywhere else, so the
+        details cannot be used to guess tokens."""
+        detailed = False
+        if authorization:
+            problem = auth_problem(request, authorization)
+            if problem is not None and problem.status_code == 429:
+                raise problem
+            detailed = problem is None
         report = readiness(service.scanner, workers)
-        body = report if token_ok(authorization) else {"ready": report["ready"]}
+        body = report if detailed else {"ready": report["ready"]}
         return JSONResponse(body, status_code=200 if report["ready"] else 503)
 
     @app.get("/version", dependencies=[Depends(require_token)])
