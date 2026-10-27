@@ -77,13 +77,27 @@ delivery password could open (about 1 in 1,400 tries).
 
 | ID | Task | Criteria | Status | Evidence |
 |---|---|---|---|---|
-| P2.1 | Scanning works with no containment rights; containment / response separated | S5 | open | |
-| P2.2 | `analysis` and `intel` services; one connection design chosen and documented | S4 | open | |
-| P2.3 | Intel: fixed operations, allowlisted destinations, input validation, service authentication, rate limit | S4 | open | |
-| P2.4 | Tests: analysis has no internet route, reaches only intel; intel refuses other operations and destinations | S4 | open | |
-| P2.5 | Audit temp files, extraction, `core/tools.py`, subprocesses, model loading, races, cleanup | S1, O6 | open | |
-| P2.6 | Docker hardening, Dockerfile, `docker-compose.yml`, DEPLOYMENT.md notes | S5, O1 | open | |
-| P2.7 | THREAT_MODEL.md: parser compromise, malicious archives, rule-pack updates | S10 | open | |
+| P2.1 | Scanning works with no containment rights; containment / response separated | S5 | done | fe6f793: validation imported `core.response` on every start (verified: the API process held it); now only with `CANARY_RESPONSE`; production profile refuses it; the image leaves both modules out (c7a4ac7, build-time `test ! -e`). `tests/test_privilege_separation.py`: scan + API with both modules unimportable; import-graph check. |
+| P2.2 | `analysis` and `intel` services; one connection design chosen and documented | S4 | done | daf94d8, e496a6a, c7a4ac7. Design (b): analysis `network_mode: none`, Unix sockets on shared volumes; reasons in DEPLOYMENT.md section 0 and the build commit. |
+| P2.3 | Intel: fixed operations, allowlisted destinations, input validation, service authentication, rate limit | S4 | done | daf94d8 (`api/intel.py`, `core/http.py` AllowlistSession incl. redirects; per-service sessions so the CAPE token stays on its host). `tests/test_intel_service.py` (19). |
+| P2.4 | Tests: analysis has no internet route, reaches only intel; intel refuses other operations and destinations | S4 | done | `deploy/isolation_check.py` inside the running containers (Docker Desktop 29.9.2 locally: all checks PASS; CI `docker.yml` on ubuntu); unit tests for operations, inputs, token, rate limit, egress allowlist; `tests/test_deployment.py` keeps the compose hardening. |
+| P2.5 | Audit temp files, extraction, `core/tools.py`, subprocesses, model loading, races, cleanup | S1, O6 | done | Findings fixed: killed workers leaked unpacked files (a9bcf5d, verified by a leftover `hrd_unpack_*`); XFF spoofing behind an appending proxy (12acafc); engine could not import without OCR (bdb9b6f). Checked, no change: RAR via `--` + stdout, 7z resolve-inside + no links, ZIP/ISO slip checks, generated upload names, trusted_which, joblib owner/mode check (no scikit-learn in the image). Residual: cache writable by workers (backlog). |
+| P2.6 | Docker hardening, Dockerfile, `docker-compose.yml`, DEPLOYMENT.md notes | S5, O1 | done | c7a4ac7, 31c4c15, 88dc6d8: non-root, read-only root, noexec tmpfs, cap_drop ALL, no-new-privileges, default seccomp, CPU/memory/pids limits, Docker secrets, read-only content, TLS (Caddy), trusted proxy; images pinned by digest, packages from the lock (verified identical). `/ready` 200 in the production profile inside the image; one scan through TLS. |
+| P2.7 | THREAT_MODEL.md: parser compromise, malicious archives, rule-pack updates | S10 | done | 88dc6d8: trust boundary 6, section 10, sections 2 and 5 extended, residual-risk rows. |
+
+Phase 2 CI evidence (branch `fix/privilege-separation`): tests run 40599677907 6/6 green
+(Linux, macOS, Windows on Python 3.9 and 3.12; the first run 40598939507 failed on Windows,
+which has no `AF_UNIX` - fixed in the client, not by skipping the test); docker run
+40599666228 green (build, isolation checks inside the containers, one scan through TLS);
+quality on the final tip below. Locally (macOS, Python 3.14): ruff clean, mypy at the 10
+baseline errors, bandit 0 medium/high in shipped code, 970 passed with only B5 deselected,
+coverage 91 %, `deploy/check-deployment.sh` passed on Docker Desktop 29.9.2.
+
+Phase 2 backlog (not blocking; owners in brackets):
+- Workers can write the result cache, so a parser exploit could plant a clean VirusTotal or LLM answer for a hash. Move the cache, or the external layers, out of the workers [A7 / A5].
+- Workers hold the intel token (they run the external layers). Bounded by intel's fixed operations and rate limits [A5].
+- The API starts a new worker process per upload (a fresh worker per file is also what keeps one upload from touching another); measure before changing [A9 / A7].
+- No scikit-learn in the server image, so a trained ML model is not used there (the rule engine is) [A3 / product decision if a model ships].
 
 ### Phase 3: area audits
 
