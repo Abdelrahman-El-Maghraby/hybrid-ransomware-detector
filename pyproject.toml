@@ -23,6 +23,7 @@ dependencies = [
     "defusedxml>=0.7",
     "cryptography>=42",
     "olefile>=0.46",
+    "keyring>=24",          # API keys in the OS keyring, not in .env (desktop)
 ]
 
 [project.optional-dependencies]

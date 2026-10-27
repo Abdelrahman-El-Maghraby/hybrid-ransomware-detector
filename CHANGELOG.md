@@ -39,6 +39,11 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
   `GET /ready` shows its details only to a valid token, through the same policy, so it cannot be used to guess tokens. Lockouts are logged (`auth_lockout`) and counted in `/metrics` (`auth_failed`, `auth_locked`).
 
+- **Secrets out of `.env`** (`engine/secret_store.py`). The desktop app used to write API keys in plain text into `.env`; it now saves them to the OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), reads each one back to verify it, and writes nothing to disk when no keyring is available.
+  - Precedence: the process environment, or `NAME_FILE` (Docker secrets), then the keyring, then `.env`.
+  - First-run migration: secrets in `.env` are written to the keyring and read back. Only when every value matches are their lines removed (atomic rewrite, permissions kept); on any failure `.env` is left untouched and a warning names the secret, never its value.
+  - The start-up log shows each secret's source. New dependency: `keyring` (pure Python; added to the lock with its dependencies).
+
 ### Changed
 
 - LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".

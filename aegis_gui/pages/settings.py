@@ -1,7 +1,6 @@
 """Settings page: schedule, autostart, uploads, API keys."""
 
 import logging
-import os
 import platform
 import threading
 
@@ -89,9 +88,10 @@ class SettingsPage(BasePage):
         sec = Section(outer, "API keys", app)
         sec.pack(fill="x", pady=(14, 0))
         ctk.CTkLabel(sec.body,
-                     text=f"Keys are stored only in {ENV_FILE} "
-                          "(git-ignored, never committed). Leave a field empty to keep "
-                          "the current value.",
+                     text="Keys are stored in the OS keyring (macOS Keychain, Windows "
+                          "Credential Manager, Linux Secret Service), never in a file. An "
+                          "environment variable with the same name takes precedence. Leave "
+                          "a field empty to keep the current value.",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
                      justify="left").pack(fill="x", padx=14, pady=(12, 6))
         self.key_rows = {}
@@ -200,26 +200,27 @@ class SettingsPage(BasePage):
             text_color=AMBER_SOFT if enabled else ACCENT_SOFT)
 
     def _save_keys(self):
+        from engine.secret_store import SecretStoreError, store
         changed = []
         try:
             for env_name, (entry, status, config_key) in self.key_rows.items():
                 value = entry.get().strip()
                 if not value:
                     continue
-                ENV_FILE.touch(exist_ok=True)
-                set_key(str(ENV_FILE), env_name, value)
-                os.environ[env_name] = value
+                store(env_name, value)           # written, read back and compared
                 RS.CONFIG[config_key] = value
                 self.app.scanner.config[config_key] = value
                 status.configure(text=mask_key(value))
                 entry.delete(0, "end")
                 changed.append(env_name)
-        except Exception as e:
-            self.keys_label.configure(text=f"Could not save keys: {e}",
-                                      text_color=RED_SOFT)
+        except SecretStoreError as e:            # the message never holds the key
+            self.keys_label.configure(
+                text=f"Could not save to the OS keyring: {e}. Nothing was written to disk; "
+                     "set the key as an environment variable instead.",
+                text_color=RED_SOFT)
             return
         if changed:
-            self.keys_label.configure(text=f"Saved to {ENV_FILE.name}: "
+            self.keys_label.configure(text=f"Saved to the OS keyring: "
                                            f"{', '.join(changed)}",
                                       text_color=ACCENT_SOFT)
             logging.getLogger("RansomwareScanner.GUI").info(

@@ -17,6 +17,13 @@ Create a dedicated, unprivileged user (`aegis`) and keep the configuration in
 are the ones in `.env.example`. The service checks them at start-up and stops
 with one line per problem, so a typo does not quietly switch a protection off.
 
+Secrets on a server come from the environment. Either set `NAME=value` in that
+protected file, or point `NAME_FILE` at a file only the service can read (for
+example a Docker secret under `/run/secrets/`): `OPENAI_API_KEY`,
+`VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`. A server
+has no OS keyring, so nothing is migrated there and the start-up log line
+`Secrets -> NAME:source` shows where each one came from (never its value).
+
 ## 2. The REST API behind a TLS reverse proxy
 
 `aegis-api` speaks plain HTTP on `127.0.0.1:8765` and must not be exposed

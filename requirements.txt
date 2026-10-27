@@ -7,6 +7,8 @@
 requests
 schedule
 python-dotenv
+keyring             # API keys in the OS keyring (Keychain / Credential Manager /
+                    # Secret Service) instead of .env. Pure-Python.
 PyYAML              # detectors/indicators.yaml (weights, categories, labels)
 
 # Document parsing

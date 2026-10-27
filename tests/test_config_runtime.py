@@ -55,7 +55,10 @@ def test_json_logs(tmp_path):
     out = _run(code, tmp_path, LOG_FORMAT="json", LOG_LEVEL="DEBUG")
     assert out.returncode == 0, out.stderr[-2000:]
     lines = (tmp_path / "RansomwareScanner" / "ransomware_scanner.log").read_text().splitlines()
-    first, second = json.loads(lines[0]), json.loads(lines[-1])
+    events = [json.loads(line) for line in lines]
+    first = next(e for e in events if e["event"] == "scan_completed")
+    second = events[-1]
+    assert events[0]["event"] == "secrets" and set(events[0]["sources"]) >= {"OPENAI_API_KEY"}
     assert first["event"] == "scan_completed" and first["message"] == "scanned a.pdf"
     assert first["verdict"] == "Clean" and first["duration_ms"] == 4 and first["level"] == "INFO"
     assert first["timestamp"][:4].isdigit() and "path" not in first

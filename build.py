@@ -60,7 +60,8 @@ GUI_NAME = "hrd-scanner-gui"
 # GUI toolkit (both programs ship in one build). A missing one fails the build.
 REQUIRED = ("requests", "dotenv", "pypdf", "docx", "yaml", "PIL", "defusedxml", "cryptography",
             "olefile", "oletools", "yara", "ppdeep", "pyzipper", "py7zr", "pycdlib", "rarfile",
-            "msoffcrypto", "pyzbar", "customtkinter")
+            "msoffcrypto", "pyzbar", "customtkinter",
+            "keyring")           # API keys in the OS keyring instead of .env
 # Optional: bundled when installed, their features are off otherwise.
 OPTIONAL = ("tlsh",              # the built-in port gives identical digests
             "pytesseract", "pdf2image",   # OCR, only used with an LLM

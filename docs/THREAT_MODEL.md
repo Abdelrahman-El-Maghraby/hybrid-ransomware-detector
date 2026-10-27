@@ -21,7 +21,7 @@ what the code does about each, and what is left.
 1. **Scanned files** (fully hostile): every byte, every name, every nested file.
 2. **External services** (semi-trusted): VirusTotal, the LLM, the CAPE sandbox, the webhook receiver.
 3. **Detection content** (trusted only when signed or written locally): rule packs, the allowlist, weight overrides.
-4. **Local user and configuration** (trusted): `.env`, the GUI, CLI arguments.
+4. **Local user and configuration** (trusted): `.env`, the OS keyring, the GUI, CLI arguments.
 5. **API clients** (authenticated, otherwise untrusted): anyone who can reach the REST port.
 
 ## Threats and mitigations
@@ -124,7 +124,12 @@ or point the config elsewhere - protect that folder like the rest of the account
   so it slows ransomware down rather than stopping a determined one.
 - **Helper programs** (7-Zip, unrar, nmcli, ...) are resolved outside the current
   directory, so a planted `7z.exe` in a scanned folder is never started.
-- **IMAP credentials**: an app password from `.env`, never logged, never in
+- **Secrets** (API keys, the sandbox token, the webhook secret, the IMAP app password)
+  come from the environment or a `NAME_FILE` secret on a server, and from the OS keyring
+  on a desktop; the scanner never writes one to a file. A secret left in `.env` is moved
+  to the keyring on the next start, and `.env` is only rewritten after the keyring
+  returned every value unchanged. Values are never logged or put in error messages.
+- **IMAP credentials**: an app password (environment or keyring), never logged, never in
   reports or the state file; TLS with certificate verification only, read-only
   mailbox access.
 
