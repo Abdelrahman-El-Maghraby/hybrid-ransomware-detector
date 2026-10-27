@@ -78,6 +78,7 @@ def test_store_reads_back_and_compares():
 
 def test_migration_moves_verified_secrets_and_keeps_the_rest(tmp_path, caplog):
     p = _env_file(tmp_path)
+    mode = stat.S_IMODE(p.stat().st_mode)       # 0o600 on POSIX; Windows has no such bits
     kr = FakeKeyring()
     with caplog.at_level(logging.INFO, logger="RansomwareScanner"):
         m = S.migrate_env_file(p, _values(p), kr)
@@ -86,7 +87,7 @@ def test_migration_moves_verified_secrets_and_keeps_the_rest(tmp_path, caplog):
     text = p.read_text()
     assert "OPENAI_API_KEY" not in text and "VIRUSTOTAL_API_KEY" not in text
     assert "VT_UPLOAD_UNKNOWN=false" in text and "# local settings" in text
-    assert stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert stat.S_IMODE(p.stat().st_mode) == mode
     assert not list(tmp_path.glob(".env.*.tmp"))
     assert KEY not in caplog.text and "Moved OPENAI_API_KEY, VIRUSTOTAL_API_KEY" in caplog.text
 
