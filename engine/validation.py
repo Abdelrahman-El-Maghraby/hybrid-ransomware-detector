@@ -142,17 +142,17 @@ def _is_local(url: str) -> bool:
 def _canary(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     raw = str(cfg.get("canary_response") or "")
     names = [n.strip().lower() for n in raw.split(",") if n.strip()]
-    try:
-        from core.response import ACTIONS
-    except ImportError:              # the server image ships without containment
-        if names:
+    if names:                        # only then: scanning never loads containment
+        try:
+            from core.response import ACTIONS
+        except ImportError:          # the server image ships without containment
             errors.append("CANARY_RESPONSE is set, but this build has no containment "
                           "(canary responses are part of the desktop builds only)")
-        return
-    unknown = [n for n in names if n not in ACTIONS]
-    if unknown:
-        errors.append(f"CANARY_RESPONSE has unknown action(s) {', '.join(unknown)}; "
-                      f"known: {', '.join(ACTIONS)}")
+            return
+        unknown = [n for n in names if n not in ACTIONS]
+        if unknown:
+            errors.append(f"CANARY_RESPONSE has unknown action(s) {', '.join(unknown)}; "
+                          f"known: {', '.join(ACTIONS)}")
     script = str(cfg.get("canary_response_script") or "")
     if "script" in names and not script:
         errors.append("CANARY_RESPONSE includes 'script' but CANARY_RESPONSE_SCRIPT is not set")
@@ -235,6 +235,9 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
     if rules and not Path(rules).is_dir():
         errors.append(f"YARA_RULES_DIR={rules} does not exist: the production profile "
                       "requires the YARA layer")
+    if str(cfg.get("canary_response") or "").strip():
+        errors.append("CANARY_RESPONSE suspends, kills or locks on the host; containment is "
+                      "part of the desktop builds only, outside the production profile")
     if cfg.get("isolate_scans") is False:
         warnings.append("ISOLATE_SCANS is off: a hostile file can hang or crash the service "
                         "instead of being reported as a failed scan")
