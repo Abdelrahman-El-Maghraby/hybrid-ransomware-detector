@@ -64,6 +64,15 @@ with `gh workflow run <workflow> --ref <branch>`.
 | P1.6 | Secrets to the OS keyring; verified migration from `.env` | S2 | done | `bab56e2`. Finding confirmed: `aegis_gui/pages/settings.py` wrote keys with `set_key()`. `engine/secret_store.py`: environment / `NAME_FILE` > keyring > `.env`; migration verified by read-back, `.env` untouched on any failure. `keyring` added to the lock (additions only, pip-audit clean). `tests/test_secret_store.py` (13). |
 | P1.7 | Cache keys include model, prompt version and rules version | C5 | done | `8f66c4a`. Verdicts were never cached. Fixed: LLM key lacked prompt / engine version; VT "not found" answer survived enabling upload for 6 h; sandbox key ignored the server; a running scanner kept replaced rules until restart. `tests/test_cache_keys.py` (3). |
 
+**Phase 1 gates on the merged tree** (`integration/v4.7` at `d557550`, 2026-10-28):
+CI `tests` run 40591609694, 6 / 6 jobs green (Linux, macOS, Windows; Python 3.9 and 3.12);
+CI `quality` run 40591613442, 4 / 4 green (lint + types, coverage, dependency audit,
+regression corpus). Locally (macOS, Python 3.14): ruff clean, mypy at the 10 baseline
+errors (B2), bandit 0 medium/high in shipped code, pip-audit clean, 928 passed with only
+B5 failing, coverage 90.96 %, `test_smoke.py` passed. Two CI-only test faults were fixed
+on the way: a POSIX-mode assertion on Windows, and a 1-byte ZipCrypto member that a wrong
+delivery password could open (about 1 in 1,400 tries).
+
 ### Phase 2: privilege separation (`fix/privilege-separation`)
 
 | ID | Task | Criteria | Status | Evidence |
