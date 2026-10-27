@@ -62,6 +62,16 @@ proposes data-driven values (cross-validated) for review.
 
 *Read:* `engine/workers.py`, `tests/test_fuzz_parsers.py`, `docs/THREAT_MODEL.md`.
 
+**Saying how far the evidence goes.** A score says what was found; `scan_status` says
+how much was looked at: `complete`, `partial`, `locked`, `unsupported` or `failed`,
+with one `incomplete_reasons` entry per gap. Containers take their most severe
+member status (failed > locked > partial > unsupported > complete). The status
+never changes the score, so a locked member cannot hide a malicious one, and a
+clean score on an incomplete scan is shown as "Clean (partial scan)", never as
+plain "Clean".
+
+*Read:* `engine/completeness.py`, `engine/capabilities.py`.
+
 ## 4. Static first, dynamic optional
 
 Everything above is static: no file is executed or rendered, links are never

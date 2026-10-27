@@ -35,20 +35,22 @@ Security
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import re
 import shutil
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from api import SCHEMA_VERSION, load_schema
-from api.limits import BodyLimit, RateLimit, ScanSlots, TokenBuckets
+from api.limits import AuthGuard, BodyLimit, RateLimit, ScanSlots, TokenBuckets, client_ip, client_key
 from engine.metrics import METRICS
+from engine.readiness import readiness
 
 
 def _env_number(name: str, default: float) -> float:
@@ -61,6 +63,7 @@ def _env_number(name: str, default: float) -> float:
 MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50)
 MULTIPART_OVERHEAD = 64 * 1024              # form boundaries and headers around the file
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
+logger = logging.getLogger("RansomwareScanner")
 
 
 class _ScanService:
@@ -88,6 +91,70 @@ class _ScanService:
         result["file_name"] = display
         return result
 
+    def warm_up(self) -> Tuple[bool, str]:
+        """Prove isolated workers start and finish a scan: one small text file, once,
+        at start-up (a readiness probe must not spawn a process each time)."""
+        if not self.isolate:
+            return True, "in-process scans (isolation off)"
+        work = Path(tempfile.mkdtemp(prefix="aegis_warmup_"))
+        try:
+            sample = work / "warmup.txt"
+            sample.write_text("Aegis Sentinel readiness check\n", encoding="utf-8")
+            result = self.scan(str(sample), "warmup.txt")
+        except Exception as e:  # the worker machinery itself is broken
+            return False, f"warm-up scan raised {type(e).__name__}"
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        failed = (result.get("scan_results") or {}).get("scan_failed")
+        if failed:
+            return False, f"warm-up scan failed: {failed.get('reason', 'unknown')}"
+        return True, "isolated workers start"
+
+
+class _Auth:
+    """Bearer-token check with the failed-attempt policy (api/limits.py): a locked
+    address is refused before the compare, a wrong token counts against the
+    address, a valid token then has its own quota."""
+
+    def __init__(self, token: str, trust_proxy: bool):
+        self.token, self.trust_proxy = token, trust_proxy
+        self.guard = AuthGuard(int(_env_number("AEGIS_API_AUTH_FAILURES", 5)),
+                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300),
+                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900))
+        self.quota = TokenBuckets(_env_number("AEGIS_API_RATE_PER_MINUTE", 60),
+                                  int(_env_number("AEGIS_API_BURST", 10)))
+
+    def token_ok(self, authorization: str) -> bool:
+        scheme, _, given = authorization.partition(" ")
+        return scheme.lower() == "bearer" and hmac.compare_digest(given.encode(),
+                                                                   self.token.encode())
+
+    @staticmethod
+    def _too_many(detail: str, wait: float) -> HTTPException:
+        return HTTPException(status_code=429, detail=detail,
+                             headers={"Retry-After": str(max(1, int(wait + 0.999)))})
+
+    def problem(self, request: Request, authorization: str) -> Optional[HTTPException]:
+        """None when the request may go on; otherwise the answer to send."""
+        ip = client_ip(request.scope, self.trust_proxy)
+        wait = self.guard.locked_for(ip)
+        if wait > 0:                                   # before the compare
+            METRICS.reject("auth_locked")
+            return self._too_many("too many failed authentication attempts", wait)
+        if not self.token_ok(authorization):
+            if self.guard.failure(ip):
+                logger.warning("API: %s locked out after repeated wrong bearer tokens", ip,
+                               extra={"event": "auth_lockout", "client": ip})
+            METRICS.reject("auth_failed")
+            return HTTPException(status_code=401, detail="missing or wrong bearer token",
+                                 headers={"WWW-Authenticate": "Bearer"})
+        self.guard.success(ip)
+        wait = self.quota.take(client_key(request.scope, self.trust_proxy))
+        if wait > 0:
+            METRICS.reject("rate_limited")
+            return self._too_many("too many requests", wait)
+        return None
+
 
 def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                isolate: bool = True) -> FastAPI:
@@ -98,29 +165,59 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
     service = _ScanService(config or CONFIG, isolate=isolate)
+    workers = service.warm_up()
+    start = readiness(service.scanner, workers)
+    if start["ready"]:
+        logger.info("Ready (%s profile).", start["profile"], extra={"event": "ready"})
+    else:
+        logger.warning("Not ready (%s profile): %s", start["profile"], "; ".join(start["problems"]),
+                       extra={"event": "not_ready", "problems": start["problems"]})
     app = FastAPI(title="Aegis Sentinel API", version=ENGINE_VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None)
     limit = int(MAX_UPLOAD_MB * 1024 * 1024)
     slots = ScanSlots(int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2)))
+    trust_proxy = os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes")
     app.add_middleware(BodyLimit, max_bytes=limit + MULTIPART_OVERHEAD)
+    # 1. every request, before authentication: a bucket per IP address
     app.add_middleware(RateLimit, buckets=TokenBuckets(
-        _env_number("AEGIS_API_RATE_PER_MINUTE", 60), int(_env_number("AEGIS_API_BURST", 10))),
-        trust_proxy=os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"))
+        _env_number("AEGIS_API_IP_RATE_PER_MINUTE", 120), int(_env_number("AEGIS_API_IP_BURST", 30))),
+        trust_proxy=trust_proxy)
+    auth = _Auth(token, trust_proxy)
+    auth_problem = auth.problem
 
-    def require_token(authorization: str = Header(default="")) -> None:
-        scheme, _, given = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not hmac.compare_digest(given.encode(), token.encode()):
-            raise HTTPException(status_code=401, detail="missing or wrong bearer token",
-                                headers={"WWW-Authenticate": "Bearer"})
+    def require_token(request: Request, authorization: str = Header(default="")) -> None:
+        problem = auth_problem(request, authorization)
+        if problem is not None:
+            raise problem
 
     @app.get("/health")
     def health() -> Dict:
+        """The process is alive (not: it can scan correctly - that is /ready)."""
         return {"status": "ok"}
+
+    @app.get("/ready")
+    def ready(request: Request, authorization: str = Header(default="")) -> JSONResponse:
+        """200 when a scan would be correct and complete, else 503. Without the token
+        only the yes/no is shown; the checks and layer states need it. A token sent
+        here goes through the same failed-attempt policy as everywhere else, so the
+        details cannot be used to guess tokens."""
+        detailed = False
+        if authorization:
+            problem = auth_problem(request, authorization)
+            if problem is not None and problem.status_code == 429:
+                raise problem
+            detailed = problem is None
+        report = readiness(service.scanner, workers)
+        body = report if detailed else {"ready": report["ready"]}
+        return JSONResponse(body, status_code=200 if report["ready"] else 503)
 
     @app.get("/version", dependencies=[Depends(require_token)])
     def version() -> Dict:
+        pv = service.scanner.provenance
         return {"engine": ENGINE_VERSION, "schema": SCHEMA_VERSION,
-                "registry": service.scanner.scoring.registry.version}
+                "registry": service.scanner.scoring.registry.version,
+                "rules": pv["rules"], "profile": pv["profile"],
+                "external_services": pv["external_services"]}
 
     @app.get("/schema", dependencies=[Depends(require_token)])
     def schema() -> Dict:

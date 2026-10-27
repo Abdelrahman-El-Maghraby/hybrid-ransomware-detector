@@ -37,6 +37,7 @@ the only line.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -74,6 +75,11 @@ USER_PROMPT_TEMPLATE = (
 )
 
 
+# Part of every cached LLM answer's key: editing the prompt invalidates old answers.
+PROMPT_VERSION = hashlib.sha256((SYSTEM_INSTRUCTIONS + "\0" + USER_PROMPT_TEMPLATE)
+                                .encode("utf-8")).hexdigest()[:12]
+
+
 def build_messages(combined_content: str):
     """System + user messages with the content spotlighted by a fresh nonce."""
     wrapped, nonce = wrap_untrusted_with_nonce(combined_content)
@@ -83,9 +89,14 @@ def build_messages(combined_content: str):
     ]
 
 
-def _empty_analysis(detail: str) -> Dict:
-    return {"is_malicious": False, "confidence": 0,
-            "details": detail, "suspicious_elements": [], "analyzed": False}
+def _empty_analysis(detail: str, error: bool = False) -> Dict:
+    """No opinion. `error` marks a failure (the scan is then partial), as opposed
+    to a layer that is off or had nothing to read."""
+    out = {"is_malicious": False, "confidence": 0,
+           "details": detail, "suspicious_elements": [], "analyzed": False}
+    if error:
+        out["error"] = detail
+    return out
 
 
 def _parse_analysis(content: str) -> Dict:
@@ -192,10 +203,10 @@ class OpenAIBackend(LLMBackend):
                 content = resp.json()["choices"][0]["message"]["content"]
                 return _parse_analysis(content)
             logger.error("OpenAI API error: %s - %s", resp.status_code, resp.text[:200])
-            return _empty_analysis(f"OpenAI API error {resp.status_code}.")
+            return _empty_analysis(f"OpenAI API error {resp.status_code}.", error=True)
         except Exception as e:
             logger.error("OpenAI analysis failed: %s", e)
-            return _empty_analysis("OpenAI analysis failed.")
+            return _empty_analysis("OpenAI analysis failed.", error=True)
 
 
 class OllamaBackend(LLMBackend):
@@ -232,10 +243,10 @@ class OllamaBackend(LLMBackend):
                 content = resp.json().get("message", {}).get("content", "")
                 return _parse_analysis(content)
             logger.error("Ollama API error: %s - %s", resp.status_code, resp.text[:200])
-            return _empty_analysis(f"Ollama API error {resp.status_code}.")
+            return _empty_analysis(f"Ollama API error {resp.status_code}.", error=True)
         except Exception as e:
             logger.error("Ollama analysis failed (is the daemon running?): %s", e)
-            return _empty_analysis("Local LLM (Ollama) unreachable; semantic layer skipped.")
+            return _empty_analysis("Local LLM (Ollama) unreachable; semantic layer skipped.", error=True)
 
 
 def build_llm_backend(config: Dict) -> LLMBackend:

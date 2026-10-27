@@ -53,6 +53,10 @@ def _read_dotenv(path: Path) -> Dict[str, str]:
 
 
 _DOTENV = _read_dotenv(ENV_FILE)
+# Imported here, before init_runtime() copies .env into os.environ: it remembers which
+# secrets the process environment really set (environment > OS keyring > .env).
+from engine import secret_store  # noqa: E402
+
 # Values that could not be parsed (reported by engine.validation, not ignored).
 ENV_PROBLEMS: List[str] = []
 
@@ -79,9 +83,15 @@ def init_runtime(console: bool = True, level: int = logging.INFO) -> None:
         return
     APP_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    load_dotenv(ENV_FILE)
     from engine.logs import configure_logging
     configure_logging(LOG_FILE, console=console, level=level)
+    if ENV_FILE.is_file():                  # first run after 4.6: secrets out of .env
+        secret_store.migrate_env_file(ENV_FILE, _DOTENV)
+    load_dotenv(ENV_FILE)
+    sources = secret_store.apply(CONFIG)
+    logging.getLogger("RansomwareScanner").info(
+        "Secrets -> %s", "  ".join(f"{name}:{src}" for name, src in sources.items()),
+        extra={"event": "secrets", "sources": sources})
     _RUNTIME_READY = True
 
 
@@ -127,6 +137,9 @@ DEFAULT_EXTENSIONS = [e for e in SUPPORTED_EXTENSIONS if e not in IMAGE_SCAN_EXT
 
 # Configuration - paths derive from the user's home directory and adapt to the OS
 CONFIG = {
+    # "production" = the supported on-prem edition (docs/RELEASE_SCOPE.md): every
+    # required layer must be available and enabled, emulation is refused.
+    "profile": _getenv("AEGIS_PROFILE", "standard").strip().lower(),
     "scan_directories": [
         str(USER_HOME / "Downloads"),
         # Add more folders to scan as needed

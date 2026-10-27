@@ -21,7 +21,7 @@ what the code does about each, and what is left.
 1. **Scanned files** (fully hostile): every byte, every name, every nested file.
 2. **External services** (semi-trusted): VirusTotal, the LLM, the CAPE sandbox, the webhook receiver.
 3. **Detection content** (trusted only when signed or written locally): rule packs, the allowlist, weight overrides.
-4. **Local user and configuration** (trusted): `.env`, the GUI, CLI arguments.
+4. **Local user and configuration** (trusted): `.env`, the OS keyring, the GUI, CLI arguments.
 5. **API clients** (authenticated, otherwise untrusted): anyone who can reach the REST port.
 
 ## Threats and mitigations
@@ -124,7 +124,12 @@ or point the config elsewhere - protect that folder like the rest of the account
   so it slows ransomware down rather than stopping a determined one.
 - **Helper programs** (7-Zip, unrar, nmcli, ...) are resolved outside the current
   directory, so a planted `7z.exe` in a scanned folder is never started.
-- **IMAP credentials**: an app password from `.env`, never logged, never in
+- **Secrets** (API keys, the sandbox token, the webhook secret, the IMAP app password)
+  come from the environment or a `NAME_FILE` secret on a server, and from the OS keyring
+  on a desktop; the scanner never writes one to a file. A secret left in `.env` is moved
+  to the keyring on the next start, and `.env` is only rewritten after the keyring
+  returned every value unchanged. Values are never logged or put in error messages.
+- **IMAP credentials**: an app password (environment or keyring), never logged, never in
   reports or the state file; TLS with certificate verification only, read-only
   mailbox access.
 
@@ -141,8 +146,13 @@ or point the config elsewhere - protect that folder like the rest of the account
 - Uploads over the limit are refused before they are parsed (declared length,
   then a streaming count), so a client cannot fill the disk through the
   multipart spool; scans are isolated.
-- Per-client token buckets (IP + token) answer 429 with Retry-After; at most N
-  concurrent scans, then 503. Rejections are counted in `/metrics`.
+- A per-IP token bucket applies before authentication. Failed bearer tokens are
+  counted per IP address (not per token, so rotating guesses does not help): after
+  `AEGIS_API_AUTH_FAILURES` failures within the window, the address is refused
+  before the compare until the lockout ends (429 with Retry-After). `/ready` shows
+  details only for a valid token and goes through the same policy. A valid token
+  has its own per-client quota; at most N concurrent scans, then 503. Rejections
+  are counted in `/metrics`.
 
 *Residual:* no TLS of its own - put it behind a reverse proxy (`docs/DEPLOYMENT.md`).
 With `AEGIS_API_TRUST_PROXY=1` the client address comes from X-Forwarded-For, so

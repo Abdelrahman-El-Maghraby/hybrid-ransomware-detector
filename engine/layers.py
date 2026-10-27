@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from api import SCHEMA_VERSION
 from detectors import FUZZY_AVAILABLE
@@ -96,6 +96,10 @@ class ScanContext:
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
     signals: Signals = field(default_factory=Signals)
+    # incomplete_reasons of the members scanned through this file (engine/completeness.py)
+    member_reasons: List[Dict] = field(default_factory=list)
+    # (layer, outcome) for provenance: ran | not applicable | error | skipped
+    layer_log: List[Tuple[str, str]] = field(default_factory=list)
 
     @classmethod
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
@@ -182,6 +186,8 @@ class FuzzyHashLayer(Layer):
             fuzzy = FuzzyResult(available=FUZZY_AVAILABLE,
                                 detail=f"Skipped: file exceeds fuzzy_max_bytes "
                                        f"({scanner.fuzzy_max_bytes} bytes).")
+            ctx.scan_results.setdefault("layer_skips", {})["fuzzy"] = (
+                f"file larger than fuzzy_max_bytes ({scanner.fuzzy_max_bytes} bytes)")
         ctx.scan_results["fuzzy_hash"] = fuzzy.as_dict()
         ctx.signals.fuzzy = FuzzySignal(
             matched=fuzzy.matched, best_confidence=fuzzy.best_confidence,
@@ -415,13 +421,16 @@ class SandboxLayer(Layer):
                 scanner.scoring.score(ctx.signals).risk_score < 25:
             return
         sha = ctx.hashes.get("sha256", "")
-        cached = scanner.cache.get(sha, "sandbox") if (scanner.cache and sha) else None
+        # a report belongs to the CAPE server and options that produced it
+        import hashlib
+        key = "sandbox:" + hashlib.sha256(f"{client.url}|{client.options}".encode()).hexdigest()[:12]
+        cached = scanner.cache.get(sha, key) if (scanner.cache and sha) else None
         if cached:
             data = dict(cached, status="cached")
         else:
             data = client.analyze(ctx.path).as_dict()
             if scanner.cache and sha and data.get("status") == "reported":
-                scanner.cache.put(sha, "sandbox", data)
+                scanner.cache.put(sha, key, data)
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),

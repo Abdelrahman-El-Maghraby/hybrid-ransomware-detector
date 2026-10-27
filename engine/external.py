@@ -26,8 +26,19 @@ class ExternalLookupsMixin:
         def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True) -> str: ...
 
     def _llm_cache_layer(self) -> str:
+        """Cache key part of an LLM answer: everything that changes it - the back-end,
+        the model, the prompt (PROMPT_VERSION) and the engine that extracted the text."""
+        from detectors.llm_backends import PROMPT_VERSION
+
+        from .config import ENGINE_VERSION
         backend = self.llm_backend
-        return f"llm:{getattr(backend, 'name', 'none')}:{getattr(backend, 'model', '')}"
+        return (f"llm:{getattr(backend, 'name', 'none')}:{getattr(backend, 'model', '')}"
+                f":prompt-{PROMPT_VERSION}:engine-{ENGINE_VERSION}")
+
+    def _vt_cache_layer(self) -> str:
+        """With uploads switched on, an earlier "unknown, not uploaded" answer must
+        not be served: the two settings keep separate entries."""
+        return "virustotal:upload" if self.config.get("virustotal_upload_unknown") else "virustotal"
 
     def analyze_with_llm(self, file_path: str, file_content: Optional[str] = None,
                          embedded_strings: Optional[str] = None,
@@ -85,6 +96,7 @@ class ExternalLookupsMixin:
                 "is_malicious": False,
                 "confidence": 0,
                 "details": "LLM analysis failed.",
+                "error": type(e).__name__,
                 "suspicious_elements": []
             }
 
@@ -113,7 +125,7 @@ class ExternalLookupsMixin:
             file_hash = hashes["sha256"] or hashes["md5"]
 
             if self.cache is not None:
-                cached = self.cache.get(file_hash, "virustotal")
+                cached = self.cache.get(file_hash, self._vt_cache_layer())
                 if cached is not None:
                     cached["cached"] = True
                     return cached
@@ -130,7 +142,8 @@ class ExternalLookupsMixin:
                         details="Hash unknown to VirusTotal. Upload is disabled for privacy "
                                 "(set VT_UPLOAD_UNKNOWN=true to submit unknown files).")
                     if self.cache is not None:
-                        self.cache.put(file_hash, "virustotal", result, ttl_seconds=6 * 3600)
+                        self.cache.put(file_hash, self._vt_cache_layer(), result,
+                                       ttl_seconds=6 * 3600)
                     return result
                 response = self._vt_upload_and_wait(file_path, headers, check_url) or response
 
@@ -154,7 +167,7 @@ class ExternalLookupsMixin:
                     "permalink": f"https://www.virustotal.com/gui/file/{file_hash}/detection"
                 }
                 if self.cache is not None and total_engines:
-                    self.cache.put(file_hash, "virustotal", result)
+                    self.cache.put(file_hash, self._vt_cache_layer(), result)
                 return result
             if response.status_code == 404:
                 return self._vt_empty(not_found=True,

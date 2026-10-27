@@ -290,7 +290,9 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         hashes = {}
     score = scanner.scoring.score({"scan_failed": reason})
     from api import SCHEMA_VERSION
-    return {
+    from engine.completeness import failed, verdict_label
+    status, reasons = failed(path, reason)
+    result = {
         "schema_version": SCHEMA_VERSION,
         "file_path": path, "file_name": _os.path.basename(path),
         "file_size": _os.path.getsize(path) if _os.path.exists(path) else 0,
@@ -301,7 +303,14 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         "is_malicious": score.is_malicious, "severity_score": score.severity_score,
         "risk_score": score.risk_score, "verdict": score.verdict,
         "score_breakdown": score.as_dict(),
+        "scan_status": status, "incomplete_reasons": reasons,
+        "provenance": {**(getattr(scanner, "provenance", None) or {}), "layers_run": [],
+                       "layers_unavailable": [], "layers_not_applicable": [],
+                       "layers_failed": ["worker"],
+                       "layers_skipped": []},
     }
+    result["verdict_label"] = verdict_label(result)
+    return result
 
 
 def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, memory_mb: int,

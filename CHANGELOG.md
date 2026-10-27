@@ -4,6 +4,58 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
+- **`GET /ready`**, distinct from `/health` (process alive): 200 only when the YARA rules compiled, the indicator registry loaded with every category cap, the report / data / temporary folders accept a file, isolated workers start (a warm-up scan at start-up), and, in the production profile, every required layer is up. Otherwise 503. With the bearer token it lists each check and every layer's state; without it, only `{"ready": ...}`. The API logs ready / not ready at start-up.
+- **`AEGIS_PROFILE`** (`standard` or `production`, validated at start-up).
+- **Scan completeness** (`engine/completeness.py`, result schema **1.2**, additive): every result has
+  - `scan_status`: `complete`, `partial` (an applicable, enabled layer errored, was unavailable or was skipped, or content was not unpacked), `locked` (encrypted content not opened: archive members, password-protected Office files and, newly detected, PDFs that need a user password), `unsupported` (a format with no type-specific analysis), or `failed` (worker timeout, crash or memory limit);
+  - `incomplete_reasons`: one `{member_path, layer, reason, status}` per gap;
+  - `verdict_label`, e.g. `Clean (partial scan)`.
+
+  A container takes its most severe member status: failed > locked > partial > unsupported > complete. Intended skips (score already 100, allowlisted file, a layer that does not apply to the file type, an optional layer switched off) do not make a scan partial. The status never changes the score, the verdict or the response action: a malicious member keeps its full score next to a locked one.
+- **Provenance** in every result (`provenance`, schema 1.2) and in the text report's header (`engine/provenance.py`):
+  - engine, schema and registry versions (with `+override`);
+  - the YARA rules (bundled / rule pack / custom folder, version, SHA-256 over the compiled files) and the fuzzy-signature database (source, SHA-256);
+  - the profile and the external services (`llm`, `virustotal`, `sandbox`: off, or how each is used);
+  - the layers disabled or down for this installation, with the reason;
+  - for each file, the layers that ran, were unavailable, did not apply, failed or were skipped (with the reason).
+
+  It never contains a key, token, password or service URL. `GET /version` also returns the rules, the profile and the external services.
+- A clean score on an incomplete scan never shows as plain "Clean": text reports have a "Scan completeness" line and a "NOT FULLY INSPECTED" section, flagged files list their gaps, the GUI shows the label in the results table and the detail window, and webhooks / JSON Lines carry `scan_status`.
+- **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
+- `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
+
+### Fixed / security
+
+- **API authentication throttling.** The rate-limit buckets were keyed on IP address + token, so a client rotating wrong tokens got a fresh bucket for every guess. Now:
+  - a per-IP limit applies before authentication (`AEGIS_API_IP_RATE_PER_MINUTE`, `AEGIS_API_IP_BURST`);
+  - an address that is locked out is refused before the token is compared;
+  - each failed constant-time compare is recorded against the address, and `AEGIS_API_AUTH_FAILURES` failures within `AEGIS_API_AUTH_WINDOW_SECONDS` lock it out for `AEGIS_API_AUTH_LOCKOUT_SECONDS` (429 with Retry-After);
+  - a valid token keeps its per-client quota.
+
+  `GET /ready` shows its details only to a valid token, through the same policy, so it cannot be used to guess tokens. Lockouts are logged (`auth_lockout`) and counted in `/metrics` (`auth_failed`, `auth_locked`).
+
+- **Secrets out of `.env`** (`engine/secret_store.py`). The desktop app used to write API keys in plain text into `.env`; it now saves them to the OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), reads each one back to verify it, and writes nothing to disk when no keyring is available.
+  - Precedence: the process environment, or `NAME_FILE` (Docker secrets), then the keyring, then `.env`.
+  - First-run migration: secrets in `.env` are written to the keyring and read back. Only when every value matches are their lines removed (atomic rewrite, permissions kept); on any failure `.env` is left untouched and a warning names the secret, never its value.
+  - The start-up log shows each secret's source. New dependency: `keyring` (pure Python; added to the lock with its dependencies).
+
+- **Stale answers after a content or configuration change.** Verdicts were never cached, but cached evidence and loaded content could be stale:
+  - LLM answers are now keyed by the prompt version and the engine version as well as the back-end and model;
+  - VirusTotal answers are keyed by the upload setting, so turning `VT_UPLOAD_UNKNOWN` on is no longer ignored for 6 hours;
+  - sandbox reports are keyed by the CAPE server and options;
+  - a running scanner reloads the YARA rules, the active rule pack, the fuzzy signatures and the allowlist when they change on disk, before the next top-level scan.
+
+### Changed
+
+- LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".
+- A file over `fuzzy_max_bytes` is recorded in `layer_skips` (the fuzzy layer did not run on it).
+- **Builds fail on a missing required dependency** (`build.py`): every package a production-profile layer needs, and the GUI toolkit, must be installed (preflight). The smoke test runs `--capabilities cli` on the packaged program and fails the build, and so the release job, when a required layer is not up in the artifact. A folder build must contain customtkinter. Host tools a desktop binary cannot bundle (a RAR decompressor, the zbar library) are reported, not required; the Docker image must carry them.
+
 ## [4.6.0] — 2026-10-26
 
 ### Added

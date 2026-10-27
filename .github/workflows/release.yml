@@ -35,6 +35,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install pinned dependencies + PyInstaller
+        # One package at a time: a package without a wheel for this OS (python-tlsh on
+        # Windows) must not stop the others. Whether a missing one is acceptable is decided
+        # by build.py: a package a required layer needs fails the build (preflight), and
+        # the packaged program must report every required layer up (--capabilities cli).
         run: |
           python -m pip install --upgrade pip
           grep -vE '^\s*(#|$)' requirements.lock | sed 's/#.*//; s/[[:space:]]*$//' | while read -r pkg; do

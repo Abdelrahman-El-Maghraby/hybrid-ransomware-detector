@@ -92,6 +92,22 @@ def result_verdict(result: dict) -> str:
     return "Low"
 
 
+def verdict_text(result: dict) -> str:
+    """The verdict as shown: a scan that was not complete never reads as plain
+    "Clean" (engine/completeness.py)."""
+    status = result.get("scan_status") or "complete"
+    verdict = result_verdict(result)
+    return verdict if status == "complete" else f"{verdict} ({status} scan)"
+
+
+def first_gap(result: dict) -> str:
+    """The first reason a scan is not complete ('' when it is)."""
+    reasons = result.get("incomplete_reasons") or []
+    if (result.get("scan_status") or "complete") == "complete" or not reasons:
+        return ""
+    return f"not fully inspected: {reasons[0].get('reason', '')}"
+
+
 def result_risk(result: dict) -> int:
     """The 0-100 risk score, derived from the legacy severity for old results."""
     if "risk_score" in result and result.get("risk_score") is not None:

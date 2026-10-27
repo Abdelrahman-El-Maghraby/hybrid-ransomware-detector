@@ -27,7 +27,9 @@ from typing import Any, Dict, List, Optional
 TEXT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 # Fields a log call may pass with extra={...}; they are copied into the JSON.
 EVENT_FIELDS = ("event", "path", "sha256", "verdict", "risk_score", "duration_ms", "layer",
-                "files", "files_per_sec", "error")
+                "files", "files_per_sec", "error",
+                # 4.7: completeness, layer states, readiness problems, lockouts, secret sources
+                "scan_status", "layers", "problems", "client", "sources")
 _MARK = "_aegis_handler"
 
 

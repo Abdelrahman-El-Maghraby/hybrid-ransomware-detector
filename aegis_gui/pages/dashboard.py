@@ -23,10 +23,12 @@ from aegis_gui.common import (
 from aegis_gui.detail import DetailWindow
 from aegis_gui.formatting import (
     VERDICT_COLORS,
+    first_gap,
     open_path,
     result_risk,
     result_verdict,
     top_reasons,
+    verdict_text,
 )
 from aegis_gui.pages.base import BasePage
 from aegis_gui.widgets import StatCard
@@ -153,9 +155,9 @@ class DashboardPage(BasePage):
         risk = result_risk(result)
         iid = self.tree.insert("", "end", values=(
             result.get("file_name", "?"),
-            verdict,
+            verdict_text(result),
             f"{risk}",
-            top_reasons(result) if verdict != "Clean" else "",
+            top_reasons(result) if verdict != "Clean" else first_gap(result),
         ), tags=(verdict if verdict in VERDICT_COLORS else "Clean",))
         self.row_results[iid] = result
         self.tree.see(iid)

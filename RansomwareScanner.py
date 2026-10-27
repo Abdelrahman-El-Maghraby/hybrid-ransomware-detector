@@ -536,6 +536,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     "(PDF, Office, RTF, ZIP)")
     parser.add_argument("--version", action="version",
                         version=f"hybrid-ransomware-detector {ENGINE_VERSION}")
+    parser.add_argument("--capabilities", nargs="?", const="", metavar="FLAVOUR",
+                        choices=["", "cli", "gui", "api"],
+                        help="Print the state of every detection layer (up / down / disabled) "
+                             "as JSON, then exit. With FLAVOUR (cli, gui or api), exit 1 when "
+                             "a layer that build flavour requires is not up")
     parser.add_argument("--scan-now", action="store_true",
                         help="Run a scan immediately")
     parser.add_argument("--background", action="store_true",
@@ -626,6 +631,27 @@ def _apply_overrides(args) -> None:
         CONFIG["llm_provider"] = args.llm_provider
     if args.no_cache:
         CONFIG["cache_enabled"] = False
+
+
+def _capabilities_command(args) -> bool:
+    """--capabilities [FLAVOUR]: what this installation (or packaged build) can run."""
+    if args.capabilities is None:
+        return False
+    from engine.capabilities import (
+        external_services,
+        flavour_problems,
+        layer_states,
+        production_problems,
+    )
+    states = layer_states(RansomwareScanner(CONFIG))
+    report: Dict = {"engine_version": ENGINE_VERSION, "profile": CONFIG.get("profile", "standard"),
+                    "layers": states, "external_services": external_services(states),
+                    "production_problems": production_problems(states)}
+    problems = flavour_problems(states, args.capabilities) if args.capabilities else []
+    if args.capabilities:
+        report.update(flavour=args.capabilities, flavour_problems=problems)
+    print(json.dumps(report, indent=2))
+    sys.exit(1 if problems else 0)
 
 
 def _standalone_command(args) -> bool:
@@ -938,7 +964,7 @@ def main():
     except ConfigError as e:
         print(f"❌ {e}")
         sys.exit(2)
-    if _standalone_command(args):
+    if _capabilities_command(args) or _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)
     if not utility_mode:

@@ -55,7 +55,10 @@ def test_json_logs(tmp_path):
     out = _run(code, tmp_path, LOG_FORMAT="json", LOG_LEVEL="DEBUG")
     assert out.returncode == 0, out.stderr[-2000:]
     lines = (tmp_path / "RansomwareScanner" / "ransomware_scanner.log").read_text().splitlines()
-    first, second = json.loads(lines[0]), json.loads(lines[-1])
+    events = [json.loads(line) for line in lines]
+    first = next(e for e in events if e["event"] == "scan_completed")
+    second = events[-1]
+    assert events[0]["event"] == "secrets" and set(events[0]["sources"]) >= {"OPENAI_API_KEY"}
     assert first["event"] == "scan_completed" and first["message"] == "scanned a.pdf"
     assert first["verdict"] == "Clean" and first["duration_ms"] == 4 and first["level"] == "INFO"
     assert first["timestamp"][:4].isdigit() and "path" not in first
@@ -173,3 +176,17 @@ def test_cli_stops_on_a_bad_configuration(tmp_path):
     assert out.returncode == 2
     assert "SCAN_WORKERS='four' is not a number" in out.stdout
     assert "unknown action(s) reboot" in out.stdout
+
+
+def test_json_logs_keep_the_4_7_event_fields(tmp_path):
+    code = ("import logging, engine.config as c\n"
+            "c.init_runtime(console=False)\n"
+            "logging.getLogger('RansomwareScanner').info('done', extra={"
+            "'event': 'scan_completed', 'scan_status': 'partial', 'layers': {'qr': 'down'},"
+            " 'problems': ['qr: down'], 'client': '10.0.0.1'})\n")
+    out = _run(code, tmp_path, LOG_FORMAT="json")
+    assert out.returncode == 0, out.stderr[-2000:]
+    lines = (tmp_path / "RansomwareScanner" / "ransomware_scanner.log").read_text().splitlines()
+    event = next(e for e in map(json.loads, lines) if e["event"] == "scan_completed")
+    assert event["scan_status"] == "partial" and event["layers"] == {"qr": "down"}
+    assert event["problems"] == ["qr: down"] and event["client"] == "10.0.0.1"

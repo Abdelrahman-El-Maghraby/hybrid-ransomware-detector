@@ -17,6 +17,13 @@ Create a dedicated, unprivileged user (`aegis`) and keep the configuration in
 are the ones in `.env.example`. The service checks them at start-up and stops
 with one line per problem, so a typo does not quietly switch a protection off.
 
+Secrets on a server come from the environment. Either set `NAME=value` in that
+protected file, or point `NAME_FILE` at a file only the service can read (for
+example a Docker secret under `/run/secrets/`): `OPENAI_API_KEY`,
+`VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`. A server
+has no OS keyring, so nothing is migrated there and the start-up log line
+`Secrets -> NAME:source` shows where each one came from (never its value).
+
 ## 2. The REST API behind a TLS reverse proxy
 
 `aegis-api` speaks plain HTTP on `127.0.0.1:8765` and must not be exposed
@@ -66,7 +73,9 @@ server {
 ```
 
 `X-Forwarded-For $remote_addr` overwrites whatever the client sent, so the
-first address the API sees is the real peer.
+first address the API sees is the real peer. Without `AEGIS_API_TRUST_PROXY=1`
+behind a proxy, every client shares the proxy's address: one client's wrong
+tokens would then lock everyone out.
 
 ### Caddy
 
@@ -87,12 +96,28 @@ aegis.example.internal {
 Caddy obtains and renews the certificate itself. For an internal name, use
 `tls internal` or your own CA.
 
+### Liveness and readiness
+
+| Endpoint | Answers | Token |
+|---|---|---|
+| `GET /health` | 200 while the process runs | not needed |
+| `GET /ready` | 200 when a scan would be correct and complete, else 503 | without it only `{"ready": true/false}`; with it, every check and layer state |
+
+`/ready` checks that the YARA rules compiled, the indicator registry is valid, the
+report, data and temporary folders are writable, and isolated workers start (proved
+once by a warm-up scan at start-up). With `AEGIS_PROFILE=production` it also needs
+every layer the production profile requires (docs/RELEASE_SCOPE.md) to be up: route
+traffic to an instance only when `/ready` says so. `hrd-scanner --capabilities`
+prints the same layer states on the command line.
+
 ### Limits the API enforces
 
 | Limit | Setting | Answer |
 |---|---|---|
 | Upload size: the declared `Content-Length` is checked before reading, then the body is counted as it streams | `AEGIS_API_MAX_UPLOAD_MB` | 413 |
-| Requests per client (IP and token), as a token bucket | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |
+| Requests per IP address, before authentication | `AEGIS_API_IP_RATE_PER_MINUTE` (120), `AEGIS_API_IP_BURST` (30) | 429 + `Retry-After` |
+| Failed bearer tokens per IP address: N failures within the window lock the address out, checked before the token is compared | `AEGIS_API_AUTH_FAILURES` (5), `AEGIS_API_AUTH_WINDOW_SECONDS` (300), `AEGIS_API_AUTH_LOCKOUT_SECONDS` (900) | 401, then 429 + `Retry-After` |
+| Requests per authenticated client (IP and valid token) | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |
 | Scans running at once | `AEGIS_API_MAX_CONCURRENT_SCANS` | 503 + `Retry-After` |
 | Time and memory per scan, in an isolated worker | `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | result with `scan_failed` |
 

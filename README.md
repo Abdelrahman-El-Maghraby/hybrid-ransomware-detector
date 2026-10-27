@@ -423,7 +423,11 @@ Notes:
 
 ## 🔑 Configuration
 
-API keys and settings are loaded from a local `.env` file and are **never** stored in the code.
+Settings are loaded from a local `.env` file and are **never** stored in the code. Secrets
+(`OPENAI_API_KEY`, `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`) come
+from the environment first (or `NAME_FILE`, e.g. a Docker secret), then the OS keyring (the
+desktop app saves keys there), then `.env`. Since 4.7 a secret found in `.env` is moved to the OS
+keyring on the next start: written, read back, and only then removed from the file.
 
 ```bash
 cp .env.example .env        # Windows: copy .env.example .env
