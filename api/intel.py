@@ -90,11 +90,11 @@ def llm_destinations(config: Dict) -> List[str]:
 
 class _VirusTotal(ExternalLookupsMixin):
     """The engine's VirusTotal code (engine/external.py) with an allowlisted
-    session and no cache (the analysis service caches the answers)."""
+    session and the intel service's cache."""
 
-    def __init__(self, config: Dict, session: Any, upload: bool):
+    def __init__(self, config: Dict, session: Any, upload: bool, cache: Any = None):
         self.config = dict(config, virustotal_upload_unknown=upload)
-        self.cache = None
+        self.cache = cache                     # the intel service's own (see IntelService)
         self.intel = None
         self.http = session
         self.http_timeout = int(config.get("http_timeout", 30))
@@ -105,9 +105,18 @@ class IntelService:
     """The operations, without HTTP (create_intel_app adds that)."""
 
     def __init__(self, config: Dict):
+        from core.cache import ResultCache
         from core.sandbox import CapeClient
         from detectors.llm_backends import build_llm_backend
         self.config = config
+        # The only cache of external answers in a Docker deployment. Entries are
+        # written from the real service's reply, keyed by what this service derives
+        # itself: the requested hash, the hash of the bytes received, the hash of
+        # the text given. Nothing a caller sends is stored as an answer.
+        self.cache = (ResultCache(config["cache_db_path"],
+                                  float(config.get("cache_ttl_hours", 24)) * 3600)
+                      if config.get("cache_enabled", True) and config.get("cache_db_path")
+                      else None)
         self.upload_allowed = bool(config.get("virustotal_upload_unknown"))
         self.vt_enabled = bool(config.get("virustotal_api_key"))
         self.destinations: Dict[str, List[str]] = {"virustotal": [], "llm": [], "sandbox": []}
@@ -115,8 +124,8 @@ class IntelService:
         if self.vt_enabled:
             self.destinations["virustotal"] = [origin(VIRUSTOTAL_ORIGIN)]
             session = build_session(allowed_origins=self.destinations["virustotal"])
-            self._vt = _VirusTotal(config, session, upload=False)
-            self._vt_upload = _VirusTotal(config, session, upload=True)
+            self._vt = _VirusTotal(config, session, upload=False, cache=self.cache)
+            self._vt_upload = _VirusTotal(config, session, upload=True, cache=self.cache)
         self.destinations["llm"] = llm_destinations(config)
         self.llm = build_llm_backend(config, session=build_session(
             total_retries=0, allowed_origins=self.destinations["llm"]))
@@ -127,7 +136,7 @@ class IntelService:
             self.sandbox = CapeClient(url, token=str(config.get("sandbox_token") or ""),
                                       session=build_session(user_agent="aegis-sentinel/4.7",
                                                             allowed_origins=self.destinations["sandbox"]))
-        self._tasks: OrderedDict[int, None] = OrderedDict()
+        self._tasks: OrderedDict[int, str] = OrderedDict()     # task id -> sample sha256
         self._tasks_lock = threading.Lock()
 
     def capabilities(self, max_upload: int) -> Dict:
@@ -138,8 +147,7 @@ class IntelService:
                     "name": self.llm.name, "model": str(getattr(self.llm, "model", "") or ""),
                     "is_local": bool(self.llm.is_local)},
             "sandbox": {"enabled": sandbox is not None,
-                        "server": hashlib.sha256(f"{sandbox.url}|{sandbox.options}".encode())
-                        .hexdigest()[:12] if sandbox else "",
+                        "server": self._sandbox_layer().split(":", 1)[1] if sandbox else "",
                         "options": sandbox.options if sandbox else ""},
             "limits": {"max_upload_bytes": max_upload, "max_llm_chars": MAX_LLM_CHARS},
         }
@@ -158,19 +166,36 @@ class IntelService:
         return self._vt_upload.scan_file_with_virustotal(path, hashes)
 
     # ------------------------------------------------------------ LLM
+    def _llm_layer(self) -> str:
+        from detectors.llm_backends import PROMPT_VERSION
+        return f"llm:{self.llm.name}:{getattr(self.llm, 'model', '')}:prompt-{PROMPT_VERSION}"
+
     def llm_analyze(self, content: str) -> Dict:
         if not getattr(self.llm, "available", False):
             raise HTTPException(status_code=403, detail="no LLM is configured")
-        return self.llm.analyze(content)
+        key = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        if self.cache is not None:
+            cached = self.cache.get(key, self._llm_layer())
+            if cached is not None:
+                return dict(cached, cached=True)
+        result = self.llm.analyze(content)
+        if self.cache is not None and result.get("analyzed"):
+            self.cache.put(key, self._llm_layer(), result)
+        return result
 
     # ------------------------------------------------------------ sandbox
     def sandbox_submit(self, path: str, name: str) -> Dict:
         if self.sandbox is None:
             raise HTTPException(status_code=403, detail="no sandbox is configured")
+        sha = _hashes(path)["sha256"]
+        if self.cache is not None:
+            cached = self.cache.get(sha, self._sandbox_layer())
+            if cached is not None:
+                return dict(cached, status="cached")
         res = self.sandbox.submit(path, name=name)
         if res.submitted and res.task_id:
             with self._tasks_lock:
-                self._tasks[int(res.task_id)] = None
+                self._tasks[int(res.task_id)] = sha
                 while len(self._tasks) > MAX_TASKS:
                     self._tasks.popitem(last=False)
         return res.as_dict()
@@ -179,14 +204,23 @@ class IntelService:
         if self.sandbox is None:
             raise HTTPException(status_code=403, detail="no sandbox is configured")
         with self._tasks_lock:
-            known = task_id in self._tasks
-        if not known:
+            sha = self._tasks.get(task_id)
+        if sha is None:
             raise HTTPException(status_code=422, detail="not a task this service submitted")
         res = self.sandbox.poll(task_id)
         if res.status != "pending":
             with self._tasks_lock:
                 self._tasks.pop(task_id, None)
+        if res.status == "reported" and self.cache is not None:
+            self.cache.put(sha, self._sandbox_layer(), res.as_dict())
         return res.as_dict()
+
+    def _sandbox_layer(self) -> str:
+        """Cache key part: a report belongs to the CAPE server and options that made it."""
+        box = self.sandbox
+        if box is None:
+            return "sandbox:"
+        return "sandbox:" + hashlib.sha256(f"{box.url}|{box.options}".encode()).hexdigest()[:12]
 
 
 def _hashes(path: str) -> Dict[str, str]:

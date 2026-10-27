@@ -20,7 +20,7 @@ host kernel you control.
 |---|---|---|---|
 | `proxy` | TLS with your certificate; the only published port | `edge` | the certificate |
 | `analysis` | opens and scans the files (isolated workers) | **none** (loopback only) | API token, intel token |
-| `intel` | fixed operations to VirusTotal, the LLM, the sandbox (`api/intel.py`) | `egress` | the external-service secrets |
+| `intel` | fixed operations to VirusTotal, the LLM, the sandbox (`api/intel.py`) | `egress` | the external-service secrets, the cache of their answers |
 | `content` (tool) | installs signed rule packs into the read-only content volume | none | - |
 
 **Why no network for analysis.** The analysis service runs the parsers on hostile
@@ -92,6 +92,7 @@ request (`.github/workflows/docker.yml`).
 | System calls | Docker's default seccomp profile (never `unconfined`) | blocks mount, kernel module, keyring and similar calls |
 | Resources | `mem_limit`, `cpus`, `pids_limit` per service | a hostile file cannot starve the host; tmpfs usage counts against the memory limit |
 | Detection content | the `content` volume is mounted `:ro` in analysis | a compromised parser cannot edit rules, the allowlist, the hash or fuzzy databases |
+| Result cache | in intel's volume only; analysis keeps none | a compromised parser cannot plant a clean VirusTotal / LLM / sandbox answer for another file |
 | Secrets | Docker secrets via `NAME_FILE`, never environment values | `docker inspect` and child processes do not see them |
 | Sockets | `/run/aegis/intel` (group 10010: analysis), `/run/aegis/api` (group 10020: proxy), mode 0750 | only the intended client can connect |
 | Containment | not in the image (`.dockerignore`), refused by the production profile | the server cannot suspend, kill or lock anything (decision D3) |
@@ -117,8 +118,8 @@ rule-pack version and hash in `provenance`.
 
 * Logs: `docker compose logs analysis` (JSON lines with `LOG_FORMAT=json`); the log
   file is also in the `analysis-state` volume.
-* Back up the `analysis-state` volume (cache, reports, logs) and `content`; both
-  can be rebuilt, the secrets folder cannot.
+* Back up the `analysis-state` volume (reports, logs), `content` and `intel-state`
+  (the cache of external answers); all can be rebuilt, the secrets folder cannot.
 * Upgrade: `docker compose build --pull && docker compose up -d --wait`.
 * Reset completely: `docker compose down -v` (deletes every volume).
 

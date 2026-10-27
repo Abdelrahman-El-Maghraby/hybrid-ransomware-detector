@@ -51,6 +51,9 @@ test "$ready" = "200"
 printf 'Quarterly figures attached.\n' > "$work/note.txt"
 curl -fsS --cacert "$AEGIS_TLS_DIR/cert.pem" -H "$auth" -F "file=@$work/note.txt" "$api/scan" \
   | python3 -c 'import json,sys; r=json.load(sys.stdin); print("POST /scan ->", r["verdict"], r["scan_status"], r["provenance"]["external_services"]); assert r["verdict"] == "Clean"'
+cachefiles='import pathlib, sys; print(" ".join(str(p) for p in pathlib.Path(sys.argv[1]).rglob("*.sqlite3*")))'
+left="$(docker compose exec -T analysis python -c "$cachefiles" /var/lib/aegis)"
+echo "result cache files in analysis after the scan: ${left:-none}"; test -z "$left"
 code="$(curl -sS --cacert "$AEGIS_TLS_DIR/cert.pem" -o /dev/null -w '%{http_code}' "$api/version")"
 echo "GET /version without a token -> $code"; test "$code" = "401"
 echo "== deployment check passed"
