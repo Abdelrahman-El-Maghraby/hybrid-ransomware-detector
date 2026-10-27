@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from api import SCHEMA_VERSION
 from detectors import FUZZY_AVAILABLE
@@ -98,6 +98,8 @@ class ScanContext:
     signals: Signals = field(default_factory=Signals)
     # incomplete_reasons of the members scanned through this file (engine/completeness.py)
     member_reasons: List[Dict] = field(default_factory=list)
+    # (layer, outcome) for provenance: ran | not applicable | error | skipped
+    layer_log: List[Tuple[str, str]] = field(default_factory=list)
 
     @classmethod
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,

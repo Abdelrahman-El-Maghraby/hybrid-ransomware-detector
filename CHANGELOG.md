@@ -17,6 +17,14 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   - `verdict_label`, e.g. `Clean (partial scan)`.
 
   A container takes its most severe member status: failed > locked > partial > unsupported > complete. Intended skips (score already 100, allowlisted file, a layer that does not apply to the file type, an optional layer switched off) do not make a scan partial. The status never changes the score, the verdict or the response action: a malicious member keeps its full score next to a locked one.
+- **Provenance** in every result (`provenance`, schema 1.2) and in the text report's header (`engine/provenance.py`):
+  - engine, schema and registry versions (with `+override`);
+  - the YARA rules (bundled / rule pack / custom folder, version, SHA-256 over the compiled files) and the fuzzy-signature database (source, SHA-256);
+  - the profile and the external services (`llm`, `virustotal`, `sandbox`: off, or how each is used);
+  - the layers disabled or down for this installation, with the reason;
+  - for each file, the layers that ran, were unavailable, did not apply, failed or were skipped (with the reason).
+
+  It never contains a key, token, password or service URL. `GET /version` also returns the rules, the profile and the external services.
 - A clean score on an incomplete scan never shows as plain "Clean": text reports have a "Scan completeness" line and a "NOT FULLY INSPECTED" section, flagged files list their gaps, the GUI shows the label in the results table and the detail window, and webhooks / JSON Lines carry `scan_status`.
 - **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.

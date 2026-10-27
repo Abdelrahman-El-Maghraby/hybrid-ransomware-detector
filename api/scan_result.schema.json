@@ -60,6 +60,31 @@
         }
       }
     },
+    "provenance": {
+      "type": "object",
+      "description": "What produced this result (schema 1.2). Never contains keys, tokens, passwords or service URLs.",
+      "properties": {
+        "engine_version": {"type": "string"},
+        "schema_version": {"type": "string"},
+        "registry_version": {"type": "string"},
+        "rules": {"type": "object", "properties": {
+          "source": {"enum": ["bundled", "rule pack", "custom folder", "none"]},
+          "version": {"type": "string"}, "files": {"type": "integer", "minimum": 0},
+          "compiled": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^([0-9a-f]{64})?$"}}},
+        "fuzzy_signatures": {"type": "object"},
+        "profile": {"enum": ["standard", "production"]},
+        "external_services": {"type": "object", "additionalProperties": {"type": "string"},
+                              "description": "llm / virustotal / sandbox: 'off' or how each is used."},
+        "layers_disabled": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "layers_down": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "layers_run": {"type": "array", "items": {"type": "string"}},
+        "layers_unavailable": {"type": "array", "items": {"type": "string"}},
+        "layers_not_applicable": {"type": "array", "items": {"type": "string"}},
+        "layers_failed": {"type": "array", "items": {"type": "string"}},
+        "layers_skipped": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}}
+      }
+    },
     "verdict_label": {"type": "string", "description": "The verdict as it should be shown: 'Clean (partial scan)' when scan_status is not complete (schema 1.2)."},
     "scan_results": {"type": "object", "description": "Per-layer evidence (hashes, yara, mail, archive, ...)."}
   }

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 from .completeness import assess, verdict_label
 from .config import ENGINE_VERSION
 from .layers import Layer, ScanContext
+from .provenance import FAILED, NOT_APPLICABLE, RAN, SKIPPED, file_provenance
 
 if TYPE_CHECKING:  # pragma: no cover
     from .scanner import RansomwareScanner
@@ -63,6 +64,7 @@ class StagedPipelineMixin:
         result["scan_status"], result["incomplete_reasons"] = assess(
             cast("RansomwareScanner", self), ctx)
         result["verdict_label"] = verdict_label(result)
+        result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
         result["scan_duration_ms"] = int((time.perf_counter() - started) * 1000)
 
         logger.info(
@@ -77,9 +79,14 @@ class StagedPipelineMixin:
     def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
         """Run one layer; a parser that raises on a hostile file costs that layer's
         evidence, not the whole file's verdict. The error is kept in the result."""
+        keys = set(ctx.scan_results)
         try:
             layer.run(cast("RansomwareScanner", self), ctx)
+            # a layer that does not apply to this file type returns without evidence
+            ctx.layer_log.append((layer.name, RAN if set(ctx.scan_results) - keys
+                                  else NOT_APPLICABLE))
         except Exception as e:
+            ctx.layer_log.append((layer.name, FAILED))
             logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
                            type(e).__name__, e,
                            extra={"event": "layer_error", "layer": layer.name,
@@ -92,6 +99,7 @@ class StagedPipelineMixin:
         if not layers:
             return
         if ctx.signals.allowlisted and not ctx.signals.local_db_hit:
+            ctx.layer_log.extend((layer.name, SKIPPED) for layer in layers)
             ctx.scan_results["skipped_layers"] = {
                 "layers": [layer.name for layer in layers],
                 "reason": "File is on the allowlist; these layers cannot change the verdict.",
@@ -99,6 +107,7 @@ class StagedPipelineMixin:
             return
         if (self.config.get("skip_heavy_when_saturated", True)
                 and self.scoring.score(ctx.signals).risk_score >= 100):
+            ctx.layer_log.extend((layer.name, SKIPPED) for layer in layers)
             ctx.scan_results["skipped_layers"] = {
                 "layers": [layer.name for layer in layers],
                 "reason": "Earlier layers already scored 100/100; these layers cannot "

@@ -304,6 +304,10 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         "risk_score": score.risk_score, "verdict": score.verdict,
         "score_breakdown": score.as_dict(),
         "scan_status": status, "incomplete_reasons": reasons,
+        "provenance": {**(getattr(scanner, "provenance", None) or {}), "layers_run": [],
+                       "layers_unavailable": [], "layers_not_applicable": [],
+                       "layers_failed": ["worker"],
+                       "layers_skipped": []},
     }
     result["verdict_label"] = verdict_label(result)
     return result

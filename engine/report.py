@@ -77,6 +77,7 @@ Scan completeness:      {_completeness_label(results)}
 Detection layers used:  {self._active_layers_label()}
 LLM posture:            {self._llm_posture_label()}
 """
+        report_text += _provenance_lines(results, getattr(self, "provenance", None) or {})
         if canary_report is not None:
             report_text += f"Canary tripwires:       {canary_report.summary()}\n"
 
@@ -217,6 +218,21 @@ LLM posture:            {self._llm_posture_label()}
 # and one entry in FINDING_SECTIONS; the order there is the order in reports.
 # --------------------------------------------------------------------------
 Lines = List[str]
+
+
+def _provenance_lines(results: List[Dict], fallback: Dict) -> str:
+    """What produced these results: rules, registry, schema, profile, external services."""
+    pv = next((r["provenance"] for r in results if r.get("provenance")), fallback)
+    if not pv:
+        return ""
+    rules = pv.get("rules") or {}
+    services = ", ".join(f"{k} {v}" for k, v in (pv.get("external_services") or {}).items())
+    sha = rules.get("sha256", "")
+    return (f"Rules:                  {rules.get('version') or rules.get('source', 'none')} "
+            f"({rules.get('files', 0)} file(s){', sha256 ' + sha[:16] if sha else ''})\n"
+            f"Registry / schema:      {pv.get('registry_version', '?')} / {pv.get('schema_version', '?')}\n"
+            f"Profile:                {pv.get('profile', 'standard')}\n"
+            f"External services:      {services or 'n/a'}\n")
 
 
 def _completeness_label(results: List[Dict]) -> str:

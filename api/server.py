@@ -160,8 +160,11 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
 
     @app.get("/version", dependencies=[Depends(require_token)])
     def version() -> Dict:
+        pv = service.scanner.provenance
         return {"engine": ENGINE_VERSION, "schema": SCHEMA_VERSION,
-                "registry": service.scanner.scoring.registry.version}
+                "registry": service.scanner.scoring.registry.version,
+                "rules": pv["rules"], "profile": pv["profile"],
+                "external_services": pv["external_services"]}
 
     @app.get("/schema", dependencies=[Depends(require_token)])
     def schema() -> Dict:

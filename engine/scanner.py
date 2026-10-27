@@ -57,6 +57,7 @@ from .external import ExternalLookupsMixin
 from .layers import Layer, default_pipeline
 from .metrics import METRICS
 from .protection import ProtectionMixin
+from .provenance import scanner_provenance
 from .report import ReportMixin
 from .staging import StagedPipelineMixin
 from .text import TextExtractionMixin
@@ -180,6 +181,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                     ENGINE_VERSION, self.scan_dirs)
         states = layer_states(self)
         self.capability_states = states      # read by engine/completeness.py per scan
+        self.provenance = scanner_provenance(self, states)
         logger.info("Detection layers -> %s  cache:%s", summary_line(states),
                     "on" if (self.cache and self.cache.enabled) else "off",
                     extra={"event": "layers", "layers": {n: s["state"] for n, s in states.items()}})
