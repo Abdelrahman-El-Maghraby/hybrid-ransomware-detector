@@ -43,6 +43,18 @@ def test_hang_and_crash_become_findings_and_the_scan_continues(tmp_path):
     assert res["ok1.pdf"]["verdict"] == "Clean" and res["ok2.pdf"]["verdict"] == "Clean"
 
 
+def test_a_killed_worker_leaves_no_extracted_files(tmp_path):
+    """A worker killed mid-scan never runs its own clean-up; the parent removes the
+    worker's temporary folder, so hostile files cannot fill /tmp one timeout at a time."""
+    from pathlib import Path
+    s = _setup(tmp_path, ["litter.pdf", "ok.pdf"], scan_timeout_seconds=4)
+    res = {r["file_name"]: r for r in s.scan_all_directories()}
+    assert "timed out" in res["litter.pdf"]["scan_results"]["scan_failed"]["reason"]
+    left = Path((tmp_path / "scan" / "litter.pdf.tmpdir").read_text())
+    assert left.parent.name.startswith("aegis_worker_")
+    assert not left.exists() and not left.parent.exists()
+
+
 def test_memory_limit_stops_runaway_allocation(tmp_path):
     """RLIMIT_AS on Linux, a Job Object on Windows, the RSS watchdog on macOS."""
     s = _setup(tmp_path, ["hog.pdf", "ok.pdf"], worker_memory_mb=1024)

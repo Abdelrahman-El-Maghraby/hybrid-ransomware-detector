@@ -34,7 +34,9 @@ import ctypes.util
 import logging
 import multiprocessing as mp
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -198,9 +200,14 @@ def linux_rss_reader(pid: int) -> Optional[int]:
         return None
 
 
-def _worker_main(config: Dict, memory_mb: int, conn) -> None:
-    """Worker loop: build one scanner, then scan paths sent over the pipe."""
+def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None:
+    """Worker loop: build one scanner, then scan paths sent over the pipe. Every
+    temporary file goes under `temp_dir`, which the parent removes when this
+    worker is killed (a killed worker never runs its own clean-up)."""
     global _SCANNER
+    if temp_dir:
+        tempfile.tempdir = temp_dir
+        os.environ["TMPDIR"] = temp_dir          # helper programs (unar, 7z) too
     _limit_memory(memory_mb)
     logging.getLogger("RansomwareScanner").setLevel(logging.WARNING)
     cfg = dict(config, isolate_scans=False, scan_workers=1)
@@ -257,7 +264,9 @@ def _main_not_reimported():
 class _Worker:
     def __init__(self, ctx, config: Dict, memory_mb: int):
         self.parent, child = ctx.Pipe()
-        self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child), daemon=True)
+        self.temp_dir = tempfile.mkdtemp(prefix="aegis_worker_")
+        self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child, self.temp_dir),
+                                daemon=True)
         with _START_LOCK, _main_not_reimported():
             self.proc.start()
         child.close()
@@ -276,6 +285,10 @@ class _Worker:
             self.parent.close()
         except Exception:
             pass
+        self.remove_temp()
+
+    def remove_temp(self) -> None:
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
 def failure_result(scanner, path: str, reason: str) -> Dict:
@@ -456,6 +469,7 @@ class _IsolatedScan:
             w.proc.join(2)
             if w.proc.is_alive():
                 w.kill()
+            w.remove_temp()
 
     def _scan_in_process(self) -> None:
         # Worker processes cannot start here (e.g. an embedded interpreter without an
