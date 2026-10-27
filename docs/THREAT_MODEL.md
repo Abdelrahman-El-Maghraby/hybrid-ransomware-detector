@@ -219,10 +219,12 @@ security boundary. In the Docker deployment the boundary is the container:
 
 *Residual:*
 - The compromised worker can **forge the result of the file that exploited it**
-  (each API upload gets a fresh worker, so not other uploads' results), and can
-  write to the result cache, so it could plant a clean VirusTotal or LLM answer for
-  a hash. Verdicts are never cached; moving the
-  cache behind the intel service is backlog.
+  (each API upload gets a fresh worker, so not other uploads' results). It cannot
+  plant answers for other files: the analysis side keeps no cache of external
+  answers, and the intel service's cache, in a volume analysis does not mount, is
+  written only from the real service's reply under a key intel derives itself
+  (the requested hash, the hash of the bytes it received, the hash of the text it
+  was given). Verdicts are never cached anywhere.
 - With the intel token it can spend the configured quotas: hash look-ups, LLM calls
   and - only when the operator switched them on - VirusTotal uploads and sandbox
   submissions, each limited per minute. Data it sends this way goes only to the
@@ -241,6 +243,6 @@ security boundary. In the Docker deployment the boundary is the container:
 | Local tampering with config / allowlist | Medium | OS file permissions; signed config (future) |
 | Unsigned binaries | Medium | Code-signing certificates |
 | Slow-file DoS up to the timeout | Low | Lower SCAN_TIMEOUT_SECONDS where latency matters |
-| Parser exploit forges results or plants cache entries | Medium | Cache behind the intel service; external layers out of the workers (backlog) |
+| Parser exploit forges the result of the file that exploited it | Low | Fresh worker per API upload; cached external answers live only in intel |
 | Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
 | Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |

@@ -94,7 +94,7 @@ baseline errors, bandit 0 medium/high in shipped code, 970 passed with only B5 d
 coverage 91 %, `deploy/check-deployment.sh` passed on Docker Desktop 29.9.2.
 
 Phase 2 backlog (not blocking; owners in brackets):
-- Workers can write the result cache, so a parser exploit could plant a clean VirusTotal or LLM answer for a hash. Move the cache, or the external layers, out of the workers [A7 / A5].
+- ~~Workers can write the result cache, so a parser exploit could plant a clean VirusTotal or LLM answer for a hash.~~ Fixed first in Phase 3 (owner: high priority), branch `area/a5-cache-integrity`: the cache lives only in intel.
 - Workers hold the intel token (they run the external layers). Bounded by intel's fixed operations and rate limits [A5].
 - The API starts a new worker process per upload (a fresh worker per file is also what keeps one upload from touching another); measure before changing [A9 / A7].
 - No scikit-learn in the server image, so a trained ML model is not used there (the rule engine is) [A3 / product decision if a model ships].
