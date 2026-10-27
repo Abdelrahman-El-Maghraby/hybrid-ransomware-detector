@@ -66,7 +66,7 @@ import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Dict, Iterator, List, Optional, Union
+from typing import BinaryIO, Dict, Iterator, List, Optional, Union, cast
 
 from core.tools import trusted_which
 
@@ -99,14 +99,14 @@ try:
     import py7zr as _py7zr  # type: ignore
     SEVENZIP_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    _py7zr = None
+    _py7zr = None  # type: ignore[assignment]
     SEVENZIP_AVAILABLE = False
 
 try:
     import pycdlib as _pycdlib  # type: ignore
     ISO_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    _pycdlib = None
+    _pycdlib = None  # type: ignore[assignment]
     ISO_AVAILABLE = False
 
 try:
@@ -840,8 +840,9 @@ class ContainerExtractor:
                 if key == "iso_path":
                     name = re.sub(r";\d+$", "", name)
                 size = rec.get_data_length()
-                is_link = bool(key == "rr_path" and getattr(rec, "rock_ridge", None)
-                               and rec.rock_ridge.is_symlink())
+                rock_ridge = getattr(rec, "rock_ridge", None)     # absent on UDF entries
+                is_link = bool(key == "rr_path" and rock_ridge is not None
+                               and rock_ridge.is_symlink())
                 shown = f"{display}!/{visible_name(name)}"
                 if not self._admit(name, size, size, is_link, shown, res):
                     continue
@@ -851,7 +852,7 @@ class ContainerExtractor:
                 try:
                     with open(target, "wb") as fh:
                         sink = _BoundedWriter(fh, budget)
-                        iso.get_file_from_iso_fp(sink, **{key: p})
+                        iso.get_file_from_iso_fp(cast(BinaryIO, sink), **{key: p})
                     res.total_uncompressed += sink.written
                     member.extracted, member.path = True, str(target)
                 except _BudgetExceeded:

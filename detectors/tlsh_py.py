@@ -23,7 +23,7 @@ from typing import List, Optional, Tuple
 try:
     import numpy as _np
 except Exception:  # pragma: no cover - numpy is optional
-    _np = None
+    _np = None  # type: ignore[assignment]
 
 MIN_DATA_LENGTH = 50
 CODE_SIZE = 32

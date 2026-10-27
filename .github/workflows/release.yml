@@ -2,8 +2,11 @@ name: release
 
 # Push a tag like v4.4.0-beta.2 or v4.4.0 to build, smoke-test, sign and publish.
 #   * one build per OS (PyInstaller does not cross-compile), each smoke-tested by build.py
-#   * SHA256SUMS over every archive
-#   * SBOM (CycloneDX) of the pinned dependencies
+#   * the server images (docker-compose.yml) as one `docker load` archive, after the
+#     deployment check (isolation inside the containers, one scan through TLS)
+#   * SHA256SUMS over every file
+#   * an SBOM (CycloneDX) per artifact, from the environment it was built in; for the
+#     image also the list of its Debian packages
 #   * keyless Sigstore signatures (*.sigstore.json) - verify with:
 #       python -m sigstore verify github <file> --cert-identity \
 #         https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/<tag>
@@ -30,8 +33,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - name: Install pinned dependencies + PyInstaller
@@ -53,46 +56,92 @@ jobs:
           python build.py --clean 2>&1 | tee build.log || {
             # surface the end of the log as annotations (readable without the raw log)
             tail -n 40 build.log | sed 's/^/::error::/' ; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - name: SBOM of what this build packaged
+        # From this job's environment, not the lock file in general: python-tlsh is
+        # missing on Windows and PyInstaller is added. The tool runs from its own venv
+        # so it does not appear in the SBOM.
+        run: |
+          python -m venv "$RUNNER_TEMP/sbom"
+          tool="$RUNNER_TEMP/sbom/bin"; [ -d "$tool" ] || tool="$RUNNER_TEMP/sbom/Scripts"
+          "$tool/python" -m pip install -q cyclonedx-bom==7.5.0
+          for archive in dist/*.zip dist/*.tar.gz; do
+            [ -e "$archive" ] || continue
+            base="${archive%.zip}"; base="${base%.tar.gz}"
+            "$tool/cyclonedx-py" environment --of JSON -o "$base.cdx.json" \
+              "$(python -c 'import sys; print(sys.executable)')"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-${{ matrix.os }}
           path: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*.cdx.json
+
+  image:
+    # The supported product: the Docker deployment. Built for linux/amd64 (arm64 once
+    # CI builds and tests it, decision D5), proven by the deployment check, then saved
+    # so an on-prem or air-gapped host can `docker load` it without building.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Build and prove the deployment
+        run: |
+          version="$(sed -n 's/^ENGINE_VERSION = "\(.*\)"$/\1/p' engine/config.py)"
+          test -n "$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          AEGIS_VERSION="$version" deploy/check-deployment.sh
+      - name: Save the images, SBOM and Debian package list
+        run: |
+          mkdir -p dist
+          base="aegis-sentinel-server-$VERSION-linux-amd64"
+          docker save "aegis-sentinel:$VERSION" "aegis-sentinel-proxy:$VERSION" | gzip -9 > "dist/$base.tar.gz"
+          docker run --rm --network none --entrypoint pip "aegis-sentinel:$VERSION" freeze --all \
+            > "$RUNNER_TEMP/image-requirements.txt"
+          python3 -m venv "$RUNNER_TEMP/sbom"
+          "$RUNNER_TEMP/sbom/bin/pip" install -q cyclonedx-bom==7.5.0
+          "$RUNNER_TEMP/sbom/bin/cyclonedx-py" requirements "$RUNNER_TEMP/image-requirements.txt" \
+            --of JSON -o "dist/$base.cdx.json"
+          docker run --rm --network none --entrypoint dpkg-query "aegis-sentinel:$VERSION" \
+            -W -f '${Package} ${Version}\n' > "dist/$base.debian-packages.txt"
+          ls -l dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: dist-image
+          path: dist/*
 
   publish:
-    needs: build
+    needs: [build, image]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write        # create the release
       id-token: write        # keyless Sigstore signing
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: dist
           merge-multiple: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
-      - name: Checksums and SBOM
-        run: |
-          python -m pip install cyclonedx-bom
-          cyclonedx-py requirements requirements.lock --of JSON -o dist/sbom.cdx.json
-          cd dist && sha256sum *.zip *.tar.gz sbom.cdx.json > SHA256SUMS && cat SHA256SUMS
+      - name: Checksums
+        run: cd dist && sha256sum *.zip *.tar.gz *.cdx.json *.txt > SHA256SUMS && cat SHA256SUMS
       - name: Sign with Sigstore (keyless, tied to this workflow and tag)
-        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        uses: sigstore/gh-action-sigstore-python@f514d46b907ebcd5bedc05145c03b69c1edd8b46  # v3.0.0
         with:
-          inputs: ./dist/*.zip ./dist/*.tar.gz ./dist/sbom.cdx.json ./dist/SHA256SUMS
+          inputs: ./dist/*.zip ./dist/*.tar.gz ./dist/*.cdx.json ./dist/*.txt ./dist/SHA256SUMS
       - name: Create the GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             dist/*.zip
             dist/*.tar.gz
-            dist/sbom.cdx.json
+            dist/*.cdx.json
+            dist/*.txt
             dist/SHA256SUMS
             dist/*.sigstore.json

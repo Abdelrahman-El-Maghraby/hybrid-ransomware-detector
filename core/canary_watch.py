@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Callable, List, Optional, Set
+from typing import Any, Callable, List, Optional, Set
 
 from detectors.file_integrity import RANSOM_NOTE_RE
 
@@ -37,7 +37,7 @@ try:
     WATCHDOG_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on the environment
     FileSystemEventHandler = object  # type: ignore
-    Observer = None
+    Observer = None  # type: ignore[assignment,misc]
     WATCHDOG_AVAILABLE = False
 
 # Event types that mean something changed (watchdog's names).
@@ -67,7 +67,7 @@ class CanaryWatcher:
         self.manager = manager
         self.on_change = on_change
         self.debounce = float(debounce)
-        self._observer = None
+        self._observer: Optional[Any] = None
         self._watched: Set[str] = set()
         self._canaries: Set[str] = set()
         self._timer: Optional[threading.Timer] = None

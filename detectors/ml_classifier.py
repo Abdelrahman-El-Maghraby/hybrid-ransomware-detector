@@ -74,7 +74,7 @@ try:
     from sklearn.ensemble import RandomForestClassifier as _RandomForest  # type: ignore
     SKLEARN_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on the environment
-    _joblib = _np = _RandomForest = None
+    _joblib = _np = _RandomForest = None  # type: ignore[assignment,misc]
     SKLEARN_AVAILABLE = False
 
 PathLike = Union[str, Path]

@@ -120,7 +120,11 @@ rule-pack version and hash in `provenance`.
   file is also in the `analysis-state` volume.
 * Back up the `analysis-state` volume (reports, logs), `content` and `intel-state`
   (the cache of external answers); all can be rebuilt, the secrets folder cannot.
-* Upgrade: `docker compose build --pull && docker compose up -d --wait`.
+* Offline install from a release: `docker load -i aegis-sentinel-server-<version>-linux-amd64.tar.gz`,
+  then `AEGIS_VERSION=<version> docker compose up -d --no-build --wait` (verify the
+  file first: `docs/RELEASING.md`).
+* Upgrade: `docker compose build --pull && docker compose up -d --wait`, or load the
+  new release archive and run the same `up` with the new `AEGIS_VERSION`.
 * Reset completely: `docker compose down -v` (deletes every volume).
 
 ## 1. Install (without Docker)
