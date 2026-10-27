@@ -1,0 +1,25 @@
+name: docker
+
+# Builds the server images, starts the deployment (docker-compose.yml) and proves
+# from inside the running containers that the analysis service has no network,
+# reaches only the intel service's socket, runs unprivileged, and that intel
+# refuses operations and destinations outside its allowlist; then one scan goes
+# through the TLS proxy (deploy/check-deployment.sh).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: build, start and check the deployment
+        run: deploy/check-deployment.sh

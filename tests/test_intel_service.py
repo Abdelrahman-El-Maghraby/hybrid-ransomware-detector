@@ -265,7 +265,7 @@ def intel_socket(tmp_path):
     vt = FakeVT()
     for client in (service._vt, service._vt_upload):
         client.http = vt
-    folder = tempfile.mkdtemp(prefix="ai", dir="/tmp")            # short: sun_path limit
+    folder = tempfile.mkdtemp(prefix="ai", dir="/tmp")  # nosec B108 - private mkdtemp; short path for sun_path
     path = os.path.join(folder, "intel.sock")
     server = uvicorn.Server(uvicorn.Config(create_intel_app(token=TOKEN, service=service),
                                            uds=path, log_level="warning"))

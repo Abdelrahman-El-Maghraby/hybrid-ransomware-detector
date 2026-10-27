@@ -1,0 +1,30 @@
+# Build context of the server image (Dockerfile). Everything not needed to run
+# the analysis and intel services stays out.
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+build
+dist
+docs
+tests
+fuzz
+deploy
+!deploy/Caddyfile
+test_smoke.py
+.env
+.env.*
+*.log
+*.sqlite3*
+CLAUDE.md
+scanner.spec
+build.py
+gui.py
+aegis_gui
+# Containment suspends or kills processes and locks folders on a desktop. The
+# server image must not contain it (decision D3; tests/test_privilege_separation.py).
+core/containment.py
+core/response.py
