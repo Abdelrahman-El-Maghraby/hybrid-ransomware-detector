@@ -25,9 +25,12 @@ jobs:
       - run: python -m pip install --upgrade pip ruff mypy bandit types-requests types-PyYAML
       - name: ruff (lint + import order + bug patterns + bandit-style checks)
         run: ruff check --output-format=github .
-      - name: mypy (engine, core, detectors, API)
+      - name: mypy (engine, core, detectors, API) against every optional package
+        # With only the core packages, mypy treats the optional ones as Any and checks
+        # less than ships (B2); the lock installs all of them.
         run: |
-          python -m pip install -e .
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
           mypy
       - name: bandit (security linter; medium and high findings fail the job)
         run: bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll

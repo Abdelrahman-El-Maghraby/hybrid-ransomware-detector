@@ -7,7 +7,7 @@ from collections import Counter
 try:                                    # 15x faster byte counting on large inputs
     import numpy as _np
 except ImportError:                     # pragma: no cover - numpy is optional
-    _np = None
+    _np = None  # type: ignore[assignment]
 
 _NUMPY_FROM = 64 * 1024                 # below this, Counter is as fast
 
