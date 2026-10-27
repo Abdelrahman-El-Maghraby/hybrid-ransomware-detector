@@ -47,8 +47,8 @@ with `gh workflow run <workflow> --ref <branch>`.
 |---|---|---|---|---|
 | P0.1 | Create `integration/v4.7` from `main` | — | done | Branch created at `93b19f2` |
 | P0.2 | Run the suite and gates; record existing failures | S1 | done | Baseline above; B1-B4 |
-| P0.3 | `docs/RELEASE_SCOPE.md`: edition, required / optional layers, platforms, out of scope | — | done (draft) | Waiting for owner decisions D1-D6 |
-| P0.4 | Acceptance criteria (security, correctness, install / operate / upgrade / recover) | — | done (draft) | RELEASE_SCOPE.md §6 |
+| P0.3 | `docs/RELEASE_SCOPE.md`: edition, required / optional layers, platforms, out of scope | — | done | Accepted by the owner 2026-10-27, D1-D6 as proposed |
+| P0.4 | Acceptance criteria (security, correctness, install / operate / upgrade / recover) | — | done | RELEASE_SCOPE.md §6, accepted 2026-10-27 |
 | P0.5 | This readiness matrix | — | done | This file |
 
 ### Phase 1: release-blocking fixes (`fix/release-integrity`)

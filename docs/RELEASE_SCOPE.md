@@ -1,8 +1,6 @@
 # Release scope: Aegis Sentinel On-Prem (first paid edition)
 
-Status: **draft for the owner's review** (Phase 0 of the v4.7 work, 2026-10-27).
-Items marked **Decision** are product choices only the owner can make; the text
-states the proposal so the work can start, and changes if the owner decides otherwise.
+Status: **accepted** by the owner on 2026-10-27 (decisions D1-D6 as proposed, section 8).
 
 ## 1. What is sold
 
@@ -153,9 +151,9 @@ the files that doc leaves unassigned placed in an area.
 | A9 Interfaces | `RansomwareScanner.py`, `gui.py`, `aegis_gui/`, `api/`, `engine/report.py`, `core/outputs.py`, `core/mailbox.py` | `test_outputs_and_api`, `test_ops_metrics`, `test_mailbox`, `test_report_sections`, GUI smoke | Result schema (`api/scan_result.schema.json`) stays compatible |
 | A10 Operations and release | `engine/logs.py`, `engine/metrics.py`, `.github/workflows/`, `build.py`, `scanner.spec`, `requirements*`, `pyproject.toml`, Docker files, `docs/` | Full suite on 3 OSes, quality job, build smoke test | All gates green; CHANGELOG and README updated per release |
 
-## 8. Open decisions for the owner
+## 8. Owner decisions
 
-| ID | Question | Proposal |
+| ID | Question | Decision (2026-10-27) |
 |---|---|---|
 | D1 | Is this scope (sections 1-5) the first paid edition? | As written. |
 | D2 | Does the desktop GUI ship as a supported part of the paid edition? | Yes, as an analyst workstation app on Windows and macOS. |
