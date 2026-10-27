@@ -216,7 +216,10 @@ class IntelService:
         return res.as_dict()
 
     def _sandbox_layer(self) -> str:
+        """Cache key part: a report belongs to the CAPE server and options that made it."""
         box = self.sandbox
+        if box is None:
+            return "sandbox:"
         return "sandbox:" + hashlib.sha256(f"{box.url}|{box.options}".encode()).hexdigest()[:12]
 
 
