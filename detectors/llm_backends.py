@@ -37,6 +37,7 @@ the only line.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -72,6 +73,11 @@ USER_PROMPT_TEMPLATE = (
     '"explanation": "..." }}\n\n'
     "{wrapped}"
 )
+
+
+# Part of every cached LLM answer's key: editing the prompt invalidates old answers.
+PROMPT_VERSION = hashlib.sha256((SYSTEM_INSTRUCTIONS + "\0" + USER_PROMPT_TEMPLATE)
+                                .encode("utf-8")).hexdigest()[:12]
 
 
 def build_messages(combined_content: str):

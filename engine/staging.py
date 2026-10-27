@@ -39,6 +39,8 @@ class StagedPipelineMixin:
         members of a container (e.g. "invoice.zip!/payload.docm").
         """
         display = _display_name or file_path
+        if _depth == 0 and hasattr(self, "refresh_detection_content"):
+            self.refresh_detection_content()       # a rule update never serves old verdicts
         started = time.perf_counter()
         logger.info("Scanning file: %s", display, extra={"event": "scan_started", "path": display})
         ctx = ScanContext.start(cast("RansomwareScanner", self), file_path, _depth, display, ENGINE_VERSION)

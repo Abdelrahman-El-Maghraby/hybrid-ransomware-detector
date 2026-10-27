@@ -44,6 +44,12 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   - First-run migration: secrets in `.env` are written to the keyring and read back. Only when every value matches are their lines removed (atomic rewrite, permissions kept); on any failure `.env` is left untouched and a warning names the secret, never its value.
   - The start-up log shows each secret's source. New dependency: `keyring` (pure Python; added to the lock with its dependencies).
 
+- **Stale answers after a content or configuration change.** Verdicts were never cached, but cached evidence and loaded content could be stale:
+  - LLM answers are now keyed by the prompt version and the engine version as well as the back-end and model;
+  - VirusTotal answers are keyed by the upload setting, so turning `VT_UPLOAD_UNKNOWN` on is no longer ignored for 6 hours;
+  - sandbox reports are keyed by the CAPE server and options;
+  - a running scanner reloads the YARA rules, the active rule pack, the fuzzy signatures and the allowlist when they change on disk, before the next top-level scan.
+
 ### Changed
 
 - LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".

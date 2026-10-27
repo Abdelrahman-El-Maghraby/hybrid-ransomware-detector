@@ -10,9 +10,11 @@ engine/report.py.
 """
 
 import csv
+import glob
 import hashlib
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
@@ -98,6 +100,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None
         self._log_layers()
+        self._content_lock = threading.Lock()
+        self._content_fp = self._content_fingerprint()
 
     # ------------------------------------------------------------------ setup
     def _init_signatures(self, config: Dict) -> None:
@@ -119,6 +123,48 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
             rules_dir = os.path.join(self.rulepack["path"], "rules")
             logger.info("YARA rules from signed rule pack %s.", self.rulepack["version"])
         self.yara_engine = YaraEngine(rules_dir=rules_dir)
+
+    def _content_fingerprint(self) -> Tuple:
+        """(path, mtime, size) of everything detection content is loaded from: the
+        active rule pack, the YARA rule files, the fuzzy signatures, the allowlist."""
+        data_dir = str(self.config.get("data_dir") or DATA_DIR)
+        paths = [os.path.join(data_dir, "rulepacks", "active.json")]
+        for folder in sorted({str(self.config.get("yara_rules_dir") or ""),
+                              str(getattr(self.yara_engine, "rules_dir", "") or "")}):
+            if folder and os.path.isdir(folder):
+                paths += sorted(glob.glob(os.path.join(folder, "*.yar"))
+                                + glob.glob(os.path.join(folder, "*.yara")))
+        paths += [str(getattr(self.fuzzy_hasher, "signature_db_path", "") or ""),
+                  str(self.config.get("allowlist_path") or "")]
+        out: List[Tuple[str, Optional[int], Optional[int]]] = []
+        for p in paths:
+            try:
+                st = os.stat(p)
+                out.append((p, st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((p, None, None))
+        return tuple(out)
+
+    def refresh_detection_content(self) -> bool:
+        """Reload rules, fuzzy signatures and the allowlist when they changed on disk
+        (a rule-pack update, an edited rule, --allow from another process), so a
+        long-running scanner never scores with content that was replaced. A few
+        stat() calls per top-level scan; True when something was reloaded."""
+        fingerprint = self._content_fingerprint()
+        if fingerprint == self._content_fp:
+            return False
+        with self._content_lock:
+            if self._content_fingerprint() == self._content_fp:
+                return False
+            self._init_signatures(self.config)
+            self.allowlist = load_allowlist(self.config.get("allowlist_path"))
+            self._log_layers()                       # new layer states and provenance
+            self._content_fp = self._content_fingerprint()
+        logger.info("Detection content changed on disk: reloaded (rules %s, sha256 %s).",
+                    self.provenance["rules"]["version"] or self.provenance["rules"]["source"],
+                    self.provenance["rules"]["sha256"][:16],
+                    extra={"event": "content_reloaded"})
+        return True
 
     def _init_static_layers(self, config: Dict) -> None:
         total_bytes = int(float(config.get("archive_max_total_mb", 100)) * 1024 * 1024)

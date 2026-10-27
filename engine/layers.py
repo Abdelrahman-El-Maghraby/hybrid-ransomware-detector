@@ -421,13 +421,16 @@ class SandboxLayer(Layer):
                 scanner.scoring.score(ctx.signals).risk_score < 25:
             return
         sha = ctx.hashes.get("sha256", "")
-        cached = scanner.cache.get(sha, "sandbox") if (scanner.cache and sha) else None
+        # a report belongs to the CAPE server and options that produced it
+        import hashlib
+        key = "sandbox:" + hashlib.sha256(f"{client.url}|{client.options}".encode()).hexdigest()[:12]
+        cached = scanner.cache.get(sha, key) if (scanner.cache and sha) else None
         if cached:
             data = dict(cached, status="cached")
         else:
             data = client.analyze(ctx.path).as_dict()
             if scanner.cache and sha and data.get("status") == "reported":
-                scanner.cache.put(sha, "sandbox", data)
+                scanner.cache.put(sha, key, data)
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),
