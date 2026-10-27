@@ -354,3 +354,96 @@ def test_probe_reports_health(intel_socket):
     assert main([path, "/v1/capabilities"]) == 1                     # needs the token
     assert main([path + ".missing"]) == 1
     assert main([]) == 2
+
+
+class ScriptedIntel:
+    """An IntelClient stand-in that answers from a script (no socket)."""
+
+    def __init__(self, caps, answers):
+        from core.intel_client import IntelClient
+        self._real = IntelClient("/nonexistent", TOKEN)
+        self._real._caps = caps
+        self.answers, self.calls = answers, []
+
+    def service(self, name):
+        return self._real.service(name)
+
+    def call(self, method, url, payload=None, data=None, headers=None, timeout=None):
+        self.calls.append((url, payload, headers))
+        answer = self.answers[url]
+        answer = answer.pop(0) if isinstance(answer, list) else answer
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def vt_lookup(self, sha256):
+        return self.call("POST", "/v1/virustotal/lookup", {"sha256": sha256})
+
+    def vt_upload(self, path):
+        return self.call("POST", "/v1/virustotal/upload", data=b"")
+
+
+CAPS = {"virustotal": {"enabled": True, "upload": True},
+        "llm": {"enabled": True, "name": "ollama", "model": "llama3.1", "is_local": True},
+        "sandbox": {"enabled": True, "server": "abc123def456", "options": ""}}
+
+
+def test_sandbox_through_intel_submits_then_polls(tmp_path):
+    from core.intel_client import IntelSandbox
+    f = tmp_path / "invoice.docm"
+    f.write_bytes(b"inert test bytes")
+    intel = ScriptedIntel(CAPS, {
+        "/v1/sandbox/submit": {"submitted": True, "task_id": 9, "status": "submitted"},
+        "/v1/sandbox/poll": [{"status": "pending"},
+                             {"status": "reported", "submitted": True, "task_id": 9,
+                              "malscore": 7.0, "ransomware": ["ransom_note"]}]})
+    clock = {"t": 0.0}
+    box = IntelSandbox(intel, wait_seconds=600, sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+                       clock=lambda: clock["t"])
+    assert box.url == "intel:abc123def456"
+    res = box.analyze(str(f))
+    assert res.status == "reported" and res.malscore == 7.0 and res.ransomware == ["ransom_note"]
+    assert intel.calls[0][2] == {"X-Aegis-Extension": ".docm"}
+
+    slow = ScriptedIntel(CAPS, {"/v1/sandbox/submit": {"submitted": True, "task_id": 3},
+                                "/v1/sandbox/poll": {"status": "pending"}})
+    res = IntelSandbox(slow, wait_seconds=30, sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+                       clock=lambda: clock["t"]).analyze(str(f))
+    assert res.status == "timeout" and res.task_id == 3
+
+    from core.intel_client import IntelError
+    broken = ScriptedIntel(CAPS, {"/v1/sandbox/submit": IntelError("intel service unreachable")})
+    assert IntelSandbox(broken).analyze(str(f)).status == "error"
+    refused = ScriptedIntel(CAPS, {"/v1/sandbox/submit": {"submitted": False, "status": "error",
+                                                          "detail": "submission refused: 400"}})
+    assert IntelSandbox(refused).analyze(str(f)).detail == "submission refused: 400"
+
+
+def test_llm_and_virustotal_through_intel(tmp_path):
+    import RansomwareScanner as RS
+    from core.intel_client import IntelError, IntelLLMBackend
+    from tests.test_scanner_integration import _config
+    llm = IntelLLMBackend(ScriptedIntel(CAPS, {"/v1/llm/analyze": {"is_malicious": True,
+                                                                  "analyzed": True}}))
+    assert (llm.name, llm.model, llm.is_local, llm.available) == ("ollama", "llama3.1", True, True)
+    assert llm.analyze("text")["is_malicious"] is True
+    failing = IntelLLMBackend(ScriptedIntel(CAPS, {"/v1/llm/analyze": IntelError("HTTP 429")}))
+    assert failing.analyze("text")["error"]
+    off = IntelLLMBackend(ScriptedIntel({"llm": {"enabled": False}}, {}))
+    assert off.name == "none" and "No LLM configured" in off.analyze("x")["details"]
+
+    scanner = RS.RansomwareScanner(_config(tmp_path, data_dir=str(tmp_path / "data")))
+    unknown = {"not_found": True, "is_malicious": False, "total_engines": 0}
+    scanner.intel = ScriptedIntel(CAPS, {"/v1/virustotal/lookup": unknown,
+                                         "/v1/virustotal/upload": {"total_engines": 60,
+                                                                   "malicious_detections": 1}})
+    f = tmp_path / "f.bin"
+    f.write_bytes(b"inert")
+    assert scanner.scan_file_with_virustotal(str(f))["total_engines"] == 60
+    assert [c[0] for c in scanner.intel.calls] == ["/v1/virustotal/lookup", "/v1/virustotal/upload"]
+    assert scanner._vt_cache_layer() == "virustotal:upload"
+    scanner.cache = None
+    scanner.intel = ScriptedIntel(CAPS, {"/v1/virustotal/lookup": IntelError("HTTP 401")})
+    assert scanner.scan_file_with_virustotal(str(f))["error"] == "HTTP 401"
+    scanner.intel = ScriptedIntel({"virustotal": {"enabled": False}}, {})
+    assert "not configured" in scanner.scan_file_with_virustotal(str(f))["details"]
