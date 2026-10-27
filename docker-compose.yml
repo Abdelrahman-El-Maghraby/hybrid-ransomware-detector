@@ -33,6 +33,7 @@ services:
     networks: [egress]
     environment:
       HOME: /var/lib/aegis-intel
+      LOG_FORMAT: ${LOG_FORMAT:-text}
       AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
       AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
       # External services (all off unless configured; decision D4: hash look-up
@@ -69,6 +70,7 @@ services:
     network_mode: none
     environment:
       HOME: /var/lib/aegis
+      LOG_FORMAT: ${LOG_FORMAT:-text}
       AEGIS_PROFILE: production
       AEGIS_API_SOCKET: /run/aegis/api/api.sock
       AEGIS_API_TOKEN_FILE: /run/secrets/api_token
