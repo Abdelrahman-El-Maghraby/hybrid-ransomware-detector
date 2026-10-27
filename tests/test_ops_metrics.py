@@ -96,7 +96,7 @@ def test_client_key_and_proxy():
     scope = {"client": ("10.0.0.5", 1234),
              "headers": [(b"authorization", b"Bearer abc"), (b"x-forwarded-for", b"1.2.3.4, 10.0.0.1")]}
     assert client_key(scope, False).startswith("10.0.0.5|")
-    assert client_key(scope, True).startswith("1.2.3.4|")
+    assert client_key(scope, True).startswith("10.0.0.1|")
     assert client_key({"headers": []}, False) == "unknown|anonymous"
     other = dict(scope, headers=[(b"authorization", b"Bearer xyz")])
     assert client_key(other, False) != client_key(scope, False)

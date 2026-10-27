@@ -72,8 +72,10 @@ server {
 }
 ```
 
-`X-Forwarded-For $remote_addr` overwrites whatever the client sent, so the
-first address the API sees is the real peer. Without `AEGIS_API_TRUST_PROXY=1`
+`X-Forwarded-For $remote_addr` overwrites whatever the client sent. The API uses
+the last X-Forwarded-For entry (the one your proxy added), so a proxy that appends
+instead is safe too: addresses a client puts in the header are ignored. Exactly
+one trusted proxy is supported. Without `AEGIS_API_TRUST_PROXY=1`
 behind a proxy, every client shares the proxy's address: one client's wrong
 tokens would then lock everyone out.
 
