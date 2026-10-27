@@ -460,6 +460,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `CANARY_CONTAIN_MODE`, `CANARY_CONTAIN_EXCLUDE`, `CANARY_LOCK_DIRS` | `suspend`, empty, canary folders | `terminate` to kill; extra process names never stopped; folders `lock_folders` makes read-only |
 | `LOG_FORMAT`, `LOG_LEVEL` | `text`, `INFO` | `json` for one JSON object per log line |
 | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_TRUST_PROXY` | `60`, `10`, `2`, off | REST API abuse limits (see [deployment](docs/DEPLOYMENT.md)) |
+| `AEGIS_API_SOCKET`, `AEGIS_INTEL_SOCKET`, `AEGIS_INTEL_TOKEN` | empty | Docker deployment: API on a Unix socket; external services through the intel service (see [deployment](docs/DEPLOYMENT.md)) |
 | `EMULATION_ENABLED`, `EMULATION_TOOL`, `EMULATION_TIMEOUT` | `false`, `box-js`, `20` | JavaScript emulation (analysis VM only) |
 | `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | worker processes for folder scans |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |

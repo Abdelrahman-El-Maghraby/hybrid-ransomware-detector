@@ -28,6 +28,14 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - A clean score on an incomplete scan never shows as plain "Clean": text reports have a "Scan completeness" line and a "NOT FULLY INSPECTED" section, flagged files list their gaps, the GUI shows the label in the results table and the detail window, and webhooks / JSON Lines carry `scan_status`.
 - **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
+- **Docker deployment** (`Dockerfile`, `docker-compose.yml`, `deploy/`): three services from a pinned image.
+  - `analysis` runs `aegis-api` with `network_mode: none` (no interface but loopback) and listens on a Unix socket; it holds no external-service secret, and the detection content is mounted read-only.
+  - `intel` (`aegis-intel`, `api/intel.py`) is the only service with egress. It offers fixed operations only: VirusTotal hash look-up, upload when `VT_UPLOAD_UNKNOWN` is on, LLM analysis, and sandbox submit and poll of its own tasks. Inputs are validated exactly, the shared `AEGIS_INTEL_TOKEN` is required, each operation is rate-limited, and each external service has a session that refuses every origin outside the configuration, redirects included.
+  - `proxy` (Caddy) terminates TLS with the operator's certificate.
+  - Every service runs non-root with a read-only root file system, all capabilities dropped, no-new-privileges, Docker's default seccomp profile, memory / CPU / process limits and a size-limited `noexec` tmpfs. Secrets are Docker secrets.
+  - `deploy/check-deployment.sh` (run in CI by `docker.yml`) proves the isolation from inside the running containers and scans a file through TLS.
+- `AEGIS_INTEL_SOCKET` / `AEGIS_INTEL_TOKEN`: the scanner reaches VirusTotal, the LLM and the sandbox through the intel service; capability states show `... via intel`, or `down` when it is unreachable.
+- `AEGIS_API_SOCKET` (serve on a Unix socket), `AEGIS_API_TOKEN_FILE`, `CACHE_DB_PATH`, and `python -m api.probe SOCKET [PATH]` (container health check).
 
 ### Fixed / security
 
@@ -50,8 +58,15 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   - sandbox reports are keyed by the CAPE server and options;
   - a running scanner reloads the YARA rules, the active rule pack, the fuzzy signatures and the allowlist when they change on disk, before the next top-level scan.
 
+- **X-Forwarded-For spoofing behind an appending proxy.** With `AEGIS_API_TRUST_PROXY=1` the first entry was used, which a proxy that appends (nginx `$proxy_add_x_forwarded_for`) takes from the client. Each request could claim a new address and escape the per-address rate limit and the token lockout. The last entry, which the trusted proxy added, is used now.
+- **A killed worker's unpacked files stayed in the temp folder.** A worker stopped for the timeout or the memory limit cannot clean up, so repeated hostile files could fill a size-limited `/tmp`. Each worker now has its own temporary folder, which the parent removes.
+- **Scanning loaded the containment code.** Validation imported `core.response` on every start. It is now imported only when `CANARY_RESPONSE` is set. The production profile refuses `CANARY_RESPONSE` (containment is desktop-only), and the server image does not contain it.
+- **The engine did not start without the optional OCR packages** (`pytesseract`, `pdf2image` were imported unconditionally). OCR is now skipped when they are missing.
+- The readiness storage check required the data folder to be writable, which ruled out read-only detection content. It now checks where scans write: reports, the cache, and temporary files.
+
 ### Changed
 
+- The sandbox client has `submit()` and `poll()` steps (`analyze()` uses them), and the LLM back-ends accept an injected HTTP session.
 - LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".
 - A file over `fuzzy_max_bytes` is recorded in `layer_skips` (the fuzzy layer did not run on it).
 - **Builds fail on a missing required dependency** (`build.py`): every package a production-profile layer needs, and the GUI toolkit, must be installed (preflight). The smoke test runs `--capabilities cli` on the packaged program and fails the build, and so the release job, when a required layer is not up in the artifact. A folder build must contain customtkinter. Host tools a desktop binary cannot bundle (a RAR decompressor, the zbar library) are reported, not required; the Docker image must carry them.
