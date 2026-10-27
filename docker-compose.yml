@@ -6,7 +6,8 @@
 #             container. It reaches intel only through intel's Unix socket.
 #   intel     the only service with outbound network; fixed operations to the
 #             destinations in its own configuration (api/intel.py). Holds the
-#             VirusTotal / OpenAI / sandbox secrets; analysis holds none of them.
+#             VirusTotal / OpenAI / sandbox secrets and the only cache of their
+#             answers; analysis holds neither (its workers open hostile files).
 #
 # Every service: non-root, read-only root file system, all capabilities dropped,
 # no-new-privileges, Docker's default seccomp profile, CPU / memory / process limits.
@@ -79,7 +80,6 @@ services:
       AEGIS_API_MAX_CONCURRENT_SCANS: ${AEGIS_API_MAX_CONCURRENT_SCANS:-2}
       AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
       AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
-      CACHE_DB_PATH: /var/lib/aegis/cache/scan_cache.sqlite3
       LLM_PROVIDER: none                   # the intel service decides
       SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-300}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}

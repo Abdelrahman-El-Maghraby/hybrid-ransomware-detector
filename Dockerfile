@@ -40,7 +40,7 @@ RUN groupadd -g 10001 analysis && groupadd -g 10002 intel \
  && groupadd -g 10010 intel-clients && groupadd -g 10020 api-clients \
  && useradd -r -M -u 10001 -g analysis -G intel-clients -d /var/lib/aegis -s /usr/sbin/nologin analysis \
  && useradd -r -M -u 10002 -g intel -d /var/lib/aegis-intel -s /usr/sbin/nologin intel \
- && mkdir -p /var/lib/aegis/RansomwareScanner/data /var/lib/aegis/cache /var/lib/aegis-intel \
+ && mkdir -p /var/lib/aegis/RansomwareScanner/data /var/lib/aegis-intel \
              /run/aegis/intel /run/aegis/api \
  && chown -R analysis:analysis /var/lib/aegis \
  && chown intel:intel /var/lib/aegis-intel && chmod 0700 /var/lib/aegis-intel \

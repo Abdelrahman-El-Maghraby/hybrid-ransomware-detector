@@ -46,6 +46,7 @@ def test_analysis_has_no_network_and_no_external_secret():
     for word in ("VIRUSTOTAL", "OPENAI", "SANDBOX_URL", "SANDBOX_TOKEN"):
         assert word not in env
     assert a["environment"]["AEGIS_PROFILE"] == "production"
+    assert "CACHE_DB_PATH" not in a["environment"]        # answers are cached by intel only
     assert a["environment"]["AEGIS_INTEL_SOCKET"].startswith("/run/aegis/intel/")
 
 
