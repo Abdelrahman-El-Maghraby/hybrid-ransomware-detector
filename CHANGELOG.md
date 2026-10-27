@@ -65,6 +65,16 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **The engine did not start without the optional OCR packages** (`pytesseract`, `pdf2image` were imported unconditionally). OCR is now skipped when they are missing.
 - The readiness storage check required the data folder to be writable, which ruled out read-only detection content. It now checks where scans write: reports, the cache, and temporary files.
 
+- The start-up "Detection layers" line did not list `pe:on` (cosmetic; the layer ran; PR #21).
+
+### Release and CI
+
+- Releases include the server images (`aegis-sentinel-server-<version>-linux-amd64.tar.gz`, for `docker load` on an offline host), built and proven by the deployment check first.
+- An SBOM per artifact, from the environment it was built in (the image also lists its Debian packages), instead of one SBOM of the lock file; every file is checksummed and Sigstore-signed.
+- Every GitHub Action is pinned to a commit SHA, and Dependabot proposes updates. A tag can be moved; a SHA cannot. This matters most in the release job, which can publish and sign.
+- mypy in CI runs against every optional package (`requirements.lock`); the 10 errors that only a full install showed are fixed.
+- `docs/RELEASING.md`: tagging, what a release contains, verifying signatures, offline install, and the Authenticode / notarisation steps once certificates exist.
+
 ### Changed
 
 - The sandbox client has `submit()` and `poll()` steps (`analyze()` uses them), and the LLM back-ends accept an injected HTTP session.
