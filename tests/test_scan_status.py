@@ -16,6 +16,12 @@ from engine.validation import ConfigError, check_config, validate_config
 from tests.helpers import make_docx, make_pdf, make_zipcrypto_zip
 from tests.test_scanner_integration import _config
 
+# ZipCrypto checks a password against one header byte, so a wrong delivery password
+# passes about 1 time in 256; on a 1-byte member the CRC then matches too and the
+# member really is opened (CI saw it once). A longer member makes a false open need a 32-bit
+# CRC match as well.
+SECRET_TEXT = b"quarterly figures, do not forward: 4471-2209-8813-5530-0001-xx"
+
 
 def _disguised_pe() -> bytes:
     h = bytearray(4096)
@@ -116,7 +122,7 @@ def test_size_skip_of_a_required_layer_is_partial(scanner, tmp_path):
 
 
 def test_encrypted_member_locks_the_archive_without_lowering_the_score(scanner, tmp_path):
-    secret = make_zipcrypto_zip(tmp_path / "secret.zip", "plan.txt", b"top secret", "Zq8!long-pw")
+    secret = make_zipcrypto_zip(tmp_path / "secret.zip", "plan.txt", SECRET_TEXT, "Zq8!long-pw")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("invoice.pdf", _disguised_pe())
@@ -268,7 +274,7 @@ def test_production_profile_needs_the_rules_folder(tmp_path):
 def test_member_gaps_propagate_with_the_precedence(scanner, tmp_path):
     _all_up(scanner, macro={"state": DOWN, "detail": "needs oletools", "missing": ["oletools"]})
     doc = make_docx(tmp_path / "plan.docm").read_bytes()
-    secret = make_zipcrypto_zip(tmp_path / "s.zip", "x.txt", b"x", "Zq8!long-pw").read_bytes()
+    secret = make_zipcrypto_zip(tmp_path / "s.zip", "x.txt", SECRET_TEXT, "Zq8!long-pw").read_bytes()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("plan.docm", doc)
