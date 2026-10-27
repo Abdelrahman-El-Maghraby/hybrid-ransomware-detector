@@ -185,7 +185,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         logger.info(
             "Detection layers -> fuzzy:%s  macro:%s  yara:%s(%d rule files)  "
             "integrity:on  prompt-guard:%s  relationships:%s  archives:on  "
-            "mail:%s  elf:on  qr:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
+            "mail:%s  elf:on  pe:on  qr:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
             "on" if FUZZY_AVAILABLE else "off (install python-tlsh/ppdeep)",
             "on" if OLEVBA_AVAILABLE else "off (install oletools)",
             "on" if YARA_AVAILABLE else "off (install yara-python)",

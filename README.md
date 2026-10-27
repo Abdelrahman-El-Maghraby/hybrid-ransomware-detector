@@ -72,7 +72,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 ## 🆕 What's new in 4.5
 
 - **Scan the mailbox itself (IMAP).** `python RansomwareScanner.py --scan-imap` reads new messages from `IMAP_FOLDER` with their full transport headers, so SPF / DKIM / DMARC and spoofing checks work even when saved copies would have lost them. Read-only (the folder is opened with EXAMINE and bodies fetched with `BODY.PEEK[]`, so nothing is marked as read), TLS only with certificate checks, each message scanned in an isolated worker, nothing scanned twice (last UID per folder, reset when the server's UIDVALIDITY changes), bounded by `IMAP_MAX_MESSAGES` and `IMAP_MAX_MB`. With `--background` and `IMAP_CHECK_MINUTES`, the mailbox is checked on a schedule. Use an app password.
-- **Canary response actions.** A tripwire can now act, not only alert: `CANARY_RESPONSE=network_off` disables the network adapters (PowerShell `Disable-NetAdapter`, `nmcli networking off`, `networksetup`), and `script` runs your own response script with the alert as JSON on stdin. Off by default; the script must be an absolute path only its owner can change, and every action is time-limited and logged in the alert file. On Windows, also turn on **Controlled Folder Access**: it blocks unknown programs from writing to protected folders, which this tool cannot do.
+- **Canary response actions.** A tripwire can now act, not only alert: `CANARY_RESPONSE=network_off` disables the network adapters (PowerShell `Disable-NetAdapter`, `nmcli networking off`, `networksetup`), and `script` runs your own response script with the alert as JSON on stdin. Off by default; the script must be an absolute path only its owner can change, and every action is time-limited and logged in the alert file. On Windows, also turn on **Controlled Folder Access**: it blocks unknown programs from writing to protected folders (since 4.6 the `controlled_folder_access` action can switch it on when a canary trips).
 - **JavaScript emulation (optional).** With `EMULATION_ENABLED=1` and [box-js](https://github.com/CapacitorSet/box-js) installed, `.js` / `.jse` files are run against fake WScript / ActiveX objects and what they tried to do is recorded: URLs fetched (including ones built at run time), files written and commands run. A fetch plus a run or a dropped program scores 65 (`emulated_dropper`, dynamic category). It executes the attacker's script in a Node sandbox, so enable it inside an analysis VM only.
 - **More formats closed:** Equation Editor 3.0 objects (CVE-2017-11882) in RTF and legacy Office files, hidden / very hidden sheets in `.xls`, LUKS and `openssl enc` files recognised as legitimate encrypted containers.
 - **Security hardening:** helper programs are never taken from the current directory, ML models other users could change are refused, bandit runs in CI, and type checking covers every detector.
@@ -557,7 +557,7 @@ Engine version:         4.6.0
 Total files scanned:    6
 Files flagged:          5
 Highest verdict:        Critical
-Detection layers used:  hashes, local-db, fuzzy, macro, yara, integrity, elf, script, prompt-guard, relationships, archives, mail, web, embedded, qr, ml, llm, virustotal
+Detection layers used:  hashes, local-db, fuzzy, macro, yara, integrity, elf, pe, script, prompt-guard, relationships, archives, mail, web, embedded, qr, ml, llm, virustotal
 LLM posture:            LOCAL (llama3.1)
 
 ############################################################
