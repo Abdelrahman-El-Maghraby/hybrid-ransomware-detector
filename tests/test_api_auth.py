@@ -153,3 +153,19 @@ def test_ready_cannot_be_used_to_guess_tokens(make_api):
         assert set(r.json()) == {"ready"}                   # no details for a wrong token
     assert _get(api, "/ready", token=TOKEN).status_code == 429
     assert set(_get(api, "/ready").json()) == {"ready"}     # anonymous probes still answer
+
+
+def test_token_can_come_from_a_secret_file(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    secret = tmp_path / "api_token"
+    secret.write_text("s" * 32 + "\n")
+    monkeypatch.delenv("AEGIS_API_TOKEN", raising=False)
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(secret))
+    from fastapi.testclient import TestClient
+    api = TestClient(create_app(_config(tmp_path), isolate=False))
+    assert api.get("/version", headers={"Authorization": "Bearer " + "s" * 32}).status_code == 200
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN"):
+        create_app(_config(tmp_path), isolate=False)

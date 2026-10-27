@@ -163,7 +163,9 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     from engine.config import CONFIG, ENGINE_VERSION
     from engine.validation import check_config
     check_config(config or CONFIG, env_problems=None if config is None else ())
-    token = token if token is not None else os.getenv("AEGIS_API_TOKEN", "")
+    if token is None:                 # AEGIS_API_TOKEN, or AEGIS_API_TOKEN_FILE (a Docker secret)
+        from engine.secret_store import from_environment
+        token = from_environment("AEGIS_API_TOKEN") or os.getenv("AEGIS_API_TOKEN", "")
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
     service = _ScanService(config or CONFIG, isolate=isolate)
