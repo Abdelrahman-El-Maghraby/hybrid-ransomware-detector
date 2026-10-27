@@ -138,103 +138,136 @@ def llm_skipped(ai: dict) -> bool:
     return any(marker in detail for marker in _LLM_SKIP_MARKERS)
 
 
+def _db_token(sr: dict) -> List[str]:
+    return ["DB✓" if sr.get("local_database", {}).get("is_malicious") else "DB–"]
+
+
+def _fuzzy_token(sr: dict) -> List[str]:
+    fuzzy = sr.get("fuzzy_hash", {})
+    if not fuzzy.get("available"):
+        return []
+    return ["fuzzy✓" if fuzzy.get("matched") else "fuzzy–"]
+
+
+def _macro_token(sr: dict) -> List[str]:
+    macro = sr.get("macro_analysis", {})
+    if not macro.get("available"):
+        return []
+    if not macro.get("has_macros"):
+        return ["macro–"]
+    if macro.get("critical"):
+        return ["macro!"]                   # exec/download primitive present
+    return ["macro⚡" if macro.get("autoexec") else "macro✓"]   # ⚡ = auto-run trigger
+
+
+def _yara_token(sr: dict) -> List[str]:
+    yara = sr.get("yara", {})
+    if not yara.get("available"):
+        return []
+    n = len(yara.get("matches", []) or [])
+    return [f"yara✓{n}" if yara.get("matched") else "yara–"]
+
+
+def _integrity_token(sr: dict) -> List[str]:
+    integ = sr.get("file_integrity", {})
+    for key, token in (("disguised_executable", "exe!"),   # program behind a document name
+                       ("encrypted_likely", "enc!"),       # content looks encrypted (impact)
+                       ("format_mismatch", "fmt?")):
+        if integ.get(key):
+            return [token]
+    return []
+
+
+def _guard_token(sr: dict) -> List[str]:
+    guard = sr.get("prompt_guard", {})
+    status = guard.get("injection_status")
+    if status in ("confirmed", "suspicious"):
+        return ["inj!" if status == "confirmed" else "inj?"]
+    return ["hidden"] if guard.get("hidden_text_found") else []
+
+
+def _external_token(sr: dict) -> List[str]:
+    return ["ext!"] if sr.get("relationships", {}).get("suspicious") else []   # remote template
+
+
+def _container_token(sr: dict, key: str, members: str, count: str, flags: str,
+                     label: str) -> List[str]:
+    box = sr.get(key, {})
+    if not box:
+        return []
+    bad = sum(1 for m in box.get(members, []) or []
+              if m.get("verdict", "Clean") != "Clean" or m.get(flags))
+    return [f"{label}{box.get(count, 0)}" + (f"!{bad}" if bad else "")]
+
+
+def _archive_token(sr: dict) -> List[str]:
+    return _container_token(sr, "archive", "member_results", "member_count",
+                            "archive_flags", "arc")
+
+
+def _mail_tokens(sr: dict) -> List[str]:
+    out = _container_token(sr, "mail", "attachment_results", "attachment_count",
+                           "mail_flags", "mail")
+    mail = sr.get("mail", {})
+    if mail and ((mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof")):
+        out.append("spoof!")                # authentication failure / display-name spoof
+    return out
+
+
+def _web_token(sr: dict) -> List[str]:
+    web = sr.get("web", {})
+    if not web:
+        return []
+    if web.get("smuggling"):
+        return ["smuggle!"]                 # HTML smuggling with an embedded payload
+    risky = web.get("svg_active") or web.get("credential_form") or web.get("payloads")
+    return ["web!" if risky else "web"]
+
+
+def _payload_token(sr: dict) -> List[str]:
+    return ["img+payload!"] if (sr.get("file_integrity") or {}).get("appended_payload") else []
+
+
+def _ml_token(sr: dict) -> List[str]:
+    ml = sr.get("ml_classifier", {})
+    if ml.get("label") != "suspicious":
+        return []
+    return [f"ml {float(ml.get('probability', 0)):.2f}"]
+
+
+def _vt_token(sr: dict) -> List[str]:
+    vt = sr.get("virustotal", {})
+    if "not configured" in str(vt.get("details", "")):
+        return ["VT off"]
+    if vt.get("error"):
+        return ["VT err"]
+    if vt.get("not_found"):
+        return ["VT new"]
+    if vt.get("total_engines"):
+        hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
+        return [f"VT {hits}/{vt.get('total_engines', 0)}"]
+    return []
+
+
+def _ai_token(sr: dict) -> List[str]:
+    ai = sr.get("chatgpt_analysis", {})
+    return [] if llm_skipped(ai) else [f"AI {float(ai.get('confidence', 0) or 0):.2f}"]
+
+
+# One function per layer, in display order. v4+ layers only show a token when
+# they found something, to keep the row short.
+LAYER_TOKENS = (_db_token, _fuzzy_token, _macro_token, _yara_token, _integrity_token,
+                _guard_token, _external_token, _archive_token, _mail_tokens, _web_token,
+                _payload_token, _ml_token, _vt_token, _ai_token)
+
+
 def layers_summary(result: dict) -> str:
     """Compact per-layer breakdown, e.g. 'DB– fuzzy– macro✓ yara✓ VT14/72 AI0.80'.
 
     Only the layers that actually ran contribute a token; unavailable/skipped
-    layers are omitted so the line stays readable across the seven layers."""
+    layers are omitted so the line stays readable."""
     sr = result.get("scan_results", {})
-    parts = []
-
-    local = sr.get("local_database", {})
-    parts.append("DB✓" if local.get("is_malicious") else "DB–")
-
-    fuzzy = sr.get("fuzzy_hash", {})
-    if fuzzy.get("available"):
-        parts.append("fuzzy✓" if fuzzy.get("matched") else "fuzzy–")
-
-    macro = sr.get("macro_analysis", {})
-    if macro.get("available") and macro.get("has_macros"):
-        # Surface the most serious macro finding compactly.
-        if macro.get("critical"):
-            parts.append("macro!")          # exec/download primitive present
-        elif macro.get("autoexec"):
-            parts.append("macro⚡")          # auto-run trigger present
-        else:
-            parts.append("macro✓")
-    elif macro.get("available"):
-        parts.append("macro–")
-
-    yara = sr.get("yara", {})
-    if yara.get("available"):
-        n = len(yara.get("matches", []) or [])
-        parts.append(f"yara✓{n}" if yara.get("matched") else "yara–")
-
-    # v4 layers: only shown when they found something, to keep the row short.
-    integ = sr.get("file_integrity", {})
-    if integ.get("disguised_executable"):
-        parts.append("exe!")             # executable behind a document extension
-    elif integ.get("encrypted_likely"):
-        parts.append("enc!")             # content looks encrypted (impact)
-    elif integ.get("format_mismatch"):
-        parts.append("fmt?")
-
-    guard = sr.get("prompt_guard", {})
-    if guard.get("injection_status") == "confirmed":
-        parts.append("inj!")
-    elif guard.get("injection_status") == "suspicious":
-        parts.append("inj?")
-    elif guard.get("hidden_text_found"):
-        parts.append("hidden")
-
-    if sr.get("relationships", {}).get("suspicious"):
-        parts.append("ext!")             # remote template / OLE / UNC link
-
-    arc = sr.get("archive", {})
-    if arc:
-        bad = sum(1 for m in arc.get("member_results", []) or []
-                  if m.get("verdict", "Clean") != "Clean" or m.get("archive_flags"))
-        parts.append(f"arc{arc.get('member_count', 0)}" + (f"!{bad}" if bad else ""))
-
-    mail = sr.get("mail", {})
-    if mail:
-        bad = sum(1 for m in mail.get("attachment_results", []) or []
-                  if m.get("verdict", "Clean") != "Clean" or m.get("mail_flags"))
-        parts.append(f"mail{mail.get('attachment_count', 0)}" + (f"!{bad}" if bad else ""))
-        if (mail.get("auth") or {}).get("failures") or mail.get("display_name_spoof"):
-            parts.append("spoof!")       # authentication failure / display-name spoof
-
-    web = sr.get("web", {})
-    if web:
-        if web.get("smuggling"):
-            parts.append("smuggle!")     # HTML smuggling with an embedded payload
-        elif web.get("svg_active") or web.get("credential_form") or web.get("payloads"):
-            parts.append("web!")
-        else:
-            parts.append("web")
-
-    if (sr.get("file_integrity") or {}).get("appended_payload"):
-        parts.append("img+payload!")
-
-    if sr.get("ml_classifier", {}).get("label") == "suspicious":
-        parts.append(f"ml {float(sr['ml_classifier'].get('probability', 0)):.2f}")
-
-    vt = sr.get("virustotal", {})
-    if "not configured" in str(vt.get("details", "")):
-        parts.append("VT off")
-    elif vt.get("error"):
-        parts.append("VT err")
-    elif vt.get("not_found"):
-        parts.append("VT new")
-    elif vt.get("total_engines"):
-        hits = vt.get("malicious_detections", 0) + vt.get("suspicious_detections", 0)
-        parts.append(f"VT {hits}/{vt.get('total_engines', 0)}")
-
-    ai = sr.get("chatgpt_analysis", {})
-    if not llm_skipped(ai):
-        parts.append(f"AI {float(ai.get('confidence', 0) or 0):.2f}")
-
-    return "  ".join(parts)
+    return "  ".join(token for layer in LAYER_TOKENS for token in layer(sr))
 
 
 def humanize_delta(seconds: float) -> str:

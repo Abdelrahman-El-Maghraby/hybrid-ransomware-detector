@@ -4,6 +4,63 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [4.6.0] — 2026-10-26
+
+### Added
+
+- **Windows PE layer** (`detectors/pe_analysis.py`, standard library only):
+  - per-section entropy, packer section names and writable+executable sections;
+  - the import table parsed by name, with three combinations checked: the process-injection chain, encryption + directory walking + file writing in unsigned programs, and imports resolved only at run time;
+  - shadow-copy and backup deletion command lines (T1490) in ASCII and UTF-16. The tools' own help text does not match;
+  - the overlay without the Authenticode certificate (a program appended to a program, near-random data that is no known installer);
+  - malformed headers;
+  - whether a signature directory is present (not verified).
+
+  Nine technical indicators (registry `2026.10.23-1`), a `[PE]` report line and a GUI section. Folder scans now include `.exe`, `.dll`, `.scr`, `.cpl` and `.sys`.
+- **Canary containment** (`core/containment.py`, new `CANARY_RESPONSE` actions):
+  - `stop_writers` suspends (or, with `CANARY_CONTAIN_MODE=terminate`, kills) the processes that have files open for writing in the canary folders, together with their child processes. Linux uses `/proc` fd + fdinfo, macOS `lsof`, Windows the Restart Manager.
+  - Never touched: this tool and its ancestors, system, indexing and antivirus processes, Restart Manager "critical" processes, and other users' processes.
+  - `lock_folders` removes write access: `chmod a-w` with the original modes saved on POSIX, a deny ACE for Everyone via icacls on Windows.
+  - `controlled_folder_access` turns on Defender's Controlled Folder Access.
+  - Actions always run containment first.
+  - `--resume-pid` and `--unlock-folders` undo the containment.
+  - The real-time watcher passes the paths it saw change.
+- **Memory limits on Windows and macOS** for scan workers: a Job Object with `JOB_OBJECT_LIMIT_PROCESS_MEMORY` on Windows, and a parent-side resident-memory watchdog (libproc `proc_pidinfo`) on macOS.
+- **Start-up configuration validation** (`engine/validation.py`): ranges, allowed values, URLs, canary actions, IMAP and LLM prerequisites, conflicting settings. Unparseable numbers and booleans in the environment are errors instead of silent defaults. The CLI exits with code 2, the GUI shows a dialog, the API refuses to start.
+- **Structured logs** (`LOG_FORMAT=json`, `LOG_LEVEL`) with the events `scan_started`, `scan_completed` (sha256, verdict, risk score, duration), `layer_error` and `scan_batch` (files/s).
+- **Runtime metrics** (`engine/metrics.py`): files, bytes, files/s, average scan time, verdict counts, errors per layer, time-outs and crashes, rejected API requests. Exposed as `GET /metrics` (JSON, or `?format=prometheus`). Results carry `scan_duration_ms` (schema 1.1, additive).
+- **REST API abuse limits** (`api/limits.py`):
+  - upload size enforced before the multipart body is parsed (413);
+  - per-client token buckets: 429 with Retry-After;
+  - a cap on concurrent scans: 503;
+  - `AEGIS_API_TRUST_PROXY` for X-Forwarded-For behind a reverse proxy.
+- `docs/DEPLOYMENT.md`: nginx and Caddy TLS configurations, systemd hardening, log shipping and Prometheus scraping.
+
+### Changed
+
+- **Typed signals** (`detectors/signals.py`): one dataclass per layer replaces the untyped signals dict. Layer `run()` methods are annotated, so mypy checks writers and readers. The dict shape is still accepted, and a misspelt field raises.
+- **Per-layer scorers**: `ScoringMatrix.score()` is a loop over `SCORERS` plus `_aggregate()`. Indicators, points and details are unchanged.
+- **`engine/config.py` has no import-time side effects**: no folders created, no logging configured, `os.environ` not modified (the `.env` file is only read). Entry points call `init_runtime()`.
+- **Facade slimmed**: running the pipeline moved to `engine/staging.py`, quarantine and canaries to `engine/protection.py`, and the constructor is split into named setup steps.
+- **Complexity**: every function is under cyclomatic complexity 20, enforced by ruff (`C90`, max 19).
+  - `detect_format` is a rule table and `image_end` a dispatch of per-format parsers. Both give identical results to 4.5 on 3,713 files and 120,000 random inputs.
+  - The GUI result window has one method per section, and `layers_summary` one token function per layer (identical output on 20,000 random results).
+  - The macro analyzer is split into steps.
+- **Lazy logging**: the 34 f-string log calls pass `%s` arguments, enforced by ruff (`G`).
+- **Faster entropy**: byte counts use numpy above 64 KB (15x faster); the ML layer gained about a third.
+- A packed program is scored once: the PE layer's packing finding replaces the ML opinion on the same sections (`setup.exe` in the regression corpus: same score, now a technical indicator).
+
+### Fixed / security
+
+- `brotli` locked to 1.2.1 (PYSEC-2026-4322 / GHSA-9v8h-qqgm-4m35).
+- `.coverage` is no longer tracked.
+
+### Quality
+
+- 858 tests (+5 opt-in or platform-specific); coverage 91 %. `engine/workers.py` went from 77 % to 96 % and `core/http.py` from 78 % to 100 %.
+- Real-process tests: a writer is suspended while a reader is left alone (Linux and macOS); on Windows the holder is found by the Restart Manager and terminated, and the Job Object really caps memory.
+- Benign corpus (3,312 files + 401 Windows binaries from PyPI / npm wheels): no new High or Critical. pywin32's `win32process.pyd` is Low, because it really wraps the injection APIs.
+
 ## [4.5.0] — 2026-10-22
 
 Includes everything listed under 4.4.1 below (that version was not published

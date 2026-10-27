@@ -36,12 +36,12 @@ class ProtectionPage(BasePage):
         outer.pack(fill="both", expand=True)
         ctk.CTkLabel(outer, text="Protection", font=app.font_h1, text_color=TEXT,
                      anchor="w").pack(fill="x")
-        ctk.CTkLabel(outer, text="Tripwires that catch ransomware in the act, and an "
+        ctk.CTkLabel(outer, text="Rapid containment & damage-mitigation tripwires, and an "
                                  "encrypted vault for anything you quarantine.",
                      font=app.font_small, text_color=MUTED, anchor="w").pack(fill="x")
 
         # -- canaries -------------------------------------------------------------
-        sec = Section(outer, "Canary tripwires", app)
+        sec = Section(outer, "Canary tripwires - rapid containment & damage mitigation", app)
         sec.pack(fill="x", pady=(14, 0))
         minutes = int(app.scanner.config.get("canary_check_minutes", 5))
         ctk.CTkLabel(sec.body,
@@ -54,7 +54,10 @@ class ProtectionPage(BasePage):
                              f"They are checked every {minutes} minute(s) (install "
                              "'watchdog' for real-time watching) ")
                           + "while this window is open, and by the background scanner "
-                            "(--background).",
+                            "(--background). A tripwire fires after encryption has started: "
+                            "it limits the damage (CANARY_RESPONSE can suspend the writing "
+                            "process, lock folders and cut the network) but it is not "
+                            "kernel-level EDR prevention.",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
                      justify="left").pack(fill="x", padx=14, pady=(12, 4))
         self.canary_status = ctk.CTkLabel(sec.body, text="", font=app.font_bold, anchor="w",

@@ -26,7 +26,7 @@ class SettingsStore:
                 self.data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").error(
-                f"Could not read GUI settings: {e}")
+                "Could not read GUI settings: %s", e)
         for key, default in self.DEFAULTS.items():
             self.data.setdefault(key, default)
         if not self.data["scan_directories"]:
@@ -43,7 +43,7 @@ class SettingsStore:
             tmp.replace(SETTINGS_FILE)
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").error(
-                f"Could not save GUI settings: {e}")
+                "Could not save GUI settings: %s", e)
 
     def __getitem__(self, key):
         return self.data[key]

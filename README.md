@@ -3,17 +3,17 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.5.0-brightgreen)
+![Version](https://img.shields.io/badge/version-4.6.0-brightgreen)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
 
-A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, archives (ZIP, 7z, RAR, ISO), scripts, web pages and e-mails (.eml / Outlook .msg, or straight from an IMAP mailbox)** for ransomware and other malicious indicators. It fuses **nineteen detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
+A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, archives (ZIP, 7z, RAR, ISO), scripts, web pages and e-mails (.eml / Outlook .msg, or straight from an IMAP mailbox)** for ransomware and other malicious indicators. It fuses **twenty detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
 
-Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
 ![Aegis Sentinel dashboard](docs/screenshot-v4-dashboard.png)
 
@@ -21,8 +21,8 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.6](#-whats-new-in-46)
 - [🆕 What's new in 4.5](#-whats-new-in-45)
-- [🆕 What's new in 4.4](#-whats-new-in-44)
 - [🗂️ Earlier releases](#️-earlier-releases)
 - [🧩 Why "hybrid"?](#-why-hybrid)
 - [🔬 Detection layers](#-detection-layers)
@@ -45,6 +45,30 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ---
 
+## 🆕 What's new in 4.6
+
+- **Windows programs are analysed on their own.** A new layer reads `.exe` / `.dll` / `.sys` structure without running it and without extra libraries:
+  - per-section entropy, packer section names (UPX, VMProtect, Themida …) and writable+executable sections;
+  - the import table by name: the process-injection chain (alloc + write + thread in another process), encryption plus directory walking plus file writing in an unsigned program, and imports resolved only at run time;
+  - shadow-copy and backup deletion commands (`vssadmin delete shadows /all`, `wbadmin delete catalog -quiet`, `bcdedit … recoveryenabled no`), in ASCII or UTF-16. The help text of those Windows tools does not match;
+  - programs appended to programs, near-random appended data, and whether an Authenticode signature is present (not verified).
+
+  Folder scans now include `.exe`, `.dll`, `.scr`, `.cpl` and `.sys`. On 3,713 benign files (including 401 real Windows binaries from PyPI and npm), it added no High or Critical result.
+- **Canaries contain, not only alert.** On a trip, `CANARY_RESPONSE=stop_writers` suspends the processes that have files open for writing in the canary folders, together with their child processes (`/proc` on Linux, `lsof` on macOS, the Restart Manager on Windows). `lock_folders` removes write access to the folders you name, and `controlled_folder_access` switches on Defender's own blocker. System, indexing and antivirus processes, other users' processes and this tool itself are never touched. `--resume-pid` and `--unlock-folders` undo the containment after a false alarm. This is damage mitigation, not kernel-level prevention: the [limitations](#️-limitations) say what it cannot catch.
+- **Memory limits on every OS.** Scan workers are capped on Windows (Job Object) and macOS (a watchdog in the parent process), as they already were on Linux.
+- **Production operations:**
+  - start-up validation of every setting: a typo stops the program with a clear message instead of silently becoming a default;
+  - `LOG_FORMAT=json` structured logs;
+  - `/metrics` in JSON or Prometheus format;
+  - API rate limiting, an upload limit enforced before parsing, and a limit on concurrent scans;
+  - a [deployment guide](docs/DEPLOYMENT.md) with nginx and Caddy TLS setups.
+- **Internals:**
+  - typed signals between the layers and the scorer, checked by mypy;
+  - one scorer function per layer;
+  - a configuration module with no import-time side effects;
+  - every function under cyclomatic complexity 20, enforced in CI;
+  - 858 tests, 91 % coverage.
+
 ## 🆕 What's new in 4.5
 
 - **Scan the mailbox itself (IMAP).** `python RansomwareScanner.py --scan-imap` reads new messages from `IMAP_FOLDER` with their full transport headers, so SPF / DKIM / DMARC and spoofing checks work even when saved copies would have lost them. Read-only (the folder is opened with EXAMINE and bodies fetched with `BODY.PEEK[]`, so nothing is marked as read), TLS only with certificate checks, each message scanned in an isolated worker, nothing scanned twice (last UID per folder, reset when the server's UIDVALIDITY changes), bounded by `IMAP_MAX_MESSAGES` and `IMAP_MAX_MB`. With `--background` and `IMAP_CHECK_MINUTES`, the mailbox is checked on a schedule. Use an app password.
@@ -53,7 +77,16 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 - **More formats closed:** Equation Editor 3.0 objects (CVE-2017-11882) in RTF and legacy Office files, hidden / very hidden sheets in `.xls`, LUKS and `openssl enc` files recognised as legitimate encrypted containers.
 - **Security hardening:** helper programs are never taken from the current directory, ML models other users could change are refused, bandit runs in CI, and type checking covers every detector.
 
-## 🆕 What's new in 4.4
+---
+
+## 🗂️ Earlier releases
+
+The full history is in the [changelog](CHANGELOG.md).
+
+<details>
+<summary>4.4, 4.3, 4.2, 4.1 and 4.0</summary>
+
+### 4.4
 
 > **Measured so far:** on 3,312 benign files, 0.8% High/Critical (25 of the 27 are installer scripts that really download and silently run a program) and about 6x faster scans than the first 4.4 build. **Not measured yet:** the detection rate on real malware samples (`tools/evaluate.py`). See the [changelog](CHANGELOG.md) for details.
 
@@ -74,15 +107,6 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 - **Optional sandbox.** Point `SANDBOX_URL` at your own [CAPEv2](https://github.com/kevoreilly/CAPEv2) server and suspicious top-level files are detonated there; behaviour signatures (shadow-copy deletion, encryption, injection ...) are scored in a new *dynamic* category. Nothing is sent anywhere else, and it is off by default.
 - **Calibration.** `python tools/calibrate_weights.py --malicious DIR --benign DIR --out calib` proposes scoring weights from labelled data, with cross-validated detection and false-alarm rates, for review.
 - **Tools.** `python tools/mbox_to_eml.py OUT_DIR corpus.mbox` splits mbox mailboxes into `.eml` files for scanning and evaluation.
-
----
-
-## 🗂️ Earlier releases
-
-The full history is in the [changelog](CHANGELOG.md).
-
-<details>
-<summary>4.3, 4.2, 4.1 and 4.0</summary>
 
 ### 4.3
 
@@ -147,6 +171,7 @@ flowchart TD
         Y["YARA<br/>23 rules"]
         FI["File integrity<br/>disguise · encryption"]
         EL["Linux ELF"]
+        PE["Windows PE<br/>imports · T1490 · overlay"]
         SC["Scripts<br/>layered deobfuscation"]
         PG["Hidden content<br/>prompt injection"]
         RL["External links<br/>RTI · Follina · UNC"]
@@ -175,7 +200,7 @@ flowchart TD
     S3 --> SM["Weighted scoring matrix<br/>technical · reputation · semantic · statistical · dynamic"]
     SM --> OUT["Risk 0-100 + verdict<br/>TXT / JSON report · JSON Lines · signed webhook"]
     SM --> Q["Auto-quarantine<br/>AES-256-GCM vault"]
-    CN["Canary tripwires<br/>watched in real time"] --> AL["Alert + optional response<br/>network off · your script"]
+    CN["Canary tripwires<br/>watched in real time"] --> AL["Alert + containment<br/>stop writers · lock folders · network off"]
 ```
 
 Signals fall into five weight categories: **technical** (everything structural, including MailGuard), **reputation** (VirusTotal), **semantic** (LLM and lure wording), **statistical** (ML classifier) and **dynamic** (behaviour seen by emulation or the sandbox). Technical evidence is designed to mathematically outweigh semantic and statistical signals: those two together can never push a file past Medium. Archives and e-mails send every member or attachment back through all layers (dotted arrows), and the container is scored like its most dangerous member.
@@ -219,12 +244,13 @@ Signals fall into five weight categories: **technical** (everything structural, 
     - Scored in its own **statistical** category (max 20 points). If the file-integrity layer has already proved the content is encrypted, the ML opinion is not counted twice.
 
 13. **Linux ELF triage (4.4).** Header, packing (UPX or near-random content), a removed section table, and behaviour strings: ransom notes, cryptominer pools, reverse shells, download-and-run one-liners, log/firewall tampering and persistence.
-14. **Scripts (4.4).** `.js`, `.jse`, `.vbs`, `.vbe`, `.wsf`, `.hta`, `.ps1`, `.bat`, `.cmd`: up to five nested encodings are unwound (Script Encoder, base64, `Chr()` / `fromCharCode` chains, reversed strings, PowerShell `-EncodedCommand`), then download, execute, recovery tampering (T1490), Defender/AMSI tampering and persistence are looked for. Download *plus* execute (a dropper) is High; either one alone stays Low.
-15. **QR codes (4.4).** Codes in images, PDF pages, Office documents and attachments are decoded and their links judged (bare IP, punycode, `user@host`, shorteners, script schemes). Needs `pyzbar` + zbar or OpenCV.
-16. **Web pages (4.4).** HTML smuggling (a payload rebuilt in the browser from base64 with `Blob`), active SVG, password forms posting elsewhere and redirects. Hidden payloads are decoded and scanned like attachments.
-17. **Embedded content (4.4).** OneNote notebooks, CHM help files, MSI installers, XLL add-ins and password-protected Office files: the files they carry are carved out or decrypted (with the password from the e-mail when there is one) and scanned.
-18. **JavaScript emulation (4.5, opt-in).** With [box-js](https://github.com/CapacitorSet/box-js) installed and `EMULATION_ENABLED=1`, scripts run against fake WScript / ActiveX objects and the URLs fetched, files written and commands run are recorded, including URLs built only at run time. Enable it inside an analysis VM.
-19. **CAPEv2 sandbox (4.4, opt-in).** Suspicious top-level files go to *your own* CAPEv2 server (`SANDBOX_URL`); its behaviour signatures are scored in the dynamic category.
+14. **Windows programs (4.6).** PE structure read without executing it: per-section entropy and packer section names, writable+executable sections, the import table by name (process-injection chain; encrypt + walk + write in unsigned programs; imports resolved only at run time), shadow-copy and backup deletion commands in ASCII and UTF-16 (T1490), programs appended after the sections, near-random overlays that are no known installer, malformed headers, and whether an Authenticode signature directory is present (reported, not verified). A packed program is scored once: its writable code and hidden imports are the packer's doing, and the ML opinion on the same sections is not added.
+15. **Scripts (4.4).** `.js`, `.jse`, `.vbs`, `.vbe`, `.wsf`, `.hta`, `.ps1`, `.bat`, `.cmd`: up to five nested encodings are unwound (Script Encoder, base64, `Chr()` / `fromCharCode` chains, reversed strings, PowerShell `-EncodedCommand`), then download, execute, recovery tampering (T1490), Defender/AMSI tampering and persistence are looked for. Download *plus* execute (a dropper) is High; either one alone stays Low.
+16. **QR codes (4.4).** Codes in images, PDF pages, Office documents and attachments are decoded and their links judged (bare IP, punycode, `user@host`, shorteners, script schemes). Needs `pyzbar` + zbar or OpenCV.
+17. **Web pages (4.4).** HTML smuggling (a payload rebuilt in the browser from base64 with `Blob`), active SVG, password forms posting elsewhere and redirects. Hidden payloads are decoded and scanned like attachments.
+18. **Embedded content (4.4).** OneNote notebooks, CHM help files, MSI installers, XLL add-ins and password-protected Office files: the files they carry are carved out or decrypted (with the password from the e-mail when there is one) and scanned.
+19. **JavaScript emulation (4.5, opt-in).** With [box-js](https://github.com/CapacitorSet/box-js) installed and `EMULATION_ENABLED=1`, scripts run against fake WScript / ActiveX objects and the URLs fetched, files written and commands run are recorded, including URLs built only at run time. Enable it inside an analysis VM.
+20. **CAPEv2 sandbox (4.4, opt-in).** Suspicious top-level files go to *your own* CAPEv2 server (`SANDBOX_URL`); its behaviour signatures are scored in the dynamic category.
 
 Every optional layer **degrades gracefully**: a missing library, a missing local model, or a missing API key produces a warning, not a crash, and the remaining layers still run.
 
@@ -249,6 +275,7 @@ The original hardcoded equation (`10·db + 5·llm + 5·vt`) gave a *semantic* gu
 | External link: remote template / external OLE / UNC (+8 per extra kind) | technical | 70 |
 | Script: recovery tampering / dropper / ransom note / defence evasion / persistence / download or execute alone (+8 per extra) | technical | 70 / 65 / 60 / 40 / 25 / 20 |
 | ELF: ransom note / miner or reverse shell / download-and-run / evasion / persistence (+8 per extra) | technical | 60 / 45 / 35 / 25 / 20 |
+| Windows program deletes shadow copies / backups (T1490) | technical | 60 |
 | Double extension or RTLO name (archive or mail) · zip bomb · CHM command object · file embedded in a web page | technical | 60 |
 | XLM macro sheet | technical | 55 |
 | Confirmed prompt injection | technical | 50 |
@@ -258,10 +285,12 @@ The original hardcoded equation (`10·db + 5·llm + 5·vt`) gave a *semantic* gu
 | Mail: DMARC failure (SPF/DKIM failure without it) | technical | 35 (20) |
 | Executable inside an archive · password form posting elsewhere · QR code to a risky link | technical | 35 |
 | Mail: display-name spoof · archive password in the body · deceptive link · Reply-To diversion | technical | 30 · 30 · 25 · 15 |
-| Script Encoder output · scan failed (timeout or crash) | technical | 30 · 25 |
-| Encrypted archive not opened · obfuscated script · packed ELF · page redirect | technical | 20 |
+| Script Encoder output · scan failed (timeout or crash) · program appended to a program | technical | 30 · 25 · 25 |
+| Encrypted archive not opened · obfuscated script · packed ELF or Windows program · process-injection imports · page redirect | technical | 20 |
+| Unsigned program importing encrypt + directory walk + file write | technical | 15 |
 | Hidden content · injection phrasing · format mismatch · obfuscated page script · page builds a download | technical | 15 |
-| Archive only partly unpacked · locked Office document · ELF without section table | technical | 10 |
+| Archive only partly unpacked · locked Office document · ELF without section table · writable code section · imports resolved at run time · malformed Windows program | technical | 10 |
+| Near-random appended data in an unsigned program | technical | 8 |
 | Worst archive member / mail attachment / embedded file | its own categories | carried over |
 | VirusTotal detections | reputation | max(35, 80 × ratio) |
 | LLM lure assessment | semantic | 24 × confidence |
@@ -297,7 +326,7 @@ python RansomwareScanner.py --verify-canaries             # exit code 2 if tripp
 python RansomwareScanner.py --remove-canaries
 ```
 
-Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves. Since 4.5 a trip can also **act**: `CANARY_RESPONSE=network_off,script` (see [What's new in 4.5](#-whats-new-in-45)).
+Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves. A trip can also **act** (`CANARY_RESPONSE`, run in this order): `stop_writers` suspends the processes writing in the canary folders with their children (`CANARY_CONTAIN_MODE=terminate` kills them), `lock_folders` removes write access to `CANARY_LOCK_DIRS`, `controlled_folder_access` turns on Windows' own blocker, `network_off` disconnects the machine, and `script` runs your playbook. `--resume-pid PID` and `--unlock-folders` undo the containment. It is a **rapid-containment and damage-mitigation tripwire**: it acts after encryption has started and cannot replace kernel-level EDR prevention.
 
 ### Encrypted quarantine vault
 
@@ -423,13 +452,18 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `IMAP_PORT`, `IMAP_STARTTLS`, `IMAP_FOLDER` | `993`, `false`, `INBOX` | connection and folder (TLS only) |
 | `IMAP_SINCE_DAYS`, `IMAP_MAX_MESSAGES`, `IMAP_MAX_MB` | `7`, `200`, `25` | first-run look-back, per-run and per-message limits |
 | `IMAP_CHECK_MINUTES` | `0` (off) | check the mailbox on a schedule in `--background` |
-| `CANARY_RESPONSE`, `CANARY_RESPONSE_SCRIPT` | empty (alert only) | `network_off`, `script`; absolute path of your response script |
+| `CANARY_RESPONSE`, `CANARY_RESPONSE_SCRIPT` | empty (alert only) | `stop_writers`, `lock_folders`, `controlled_folder_access`, `network_off`, `script`; absolute path of your response script |
+| `CANARY_CONTAIN_MODE`, `CANARY_CONTAIN_EXCLUDE`, `CANARY_LOCK_DIRS` | `suspend`, empty, canary folders | `terminate` to kill; extra process names never stopped; folders `lock_folders` makes read-only |
+| `LOG_FORMAT`, `LOG_LEVEL` | `text`, `INFO` | `json` for one JSON object per log line |
+| `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_TRUST_PROXY` | `60`, `10`, `2`, off | REST API abuse limits (see [deployment](docs/DEPLOYMENT.md)) |
 | `EMULATION_ENABLED`, `EMULATION_TOOL`, `EMULATION_TIMEOUT` | `false`, `box-js`, `20` | JavaScript emulation (analysis VM only) |
 | `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | worker processes for folder scans |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |
 | `JSONL_PATH`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `WEBHOOK_MIN_VERDICT` | empty, empty, empty, `High` | SIEM outputs (HMAC-signed webhook) |
 | `RULEPACK_PUBLIC_KEYS`, `WEIGHTS_OVERRIDE` | empty | trusted rule-pack signers; reviewed weight changes |
 
+> Every setting is checked at start-up; an invalid value stops the program with one line per problem.
+>
 > The local layers (hashes, fuzzy, macros, YARA, integrity, hidden content, external links, archives) need **no keys at all**. VirusTotal needs a key; the LLM layer needs a running Ollama (recommended) or an OpenAI key.
 
 ### Malware-hash dataset
@@ -488,6 +522,8 @@ python RansomwareScanner.py --scan-now --jsonl results.jsonl # also one JSON lin
 # Protection
 python RansomwareScanner.py --deploy-canaries [DIR ...]
 python RansomwareScanner.py --verify-canaries
+python RansomwareScanner.py --resume-pid 4242,4243     # after a false alarm: resume suspended processes
+python RansomwareScanner.py --unlock-folders           # give back write access removed by lock_folders
 python RansomwareScanner.py --quarantine FILE
 python RansomwareScanner.py --list-quarantine
 python RansomwareScanner.py --restore ID [--restore-to PATH]
@@ -517,7 +553,7 @@ Scan directories, file types and the scan interval come from `.env` and the defa
 ```
 Ransomware Scan Report
 ======================
-Engine version:         4.5.0
+Engine version:         4.6.0
 Total files scanned:    6
 Files flagged:          5
 Highest verdict:        Critical
@@ -622,9 +658,9 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ```bash
 pip install -e ".[dev]"          # or: pip install -r requirements.lock pytest hypothesis qrcode
-python -m pytest                 # ~700 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
+python -m pytest                 # ~860 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
 python -m pytest --cov           # coverage report; CI fails under 85 %
-ruff check . && mypy             # lint and type checks run in CI too
+ruff check . && mypy             # lint (incl. complexity < 20, lazy logging) and types, also in CI
 bandit -r engine detectors core api -ll   # security linter, also in CI
 python test_smoke.py             # the original v3 smoke test, still passing
 
@@ -680,8 +716,12 @@ hybrid-ransomware-detector/
 ├── gui.py                       # desktop app entry point (Aegis Sentinel)
 ├── aegis_gui/                   # the desktop app: common, formatting, state, widgets, detail, pages/, app
 ├── engine/                      # the scanner itself
-│   ├── config.py                # version, per-user paths, logging, .env, CONFIG
-│   ├── scanner.py               # RansomwareScanner: pipeline runner, layer guard, heavy-layer gate
+│   ├── config.py                # version, per-user paths, .env, CONFIG; init_runtime() (no import side effects)
+│   ├── validation.py            # start-up configuration checks
+│   ├── logs.py, metrics.py      # text / JSON logging; runtime counters (/metrics)
+│   ├── scanner.py               # RansomwareScanner facade: engines, folder walks, runs
+│   ├── staging.py               # pipeline runner, layer guard, heavy-layer gate
+│   ├── protection.py            # quarantine and canary handling
 │   ├── layers.py                # the ordered detection layers; ScanContext (file read once)
 │   ├── workers.py               # isolated, parallel folder scans (timeout, memory limit)
 │   ├── containers.py            # mail / archive / web / embedded content, re-scanned recursively
@@ -690,7 +730,9 @@ hybrid-ransomware-detector/
 │   └── report.py                # text + JSON reports
 ├── detectors/                   # independently-optional detection engines
 │   ├── indicators.yaml          # THE registry: weights, caps, categories, labels
-│   ├── registry.py, scoring.py  # loads the registry; transparent weighted scoring matrix
+│   ├── registry.py, scoring.py  # loads the registry; one scorer per layer (SCORERS)
+│   ├── signals.py               # typed signals: the contract between layers and scorers
+│   ├── pe_analysis.py           # Windows PE: sections, imports, T1490 commands, overlay
 │   ├── file_integrity.py        # magic bytes, disguised executables, encrypted content
 │   ├── macro_analysis.py        # olevba VBA/XLM triage + VBA stomping
 │   ├── yara_engine.py, fuzzy_hash.py, tlsh_py.py (TLSH port for Windows), entropy.py
@@ -711,16 +753,17 @@ hybrid-ransomware-detector/
 │   ├── rulepack.py              # signed rule-pack verify / install
 │   ├── sandbox.py               # optional CAPEv2 client
 │   ├── mailbox.py               # IMAP mailbox scanning (read-only, TLS)
-│   ├── response.py              # canary response actions (network off, your script)
+│   ├── response.py              # canary response actions (stop writers, lock folders, network off, script)
+│   ├── containment.py           # find / suspend the writing process; folder lock and unlock
 │   ├── tools.py                 # helper programs found outside the current directory
 │   ├── outputs.py               # JSON Lines + signed webhook
 │   ├── cache.py, http.py
-├── api/                         # result JSON schema + optional REST API (FastAPI)
+├── api/                         # result JSON schema + optional REST API (FastAPI) + abuse limits
 ├── rules/                       # YARA rules (23 original rules in five files)
 ├── tools/                       # evaluate, calibrate_weights, profile_layers, build_fuzzy_db, rulepack, mbox_to_eml
 ├── tests/                       # pytest suite (synthetic samples only), incl. fuzz + regression corpus
 ├── fuzz/                        # atheris harness for long coverage-guided fuzzing
-├── docs/                        # ARCHITECTURE.md, THREAT_MODEL.md, DETECTION_v3/v4.md, screenshots
+├── docs/                        # ARCHITECTURE.md, THREAT_MODEL.md, DEPLOYMENT.md, DETECTION_v3/v4.md, screenshots
 ├── .github/workflows/           # tests (3 OS), quality gates (lint, types, bandit, coverage, audit, regression), release
 ├── pyproject.toml               # package metadata, extras, tool configuration
 ├── requirements.txt             # loose requirements; requirements.lock = pinned versions
@@ -737,10 +780,11 @@ See [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md) for the design of the v4 laye
 How the project is built to be trusted, not only to detect. Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 - **One indicator registry.** Every weight, category cap and label lives in `detectors/indicators.yaml`; scoring, the desktop app and the calibration tool read it. Reports record the registry version. Reviewed changes can be applied as an override file (`WEIGHTS_OVERRIDE`) without editing code.
-- **Isolation.** Folder and API scans run each file in a worker process with a time limit and (Linux) a memory limit; a file that hangs or kills a worker is reported as `scan_failed`. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
+- **Isolation.** Folder and API scans run each file in a worker process with a time limit and a memory limit (RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog on macOS); a file that hangs or kills a worker is reported as `scan_failed`. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
 - **Fuzzed parsers.** Every parser is fuzzed in the suite (Hypothesis) and can be fuzzed for hours with atheris (`fuzz/`). Fuzzing found a ZIP that ended a scan (fixed); `pip-audit` found a parser hang in PyPDF2 (CVE-2023-36464), fixed by moving to `pypdf`.
-- **Quality gates in CI.** ruff (lint, import order, bug and security patterns), bandit, mypy over every engine and detector module, an 85 % coverage floor, `pip-audit` on the pinned lock file, and a 13-file regression corpus whose verdicts, scores and indicators must not change unintentionally.
-- **Integration.** A versioned JSON schema for results (`api/scan_result.schema.json`), JSON Lines output (`--jsonl`), HMAC-signed webhook alerts (`WEBHOOK_URL`), and an optional REST API (`aegis-api`, token-protected, size-limited, isolated scans).
+- **Typed contracts.** Layers fill typed signal dataclasses and each layer has one scorer function; mypy checks both sides, so a renamed field is a type error, not a silent missed detection.
+- **Quality gates in CI.** ruff (lint, import order, bug and security patterns, cyclomatic complexity under 20, lazy log arguments), bandit, mypy over every engine and detector module, an 85 % coverage floor, `pip-audit` on the pinned lock file, and a 13-file regression corpus whose verdicts, scores and indicators must not change unintentionally.
+- **Integration.** A versioned JSON schema for results (`api/scan_result.schema.json`), JSON Lines output (`--jsonl`), HMAC-signed webhook alerts (`WEBHOOK_URL`), an optional REST API (`aegis-api`: token-protected, rate-limited, size-limited before parsing, isolated scans), structured JSON logs and Prometheus metrics.
 - **Signed detection content.** Rules and fuzzy signatures can be updated without a new release: `tools/rulepack.py` builds and Ed25519-signs a pack; `--update-rules` installs it only if the signature, manifest hashes, version and rule compilation all check out.
 - **Releases.** Pushing a `v*` tag builds and smoke-tests binaries on Windows, macOS and Linux, then publishes them with SHA-256 sums, a CycloneDX SBOM and keyless Sigstore signatures (pre-release for `-beta` tags).
 
@@ -765,17 +809,17 @@ Being explicit about what the tool does *not* do:
 - **E-mail authentication** is read from the headers your server recorded, not re-verified. A message saved without transport headers (drafts, sent items, some exports) has no SPF/DKIM/DMARC verdict; scan the mailbox with `--scan-imap` to get messages as delivered. Microsoft Graph (Exchange Online without IMAP) is not supported yet. OLE objects that are neither a packaged file nor an Office/PDF document are counted but not unpacked; Equation Editor 3.0 objects (the CVE-2017-11882 exploit carrier) are flagged by YARA in RTF and legacy Office files.
 - **The ML layer is only as good as its training data.** No model ships with the project (a model trained on synthetic data would claim accuracy it doesn't have). The rule engine flags any non-compressed file that is random throughout, which can include legitimate encrypted files. KeePass, GPG, age, LUKS and `openssl enc` files with their normal extension are recognised; other encrypted formats are not (PDFs whose object structure is intact are). That's why the layer is capped at 20 points.
 - **Hidden-content detection** covers Word, Excel, PowerPoint (OOXML), PDF, and hidden / very hidden sheets in legacy `.xls` workbooks. Legacy `.ppt` and conditional-formatting tricks are not inspected.
-- **Canaries detect; they do not stop the encrypting process.** They catch encryption in the folders where they are planted (about a second with `watchdog`), and with `CANARY_RESPONSE` they can cut the network or run your script. Killing the process needs kernel-level hooks (an EDR); on Windows, Controlled Folder Access is the built-in blocker.
+- **Canaries are a rapid-containment tripwire, not prevention.** They fire about a second after a canary in a watched folder changes. `stop_writers` then suspends the process that has files open there for writing. Ransomware that opens, encrypts and closes each file in a few milliseconds may have no file open at that moment and is not found; the folder lock and network cut still apply. Files encrypted before the trip stay encrypted. Stopping a process *before* it writes needs kernel-level hooks (an EDR); on Windows, Controlled Folder Access is the built-in blocker.
 - **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Use `--export-key` to back it up; a lost key and no backup means quarantined items can't be restored.
 - **Detection content is a starting point:** the bundled YARA rules are original triage heuristics and the fuzzy database ships empty. Real coverage grows with your own signatures.
-- **Windows programs are not classified on their own.** An `.exe` / `.dll` scanned directly is judged by the ML fallback, YARA behaviour rules and VirusTotal; the engine's strength is documents, e-mails, archives and scripts. A program disguised as a document, inside an archive or attached to an e-mail is flagged.
-- **Detection rate on real malware is not measured yet.** False alarms are (0.8% High/Critical on 3,312 benign files); `tools/evaluate.py` measures detection on your own labelled samples.
+- **Windows programs: static structure only.** The PE layer reads headers, sections, imports and strings. Code that resolves its APIs at run time, unpacks itself in memory or is protected by a strong packer shows only as *packed* or *hidden imports*. Authenticode signatures are reported, not verified against the Windows trust store. Delay-load imports are not parsed.
+- **Detection rate on real malware is not measured yet.** False alarms are (0.7% High/Critical on 3,713 benign files, including 401 Windows binaries); `tools/evaluate.py` measures detection on your own labelled samples.
 
 ---
 
 ## 🧭 Roadmap
 
-Delivered in v4.5.0: IMAP mailbox scanning, canary response actions and optional JavaScript emulation. Delivered in v4.4: QR codes, ELF, scripts, the optional CAPEv2 sandbox, signed releases and the benign-corpus benchmark. Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered in v4.2.0: AES ZIP / 7z / ISO, Excel and PowerPoint hidden content, nested Outlook items, quarantine key backup, vault-aware ML, and real-time canary watching. Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
+Delivered in v4.6.0: Windows PE analysis, process containment and folder locking for canaries, memory limits on every OS, typed signals and per-layer scorers, start-up validation, JSON logs, metrics and API abuse limits. Delivered in v4.5.0: IMAP mailbox scanning, canary response actions and optional JavaScript emulation. Delivered in v4.4: QR codes, ELF, scripts, the optional CAPEv2 sandbox, signed releases and the benign-corpus benchmark. Delivered in v4.3.0: RAR archives and OLE objects in Outlook messages. Delivered in v4.2.0: AES ZIP / 7z / ISO, Excel and PowerPoint hidden content, nested Outlook items, quarantine key backup, vault-aware ML, and real-time canary watching. Delivered in v4.1.0: MailGuard (.eml/.msg), the static ML classifier and standalone executables. Delivered in v4.0.0: file-integrity and ransomware-impact detection, prompt-injection defence, Office external-link analysis, archive inspection, VBA-stomping/XLM detection, canary tripwires, the quarantine vault, and safer external calls (see the [changelog](CHANGELOG.md)). Next:
 
 - **Microsoft Graph mailbox scanning** for Exchange Online tenants that disable IMAP.
 - **A curated, labelled training corpus** and published ML evaluation numbers.

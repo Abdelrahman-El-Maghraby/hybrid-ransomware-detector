@@ -19,7 +19,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-from typing import TYPE_CHECKING, Dict, Iterator, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Tuple
+
+from detectors.signals import ArchiveSignal, EmbeddedSignal, MailSignal, WebSignal, WorstMember
 
 if TYPE_CHECKING:  # pragma: no cover
     from .layers import ScanContext
@@ -76,7 +78,10 @@ class ContainerHandler:
     def decorate(self, view_dict: Dict, summaries: List[Dict]) -> None:
         """Attach container-level findings to member summaries."""
 
-    def signals(self, view_dict: Dict) -> Dict:
+    def signals(self, view_dict: Dict) -> Any:
+        """The container's own findings as its typed signal (detectors/signals.py;
+        it must have a `worst` field), or a plain dict for a third-party
+        container the scorer does not know."""
         raise NotImplementedError
 
 
@@ -97,7 +102,7 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                         member_results.append(scanner.scan_file(
                             member_path, _depth=ctx.depth + 1, _display_name=display_name))
                     except Exception as e:
-                        logger.error(f"Error scanning {handler.error_label} {label}: {e}")
+                        logger.error("Error scanning %s %s: %s", handler.error_label, label, e)
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 
@@ -111,11 +116,15 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
     signals = handler.signals(view_dict)
     worst = max(member_results, key=lambda r: r.get("risk_score", 0), default=None)
     if worst and worst.get("risk_score", 0) > 0:
-        signals[handler.worst_key] = {
-            "name": worst.get("file_name", handler.worst_default_name),
-            "contributions": worst.get("score_breakdown", {}).get("contributions", []),
-        }
-    ctx.signals[handler.signal_key] = signals
+        member = WorstMember(
+            name=worst.get("file_name", handler.worst_default_name),
+            contributions=worst.get("score_breakdown", {}).get("contributions", []))
+        if isinstance(signals, dict):
+            signals[handler.worst_key] = {"name": member.name,
+                                          "contributions": member.contributions}
+        else:
+            signals.worst = member
+    ctx.signals.set(handler.signal_key, signals)
 
 
 class ArchiveHandler(ContainerHandler):
@@ -156,17 +165,15 @@ class ArchiveHandler(ContainerHandler):
                 flag for flag, key in self.FLAG_SOURCES
                 if any(str(n).split("!/", 1)[-1] == inner for n in view_dict.get(key, []))]
 
-    def signals(self, d):
-        return {
-            "zip_slip": d["zip_slip"],
-            "zip_bomb": d["zip_bomb"],
-            "encrypted_unreadable": d["encrypted_unreadable"],
-            "skipped_members": d.get("skipped_members", 0),
-            "executable_members": d["executable_members"],
-            "double_extension_members": d["double_extension_members"],
-            "rtlo_members": d["rtlo_members"],
-            "reasons": {"zip_slip": d["zip_slip_reason"], "zip_bomb": d["zip_bomb_reason"]},
-        }
+    def signals(self, d: Dict) -> ArchiveSignal:
+        return ArchiveSignal(
+            zip_slip=d["zip_slip"], zip_bomb=d["zip_bomb"],
+            encrypted_unreadable=d["encrypted_unreadable"],
+            skipped_members=d.get("skipped_members", 0),
+            executable_members=d["executable_members"],
+            double_extension_members=d["double_extension_members"],
+            rtlo_members=d["rtlo_members"],
+            reasons={"zip_slip": d["zip_slip_reason"], "zip_bomb": d["zip_bomb_reason"]})
 
 
 class WebHandler(ContainerHandler):
@@ -193,18 +200,14 @@ class WebHandler(ContainerHandler):
             if payload.path:
                 yield payload.path, f"{ctx.display}!/{payload.name}", payload.name
 
-    def signals(self, d):
-        return {
-            "smuggling": d["smuggling"],
-            "smuggling_construct": d["smuggling_construct"],
-            "smuggling_reasons": d["smuggling_reasons"],
-            "payloads": [p["name"] + " (" + p["format"] + ")" for p in d["payloads"]],
-            "svg_active": d["svg_active"],
-            "credential_form": d["credential_form"],
-            "credential_reasons": d["credential_reasons"],
-            "redirects": d["redirects"],
-            "obfuscation": d["obfuscation"],
-        }
+    def signals(self, d: Dict) -> WebSignal:
+        return WebSignal(
+            smuggling=d["smuggling"], smuggling_construct=d["smuggling_construct"],
+            smuggling_reasons=d["smuggling_reasons"],
+            payloads=[p["name"] + " (" + p["format"] + ")" for p in d["payloads"]],
+            svg_active=d["svg_active"], credential_form=d["credential_form"],
+            credential_reasons=d["credential_reasons"], redirects=d["redirects"],
+            obfuscation=d["obfuscation"])
 
 
 class EmbeddedHandler(ContainerHandler):
@@ -231,16 +234,12 @@ class EmbeddedHandler(ContainerHandler):
             if m.path:
                 yield m.path, f"{ctx.display}!/{m.name}", m.name
 
-    def signals(self, d):
-        return {
-            "kind": d["kind"],
-            "risky_members": d["risky_members"],
-            "chm_shortcut": d["chm_shortcut"],
-            "msi_script_actions": d["msi_script_actions"],
-            "xll_addin": d["xll_addin"],
-            "encrypted_unopened": d["encrypted"] and not d["decrypted"],
-            "password_from_message": d["password_from_message"],
-        }
+    def signals(self, d: Dict) -> EmbeddedSignal:
+        return EmbeddedSignal(
+            kind=d["kind"], risky_members=d["risky_members"], chm_shortcut=d["chm_shortcut"],
+            msi_script_actions=d["msi_script_actions"], xll_addin=d["xll_addin"],
+            encrypted_unopened=bool(d["encrypted"] and not d["decrypted"]),
+            password_from_message=d["password_from_message"])
 
 
 class MailHandler(ContainerHandler):
@@ -288,18 +287,13 @@ class MailHandler(ContainerHandler):
             summary["mail_flags"] = [flag for flag, key in self.FLAG_SOURCES
                                      if inner in (view_dict.get(key) or [])]
 
-    def signals(self, d):
-        return {
-            "from_domain": d["from_domain"],
-            "reply_to_domain": d["reply_to_domain"],
-            "auth_failures": d["auth"]["failures"],
-            "display_name_spoof": d["display_name_spoof"],
-            "display_name_spoof_reason": d["display_name_spoof_reason"],
-            "reply_to_mismatch": d["reply_to_mismatch"],
-            "deceptive_links": d["deceptive_links"],
-            "executable_attachments": d["executable_attachments"],
-            "double_extension_attachments": d["double_extension_attachments"],
-            "rtlo_attachments": d["rtlo_attachments"],
-            "lure_subject": d["lure_subject"],
-            "archive_password_in_body": d.get("archives_opened_with_mail_password", []),
-        }
+    def signals(self, d: Dict) -> MailSignal:
+        return MailSignal(
+            from_domain=d["from_domain"], reply_to_domain=d["reply_to_domain"],
+            auth_failures=d["auth"]["failures"], display_name_spoof=d["display_name_spoof"],
+            display_name_spoof_reason=d["display_name_spoof_reason"],
+            reply_to_mismatch=d["reply_to_mismatch"], deceptive_links=d["deceptive_links"],
+            executable_attachments=d["executable_attachments"],
+            double_extension_attachments=d["double_extension_attachments"],
+            rtlo_attachments=d["rtlo_attachments"], lure_subject=d["lure_subject"],
+            archive_password_in_body=d.get("archives_opened_with_mail_password", []))

@@ -45,7 +45,7 @@ import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger("RansomwareScanner.macro")
 
@@ -148,58 +148,7 @@ class MacroAnalyzer:
                     detail="Excel 4.0 (XLM) macro sheet(s) present: "
                            + ", ".join(xlm_evidence[:4]) + ".")
 
-            # Force extraction so analyze_macros() has source to work with.
-            code_size = 0
-            try:
-                for (_fname, _stream, _vba_name, vba_code) in parser.extract_all_macros():
-                    if vba_code:
-                        code_size += len(vba_code)
-            except Exception as e:  # extraction can fail on damaged streams
-                logger.debug("Macro extraction issue for %s: %s", file_path, e)
-
-            autoexec: List[str] = []
-            suspicious: List[str] = []
-            critical: List[str] = []
-            iocs: List[str] = []
-
-            # analyze_macros() returns (type, keyword, description) tuples.
-            for kind, keyword, _description in parser.analyze_macros():
-                kw = (keyword or "").strip()
-                if not kw:
-                    continue
-                if kind == TYPE_AUTOEXEC:
-                    autoexec.append(kw)
-                elif kind == TYPE_SUSPICIOUS:
-                    suspicious.append(kw)
-                    if kw.lower() in CRITICAL_KEYWORDS:
-                        critical.append(kw)
-                elif kind == TYPE_IOC:
-                    iocs.append(kw)
-
-            # De-duplicate while preserving order.
-            autoexec = _dedup(autoexec)
-            suspicious = _dedup(suspicious)
-            critical = _dedup(critical)
-            iocs = _dedup(iocs)
-
-            stomping = False
-            try:
-                stomping = bool(parser.detect_vba_stomping())
-            except Exception as e:  # pcodedmp can choke on damaged projects
-                logger.debug("VBA stomping check failed for %s: %s", file_path, e)
-
-            detail = _summarise(autoexec, suspicious, critical)
-            if stomping:
-                detail += "; VBA STOMPING (P-code differs from the visible source)"
-            if xlm_evidence:
-                detail += "; Excel 4.0 (XLM) macro sheet(s) also present"
-            return MacroResult(
-                available=True, has_macros=True,
-                autoexec=autoexec, suspicious=suspicious, critical=critical,
-                iocs=iocs, vba_code_size=code_size, vba_stomping=stomping,
-                xlm_macros=bool(xlm_evidence), xlm_evidence=xlm_evidence,
-                detail=detail,
-            )
+            return self._vba_result(parser, file_path, xlm_evidence)
         except Exception as e:
             logger.warning("Macro analysis failed for %s: %s", file_path, e)
             return MacroResult(available=True, has_macros=False,
@@ -211,6 +160,57 @@ class MacroAnalyzer:
                 except Exception:  # pragma: no cover
                     pass
 
+
+    def _vba_result(self, parser, file_path: str, xlm_evidence: List[str]) -> MacroResult:
+        """Classify the VBA keywords olevba reports and check for VBA stomping."""
+        code_size = self._extract(parser, file_path)
+        autoexec, suspicious, critical, iocs = self._classify(parser)
+        stomping = False
+        try:
+            stomping = bool(parser.detect_vba_stomping())
+        except Exception as e:  # pcodedmp can choke on damaged projects
+            logger.debug("VBA stomping check failed for %s: %s", file_path, e)
+        detail = _summarise(autoexec, suspicious, critical)
+        if stomping:
+            detail += "; VBA STOMPING (P-code differs from the visible source)"
+        if xlm_evidence:
+            detail += "; Excel 4.0 (XLM) macro sheet(s) also present"
+        return MacroResult(
+            available=True, has_macros=True,
+            autoexec=autoexec, suspicious=suspicious, critical=critical,
+            iocs=iocs, vba_code_size=code_size, vba_stomping=stomping,
+            xlm_macros=bool(xlm_evidence), xlm_evidence=xlm_evidence,
+            detail=detail,
+        )
+
+    @staticmethod
+    def _extract(parser, file_path: str) -> int:
+        """Force extraction (analyze_macros() needs the source); returns its size."""
+        code_size = 0
+        try:
+            for (_fname, _stream, _vba_name, vba_code) in parser.extract_all_macros():
+                if vba_code:
+                    code_size += len(vba_code)
+        except Exception as e:  # extraction can fail on damaged streams
+            logger.debug("Macro extraction issue for %s: %s", file_path, e)
+        return code_size
+
+    @staticmethod
+    def _classify(parser) -> Tuple[List[str], List[str], List[str], List[str]]:
+        """(autoexec, suspicious, critical, iocs) from analyze_macros()'s
+        (type, keyword, description) tuples, de-duplicated in order."""
+        found: Dict[str, List[str]] = {"autoexec": [], "suspicious": [], "critical": [],
+                                       "iocs": []}
+        kinds = {TYPE_AUTOEXEC: "autoexec", TYPE_SUSPICIOUS: "suspicious", TYPE_IOC: "iocs"}
+        for kind, keyword, _description in parser.analyze_macros():
+            kw = (keyword or "").strip()
+            if not kw or kind not in kinds:
+                continue
+            found[kinds[kind]].append(kw)
+            if kind == TYPE_SUSPICIOUS and kw.lower() in CRITICAL_KEYWORDS:
+                found["critical"].append(kw)
+        return (_dedup(found["autoexec"]), _dedup(found["suspicious"]),
+                _dedup(found["critical"]), _dedup(found["iocs"]))
 
     @staticmethod
     def _detect_xlm(parser, file_path: str) -> List[str]:

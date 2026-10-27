@@ -15,7 +15,9 @@ SCORING = (ROOT / "detectors" / "scoring.py").read_text()
 
 
 def emitted():
-    return set(re.findall(r'Contribution\(\s*"([a-z_]+)",\s*"(\w+)"', SCORING))
+    found = set(re.findall(r'\b(?:Contribution|C)\(\s*"([a-z_]+)",\s*"(\w+)"', SCORING))
+    assert len(found) > 60                      # the pattern still finds the scorers
+    return found
 
 
 def test_every_emitted_indicator_is_registered_with_its_category():
@@ -25,7 +27,8 @@ def test_every_emitted_indicator_is_registered_with_its_category():
 
 
 def test_every_weight_used_in_code_exists_and_nothing_is_hardcoded():
-    used = set(re.findall(r"self\.(W_[A-Z0-9_]+)", SCORING))
+    used = set(re.findall(r"\b(?:self|m)\.(W_[A-Z0-9_]+)", SCORING))
+    assert len(used) > 50
     assert used <= set(REGISTRY.weights)
     assert not re.search(r"^\s+W_[A-Z0-9_]+\s*=", SCORING, re.M)      # no literals left
     for entry in REGISTRY.indicators.values():

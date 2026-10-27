@@ -82,4 +82,6 @@ def test_real_slow_layers_still_score(scanner, tmp_path):
     r = scanner.scan_file(str(p))
     keys = list(r["scan_results"])
     assert keys.index("ml_classifier") < keys.index("chatgpt_analysis") < keys.index("virustotal")
-    assert any(c["indicator"] == "ml_classifier" for c in r["score_breakdown"]["contributions"])
+    assert r["scan_results"]["ml_classifier"]["label"] == "suspicious"
+    # The PE layer scored the packing first; the ML opinion on it is not added twice.
+    assert {c["indicator"] for c in r["score_breakdown"]["contributions"]} == {"pe_packed"}

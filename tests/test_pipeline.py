@@ -27,9 +27,9 @@ def scanner(tmp_path):
 
 def test_default_pipeline_order():
     names = [layer.name for layer in default_pipeline()]
-    assert names == ["hashes", "allowlist", "fuzzy", "local-db", "macro", "yara", "integrity", "elf", "script", "mail",
-                     "prompt-guard", "relationships", "qr", "archive", "web", "embedded", "emulation", "ml", "llm",
-                     "virustotal", "sandbox"]
+    assert names == ["hashes", "allowlist", "fuzzy", "local-db", "macro", "yara", "integrity", "elf", "pe",
+                     "script", "mail", "prompt-guard", "relationships", "qr", "archive", "web", "embedded",
+                     "emulation", "ml", "llm", "virustotal", "sandbox"]
     # The mail container must run before the prompt guard: the guard reads the body.
     assert names.index("mail") < names.index("prompt-guard")
 
@@ -129,7 +129,8 @@ def test_scan_context_start(scanner, tmp_path):
     ctx = ScanContext.start(scanner, str(p), 1, "outer.zip!/m.eml", "x")
     assert ctx.is_mail and not ctx.is_archive
     assert ctx.result["file_name"] == "m.eml" and ctx.result["file_path"] == "outer.zip!/m.eml"
-    assert ctx.signals == {"archive": {}, "mail": {}, "ml": {}}
+    from detectors.signals import Signals
+    assert ctx.signals == Signals()
 
 
 @pytest.mark.parametrize("name", [

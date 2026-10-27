@@ -328,7 +328,8 @@ class App(ctk.CTk):
 
         def work():
             try:
-                report = self.scanner.check_canaries(notify=True)
+                report = self.scanner.check_canaries(
+                    notify=True, touched=self.canary_watcher.take_touched())
             except Exception:
                 self.gui_log.exception("Canary check failed")
                 report = None
@@ -424,5 +425,18 @@ class App(ctk.CTk):
 
 
 def main():
+    from engine.config import CONFIG, init_runtime
+    from engine.validation import ConfigError, check_config
+    init_runtime()
+    try:
+        check_config(CONFIG)
+    except ConfigError as e:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Aegis Sentinel: invalid configuration", str(e))
+        root.destroy()
+        raise SystemExit(2) from e
     app = App()
     app.mainloop()

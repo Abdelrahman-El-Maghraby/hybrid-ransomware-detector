@@ -223,7 +223,7 @@ class SettingsPage(BasePage):
                                            f"{', '.join(changed)}",
                                       text_color=ACCENT_SOFT)
             logging.getLogger("RansomwareScanner.GUI").info(
-                f"API keys updated via GUI: {', '.join(changed)}")
+                "API keys updated via GUI: %s", ', '.join(changed))
             self.app.pages["dashboard"].refresh_cards()
         else:
             self.keys_label.configure(text="Nothing to save — both fields were empty.",

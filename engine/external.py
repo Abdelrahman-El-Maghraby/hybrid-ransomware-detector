@@ -59,7 +59,7 @@ class ExternalLookupsMixin:
 
             # Skip empty results before spending an LLM call
             if not file_content.strip() and not embedded_strings.strip():
-                logger.warning(f"No content or strings extracted from {file_path}. Skipping LLM analysis.")
+                logger.warning("No content or strings extracted from %s. Skipping LLM analysis.", file_path)
                 return {
                     "is_malicious": False,
                     "confidence": 0,
@@ -80,7 +80,7 @@ class ExternalLookupsMixin:
                 self.cache.put(sha256, cache_layer, result)
             return result
         except Exception as e:
-            logger.error(f"Error in LLM analysis for {file_path}: {str(e)}")
+            logger.error("Error in LLM analysis for %s: %s", file_path, str(e))
             return {
                 "is_malicious": False,
                 "confidence": 0,
@@ -159,16 +159,16 @@ class ExternalLookupsMixin:
             if response.status_code == 404:
                 return self._vt_empty(not_found=True,
                                       details="Hash unknown to VirusTotal; upload did not complete.")
-            logger.error(f"VirusTotal API error: {response.status_code} - {response.text[:200]}")
+            logger.error("VirusTotal API error: %s - %s", response.status_code, response.text[:200])
             return self._vt_empty(error=f"API Error: {response.status_code}")
 
         except Exception as e:
-            logger.error(f"Error in VirusTotal scan for {file_path}: {str(e)}")
+            logger.error("Error in VirusTotal scan for %s: %s", file_path, str(e))
             return self._vt_empty(error=str(e))
 
     def _vt_upload_and_wait(self, file_path: str, headers: Dict, check_url: str):
         """Opt-in upload of an unknown file; returns the final file report response."""
-        logger.info(f"File {file_path} not found in VirusTotal. Uploading (VT_UPLOAD_UNKNOWN=true)...")
+        logger.info("File %s not found in VirusTotal. Uploading (VT_UPLOAD_UNKNOWN=true)...", file_path)
         # VirusTotal: files < 32 MB use the standard /files endpoint;
         # larger files require a dedicated one-time upload URL.
         file_size = os.path.getsize(file_path)
@@ -179,7 +179,7 @@ class ExternalLookupsMixin:
             r = self.http.get("https://www.virustotal.com/api/v3/files/upload_url",
                               headers=headers, timeout=self.http_timeout)
             if r.status_code != 200:
-                logger.error(f"Error getting VirusTotal upload URL: {r.status_code}")
+                logger.error("Error getting VirusTotal upload URL: %s", r.status_code)
                 return None
             upload_url = r.json().get("data", "")
         self.vt_limiter.wait()
@@ -188,10 +188,10 @@ class ExternalLookupsMixin:
             upload = self.http.post(upload_url, headers=headers, files=files,
                                     timeout=max(120, self.http_timeout))
         if upload.status_code != 200:
-            logger.error(f"Error uploading file to VirusTotal: {upload.status_code}")
+            logger.error("Error uploading file to VirusTotal: %s", upload.status_code)
             return None
         analysis_id = upload.json().get("data", {}).get("id", "")
-        logger.info(f"File uploaded to VirusTotal. Analysis ID: {analysis_id}. Waiting for results...")
+        logger.info("File uploaded to VirusTotal. Analysis ID: %s. Waiting for results...", analysis_id)
         analysis_url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
         for _attempt in range(10):
             time.sleep(15)  # Wait between status checks

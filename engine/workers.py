@@ -9,8 +9,15 @@ recurse until the stack overflows, or allocate gigabytes stops the whole scan.
 Here each file is scanned in a worker process that
   * has a wall-clock limit per file (the worker is killed and replaced when it
     is exceeded),
-  * has an address-space limit on Linux (RLIMIT_AS), so runaway allocation ends
-    in a MemoryError or a dead worker instead of a frozen machine,
+  * has a memory limit (WORKER_MEMORY_MB), so runaway allocation ends in a
+    MemoryError or a dead worker instead of a frozen machine:
+      - Linux: an address-space limit (RLIMIT_AS) set inside the worker;
+      - Windows: the worker puts itself in a Job Object with a per-process
+        committed-memory limit (JOB_OBJECT_LIMIT_PROCESS_MEMORY); the job is
+        also set to kill the worker if the scanner itself exits;
+      - macOS (which does not enforce RLIMIT_AS): the parent reads each busy
+        worker's resident memory with proc_pidinfo() four times a second and
+        kills a worker that goes over the limit,
   * is replaced if it dies for any reason.
 A file that times out or kills its worker is reported with the `scan_failed`
 indicator (Medium): ordinary documents do not do that.
@@ -22,13 +29,15 @@ per process, so with a VirusTotal key and pacing on, one worker is used.
 from __future__ import annotations
 
 import contextlib
+import ctypes
+import ctypes.util
 import logging
 import multiprocessing as mp
 import os
 import sys
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -36,15 +45,157 @@ _SCANNER = None
 _START_LOCK = threading.Lock()
 
 
-def _limit_memory(megabytes: int) -> None:
+def _limit_memory(megabytes: int, platform: str = sys.platform) -> str:
+    """Apply the worker's memory limit; returns how ("rlimit", "job", "watchdog",
+    or "" when there is no limit or the OS refused)."""
     if megabytes <= 0:
-        return
+        return ""
+    if platform == "win32":
+        return "job" if _windows_job_limit(megabytes) else ""
+    if platform == "darwin":
+        return "watchdog"                    # RLIMIT_AS is accepted but not enforced
     try:
         import resource
         limit = megabytes * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
-    except Exception:                       # not available (Windows) or not enforced (macOS)
-        pass
+        return "rlimit"
+    except (ImportError, ValueError, OSError):
+        return ""
+
+
+# ------------------------------------------------------------- Windows: Job Object
+JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION = 0x00000400
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+
+
+class _IoCounters(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint64) for name in (
+        "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+        "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+
+class _BasicLimits(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.c_uint32),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", ctypes.c_uint32),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", ctypes.c_uint32),
+                ("SchedulingClass", ctypes.c_uint32)]
+
+
+class JobLimits(ctypes.Structure):
+    """JOBOBJECT_EXTENDED_LIMIT_INFORMATION."""
+    _fields_ = [("BasicLimitInformation", _BasicLimits),
+                ("IoInfo", _IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+_JOB_HANDLE: Any = None                     # kept open for the worker's lifetime
+
+
+def _kernel32() -> Any:
+    win_dll = getattr(ctypes, "WinDLL", None)      # Windows only
+    if win_dll is None:
+        raise OSError("not Windows")
+    k32 = win_dll("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = ctypes.c_void_p
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    k32.SetInformationJobObject.restype = ctypes.c_int
+    k32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                                            ctypes.c_uint32]
+    k32.AssignProcessToJobObject.restype = ctypes.c_int
+    k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    k32.GetCurrentProcess.restype = ctypes.c_void_p
+    return k32
+
+
+def _windows_job_limit(megabytes: int, kernel32: Any = None) -> bool:
+    """Put the current process in a Job Object that caps its committed memory.
+    An allocation beyond the cap fails (Python raises MemoryError); a native
+    crash ends the worker, which the parent reports as scan_failed either way."""
+    global _JOB_HANDLE
+    try:
+        k32 = kernel32 or _kernel32()
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return False
+        info = JobLimits()
+        info.BasicLimitInformation.LimitFlags = (JOB_OBJECT_LIMIT_PROCESS_MEMORY
+                                                 | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION
+                                                 | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+        info.ProcessMemoryLimit = megabytes * 1024 * 1024
+        if not k32.SetInformationJobObject(job, JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+                                           ctypes.byref(info), ctypes.sizeof(info)):
+            return False
+        if not k32.AssignProcessToJobObject(job, k32.GetCurrentProcess()):
+            return False
+        _JOB_HANDLE = job
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
+# ---------------------------------------------------- macOS: resident-memory watchdog
+PROC_PIDTASKINFO = 4
+
+
+class _TaskInfo(ctypes.Structure):
+    """struct proc_taskinfo from <sys/proc_info.h>."""
+    _fields_ = ([(n, ctypes.c_uint64) for n in (
+        "pti_virtual_size", "pti_resident_size", "pti_total_user", "pti_total_system",
+        "pti_threads_user", "pti_threads_system")]
+        + [(n, ctypes.c_int32) for n in (
+            "pti_policy", "pti_faults", "pti_pageins", "pti_cow_faults", "pti_messages_sent",
+            "pti_messages_received", "pti_syscalls_mach", "pti_syscalls_unix", "pti_csw",
+            "pti_threadnum", "pti_numrunning", "pti_priority")])
+
+
+RssReader = Callable[[int], Optional[int]]
+
+
+def macos_rss_reader(libproc: Any = None) -> Optional[RssReader]:
+    """A function pid -> resident bytes using libproc's proc_pidinfo (the call
+    Activity Monitor and psutil use), or None when libproc is unavailable."""
+    try:
+        lib = libproc or ctypes.CDLL(ctypes.util.find_library("proc") or "libproc.dylib")
+        fn = lib.proc_pidinfo
+    except (OSError, AttributeError):
+        return None
+    fn.restype = ctypes.c_int
+    fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+
+    def read(pid: int) -> Optional[int]:
+        info = _TaskInfo()
+        size = ctypes.sizeof(info)
+        if fn(pid, PROC_PIDTASKINFO, 0, ctypes.byref(info), size) != size:
+            return None
+        return int(info.pti_resident_size)
+    return read
+
+
+def memory_watchdog(memory_mb: int, platform: str = sys.platform) -> Optional[RssReader]:
+    """The reader the parent polls busy workers with: macOS only, because Linux
+    and Windows enforce the limit inside the worker."""
+    if memory_mb <= 0 or platform != "darwin":
+        return None
+    return macos_rss_reader()
+
+
+def linux_rss_reader(pid: int) -> Optional[int]:
+    """Resident bytes from /proc (used by the tests to exercise the watchdog)."""
+    try:
+        with open(f"/proc/{pid}/statm") as fh:
+            return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def _worker_main(config: Dict, memory_mb: int, conn) -> None:
@@ -112,6 +263,7 @@ class _Worker:
         child.close()
         self.path: Optional[str] = None
         self.started = 0.0
+        self.watched = 0.0
         self.ready = False
 
     def kill(self) -> None:
@@ -166,6 +318,7 @@ class _IsolatedScan:
 
     MAX_FAILED_STARTS = 3
     POLL_SECONDS = 0.05
+    WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
                  memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event):
@@ -180,6 +333,7 @@ class _IsolatedScan:
         self.config = dict(scanner.config)
         self.done = 0
         self.failed_starts = 0
+        self.rss = memory_watchdog(memory_mb)
         self.pool: List[_Worker] = [_Worker(self.ctx, self.config, memory_mb)
                                     for _ in range(max(1, min(workers, len(targets))))]
 
@@ -220,13 +374,31 @@ class _IsolatedScan:
             return True
         dead = kind == "dead" or not w.proc.is_alive()
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
-        if not (dead or overdue):
+        over_memory = not (dead or overdue) and self._over_memory(w)
+        if not (dead or overdue or over_memory):
             return True
         if w.path is not None:
             path, w.path = w.path, None
-            self._fail(path, f"timed out after {int(self.timeout)}s" if overdue and not dead
-                       else f"the worker process died (exit code {w.proc.exitcode})")
+            if over_memory:
+                reason = (f"MemoryError: the worker used {over_memory // (1024 * 1024)} MB, "
+                          f"over the {self.memory_mb} MB limit, and was stopped")
+            elif overdue and not dead:
+                reason = f"timed out after {int(self.timeout)}s"
+            else:
+                reason = f"the worker process died (exit code {w.proc.exitcode})"
+            self._fail(path, reason)
         return self._replace(i)
+
+    def _over_memory(self, w: _Worker) -> int:
+        """Resident bytes when a busy worker is over the limit, else 0 (watchdog)."""
+        if self.rss is None or w.path is None or w.proc.pid is None:
+            return 0
+        now = time.monotonic()
+        if now - w.watched < self.WATCH_SECONDS:
+            return 0
+        w.watched = now
+        used = self.rss(w.proc.pid) or 0
+        return used if used > self.memory_mb * 1024 * 1024 else 0
 
     # ---------------------------------------------------------------- helpers
     def _dispatch(self, w: _Worker) -> None:

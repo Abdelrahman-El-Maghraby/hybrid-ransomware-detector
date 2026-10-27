@@ -1,18 +1,24 @@
 """
-Engine configuration: version, per-user paths, logging, .env loading and the
-default CONFIG dict. Importing this module has the same side effects the
-monolithic RansomwareScanner.py always had (creates ~/RansomwareScanner,
-configures logging, loads .env), so behaviour is unchanged.
+Engine configuration: version, per-user paths, the .env file and the default
+CONFIG dict.
+
+Importing this module has no side effects: it creates no folder, configures
+no logging and does not change os.environ (the .env file is only read). The
+entry points (RansomwareScanner.py, gui.py, api/server.py) call init_runtime()
+once, which does those three things, and validate the configuration with
+engine.validation.check_config() so a bad value stops the program with a
+clear message instead of surfacing later as a silent default.
 """
 
 import logging
 import os
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-ENGINE_VERSION = "4.5.0"
+ENGINE_VERSION = "4.6.0"
 
 # Resolve per-user paths dynamically so they adapt to the host OS (Windows/macOS/Linux)
 USER_HOME = Path.home()
@@ -30,39 +36,78 @@ SCRIPT_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.paren
 BUNDLED_RULES_DIR = SCRIPT_DIR / "rules"
 BUNDLED_FUZZY_SIGS = SCRIPT_DIR / "fuzzy_signatures.sample.json"
 
-# Create application directories if they don't exist
-APP_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
 logger = logging.getLogger("RansomwareScanner")
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-# Load API keys from a local .env file (NEVER commit real keys to source control).
+# API keys and settings may come from a local .env file (NEVER commit real keys).
 # From source it sits next to this script; a packaged build keeps it in the
 # per-user app folder, because the bundle directory is temporary or read-only.
 ENV_FILE = (APP_DIR / ".env") if FROZEN else (SCRIPT_DIR / ".env")
-load_dotenv(ENV_FILE)
+
+
+def _read_dotenv(path: Path) -> Dict[str, str]:
+    try:
+        return {k: v for k, v in dotenv_values(path).items() if v is not None}
+    except OSError:                       # unreadable .env: the environment still applies
+        return {}
+
+
+_DOTENV = _read_dotenv(ENV_FILE)
+# Values that could not be parsed (reported by engine.validation, not ignored).
+ENV_PROBLEMS: List[str] = []
+
+
+def _raw(name: str) -> Optional[str]:
+    """The environment wins over .env (as load_dotenv without override)."""
+    return os.environ.get(name, _DOTENV.get(name))
+
+
+def _getenv(name: str, default: str = "") -> str:
+    value = _raw(name)
+    return default if value is None else value
+
+
+_RUNTIME_READY = False
+
+
+def init_runtime(console: bool = True, level: int = logging.INFO) -> None:
+    """For entry points, once: create the per-user folders, make .env values
+    visible to os.getenv (some settings are read outside CONFIG), and send
+    logs to the log file (and stdout). Calling it again does nothing."""
+    global _RUNTIME_READY
+    if _RUNTIME_READY:
+        return
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    load_dotenv(ENV_FILE)
+    from engine.logs import configure_logging
+    configure_logging(LOG_FILE, console=console, level=level)
+    _RUNTIME_READY = True
+
+
+_TRUE = ("1", "true", "yes", "on")
+_FALSE = ("0", "false", "no", "off")
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = _raw(name)
     if value is None or not value.strip():
         return default
-    return value.strip().lower() in ("1", "true", "yes", "on")
+    v = value.strip().lower()
+    if v not in _TRUE + _FALSE:
+        ENV_PROBLEMS.append(f"{name}={value!r} is not a yes/no value (use true or false)")
+        return default
+    return v in _TRUE
 
 
 def _env_float(name: str, default: float) -> float:
+    value = _raw(name)
+    if value is None or not str(value).strip():
+        return default
     try:
-        return float(os.getenv(name, default))
+        return float(value)
     except (TypeError, ValueError):
+        ENV_PROBLEMS.append(f"{name}={value!r} is not a number")
         return default
 
 
@@ -72,6 +117,7 @@ SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xl
                         ".eml", ".msg", ".html", ".htm", ".svg",
                         ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta", ".ps1", ".bat", ".cmd",
                         ".one", ".chm", ".msi", ".xll",
+                        ".exe", ".dll", ".scr", ".cpl", ".sys",
                         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
 # Pictures are supported but not scanned in folder scans by default: a Downloads
 # folder can hold thousands, and each one would cost a VirusTotal lookup. Images
@@ -91,51 +137,51 @@ CONFIG = {
     # --- LLM semantic layer -------------------------------------------------
     # llm_provider: "auto" (prefer a reachable LOCAL Ollama for OPSEC, else fall
     # back to OpenAI if a key is set), "ollama", "openai", or "none".
-    "llm_provider": os.getenv("LLM_PROVIDER", "auto"),
-    "ollama_host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-    "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
-    "chatgpt_api_key": os.getenv("OPENAI_API_KEY", ""),
+    "llm_provider": _getenv("LLM_PROVIDER", "auto"),
+    "ollama_host": _getenv("OLLAMA_HOST", "http://localhost:11434"),
+    "ollama_model": _getenv("OLLAMA_MODEL", "llama3.1"),
+    "chatgpt_api_key": _getenv("OPENAI_API_KEY", ""),
     "chatgpt_api_url": "https://api.openai.com/v1/chat/completions",
-    "openai_model": os.getenv("OPENAI_MODEL", "gpt-4"),
+    "openai_model": _getenv("OPENAI_MODEL", "gpt-4"),
 
     # --- Fuzzy / similarity hashing ----------------------------------------
     # Falls back to the bundled sample if no per-user DB exists.
     # Optional self-hosted CAPEv2 sandbox (dynamic analysis). Empty URL = off.
-    "sandbox_url": os.getenv("SANDBOX_URL", ""),
-    "sandbox_token": os.getenv("SANDBOX_TOKEN", ""),
+    "sandbox_url": _getenv("SANDBOX_URL", ""),
+    "sandbox_token": _getenv("SANDBOX_TOKEN", ""),
     "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
-    "sandbox_submit": os.getenv("SANDBOX_SUBMIT", "suspicious"),
+    "sandbox_submit": _getenv("SANDBOX_SUBMIT", "suspicious"),
     # Optional JavaScript emulation with box-js. Runs the attacker's script in a
     # Node sandbox: enable inside an analysis VM / container only.
     "emulation_enabled": _env_bool("EMULATION_ENABLED", False),
-    "emulation_tool": os.getenv("EMULATION_TOOL", "box-js"),
+    "emulation_tool": _getenv("EMULATION_TOOL", "box-js"),
     "emulation_timeout": int(_env_float("EMULATION_TIMEOUT", 20)),
     # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
-    "weights_override": os.getenv("WEIGHTS_OVERRIDE", ""),
+    "weights_override": _getenv("WEIGHTS_OVERRIDE", ""),
     # Folder scans: each file in a worker process with a time and memory limit
     "isolate_scans": _env_bool("ISOLATE_SCANS", True),
     "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
     "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
     "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
     # Machine-readable outputs (SIEM / SOC): JSON Lines file and alert webhook
-    "jsonl_path": os.getenv("JSONL_PATH", ""),
-    "webhook_url": os.getenv("WEBHOOK_URL", ""),
-    "webhook_secret": os.getenv("WEBHOOK_SECRET", ""),
-    "webhook_min_verdict": os.getenv("WEBHOOK_MIN_VERDICT", "High"),
+    "jsonl_path": _getenv("JSONL_PATH", ""),
+    "webhook_url": _getenv("WEBHOOK_URL", ""),
+    "webhook_secret": _getenv("WEBHOOK_SECRET", ""),
+    "webhook_min_verdict": _getenv("WEBHOOK_MIN_VERDICT", "High"),
     # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
-    "rulepack_public_keys": [k for k in os.getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
+    "rulepack_public_keys": [k for k in _getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
     "data_dir": str(DATA_DIR),
     # Known-good files: one SHA-256 per line, optional "# note" after it
-    "allowlist_path": os.getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
-    "fuzzy_signature_db": os.getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
+    "allowlist_path": _getenv("ALLOWLIST_PATH", str(DATA_DIR / "allowlist.txt")),
+    "fuzzy_signature_db": _getenv("FUZZY_SIGNATURE_DB", str(DATA_DIR / "fuzzy_signatures.json")),
     "fuzzy_max_bytes": 20 * 1024 * 1024,   # don't fuzzy-hash files larger than this
 
     # --- YARA ---------------------------------------------------------------
-    "yara_rules_dir": os.getenv("YARA_RULES_DIR", str(BUNDLED_RULES_DIR)),
+    "yara_rules_dir": _getenv("YARA_RULES_DIR", str(BUNDLED_RULES_DIR)),
 
     # --- VirusTotal ---------------------------------------------------------
-    "virustotal_api_key": os.getenv("VIRUSTOTAL_API_KEY", ""),
+    "virustotal_api_key": _getenv("VIRUSTOTAL_API_KEY", ""),
     "virustotal_api_url": "https://www.virustotal.com/api/v3/files",
     # Privacy: by default only the file's SHA-256 is looked up. Uploading an
     # unknown file shares its full content with VirusTotal (and, through it,
@@ -167,7 +213,7 @@ CONFIG = {
     # Without a trained model the transparent rule engine is used. Train one
     # with --train-ml BENIGN_DIR MALICIOUS_DIR (needs requirements-ml.txt).
     "ml_enabled": _env_bool("ML_ENABLED", True),
-    "ml_model_path": os.getenv("ML_MODEL_PATH", str(DATA_DIR / "ml_model.joblib")),
+    "ml_model_path": _getenv("ML_MODEL_PATH", str(DATA_DIR / "ml_model.joblib")),
 
     # --- Pipeline staging (4.4.0-beta.2) ------------------------------------
     # The slow layers (ML, LLM, VirusTotal) run last. They are skipped when the
@@ -182,16 +228,16 @@ CONFIG = {
     "keystore_dir": str(KEYSTORE_DIR),
     # "" (off, default) | "critical" | "high": quarantine files at/above this
     # verdict automatically after they are scanned.
-    "auto_quarantine": os.getenv("AUTO_QUARANTINE", "").strip().lower(),
+    "auto_quarantine": _getenv("AUTO_QUARANTINE", "").strip().lower(),
 
     # --- Mailbox (IMAP) scanning -------------------------------------------
     # Read-only, TLS only. Use an app password. Empty host = off.
-    "imap_host": os.getenv("IMAP_HOST", ""),
+    "imap_host": _getenv("IMAP_HOST", ""),
     "imap_port": int(_env_float("IMAP_PORT", 993)),
     "imap_starttls": _env_bool("IMAP_STARTTLS", False),
-    "imap_user": os.getenv("IMAP_USER", ""),
-    "imap_password": os.getenv("IMAP_PASSWORD", ""),
-    "imap_folder": os.getenv("IMAP_FOLDER", "INBOX"),
+    "imap_user": _getenv("IMAP_USER", ""),
+    "imap_password": _getenv("IMAP_PASSWORD", ""),
+    "imap_folder": _getenv("IMAP_FOLDER", "INBOX"),
     "imap_since_days": int(_env_float("IMAP_SINCE_DAYS", 7)),
     "imap_max_messages": int(_env_float("IMAP_MAX_MESSAGES", 200)),
     "imap_max_mb": _env_float("IMAP_MAX_MB", 25),
@@ -202,8 +248,12 @@ CONFIG = {
     "canary_registry": str(DATA_DIR / "canaries.json"),
     "canary_check_minutes": int(_env_float("CANARY_CHECK_MINUTES", 5)),
     # On a NEW trigger: "" (alert only, default) or any of "network_off,script"
-    "canary_response": os.getenv("CANARY_RESPONSE", ""),
-    "canary_response_script": os.getenv("CANARY_RESPONSE_SCRIPT", ""),
+    "canary_response": _getenv("CANARY_RESPONSE", ""),
+    "canary_response_script": _getenv("CANARY_RESPONSE_SCRIPT", ""),
+    "canary_contain_mode": _getenv("CANARY_CONTAIN_MODE", "suspend"),   # or "terminate"
+    "canary_contain_exclude": _getenv("CANARY_CONTAIN_EXCLUDE", ""),    # extra process names
+    "canary_lock_dirs": _getenv("CANARY_LOCK_DIRS", ""),                # default: canary folders
+    "containment_state_file": str(DATA_DIR / "containment_state.json"),
 
     "report_directory": str(REPORT_DIR),
     "scan_interval_hours": 6,  # Scan every 6 hours
