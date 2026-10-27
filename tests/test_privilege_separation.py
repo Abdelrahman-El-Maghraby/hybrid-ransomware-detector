@@ -92,3 +92,17 @@ def test_containment_is_only_reached_from_desktop_entry_points(module):
     allowed = {"RansomwareScanner.py", "engine/protection.py", "engine/validation.py",
                "core/response.py"}
     assert set(users) <= allowed, users
+
+
+def test_engine_starts_without_the_optional_ocr_packages(tmp_path):
+    """The server image has no OCR; importing the engine must not need it."""
+    code = """
+        import json, sys
+        sys.modules["pytesseract"] = None
+        sys.modules["pdf2image"] = None
+        from engine import text
+        from engine.scanner import RansomwareScanner
+        print(json.dumps({"ocr": text.OCR_AVAILABLE,
+                          "pdf": text.TextExtractionMixin._extract_text_with_ocr_from_pdf(None, "x.pdf")}))
+    """
+    assert _run(code, tmp_path) == {"ocr": False, "pdf": ""}
