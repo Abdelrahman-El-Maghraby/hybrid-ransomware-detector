@@ -179,6 +179,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         logger.info("Scanner initialized (engine v%s). Monitoring directories: %s",
                     ENGINE_VERSION, self.scan_dirs)
         states = layer_states(self)
+        self.capability_states = states      # read by engine/completeness.py per scan
         logger.info("Detection layers -> %s  cache:%s", summary_line(states),
                     "on" if (self.cache and self.cache.enabled) else "off",
                     extra={"event": "layers", "layers": {n: s["state"] for n, s in states.items()}})

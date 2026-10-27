@@ -11,10 +11,20 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
 - **`GET /ready`**, distinct from `/health` (process alive): 200 only when the YARA rules compiled, the indicator registry loaded with every category cap, the report / data / temporary folders accept a file, isolated workers start (a warm-up scan at start-up), and, in the production profile, every required layer is up. Otherwise 503. With the bearer token it lists each check and every layer's state; without it, only `{"ready": ...}`. The API logs ready / not ready at start-up.
 - **`AEGIS_PROFILE`** (`standard` or `production`, validated at start-up).
+- **Scan completeness** (`engine/completeness.py`, result schema **1.2**, additive): every result has
+  - `scan_status`: `complete`, `partial` (an applicable, enabled layer errored, was unavailable or was skipped, or content was not unpacked), `locked` (encrypted content not opened: archive members, password-protected Office files and, newly detected, PDFs that need a user password), `unsupported` (a format with no type-specific analysis), or `failed` (worker timeout, crash or memory limit);
+  - `incomplete_reasons`: one `{member_path, layer, reason, status}` per gap;
+  - `verdict_label`, e.g. `Clean (partial scan)`.
+
+  A container takes its most severe member status: failed > locked > partial > unsupported > complete. Intended skips (score already 100, allowlisted file, a layer that does not apply to the file type, an optional layer switched off) do not make a scan partial. The status never changes the score, the verdict or the response action: a malicious member keeps its full score next to a locked one.
+- A clean score on an incomplete scan never shows as plain "Clean": text reports have a "Scan completeness" line and a "NOT FULLY INSPECTED" section, flagged files list their gaps, the GUI shows the label in the results table and the detail window, and webhooks / JSON Lines carry `scan_status`.
+- **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 
 ### Changed
 
+- LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".
+- A file over `fuzzy_max_bytes` is recorded in `layer_skips` (the fuzzy layer did not run on it).
 - **Builds fail on a missing required dependency** (`build.py`): every package a production-profile layer needs, and the GUI toolkit, must be installed (preflight). The smoke test runs `--capabilities cli` on the packaged program and fails the build, and so the release job, when a required layer is not up in the artifact. A folder build must contain customtkinter. Host tools a desktop binary cannot bundle (a RAR decompressor, the zbar library) are reported, not required; the Docker image must carry them.
 
 ## [4.6.0] — 2026-10-26

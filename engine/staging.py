@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
+from .completeness import assess, verdict_label
 from .config import ENGINE_VERSION
 from .layers import Layer, ScanContext
 
@@ -58,6 +59,10 @@ class StagedPipelineMixin:
         result["risk_score"] = score.risk_score            # 0-100
         result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
         result["score_breakdown"] = score.as_dict()        # full evidence trail
+        # How far the evidence goes; independent of the score and verdict above.
+        result["scan_status"], result["incomplete_reasons"] = assess(
+            cast("RansomwareScanner", self), ctx)
+        result["verdict_label"] = verdict_label(result)
         result["scan_duration_ms"] = int((time.perf_counter() - started) * 1000)
 
         logger.info(
@@ -65,7 +70,7 @@ class StagedPipelineMixin:
             display, result["verdict"], result["risk_score"], result["severity_score"],
             extra={"event": "scan_completed", "path": display,
                    "sha256": result.get("sha256_hash", ""), "verdict": result["verdict"],
-                   "risk_score": result["risk_score"],
+                   "risk_score": result["risk_score"], "scan_status": result["scan_status"],
                    "duration_ms": result["scan_duration_ms"]})
         return result
 

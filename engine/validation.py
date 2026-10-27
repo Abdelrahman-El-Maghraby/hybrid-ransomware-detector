@@ -207,5 +207,33 @@ def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -
                         "stop_writers")
 
 
+# Settings that switch off a layer the production profile requires (docs/RELEASE_SCOPE.md).
+PRODUCTION_SWITCHES = (("qr_scan_enabled", "QR_SCAN_ENABLED", "qr"),
+                       ("ml_enabled", "ML_ENABLED", "ml"))
+
+
+def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """AEGIS_PROFILE=production: a required layer may not be switched off, and the
+    layers that execute attacker code may not be switched on. Whether each required
+    layer is also *available* is reported by GET /ready and --capabilities."""
+    if str(cfg.get("profile") or "standard").strip().lower() != "production":
+        return
+    for key, env, layer in PRODUCTION_SWITCHES:
+        if key in cfg and not cfg[key]:
+            errors.append(f"{env}=0 switches off the '{layer}' layer, which the production "
+                          "profile requires")
+    if cfg.get("emulation_enabled"):
+        errors.append("EMULATION_ENABLED runs attacker JavaScript; it is outside the "
+                      "production profile (use it in an analysis VM)")
+    rules = str(cfg.get("yara_rules_dir") or "")
+    if rules and not Path(rules).is_dir():
+        errors.append(f"YARA_RULES_DIR={rules} does not exist: the production profile "
+                      "requires the YARA layer")
+    if cfg.get("isolate_scans") is False:
+        warnings.append("ISOLATE_SCANS is off: a hostile file can hang or crash the service "
+                        "instead of being reported as a failed scan")
+
+
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts,
+                             _profile)

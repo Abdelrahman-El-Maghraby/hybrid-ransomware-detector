@@ -1,0 +1,282 @@
+"""4.7: scan_status / incomplete_reasons say how far the evidence goes, separately
+from the score; a clean score on an incomplete scan never reads as plain "Clean"."""
+
+import io
+import json
+import zipfile
+
+import pytest
+
+import RansomwareScanner as RS
+from api import SCHEMA_VERSION, load_schema
+from core.outputs import alert_payload
+from engine import completeness as C
+from engine.capabilities import DISABLED, DOWN, UP
+from engine.validation import ConfigError, check_config, validate_config
+from tests.helpers import make_docx, make_pdf, make_zipcrypto_zip
+from tests.test_scanner_integration import _config
+
+
+def _disguised_pe() -> bytes:
+    h = bytearray(4096)
+    h[0:2] = b"MZ"
+    h[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    h[0x80:0x84] = b"PE\x00\x00"
+    return bytes(h)
+
+
+def _all_up(scanner, **overrides):
+    """Layer states as on a complete installation, whatever this machine has."""
+    states = {name: {"state": UP, "detail": "", "missing": []} for name in scanner.capability_states}
+    for name in ("llm", "virustotal", "sandbox", "emulation"):
+        states[name] = {"state": DISABLED, "detail": "off", "missing": []}
+    states.update(overrides)
+    scanner.capability_states = states
+    return scanner
+
+
+@pytest.fixture
+def scanner(tmp_path):
+    return _all_up(RS.RansomwareScanner(_config(tmp_path, cache_enabled=False)))
+
+
+def _write(tmp_path, name, data):
+    p = tmp_path / name
+    p.write_bytes(data)
+    return str(p)
+
+
+def test_complete_scan(scanner, tmp_path):
+    r = scanner.scan_file(_write(tmp_path, "letter.pdf", make_pdf("Quarterly report")))
+    assert r["scan_status"] == "complete" and r["incomplete_reasons"] == []
+    assert r["verdict_label"] == r["verdict"] == "Clean"
+
+
+def test_precedence_is_documented_and_total():
+    assert C.PRECEDENCE == ("complete", "unsupported", "partial", "locked", "failed")
+    assert C.worst(["partial", "locked", "unsupported"]) == "locked"
+    assert C.worst(["failed", "locked"]) == "failed"
+    assert C.worst([]) == "complete"
+
+
+def test_layer_error_makes_the_scan_partial(scanner, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("bad header")
+    monkeypatch.setattr(scanner.pe_analyzer, "analyze_file", boom)
+    r = scanner.scan_file(_write(tmp_path, "tool.exe", _disguised_pe()))
+    assert r["scan_status"] == "partial"
+    assert {"layer": "pe", "reason": "layer error: ValueError: bad header",
+            "member_path": r["file_path"], "status": "partial"} in r["incomplete_reasons"]
+
+
+def test_unavailable_layer_counts_only_where_it_applies(scanner, tmp_path):
+    down = {"state": DOWN, "detail": "needs oletools", "missing": ["oletools"]}
+    _all_up(scanner, macro=down)
+    pdf = scanner.scan_file(_write(tmp_path, "a.pdf", make_pdf("hello")))
+    assert pdf["scan_status"] == "complete"              # macros cannot live in a PDF
+    doc = make_docx(tmp_path / "a.docm")
+    r = scanner.scan_file(str(doc))
+    assert r["scan_status"] == "partial"
+    assert r["incomplete_reasons"][0]["reason"] == "layer unavailable (needs oletools)"
+    assert r["verdict_label"] == f"{r['verdict']} (partial scan)"
+
+
+def test_disabled_optional_layers_do_not_make_a_scan_partial(scanner, tmp_path):
+    assert scanner.capability_states["llm"]["state"] == DISABLED
+    r = scanner.scan_file(_write(tmp_path, "b.pdf", make_pdf("hello")))
+    assert r["scan_status"] == "complete"
+
+
+def test_intended_skips_are_not_gaps(tmp_path):
+    p = tmp_path / "scan" / "vendor.pdf"
+    p.parent.mkdir(exist_ok=True)
+    p.write_bytes(make_pdf("vendor"))
+    import hashlib
+    allow = tmp_path / "allow.txt"
+    allow.write_text(hashlib.sha256(p.read_bytes()).hexdigest() + "  # vendor\n")
+    s = _all_up(RS.RansomwareScanner(_config(tmp_path, allowlist_path=str(allow))))
+    r = s.scan_file(str(p))
+    assert r["scan_results"]["skipped_layers"]["layers"] and r["scan_status"] == "complete"
+
+
+def test_external_layer_failure_is_partial(scanner, tmp_path, monkeypatch):
+    scanner.config["virustotal_api_key"] = "k" * 64
+    monkeypatch.setattr(scanner, "scan_file_with_virustotal",
+                        lambda path, hashes: scanner._vt_empty(error="API Error: 500"))
+    r = scanner.scan_file(_write(tmp_path, "c.pdf", make_pdf("hello")))
+    assert r["scan_status"] == "partial"
+    assert r["incomplete_reasons"][0]["reason"] == "virustotal failed: API Error: 500"
+
+
+def test_size_skip_of_a_required_layer_is_partial(scanner, tmp_path):
+    scanner.fuzzy_max_bytes = 10
+    r = scanner.scan_file(_write(tmp_path, "d.pdf", make_pdf("hello")))
+    assert r["scan_status"] == "partial"
+    assert r["incomplete_reasons"][0]["layer"] == "fuzzy"
+
+
+def test_encrypted_member_locks_the_archive_without_lowering_the_score(scanner, tmp_path):
+    secret = make_zipcrypto_zip(tmp_path / "secret.zip", "plan.txt", b"top secret", "Zq8!long-pw")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("invoice.pdf", _disguised_pe())
+        z.writestr("secret.zip", secret.read_bytes())
+    both = scanner.scan_file(_write(tmp_path, "parcel.zip", buf.getvalue()))
+    buf2 = io.BytesIO()
+    with zipfile.ZipFile(buf2, "w") as z:
+        z.writestr("invoice.pdf", _disguised_pe())
+    only_bad = scanner.scan_file(_write(tmp_path, "parcel2.zip", buf2.getvalue()))
+
+    assert both["scan_status"] == "locked"
+    locked = [r for r in both["incomplete_reasons"] if r["status"] == "locked"]
+    assert locked and locked[0]["member_path"].endswith("secret.zip!/plan.txt")
+    assert only_bad["scan_status"] == "complete"
+    # status, score and verdict are independent: the malicious member keeps its score
+    assert both["risk_score"] == only_bad["risk_score"] and both["verdict"] == only_bad["verdict"]
+    assert both["verdict"] in ("High", "Critical")
+    # the nested ZIP is walked by the outer archive itself: its locked member is
+    # named by its full path, and the scanned member summaries carry their status
+    members = both["scan_results"]["archive"]["member_results"]
+    assert [m["scan_status"] for m in members if m["name"].endswith("invoice.pdf")] == ["complete"]
+
+
+def test_password_protected_pdf_is_locked(scanner, tmp_path):
+    from pypdf import PdfReader, PdfWriter
+    src = PdfReader(io.BytesIO(make_pdf("Pay the invoice")))
+
+    def encrypted(user_password):
+        w = PdfWriter()
+        for page in src.pages:
+            w.add_page(page)
+        w.encrypt(user_password=user_password, owner_password="owner-secret", algorithm="AES-128")
+        out = io.BytesIO()
+        w.write(out)
+        return out.getvalue()
+    r = scanner.scan_file(_write(tmp_path, "locked.pdf", encrypted("open-sesame")))
+    assert r["scan_status"] == "locked" and r["verdict_label"].endswith("(locked scan)")
+    owner_only = scanner.scan_file(_write(tmp_path, "owner.pdf", encrypted("")))
+    assert owner_only["scan_status"] == "complete"     # every reader opens it
+
+
+def test_unsupported_format(scanner, tmp_path):
+    macho = b"\xcf\xfa\xed\xfe" + bytes(4092)
+    r = scanner.scan_file(_write(tmp_path, "tool", macho))
+    assert r["scan_status"] == "unsupported"
+    assert "macho" in r["incomplete_reasons"][0]["reason"]
+
+
+def test_member_budget_makes_the_archive_partial(scanner, tmp_path):
+    scanner.archive_scan_members = 1
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("a.txt", "one")
+        z.writestr("b.txt", "two")
+    r = scanner.scan_file(_write(tmp_path, "two.zip", buf.getvalue()))
+    assert r["scan_status"] == "partial"
+    assert any("over the scan budget" in x["reason"] for x in r["incomplete_reasons"])
+
+
+def test_failed_worker_result(tmp_path):
+    from engine.workers import failure_result
+    s = RS.RansomwareScanner(_config(tmp_path))
+    r = failure_result(s, _write(tmp_path, "hang.pdf", b"%PDF-1.4"), "timed out after 300 s")
+    assert r["scan_status"] == "failed" and r["verdict_label"] == f"{r['verdict']} (failed scan)"
+    assert r["incomplete_reasons"] == [{"member_path": r["file_path"], "layer": "worker",
+                                        "reason": "timed out after 300 s", "status": "failed"}]
+
+
+def test_reasons_are_capped():
+    class Ctx:
+        display, path, depth = "x", "x", 0
+        scan_results: dict = {}
+        member_reasons = [C.reason("partial", f"x!/{i}", "archive", "r") for i in range(250)]
+
+        def data(self):
+            return b""
+
+    class Scanner:
+        capability_states: dict = {}
+        max_nesting = 2
+    status, reasons = C.assess(Scanner(), Ctx())
+    assert status == "partial" and len(reasons) == C.MAX_REASONS
+    assert reasons[-1]["reason"] == "151 more reason(s) not listed"
+
+
+# ------------------------------------------------------------- how it is shown
+def test_clean_but_incomplete_never_reads_as_plain_clean(scanner, tmp_path):
+    from aegis_gui.formatting import first_gap, verdict_text
+    _all_up(scanner, macro={"state": DOWN, "detail": "needs oletools", "missing": ["oletools"]})
+    r = scanner.scan_file(str(make_docx(tmp_path / "b.docm")))
+    assert r["verdict"] == "Clean" and r["verdict_label"] == "Clean (partial scan)"
+    assert verdict_text(r) == "Clean (partial scan)" and first_gap(r).startswith("not fully")
+    report = scanner.generate_report([r])
+    assert "NOT FULLY INSPECTED (1)" in report and "Clean (partial scan)" in report
+    assert "No suspicious files detected in what was inspected; 1 scan(s)" in report
+    assert "Scan completeness:      1 partial" in report
+    assert alert_payload(r)["scan_status"] == "partial"
+
+
+def test_complete_report_is_unchanged(scanner, tmp_path):
+    r = scanner.scan_file(_write(tmp_path, "e.pdf", make_pdf("hello")))
+    report = scanner.generate_report([r])
+    assert "\nNo suspicious files detected.\n" in report and "NOT FULLY" not in report
+    assert "Scan completeness:      1 complete" in report
+
+
+def test_flagged_file_lists_its_gaps(scanner, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("bad header")
+    monkeypatch.setattr(scanner.yara_engine, "scan_file", boom)
+    r = scanner.scan_file(_write(tmp_path, "invoice.pdf", _disguised_pe()))
+    report = scanner.generate_report([r])
+    assert f"Verdict:  {r['verdict']} (partial scan)" in report
+    assert "[yara] layer error: ValueError: bad header" in report
+
+
+def test_result_matches_schema_1_2(scanner, tmp_path):
+    jsonschema = pytest.importorskip("jsonschema")
+    r = scanner.scan_file(_write(tmp_path, "f.pdf", make_pdf("hello")))
+    assert SCHEMA_VERSION == "1.2" and r["schema_version"] == "1.2"
+    jsonschema.validate(json.loads(json.dumps(r)), load_schema())
+    r["scan_status"] = "sort-of"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(r, load_schema())
+
+
+# ------------------------------------------------------- production profile
+def test_production_profile_refuses_a_disabled_required_layer(tmp_path):
+    cfg = _config(tmp_path, profile="production", qr_scan_enabled=False, ml_enabled=False,
+                  emulation_enabled=True)
+    errors, _ = validate_config(cfg)
+    assert any("QR_SCAN_ENABLED=0" in e for e in errors)
+    assert any("ML_ENABLED=0" in e for e in errors)
+    assert any("EMULATION_ENABLED" in e for e in errors)
+    with pytest.raises(ConfigError):
+        check_config(cfg, env_problems=())
+    # the same settings are allowed outside the production profile
+    assert not [e for e in validate_config(dict(cfg, profile="standard"))[0]
+                if "production profile" in e]
+
+
+def test_production_profile_needs_the_rules_folder(tmp_path):
+    cfg = _config(tmp_path, profile="production", yara_rules_dir=str(tmp_path / "missing"))
+    assert any("YARA_RULES_DIR" in e for e in validate_config(cfg)[0])
+    cfg = _config(tmp_path, profile="prod")
+    assert any("AEGIS_PROFILE" in e for e in validate_config(cfg)[0])
+
+
+def test_member_gaps_propagate_with_the_precedence(scanner, tmp_path):
+    _all_up(scanner, macro={"state": DOWN, "detail": "needs oletools", "missing": ["oletools"]})
+    doc = make_docx(tmp_path / "plan.docm").read_bytes()
+    secret = make_zipcrypto_zip(tmp_path / "s.zip", "x.txt", b"x", "Zq8!long-pw").read_bytes()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("plan.docm", doc)
+    partial_only = scanner.scan_file(_write(tmp_path, "p.zip", buf.getvalue()))
+    assert partial_only["scan_status"] == "partial"
+    assert partial_only["incomplete_reasons"][0]["member_path"].endswith("!/plan.docm")
+    with zipfile.ZipFile(buf, "a") as z:
+        z.writestr("s.zip", secret)
+    both = scanner.scan_file(_write(tmp_path, "q.zip", buf.getvalue()))
+    assert both["scan_status"] == "locked"                    # locked outranks partial
+    assert {r["status"] for r in both["incomplete_reasons"]} == {"partial", "locked"}

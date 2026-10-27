@@ -11,6 +11,7 @@ from detectors import FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE
 from detectors.qr_scanner import QR_AVAILABLE
 from detectors.relationship_scanner import defang
 
+from .completeness import COMPLETE, PRECEDENCE, verdict_label
 from .config import ENGINE_VERSION
 
 logger = logging.getLogger("RansomwareScanner")
@@ -72,6 +73,7 @@ Engine version:         {ENGINE_VERSION}
 Total files scanned:    {total_files}
 Files flagged:          {malicious_files}
 Highest verdict:        {worst}
+Scan completeness:      {_completeness_label(results)}
 Detection layers used:  {self._active_layers_label()}
 LLM posture:            {self._llm_posture_label()}
 """
@@ -91,8 +93,11 @@ LLM posture:            {self._llm_posture_label()}
             for f in canary_report.findings:
                 report_text += f"  [{f.status}] {f.path}\n      {f.evidence}\n"
 
+        incomplete = [r for r in results if r.get("scan_status", COMPLETE) != COMPLETE]
         if malicious_files == 0:
-            report_text += "\nNo suspicious files detected.\n"
+            report_text += ("\nNo suspicious files detected.\n" if not incomplete else
+                            f"\nNo suspicious files detected in what was inspected; {len(incomplete)} "
+                            "scan(s) were not complete (listed below).\n")
         else:
             # Quick band breakdown line, e.g. "Critical: 1 | High: 2 | Medium: 0"
             breakdown = " | ".join(
@@ -111,6 +116,7 @@ LLM posture:            {self._llm_posture_label()}
                 ):
                     report_text += self._format_file_finding(result)
 
+        report_text += _incomplete_section([r for r in incomplete if not r.get("is_malicious")])
         report_text += f"\nDetailed JSON report saved to: {report_file}\n"
 
         # Also save the text report
@@ -154,11 +160,12 @@ LLM posture:            {self._llm_posture_label()}
         sr = result.get("scan_results", {})
         lines = [
             f"\n- File:     {result.get('file_path')}",
-            f"  Verdict:  {result.get('verdict', 'n/a')} "
+            f"  Verdict:  {verdict_label(result) if result.get('verdict') else 'n/a'} "
             f"(risk {result.get('risk_score', 0)}/100, "
             f"severity {result.get('severity_score', 0)}/10)",
             f"  MD5:      {result.get('md5_hash', 'n/a')}",
         ]
+        lines.extend(_gap_lines(result))
         for section in FINDING_SECTIONS:
             lines.extend(section(sr))
         lines.extend(_quarantine_lines(result.get("quarantine") or {}))
@@ -210,6 +217,43 @@ LLM posture:            {self._llm_posture_label()}
 # and one entry in FINDING_SECTIONS; the order there is the order in reports.
 # --------------------------------------------------------------------------
 Lines = List[str]
+
+
+def _completeness_label(results: List[Dict]) -> str:
+    """"12 complete, 1 partial, 1 locked" in severity order."""
+    counts = {s: 0 for s in PRECEDENCE}
+    for r in results:
+        status = r.get("scan_status", COMPLETE)
+        counts[status if status in counts else COMPLETE] += 1
+    return ", ".join(f"{n} {s}" for s, n in sorted(counts.items(), key=lambda kv: PRECEDENCE.index(kv[0]))
+                     if n) or "n/a"
+
+
+def _gap_lines(result: Dict, limit: int = 5) -> Lines:
+    """Why a scan is not complete: one line per gap (member, layer, reason)."""
+    reasons = result.get("incomplete_reasons") or []
+    if result.get("scan_status", COMPLETE) == COMPLETE or not reasons:
+        return []
+    lines = [f"  Scan:     {result['scan_status']} - {len(reasons)} gap(s) in the evidence"]
+    for r in reasons[:limit]:
+        where = r.get("member_path") or result.get("file_path")
+        lines.append(f"              - [{r.get('layer')}] {r.get('reason')}"
+                     + (f"  ({where})" if where != result.get("file_path") else ""))
+    if len(reasons) > limit:
+        lines.append(f"              ... {len(reasons) - limit} more in the JSON report")
+    return lines
+
+
+def _incomplete_section(results: List[Dict]) -> str:
+    """Files that scored Low/Clean but were not fully inspected: never silently 'clean'."""
+    if not results:
+        return ""
+    out = f"\n{'=' * 60}\nNOT FULLY INSPECTED ({len(results)})\n{'=' * 60}\n"
+    for r in sorted(results, key=lambda r: PRECEDENCE.index(r.get("scan_status", COMPLETE)),
+                    reverse=True):
+        out += f"\n- File:     {r.get('file_path')}\n  Verdict:  {verdict_label(r)}\n"
+        out += "".join(f"{line}\n" for line in _gap_lines(r, limit=3))
+    return out
 
 
 def _members(results, indent: str = "              - ") -> Lines:

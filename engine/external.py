@@ -85,6 +85,7 @@ class ExternalLookupsMixin:
                 "is_malicious": False,
                 "confidence": 0,
                 "details": "LLM analysis failed.",
+                "error": type(e).__name__,
                 "suspicious_elements": []
             }
 

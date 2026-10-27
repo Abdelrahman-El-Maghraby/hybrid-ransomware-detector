@@ -29,6 +29,7 @@ from aegis_gui.formatting import (
     result_verdict,
     risk_bar,
     verdict_color,
+    verdict_text,
 )
 from aegis_gui.widgets import Section
 
@@ -76,11 +77,13 @@ class DetailWindow(ctk.CTkToplevel):
     def _members(self, body, members, limit, flags_key=None):
         for m in (members or [])[:limit]:
             v = m.get("verdict", "Clean")
+            status = m.get("scan_status") or "complete"
+            shown = v if status == "complete" else f"{v} ({status})"
             name = str(m.get("name", "?")).split("!/", 1)[-1]
             flags = (m.get(flags_key) or []) if flags_key else []
             tag = f"   ← {', '.join(f.replace('_', ' ') for f in flags)}" if flags else ""
             color = RED_SOFT if flags and v == "Clean" else verdict_color(v)
-            self._line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
+            self._line(body, f"{shown:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
                        color, self.app.font_mono_small)
 
     # ----------------------------------------------------------------- header
@@ -100,7 +103,7 @@ class DetailWindow(ctk.CTkToplevel):
         vrow.pack(fill="x", padx=14, pady=(8, 12))
         ctk.CTkLabel(vrow, text=risk_bar(result_risk(result)), font=app.font_mono,
                      text_color=vcolor).pack(side="left")
-        ctk.CTkLabel(vrow, text=f"   {verdict}", font=app.font_bold,
+        ctk.CTkLabel(vrow, text=f"   {verdict_text(result)}", font=app.font_bold,
                      text_color=vcolor).pack(side="left")
 
     # --------------------------------------------------------------- sections

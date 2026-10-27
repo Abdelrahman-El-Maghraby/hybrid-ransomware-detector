@@ -96,6 +96,8 @@ class ScanContext:
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
     signals: Signals = field(default_factory=Signals)
+    # incomplete_reasons of the members scanned through this file (engine/completeness.py)
+    member_reasons: List[Dict] = field(default_factory=list)
 
     @classmethod
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
@@ -182,6 +184,8 @@ class FuzzyHashLayer(Layer):
             fuzzy = FuzzyResult(available=FUZZY_AVAILABLE,
                                 detail=f"Skipped: file exceeds fuzzy_max_bytes "
                                        f"({scanner.fuzzy_max_bytes} bytes).")
+            ctx.scan_results.setdefault("layer_skips", {})["fuzzy"] = (
+                f"file larger than fuzzy_max_bytes ({scanner.fuzzy_max_bytes} bytes)")
         ctx.scan_results["fuzzy_hash"] = fuzzy.as_dict()
         ctx.signals.fuzzy = FuzzySignal(
             matched=fuzzy.matched, best_confidence=fuzzy.best_confidence,
