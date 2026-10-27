@@ -14,7 +14,10 @@ What it does:
   3. SMOKE-TESTS the produced CLI in a throw-away HOME: --version, then a real
      --scan-file of a clean PDF and of an executable disguised as a PDF, and
      fails the build if the verdicts are wrong - a binary that starts but
-     can't find its YARA rules would otherwise ship silently;
+     can't find its YARA rules would otherwise ship silently. Then
+     `--capabilities cli` must report every layer the production profile
+     requires as up in the PACKAGED program (docs/RELEASE_SCOPE.md), and a
+     folder build must contain the GUI toolkit;
   4. packages the result as dist/hrd-scanner-<version>-<os>-<arch>.zip
      (.tar.gz on Linux/macOS) and writes a SHA256SUMS file next to it.
 
@@ -32,6 +35,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import importlib.util
+import json
 import os
 import platform
 import re
@@ -50,9 +55,16 @@ WORK = ROOT / "build"
 APP_NAME = "HybridRansomwareDetector"
 CLI_NAME = "hrd-scanner"
 GUI_NAME = "hrd-scanner-gui"
-REQUIRED = ("requests", "dotenv", "pypdf", "docx")
-OPTIONAL = ("customtkinter", "oletools", "yara", "ppdeep", "defusedxml",   # TLSH: built-in port if missing
-            "cryptography", "olefile")
+# Import names the binaries must bundle: the engine core plus every package a layer
+# required by the production profile needs (docs/RELEASE_SCOPE.md section 3), and the
+# GUI toolkit (both programs ship in one build). A missing one fails the build.
+REQUIRED = ("requests", "dotenv", "pypdf", "docx", "yaml", "PIL", "defusedxml", "cryptography",
+            "olefile", "oletools", "yara", "ppdeep", "pyzipper", "py7zr", "pycdlib", "rarfile",
+            "msoffcrypto", "pyzbar", "customtkinter")
+# Optional: bundled when installed, their features are off otherwise.
+OPTIONAL = ("tlsh",              # the built-in port gives identical digests
+            "pytesseract", "pdf2image",   # OCR, only used with an LLM
+            "watchdog")          # real-time canary watching (desktop)
 
 
 def engine_version() -> str:
@@ -89,10 +101,7 @@ def preflight(with_ml: bool) -> None:
     if with_ml and importlib.util.find_spec("sklearn") is None:
         absent.append("scikit-learn (ML model loading)")
     if absent:
-        print("! Not installed, so NOT bundled (those layers will be off in the build): "
-              + ", ".join(absent))
-    if importlib.util.find_spec("customtkinter") is None:
-        print("! customtkinter missing: hrd-scanner-gui will only print an install hint.")
+        print("! Optional, not installed, so not bundled: " + ", ".join(absent))
 
 
 def run_pyinstaller(onefile: bool, with_ml: bool, version: str) -> None:
@@ -164,11 +173,42 @@ def smoke_test(cli: Path, version: str) -> None:
                          f"{out.stdout[-3000:]}\n{out.stderr[-3000:]}")
             print(f"  ok  --scan-file {name} -> {got}")
 
-        # The banner lists every layer; report the ones this build is missing.
-        banner = run("--scan-file", str(home / "clean.pdf")).stdout
-        for line in banner.splitlines():
-            if "unavailable" in line or "only (" in line:
-                print(f"  !   {line.strip()}")
+        check_capabilities(run("--capabilities", "cli"))
+
+
+def capabilities_report(stdout: str) -> dict:
+    """The JSON object `--capabilities` prints (log lines may come before it)."""
+    start = stdout.find("\n{\n") + 1 if not stdout.startswith("{") else 0
+    try:
+        report, _ = json.JSONDecoder().raw_decode(stdout[start:])
+    except ValueError:
+        return {}
+    return report if isinstance(report, dict) else {}
+
+
+def check_capabilities(out: subprocess.CompletedProcess[str]) -> None:
+    """Fail the build when the packaged program lacks a required layer."""
+    report = capabilities_report(out.stdout)
+    if not report.get("layers"):
+        sys.exit(f"Smoke test: --capabilities printed no report\n{out.stdout[-3000:]}\n"
+                 f"{out.stderr[-3000:]}")
+    for name, st in report["layers"].items():
+        note = f" ({st['detail']})" if st.get("detail") else ""
+        print(f"  {'ok' if st['state'] != 'down' else '!'}  layer {name}: {st['state']}{note}")
+    problems = report.get("flavour_problems", [])
+    if out.returncode != 0 or problems:
+        sys.exit("Smoke test: the packaged program lacks required layers:\n  "
+                 + "\n  ".join(problems or [f"--capabilities exited {out.returncode}"]))
+
+
+def check_gui_bundle(onefile: bool) -> None:
+    """The GUI program is only as good as the toolkit bundled next to it."""
+    if onefile:
+        print("  -   onefile build: GUI bundle not inspected (the release uses the folder build)")
+        return
+    if not any((DIST / APP_NAME).rglob("customtkinter")):
+        sys.exit("Smoke test: customtkinter is not in the bundle; hrd-scanner-gui cannot start.")
+    print("  ok  GUI toolkit (customtkinter) bundled")
 
 
 def package(onefile: bool, version: str) -> Path:
@@ -229,6 +269,7 @@ def main(argv=None) -> int:
 
     print("Smoke test:")
     smoke_test(built_cli(args.onefile), version)
+    check_gui_bundle(args.onefile)
 
     if not args.no_package and not args.smoke_only:
         archive = package(args.onefile, version)

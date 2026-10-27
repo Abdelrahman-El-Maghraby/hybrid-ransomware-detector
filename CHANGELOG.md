@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
+- `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
+
+### Changed
+
+- **Builds fail on a missing required dependency** (`build.py`): every package a production-profile layer needs, and the GUI toolkit, must be installed (preflight). The smoke test runs `--capabilities cli` on the packaged program and fails the build, and so the release job, when a required layer is not up in the artifact. A folder build must contain customtkinter. Host tools a desktop binary cannot bundle (a RAR decompressor, the zbar library) are reported, not required; the Docker image must carry them.
+
 ## [4.6.0] — 2026-10-26
 
 ### Added
