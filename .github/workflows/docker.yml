@@ -8,7 +8,9 @@ name: docker
 
 on:
   push:
-    branches: [main]
+    # Also the working branches: a workflow can only be dispatched once it is on
+    # main, and this one must gate the branches that change the deployment.
+    branches: [main, "integration/**", "fix/**", "area/**"]
   pull_request:
   workflow_dispatch:
 
