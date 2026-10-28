@@ -405,13 +405,20 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
     return result
 
 
+def start_worker(scanner, memory_mb: int) -> _Worker:
+    """A worker started now and handed to scan_isolated(spare=...) later, so a scan
+    does not wait for a process to start and build its scanner (about 1.4 s)."""
+    return _Worker(mp.get_context("spawn"), dict(scanner.config), memory_mb)
+
+
 def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, memory_mb: int,
                   on_result: Callable[[int, str, Dict], None],
-                  cancel_event=None) -> None:
+                  cancel_event=None, spare: Optional[_Worker] = None) -> None:
     """Scan `targets` in worker processes; call on_result(index, path, result) as files
-    finish (index is the 1-based count of finished files)."""
+    finish (index is the 1-based count of finished files). `spare` (start_worker)
+    joins the pool instead of one newly started worker."""
     _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
-                  cancel_event).run()
+                  cancel_event, spare).run()
 
 
 class _IsolatedScan:
@@ -422,7 +429,8 @@ class _IsolatedScan:
     WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
-                 memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event):
+                 memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event,
+                 spare: Optional[_Worker] = None):
         self.scanner = scanner
         self.total = len(targets)
         self.pending = list(targets)
@@ -435,8 +443,10 @@ class _IsolatedScan:
         self.done = 0
         self.failed_starts = 0
         self.rss = memory_watchdog(memory_mb)
-        self.pool: List[_Worker] = [_Worker(self.ctx, self.config, memory_mb)
-                                    for _ in range(max(1, min(workers, len(targets))))]
+        size = max(1, min(workers, len(targets)))
+        self.pool: List[_Worker] = ([spare] if spare is not None else [])
+        self.pool += [_Worker(self.ctx, self.config, memory_mb)
+                      for _ in range(size - len(self.pool))]
 
     # ---------------------------------------------------------------- flow
     def run(self) -> None:

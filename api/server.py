@@ -36,15 +36,17 @@ Security
 
 from __future__ import annotations
 
+import atexit
 import hmac
 import logging
 import os
+import queue
 import re
 import shutil
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -69,14 +71,45 @@ logger = logging.getLogger("RansomwareScanner")
 
 
 class _ScanService:
-    """Owns the scanner and runs each upload isolated (or in-process for tests)."""
+    """Owns the scanner and runs each upload isolated (or in-process for tests).
 
-    def __init__(self, config: Dict, isolate: bool = True):
+    Every upload gets a fresh worker process, so a file that compromises a parser
+    cannot touch another upload. Starting one (process + scanner) takes about 1.4 s,
+    so `spares` workers are started ahead and replaced in the background after use:
+    one idle worker per scan slot, each used for exactly one file."""
+
+    def __init__(self, config: Dict, isolate: bool = True, spares: int = 0):
         from engine.scanner import RansomwareScanner
         self.config = dict(config)
         self.scanner = RansomwareScanner(self.config)
         self.isolate = isolate
         self._lock = threading.Lock()
+        self._spares: queue.SimpleQueue[Any] = queue.SimpleQueue()
+        for _ in range(spares if isolate else 0):
+            self._refill()
+
+    def _memory_mb(self) -> int:
+        return int(self.config.get("worker_memory_mb", 2048))
+
+    def _refill(self) -> None:
+        def start() -> None:
+            from engine.workers import start_worker
+            try:
+                self._spares.put(start_worker(self.scanner, self._memory_mb()))
+            except Exception as e:      # scans still work: they start their own worker
+                logger.warning("Could not start a spare scan worker: %s", e)
+        threading.Thread(target=start, name="aegis-spare-worker", daemon=True).start()
+
+    def _take_spare(self) -> Any:
+        try:
+            return self._spares.get_nowait()
+        except queue.Empty:
+            return None
+
+    def close(self) -> None:
+        """Stop the idle spares (their temp folders go with them)."""
+        while (spare := self._take_spare()) is not None:
+            spare.kill()
 
     def scan(self, path: str, display: str) -> Dict:
         if not self.isolate:
@@ -84,10 +117,13 @@ class _ScanService:
         else:
             from engine.workers import scan_isolated
             box: Dict = {}
+            spare = self._take_spare()
             scan_isolated(self.scanner, [path], 1,
                           float(self.config.get("scan_timeout_seconds", 300)),
-                          int(self.config.get("worker_memory_mb", 2048)),
-                          lambda i, p, r: box.setdefault("r", r))
+                          self._memory_mb(), lambda i, p, r: box.setdefault("r", r),
+                          spare=spare)
+            if spare is not None:
+                self._refill()
             result = box["r"]
         result["file_path"] = display
         result["file_name"] = display
@@ -168,7 +204,10 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
         token = from_environment("AEGIS_API_TOKEN") or os.getenv("AEGIS_API_TOKEN", "")
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
-    service = _ScanService(config or CONFIG, isolate=isolate)
+    concurrent = int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2))
+    service = _ScanService(config or CONFIG, isolate=isolate,
+                           spares=int(_env_number("AEGIS_API_SPARE_WORKERS", concurrent)))
+    atexit.register(service.close)
     workers = service.warm_up()
     start = readiness(service.scanner, workers)
     if start["ready"]:
@@ -179,7 +218,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     app = FastAPI(title="Aegis Sentinel API", version=ENGINE_VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None)
     limit = int(MAX_UPLOAD_MB * 1024 * 1024)
-    slots = ScanSlots(int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2)))
+    slots = ScanSlots(concurrent)
     trust_proxy = os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes")
     app.add_middleware(BodyLimit, max_bytes=limit + MULTIPART_OVERHEAD)
     # 1. every request, before authentication: a bucket per IP address

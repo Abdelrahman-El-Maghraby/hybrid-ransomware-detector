@@ -2,6 +2,8 @@
 when rules, registry, storage, workers and - in the production profile - every
 required layer are in order."""
 
+import os
+
 import pytest
 
 import RansomwareScanner as RS
@@ -145,3 +147,38 @@ def test_failed_warm_up_is_reported(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "scan", boom)
     assert service.warm_up() == (False, "warm-up scan raised OSError")
     assert _ScanService(_config(tmp_path), isolate=False).warm_up()[0] is True
+
+
+def test_spare_workers_are_used_once_and_replaced(tmp_path, monkeypatch):
+    """A7-2: an upload takes a pre-started worker (no 1.4 s start), the worker scans
+    that one file and stops, and a new spare is started in its place."""
+    pytest.importorskip("fastapi")
+    import time
+
+    import engine.workers as W
+    from api.server import _ScanService
+    started = []
+    real = W.start_worker
+    monkeypatch.setattr(W, "start_worker", lambda s, m: started.append(1) or real(s, m))
+
+    def wait(cond, seconds=60):
+        end = time.monotonic() + seconds
+        while not cond() and time.monotonic() < end:
+            time.sleep(0.05)
+        assert cond()
+    service = _ScanService(_config(tmp_path, data_dir=str(tmp_path / "data")), isolate=True,
+                           spares=1)
+    wait(lambda: service._spares.qsize() == 1)
+    spare = service._spares.get_nowait()
+    service._spares.put(spare)
+    f = tmp_path / "scan" / "a.pdf"
+    f.write_bytes(make_pdf("hello"))
+    result = service.scan(str(f), "a.pdf")
+    assert result["file_name"] == "a.pdf" and "scan_failed" not in result["scan_results"]
+    assert not spare.proc.is_alive()                     # one file, then gone
+    wait(lambda: service._spares.qsize() == 1 and len(started) == 2)
+    replacement = service._spares.get_nowait()
+    service._spares.put(replacement)
+    service.close()
+    assert service._spares.qsize() == 0 and not os.path.exists(replacement.temp_dir)
+    assert _ScanService(_config(tmp_path), isolate=False, spares=2)._spares.qsize() == 0
