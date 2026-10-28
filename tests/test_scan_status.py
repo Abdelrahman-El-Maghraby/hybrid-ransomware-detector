@@ -242,7 +242,7 @@ def test_flagged_file_lists_its_gaps(scanner, tmp_path, monkeypatch):
 def test_result_matches_schema_1_2(scanner, tmp_path):
     jsonschema = pytest.importorskip("jsonschema")
     r = scanner.scan_file(_write(tmp_path, "f.pdf", make_pdf("hello")))
-    assert SCHEMA_VERSION == "1.2" and r["schema_version"] == "1.2"
+    assert SCHEMA_VERSION == "1.3" and r["schema_version"] == "1.3"
     jsonschema.validate(json.loads(json.dumps(r)), load_schema())
     r["scan_status"] = "sort-of"
     with pytest.raises(jsonschema.ValidationError):
@@ -299,7 +299,7 @@ def test_gui_lists_every_gap_and_the_provenance(scanner, tmp_path):
     assert rows and rows[0][0] == "macro" and "oletools" in rows[0][1]
     labels = dict(provenance_rows(r))
     assert {"Rules", "Registry", "Profile", "Services"} <= set(labels)
-    assert labels["Profile"] == "standard" and "schema 1.2" in labels["Registry"]
+    assert labels["Profile"] == "standard" and f"schema {SCHEMA_VERSION}" in labels["Registry"]
     assert "macro: needs oletools" in labels.get("Down here", "")
     many = dict(r, incomplete_reasons=[{"layer": "x", "reason": str(i)} for i in range(25)])
     assert len(gap_rows(many)) == 21 and "5 more" in gap_rows(many)[-1][1]

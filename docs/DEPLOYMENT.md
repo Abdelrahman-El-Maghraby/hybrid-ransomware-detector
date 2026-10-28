@@ -70,7 +70,10 @@ Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it):
 `WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB`,
 `AEGIS_API_SPARE_WORKERS`, `AEGIS_STOP_GRACE`) and
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
-`LLM_PROVIDER`, `OLLAMA_HOST`, `SANDBOX_URL`. Putting an external-service key on the
+`LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
+back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL`. What each scan actually sent - a
+hash, a file, extracted text, to a local or a cloud LLM - is in every result's
+`provenance.shared`, the report's "Sent outside" line and the `external_share` log event. Putting an external-service key on the
 analysis side is a start-up error in the production profile.
 
 **Check it.** `deploy/check-deployment.sh` builds the images, starts a throw-away

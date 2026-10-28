@@ -62,7 +62,7 @@
     },
     "provenance": {
       "type": "object",
-      "description": "What produced this result (schema 1.2). Never contains keys, tokens, passwords or service URLs.",
+      "description": "What produced this result (schema 1.2; shared: 1.3). Never contains keys, tokens, passwords or service URLs.",
       "properties": {
         "engine_version": {"type": "string"},
         "schema_version": {"type": "string"},
@@ -82,7 +82,14 @@
         "layers_unavailable": {"type": "array", "items": {"type": "string"}},
         "layers_not_applicable": {"type": "array", "items": {"type": "string"}},
         "layers_failed": {"type": "array", "items": {"type": "string"}},
-        "layers_skipped": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}}
+        "layers_skipped": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "shared": {"type": "array",
+                   "description": "What left the machine for this file in this scan (schema 1.3): one entry per external service really contacted; an answer from a cache sent nothing. member_path: the member of this container it was sent for.",
+                   "items": {"type": "object", "required": ["service", "sent"],
+                             "properties": {"service": {"enum": ["virustotal", "llm", "sandbox"]},
+                                            "sent": {"type": "array", "items": {"enum": ["sha256", "file", "text"]}},
+                                            "destination": {"enum": ["local", "cloud"]},
+                                            "member_path": {"type": "string"}}}}
       }
     },
     "verdict_label": {"type": "string", "description": "The verdict as it should be shown: 'Clean (partial scan)' when scan_status is not complete (schema 1.2)."},

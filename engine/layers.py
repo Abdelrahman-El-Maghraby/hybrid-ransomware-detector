@@ -100,6 +100,8 @@ class ScanContext:
     member_reasons: List[Dict] = field(default_factory=list)
     # (layer, outcome) for provenance: ran | not applicable | error | skipped
     layer_log: List[Tuple[str, str]] = field(default_factory=list)
+    # what the members scanned through this file sent to external services
+    member_shared: List[Dict] = field(default_factory=list)
 
     @classmethod
     def start(cls, scanner: RansomwareScanner, path: str, depth: int, display: str,
@@ -431,6 +433,8 @@ class SandboxLayer(Layer):
             data = client.analyze(ctx.path).as_dict()
             if scanner.cache and sha and data.get("status") == "reported":
                 scanner.cache.put(sha, key, data)
+            if data.get("submitted") and data.get("status") != "cached":
+                data["sent"] = ["file"]
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),

@@ -55,7 +55,8 @@ ENV PATH=/opt/aegis/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring \
-    AEGIS_PROFILE=production
+    AEGIS_PROFILE=production \
+    LLM_PROVIDER=none
 WORKDIR /app
 USER 10001:10001
 CMD ["python", "-m", "api.server"]
