@@ -12,7 +12,19 @@ image="aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}"
 if [ -f "$src/config.tar.gz" ]; then
   unpacked="$(mktemp -d)"
   tar -xzf "$src/config.tar.gz" -C "$unpacked"
-  cp -Rn "$unpacked"/. .                           # -n: never overwrite what is here
+  # back to where this deployment keeps them; -n never overwrites what is here
+  [ -f "$unpacked/.env" ] && [ ! -e .env ] && cp -p "$unpacked/.env" .env
+  for part in secrets:"${AEGIS_SECRETS_DIR:-deploy/secrets}" tls:"${AEGIS_TLS_DIR:-deploy/tls}"; do
+    name="${part%%:*}"; target="${part#*:}"
+    [ -d "$unpacked/$name" ] || continue
+    # copy only what is missing (cp -n exits non-zero on macOS when it skips a file)
+    (cd "$unpacked/$name" && find . -type f) | while read -r f; do
+      if [ ! -e "$target/$f" ]; then
+        mkdir -p "$target/$(dirname "$f")"
+        cp -p "$unpacked/$name/$f" "$target/$f"
+      fi
+    done
+  done
   rm -rf "$unpacked"
   echo "config restored where missing"
 fi

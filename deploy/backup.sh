@@ -23,14 +23,16 @@ for vol in content analysis-state intel-state; do
   echo "volume $vol -> volumes/$vol.tar.gz"
 done
 
-files=()
-for f in .env "${AEGIS_SECRETS_DIR:-deploy/secrets}" "${AEGIS_TLS_DIR:-deploy/tls}"; do
-  [ -e "$f" ] && files+=("$f")
-done
-if [ "${#files[@]}" -gt 0 ]; then
-  tar -czf "$dest/config.tar.gz" "${files[@]}"
+# fixed names inside the archive (.env, secrets/, tls/), wherever the folders are
+staging="$(mktemp -d)"
+trap 'rm -rf "$staging"' EXIT
+[ -f .env ] && cp -p .env "$staging/.env"
+[ -d "${AEGIS_SECRETS_DIR:-deploy/secrets}" ] && cp -Rp "${AEGIS_SECRETS_DIR:-deploy/secrets}" "$staging/secrets"
+[ -d "${AEGIS_TLS_DIR:-deploy/tls}" ] && cp -Rp "${AEGIS_TLS_DIR:-deploy/tls}" "$staging/tls"
+if [ -n "$(ls -A "$staging")" ]; then
+  tar -czf "$dest/config.tar.gz" -C "$staging" .
   chmod 0600 "$dest/config.tar.gz"
-  echo "config ${files[*]} -> config.tar.gz (contains secrets)"
+  echo "config ($(ls -A "$staging" | tr '\n' ' ')) -> config.tar.gz (contains secrets)"
 fi
 date -u +"%Y-%m-%dT%H:%M:%SZ project=$project image=$image" > "$dest/BACKUP_INFO"
 echo "backup written to $dest"
