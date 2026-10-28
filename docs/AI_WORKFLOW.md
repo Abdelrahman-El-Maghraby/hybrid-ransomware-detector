@@ -1,10 +1,12 @@
 # Claude and Codex handoff
 
-## Purpose and activation
+## Purpose
 
 The owner can switch between Claude and Codex when either usage allowance runs
 out. GitHub stores the shared task files and progress; it does not transfer chat
 history or start the other assistant automatically.
+
+## Activation
 
 Merge the setup PR, then bring these files into the working branch before relying
 on this process. For a new task, start a branch from updated main. For an existing
@@ -12,10 +14,37 @@ task, preserve its branch and changes, and bring in the setup commit with a norm
 merge or cherry-pick after checking the working tree. Do not reset the task onto
 main.
 
-An older local CLAUDE.md may be excluded through .git/info/exclude. Back it up
-outside the checkout before bringing in the tracked file if Git reports a
-collision. Reconcile any still-relevant local instructions; do not overwrite it
-blindly. Never force-add local-only instructions or private notes to publish them.
+For the existing local checkout, after the setup PR is merged, preserve any
+unfinished work and use a clean main branch tracking origin/main. Confirm that
+CLAUDE.md is the old untracked local file and that ~/CLAUDE.local-backup.md does
+not already exist; preserve an existing backup under a different name first.
+Then run these exact local steps from the repository root on this Mac:
+
+```sh
+mv CLAUDE.md ~/CLAUDE.local-backup.md
+sed -i '' '/^CLAUDE\.md$/d' .git/info/exclude
+git pull
+```
+
+The middle command removes the exact CLAUDE.md line from .git/info/exclude.
+If main has diverged or the pull fails, inspect the state and reconcile it;
+never force a reset. Reconcile still-relevant backup instructions privately.
+Never force-add the backup, local-only instructions or private notes to publish
+them. These activation steps are instructions for after merge, not permission
+to replace an active task branch or execute them before merge.
+
+## Public repository privacy
+
+This repository is public. Task briefs and docs/HANDOFF.md must contain only
+technical task state: no business plans, pricing, customer names, personal data,
+VM details, API keys or private chat content. Summarise the authorised technical
+requirements without copying the owner's private messages. Apply the same rule
+to tracked artifacts, commit messages and PR descriptions.
+
+If continuation requires private context, keep it outside the public repository
+and record only that owner input is required. Do not include private context,
+private links or sensitive paths in the handoff. Review every checkpoint for
+these exclusions before staging and pushing.
 
 ## Starting or taking over
 
@@ -43,9 +72,10 @@ After each meaningful unit, and before a long operation:
 
 - Save the work and update docs/HANDOFF.md with the goal, scope, decisions,
   completed work, next steps, branch, code baseline and test evidence.
-- Keep the owner's complete task brief in a safe tracked task document when it
-  is needed to resume. A private chat link or local Downloads path alone is not
-  enough. Include the current stage and any required owner approval.
+- Keep a sanitised technical task brief in a tracked task document when it is
+  needed to resume. Include the current stage and any required owner approval,
+  subject to the public repository privacy rules above. Never copy a private
+  conversation or depend on private links or local-only files for shared context.
 - Review the diff and stage explicit paths. Never use a blind git add . or include
   secrets, malware, environment files, raw private logs or unrelated work.
 - Commit a coherent unit with a conventional commit message and push the task
@@ -63,6 +93,29 @@ that outcome in chat.
 If push or authentication fails, retain the local commit and report the failure.
 Local commits and uncommitted work are not available from GitHub. Git-ignored
 notes may help on the same machine but are not the shared handoff.
+
+## Handoff lifecycle
+
+Update docs/HANDOFF.md on the task branch only, never directly on main. During
+the task, it records the current technical checkpoint under the privacy rules
+above. A paused task retains its checkpoint on that branch.
+
+An active checkpoint must include the technical goal and sanitised brief path;
+stage and approval boundary; active agent and whether the previous agent stopped;
+task branch, base branch and PR; last implementation commit and code baseline;
+completed changes and decisions; checks actually run with results and skips;
+failures and uncertainties; uncommitted task files and unrelated changes to
+preserve (without sensitive paths); ordered remaining steps; the exact next
+action; and the last verified push result.
+
+When the task's PR is merged, docs/HANDOFF.md must be reset to an idle state:
+no active task, no active agent, no pending steps or approval request. Prepare
+this reset as the final commit on the task branch immediately before the owner
+merges, so main receives the idle state with the completed task. Preserve useful
+technical evidence in the task's documentation and PR history, not as an active
+handoff. If the PR is merged before the reset is included, submit the reset on a
+follow-up maintenance branch and PR; do not write directly to main. There is no
+automatic merge hook in this setup.
 
 ## When a limit interrupts the session
 
