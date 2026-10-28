@@ -3,7 +3,7 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.6.0-brightgreen)
+![Version](https://img.shields.io/badge/version-4.7.0--rc1-orange)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
@@ -13,7 +13,7 @@ A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / Po
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
 
-Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6); a hardened Docker deployment, scan completeness and provenance (4.7). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
 ![Aegis Sentinel dashboard](docs/screenshot-v4-dashboard.png)
 
@@ -21,6 +21,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.7](#-whats-new-in-47)
 - [🆕 What's new in 4.6](#-whats-new-in-46)
 - [🆕 What's new in 4.5](#-whats-new-in-45)
 - [🗂️ Earlier releases](#️-earlier-releases)
@@ -44,6 +45,17 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 - [👤 Author](#-author)
 
 ---
+
+## 🆕 What's new in 4.7
+
+Release candidate 4.7.0-rc1: the on-prem production edition (`docs/RELEASE_SCOPE.md`).
+
+- **A hardened Docker deployment** ([deployment](docs/DEPLOYMENT.md), [operations](docs/OPERATIONS.md)). The service that opens files runs with **no network** and without any API key. A separate intel service is the only part that reaches VirusTotal, an LLM or a sandbox, through fixed operations and to allowlisted destinations only. TLS terminates at a proxy. Every container runs non-root, with a read-only file system and no capabilities.
+- **Never a silent "Clean".** Every result says whether the scan was `complete`, `partial`, `locked`, `unsupported` or `failed`, and lists what was not inspected and why. That includes damaged documents, archives that would not open, parser errors and layers that are not installed.
+- **Provenance in every result:** the rules version and hash, the registry and schema versions, which layers ran, and **what was sent outside** for that file.
+- **Security fixes:** API login throttling; secrets in the OS keyring or Docker secrets; a cache of external answers that a compromised parser cannot poison; signed rule packs that cannot be replayed, with signed rollback and recovery from a compromised key; GitHub Actions pinned to commits.
+- **Operations:** `/ready`, start-up checks of required layers, backup and restore scripts, runbooks, a data policy, and per-artifact SBOMs. Releases include the server images for offline install.
+- **Desktop:** a Diagnostics panel, Windows alerts, and undo of a quarantine from the result view.
 
 ## 🆕 What's new in 4.6
 

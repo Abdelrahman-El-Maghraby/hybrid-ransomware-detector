@@ -116,6 +116,15 @@ def _aad_eof(count: int) -> bytes:
     return MAGIC + b"eof" + struct.pack(">Q", count)
 
 
+def _os_user() -> str:
+    """Who acted, for the audit log (the OS account running the scanner)."""
+    try:
+        import getpass
+        return getpass.getuser()
+    except Exception:              # no login name (some containers / services)
+        return "unknown user"
+
+
 class QuarantineVault:
     """AES-256-GCM chunked quarantine vault (see module docstring)."""
 
@@ -366,7 +375,8 @@ class QuarantineVault:
         meta["original_removed"] = removed
         meta["vault_file"] = str(vault_file)
         self._sidecar_path(item_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        logger.warning("QUARANTINED %s -> vault id %s (%s)", src, item_id, reason or "no reason")
+        logger.warning("QUARANTINED %s -> vault id %s (%s), by %s", src, item_id,
+                       reason or "no reason", _os_user(), extra={"event": "quarantined"})
         return meta
 
     # -------------------------------------------------------------- decrypt
@@ -472,7 +482,8 @@ class QuarantineVault:
             pass
         if remove_from_vault:
             self.delete(item_id)
-        logger.warning("RESTORED vault id %s -> %s", item_id, dest)
+        logger.warning("RESTORED vault id %s -> %s, by %s", item_id, dest, _os_user(),
+                       extra={"event": "quarantine_restored"})
         return dest
 
     # ------------------------------------------------------------ list/delete

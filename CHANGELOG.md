@@ -6,6 +6,10 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.7.0-rc1] — 2026-10-28
+
+Release candidate of the on-prem production edition (`docs/RELEASE_SCOPE.md`). Built and checked locally; not published.
+
 ### Added
 
 - **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
@@ -37,6 +41,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
   - a fixed, family-grouped calibration / test split (`--split`), and cross-validation folds grouped by family, so a family is never on both sides;
   - a worst-case detection rate that counts errors and timeouts as misses;
   - a scan-completeness table, and `split` and `scan_status` columns in `results.csv`.
+- **Operations:** `deploy/backup.sh` and `deploy/restore.sh` for the Docker deployment, and the docs `docs/OPERATIONS.md` (install to uninstall), `docs/RUNBOOKS.md`, `docs/DATA_POLICY.md`, `docs/SUPPORT.md` and `docs/THIRD_PARTY.md` (for legal review).
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 - **Docker deployment** (`Dockerfile`, `docker-compose.yml`, `deploy/`): three services from a pinned image.
   - `analysis` runs `aegis-api` with `network_mode: none` (no interface but loopback) and listens on a Unix socket; it holds no external-service secret, and the detection content is mounted read-only.
@@ -78,6 +83,9 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Containers that could not be opened were reported as complete scans.** A damaged or truncated ZIP, an archive the extractor could not open, and a mail over the analysis size limit (or one that failed to parse) all came back "Clean, complete" with nothing inside inspected. Each is now `partial` with its reason. Scores and verdicts are unchanged.
 - **Encrypted RAR with only bsdtar** (as on a stock Mac) said "needs a RAR decompressor" although one was installed. It now says bsdtar cannot decrypt and names 7-Zip, unrar or unar; the archive layer's state and the GUI diagnostics show the same note (B1).
 - **Rule packs: no replay of older content, signed rollback, compromise recovery.** `--allow-downgrade` installed any older signed pack, including one whose rules are known to be bypassed. Older packs, or the same pack again, are now always refused. A rollback is a signed pack with a newer version that carries `rollback_of` (`tools/rulepack.py rollback`). Each install records its signing key. Removing a compromised key from `RULEPACK_PUBLIC_KEYS` stops the scanner from using what that key signed, and a pack signed by a new key installs even if the attacker published a huge version (`docs/RULE_PACKS.md`).
+- **The log file grew without limit.** It now rotates at `LOG_MAX_MB` (20), keeping `LOG_BACKUPS` (5) old files. Expired cache answers, which were never served, are now deleted when the cache opens.
+- `--capabilities` printed log lines to stdout before its JSON; its output is now only the JSON.
+- The quarantine and restore audit lines now name the OS user.
 - **X-Forwarded-For spoofing behind an appending proxy.** With `AEGIS_API_TRUST_PROXY=1` the first entry was used, which a proxy that appends (nginx `$proxy_add_x_forwarded_for`) takes from the client. Each request could claim a new address and escape the per-address rate limit and the token lockout. The last entry, which the trusted proxy added, is used now.
 - **A killed worker's unpacked files stayed in the temp folder.** A worker stopped for the timeout or the memory limit cannot clean up, so repeated hostile files could fill a size-limited `/tmp`. Each worker now has its own temporary folder, which the parent removes.
 - **Scanning loaded the containment code.** Validation imported `core.response` on every start. It is now imported only when `CANARY_RESPONSE` is set. The production profile refuses `CANARY_RESPONSE` (containment is desktop-only), and the server image does not contain it.
