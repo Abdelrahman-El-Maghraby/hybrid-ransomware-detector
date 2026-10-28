@@ -100,11 +100,15 @@ class StopWritersAction(ResponseAction):
         res = contain(canary_dirs(alert), touched, terminate=terminate, extra_protected=extra,
                       system=self.system, runner=self.runner)
         alert.setdefault("contained_pids", []).extend(res.pids)
+        state_file = self.config.get("containment_state_file")
+        if res.pids and not terminate and state_file:
+            from core.containment import record_suspended
+            record_suspended(Path(state_file), res.pids, self.system)
         verb = "killed" if terminate else "suspended"
         detail = res.summary(verb)
         if res.pids and not terminate:
             detail += (" (investigate, then kill them or undo with "
-                       "--resume-pid " + ",".join(map(str, res.pids)) + ")")
+                       "--resume-pid " + ",".join(map(str, res.pids)) + " or --resume-pid all)")
         return ActionResult(self.name, res.ok, detail)
 
 
