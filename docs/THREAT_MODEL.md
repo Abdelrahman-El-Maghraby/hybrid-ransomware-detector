@@ -106,7 +106,12 @@ covers part of this; without it, this is the largest gap.
 
 - Rule packs install only with an **Ed25519 signature** from a configured key, a
   manifest whose hashes match every file, a newer version, and rules that compile
-  (`core/rulepack.py`). Keys come from configuration, never from the pack.
+  (`core/rulepack.py`). Keys come from configuration, never from the pack. An older
+  or the same pack is always refused (no replay of a pack with known gaps); a
+  rollback is a signed pack with a newer version (`rollback_of`). Each install
+  records its signing key: removing a compromised key from RULEPACK_PUBLIC_KEYS
+  stops the content it signed from being used and lets a pack signed by the new
+  key install, even if the attacker published a huge version (`docs/RULE_PACKS.md`).
 - The allowlist holds **SHA-256 hashes** only (no names, paths or wildcards), so an
   attacker cannot reuse an entry without a byte-identical file; a hash in the
   malware database still wins.

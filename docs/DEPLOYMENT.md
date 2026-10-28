@@ -118,7 +118,9 @@ docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /impor
 The pack's Ed25519 signature, manifest hashes and version are checked before
 anything is installed (`core/rulepack.py`); the running analysis service notices
 the change on disk and reloads before its next scan, and every result records the
-rule-pack version and hash in `provenance`.
+rule-pack version and hash in `provenance`. Older packs are never installed; a
+rollback is a signed pack with a newer version. Key rotation and recovery from a
+compromised signing key: `docs/RULE_PACKS.md`.
 
 ### Operations
 
