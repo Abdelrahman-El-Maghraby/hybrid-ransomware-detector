@@ -63,7 +63,8 @@ jobs:
         run: |
           set -o pipefail
           status=0
-          xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml 2>&1 | tee pytest.log || status=$?
+          xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml \
+            --junitxml=junit.xml 2>&1 | tee pytest.log || status=$?
           { grep -E '^(FAILED|ERROR) |^TOTAL|Required test coverage|FAIL Required' pytest.log || true; } | head -20 | while read -r line; do
             echo "::error title=coverage job::$line"
           done
@@ -73,6 +74,13 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+      # Every test case with its outcome, so "the GUI tests ran" can be checked
+      # (pytest -q shows only failures).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: junit-coverage-job
+          path: junit.xml
 
   dependency-audit:
     runs-on: ubuntu-latest
