@@ -5,6 +5,7 @@ errors are visible. Synthetic files only (nothing here is malware)."""
 
 import csv
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -108,3 +109,35 @@ def test_evaluate_end_to_end_reports_dedupe_split_and_completeness(tmp_path, fol
     if (only_test / "results.csv").exists():
         test_rows = list(csv.DictReader(open(only_test / "results.csv", encoding="utf-8")))
         assert all(r["split"] == "test" for r in test_rows)
+
+
+def test_files_recognised_by_content_are_measured(tmp_path):
+    """MalwareBazaar names samples <sha256>.<file_type>: .elf, .lnk or no extension
+    used to be skipped as unsupported although the engine analyses them by content."""
+    from tools import evaluate as E
+    root = tmp_path / "malicious"
+    (root / "elf").mkdir(parents=True)
+    (root / "elf" / f"{'a' * 64}.elf").write_bytes(b"\x7fELF\x02\x01\x01" + b"\0" * 57)
+    (root / "lnk").mkdir()
+    (root / "lnk" / "invoice.lnk").write_bytes(E.LNK_MAGIC + b"\0" * 68)
+    (root / "pe").mkdir()
+    (root / "pe" / "no_extension").write_bytes(make_pe(imports={"kernel32.dll": ["ExitProcess"]}))
+    (root / "other").mkdir()
+    (root / "other" / "notes.xyz").write_text("plain text")
+    (root / "other" / "doc.pdf").write_bytes(b"%PDF-1.4\n")
+    files = {Path(f["path"]).name: f for f in E.collect([str(root)], "malicious", {".pdf"})}
+    assert files[f"{'a' * 64}.elf"]["supported"] and files[f"{'a' * 64}.elf"]["by_content"] == "elf"
+    assert files["invoice.lnk"]["by_content"] == "lnk" and files["invoice.lnk"]["supported"]
+    assert files["no_extension"]["by_content"] == "pe" and files["no_extension"]["ext"] == "(none)"
+    assert not files["notes.xyz"]["supported"] and files["notes.xyz"]["by_content"] == ""
+    assert files["doc.pdf"]["supported"] and files["doc.pdf"]["by_content"] == ""     # by extension
+    import argparse
+    rows = [dict(f, verdict="High", risk=60, reasons="", seconds=0.1, scan_status="complete",
+                 family="")
+            for f in files.values() if f["supported"]]
+    args = argparse.Namespace(alert="Medium", with_vt=False, with_llm=False, prep={})
+    out = tmp_path / "out"
+    out.mkdir()
+    text = E.summarise(rows, [files["notes.xyz"]], out, args)
+    assert "Recognised by content, extension not in the scanner's list: 3" in text
+    assert ".elf (elf) 1" in text and "Unsupported extensions skipped: 1" in text

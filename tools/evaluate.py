@@ -17,8 +17,11 @@ The ENGINE ONLY. Reputation look-ups would make known samples trivially
 Pass --with-vt / --with-llm to measure the full product instead.
 
 Every file is scanned in a worker process with a time limit, so one hostile
-or pathological file cannot stop the run. Files whose extension the engine
-does not support are counted separately and left out of the rates.
+or pathological file cannot stop the run. A file is measured when its extension
+is one the engine supports, or when its content is a format the engine analyses
+whatever the name (PE, ELF, Windows shortcut, OneNote / CHM / MSI) - MalwareBazaar
+names samples <sha256>.elf, .lnk, ... Other files are counted separately and left
+out of the rates.
 
 Before scanning, files are identified by SHA-256: a file present twice counts
 once, and one labelled both malicious and benign is left out (both reported).
@@ -107,6 +110,31 @@ def _scan(path: str) -> dict:
     }
 
 
+LNK_MAGIC = b"\x4c\x00\x00\x00\x01\x14\x02\x00"        # Windows shortcut header
+
+
+def recognised_by_content(path: str) -> str:
+    """The format of a file the engine analyses whatever its name, or ''. Its PE
+    and ELF layers and the embedded-content layer detect by content, and YARA has
+    rules for Windows shortcuts - so a sample named <sha256>.elf, .lnk or with no
+    extension is measured instead of being skipped as "unsupported"."""
+    from detectors.elf_analysis import is_elf
+    from detectors.embedded_content import sniff
+    from detectors.pe_analysis import is_pe
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return ""
+    if head.startswith(LNK_MAGIC):
+        return "lnk"
+    if is_elf(path):
+        return "elf"
+    if is_pe(path):
+        return "pe"
+    return sniff(path)                       # onenote | chm | msi | office-encrypted | xll
+
+
 def collect(roots, label, supported):
     out = []
     for root in roots:
@@ -117,8 +145,10 @@ def collect(roots, label, supported):
             rel = p.relative_to(root)
             group = rel.parts[0] if len(rel.parts) > 1 else root.name
             ext = p.suffix.lower()
+            content = "" if ext in supported else recognised_by_content(str(p))
             out.append({"path": str(p), "label": label, "group": group,
-                        "ext": ext or "(none)", "supported": ext in supported})
+                        "ext": ext or "(none)", "supported": ext in supported or bool(content),
+                        "by_content": content})
     return out
 
 
@@ -194,6 +224,10 @@ def summarise(rows, unsupported, out: Path, args) -> str:
              + (f" ({', '.join(f'{e} {c}' for e, c in Counter(u['ext'] for u in unsupported).most_common(8))})"
                 if unsupported else ""))
     L.append(f"- Errors / timeouts: {len(errors)}")
+    by_content = Counter(f"{r['ext']} ({r['by_content']})" for r in rows if r.get("by_content"))
+    if by_content:
+        L.append(f"- Recognised by content, extension not in the scanner's list: {sum(by_content.values())} "
+                 f"({', '.join(f'{k} {v}' for k, v in by_content.most_common(8))})")
     prep = getattr(args, "prep", {}) or {}
     if prep:
         L.append(f"- Duplicates (same SHA-256) counted once: {prep.get('duplicates', 0)}; "

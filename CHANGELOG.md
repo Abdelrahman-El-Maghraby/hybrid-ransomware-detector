@@ -40,7 +40,8 @@ Release candidate of the on-prem production edition (`docs/RELEASE_SCOPE.md`). B
   - files are hashed first; duplicates count once, and files labelled both malicious and benign are left out;
   - a fixed, family-grouped calibration / test split (`--split`), and cross-validation folds grouped by family, so a family is never on both sides;
   - a worst-case detection rate that counts errors and timeouts as misses;
-  - a scan-completeness table, and `split` and `scan_status` columns in `results.csv`.
+  - a scan-completeness table, and `split` and `scan_status` columns in `results.csv`;
+  - files whose content is a format the engine analyses (PE, ELF, LNK, OneNote, CHM, MSI) are measured even when the extension is not on the list, so MalwareBazaar's `<sha256>.elf` / `.lnk` samples count.
 - **Operations:** `deploy/backup.sh` and `deploy/restore.sh` for the Docker deployment, and the docs `docs/OPERATIONS.md` (install to uninstall), `docs/RUNBOOKS.md`, `docs/DATA_POLICY.md`, `docs/SUPPORT.md` and `docs/THIRD_PARTY.md` (for legal review).
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 - **Docker deployment** (`Dockerfile`, `docker-compose.yml`, `deploy/`): three services from a pinned image.
