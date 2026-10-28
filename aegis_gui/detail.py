@@ -448,12 +448,18 @@ class DetailWindow(ctk.CTkToplevel):
                       border_color=BORDER_2, text_color=TEXT,
                       command=self._copy_sha).pack(side="left", padx=8)
         path = str(result.get("file_path", ""))
+        self.undo_button = None
         if "!/" not in path and os.path.isfile(path):
             self.quarantine_button = ctk.CTkButton(
                 actions, text="Quarantine file", height=32, font=app.font_small,
                 fg_color="transparent", hover_color=PANEL_2, border_width=1,
                 border_color=RED, text_color=RED_SOFT, command=self._quarantine)
             self.quarantine_button.pack(side="right")
+            # shown once the file is in the vault: puts it back where it was
+            self.undo_button = ctk.CTkButton(
+                actions, text="Undo", width=70, height=32, font=app.font_small,
+                fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                border_color=BORDER_2, text_color=TEXT, command=self._undo_quarantine)
 
     def _copy_sha(self):
         self.clipboard_clear()
@@ -478,8 +484,40 @@ class DetailWindow(ctk.CTkToplevel):
         self.result["quarantine"] = {"id": meta["id"], "vault_file": meta["vault_file"],
                                      "original_removed": meta["original_removed"]}
         self.quarantine_button.configure(state="disabled", text=f"Quarantined · {meta['id']}")
+        if self.undo_button is not None:
+            self.undo_button.pack(side="right", padx=(0, 8))
         self.app.gui_log.warning(f"Quarantined from GUI: {path} -> vault id {meta['id']}")
         self.app.refresh_protection_views()
         if confirm:
-            messagebox.showinfo("Quarantined", f"Moved to the vault (id {meta['id']}).",
-                                parent=self)
+            messagebox.showinfo("Quarantined", f"Moved to the vault (id {meta['id']}). "
+                                "Undo puts it back.", parent=self)
+
+    def _undo_quarantine(self, confirm: bool = True):
+        """Restore the file this window quarantined to where it was. The vault never
+        overwrites: if a new file took its place, it comes back as
+        <name>.restored-<id>. Every restore is in the audit log (RESTORED ...)."""
+        item = (self.result.get("quarantine") or {}).get("id")
+        if not item:
+            return
+        path = str(self.result.get("file_path", ""))
+        if confirm and not messagebox.askyesno(
+                "Undo quarantine",
+                f"Put this file back where it was?\n\n{path}\n\nIt was flagged "
+                f"{result_verdict(self.result)} ({result_risk(self.result)}/100). Only "
+                "restore it if you are sure it is safe.", parent=self):
+            return
+        try:
+            dest = self.app.scanner.quarantine_vault.restore(item)
+        except Exception as e:
+            messagebox.showerror("Undo failed", str(e), parent=self)
+            return
+        self.result.pop("quarantine", None)
+        self.quarantine_button.configure(state="normal", text="Quarantine file")
+        if self.undo_button is not None:
+            self.undo_button.pack_forget()
+        self.app.gui_log.warning(f"Quarantine undone from GUI: vault id {item} -> {dest}")
+        self.app.refresh_protection_views()
+        if confirm:
+            moved = "" if str(dest) == path else f"\n\nA new file had taken its place, so it was restored as:\n{dest}"
+            messagebox.showinfo("Restored", f"The file is back in its folder.{moved}", parent=self)
+        return dest
