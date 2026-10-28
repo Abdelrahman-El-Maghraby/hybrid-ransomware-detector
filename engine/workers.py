@@ -160,12 +160,27 @@ class _TaskInfo(ctypes.Structure):
             "pti_threadnum", "pti_numrunning", "pti_priority")])
 
 
+RUSAGE_INFO_V0 = 0
+
+
+class _RusageInfoV0(ctypes.Structure):
+    """struct rusage_info_v0 from <sys/resource.h>."""
+    _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in (
+        "ri_user_time", "ri_system_time", "ri_pkg_idle_wkups", "ri_interrupt_wkups",
+        "ri_pageins", "ri_wired_size", "ri_resident_size", "ri_phys_footprint",
+        "ri_proc_start_abstime", "ri_proc_exit_abstime")]
+
+
 RssReader = Callable[[int], Optional[int]]
 
 
 def macos_rss_reader(libproc: Any = None) -> Optional[RssReader]:
-    """A function pid -> resident bytes using libproc's proc_pidinfo (the call
-    Activity Monitor and psutil use), or None when libproc is unavailable."""
+    """A function pid -> bytes of memory in use, or None when libproc is unavailable.
+
+    The physical footprint (proc_pid_rusage; Activity Monitor's "Memory") counts
+    memory the system compressed. Resident size does not: a worker filling memory
+    with repetitive data stayed far under the limit while using gigabytes. The
+    larger of the two is used; resident size alone where proc_pid_rusage is missing."""
     try:
         lib = libproc or ctypes.CDLL(ctypes.util.find_library("proc") or "libproc.dylib")
         fn = lib.proc_pidinfo
@@ -173,13 +188,22 @@ def macos_rss_reader(libproc: Any = None) -> Optional[RssReader]:
         return None
     fn.restype = ctypes.c_int
     fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    rusage = getattr(lib, "proc_pid_rusage", None)
+    if rusage is not None:
+        rusage.restype = ctypes.c_int
+        rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 
     def read(pid: int) -> Optional[int]:
         info = _TaskInfo()
         size = ctypes.sizeof(info)
         if fn(pid, PROC_PIDTASKINFO, 0, ctypes.byref(info), size) != size:
             return None
-        return int(info.pti_resident_size)
+        used = int(info.pti_resident_size)
+        if rusage is not None:
+            ri = _RusageInfoV0()
+            if rusage(pid, RUSAGE_INFO_V0, ctypes.byref(ri)) == 0:
+                used = max(used, int(ri.ri_phys_footprint))
+        return used
     return read
 
 
@@ -261,10 +285,65 @@ def _main_not_reimported():
             main.__dict__.update(saved)
 
 
+WORKER_TEMP_PREFIX = "aegis_worker_"
+_SWEPT = False
+
+
+def _pid_alive(pid: int) -> bool:
+    """True when a process with this id exists (or might: when in doubt, alive)."""
+    if os.name == "nt":                      # os.kill would terminate it on Windows
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
+            if not handle:
+                return False
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            kernel32.CloseHandle(handle)
+            return code.value == 259                             # STILL_ACTIVE
+        except (AttributeError, OSError):
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:                          # exists, owned by someone else
+        return True
+    return True
+
+
+def sweep_stale_worker_dirs(folder: Optional[str] = None) -> int:
+    """Remove worker temp folders whose scanner process no longer exists. A crash or
+    kill of the scanner itself (not just a worker) leaves them behind, and nothing
+    else would delete them outside a container's tmpfs. Returns how many went."""
+    removed = 0
+    root = folder or tempfile.gettempdir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith(WORKER_TEMP_PREFIX):
+            continue
+        owner = name[len(WORKER_TEMP_PREFIX):].split("_", 1)[0]
+        if not owner.isdigit() or int(owner) == os.getpid() or _pid_alive(int(owner)):
+            continue
+        shutil.rmtree(os.path.join(root, name), ignore_errors=True)
+        removed += 1
+    if removed:
+        logger.info("Removed %d temporary folder(s) left by a scanner that stopped "
+                    "abnormally.", removed)
+    return removed
+
+
 class _Worker:
     def __init__(self, ctx, config: Dict, memory_mb: int):
+        global _SWEPT
+        if not _SWEPT:                       # once per scanner process
+            _SWEPT = True
+            sweep_stale_worker_dirs()
         self.parent, child = ctx.Pipe()
-        self.temp_dir = tempfile.mkdtemp(prefix="aegis_worker_")
+        self.temp_dir = tempfile.mkdtemp(prefix=f"{WORKER_TEMP_PREFIX}{os.getpid()}_")
         self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child, self.temp_dir),
                                 daemon=True)
         with _START_LOCK, _main_not_reimported():
@@ -326,13 +405,20 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
     return result
 
 
+def start_worker(scanner, memory_mb: int) -> _Worker:
+    """A worker started now and handed to scan_isolated(spare=...) later, so a scan
+    does not wait for a process to start and build its scanner (about 1.4 s)."""
+    return _Worker(mp.get_context("spawn"), dict(scanner.config), memory_mb)
+
+
 def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, memory_mb: int,
                   on_result: Callable[[int, str, Dict], None],
-                  cancel_event=None) -> None:
+                  cancel_event=None, spare: Optional[_Worker] = None) -> None:
     """Scan `targets` in worker processes; call on_result(index, path, result) as files
-    finish (index is the 1-based count of finished files)."""
+    finish (index is the 1-based count of finished files). `spare` (start_worker)
+    joins the pool instead of one newly started worker."""
     _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
-                  cancel_event).run()
+                  cancel_event, spare).run()
 
 
 class _IsolatedScan:
@@ -343,7 +429,8 @@ class _IsolatedScan:
     WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
-                 memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event):
+                 memory_mb: int, on_result: Callable[[int, str, Dict], None], cancel_event,
+                 spare: Optional[_Worker] = None):
         self.scanner = scanner
         self.total = len(targets)
         self.pending = list(targets)
@@ -356,8 +443,10 @@ class _IsolatedScan:
         self.done = 0
         self.failed_starts = 0
         self.rss = memory_watchdog(memory_mb)
-        self.pool: List[_Worker] = [_Worker(self.ctx, self.config, memory_mb)
-                                    for _ in range(max(1, min(workers, len(targets))))]
+        size = max(1, min(workers, len(targets)))
+        self.pool: List[_Worker] = ([spare] if spare is not None else [])
+        self.pool += [_Worker(self.ctx, self.config, memory_mb)
+                      for _ in range(size - len(self.pool))]
 
     # ---------------------------------------------------------------- flow
     def run(self) -> None:
