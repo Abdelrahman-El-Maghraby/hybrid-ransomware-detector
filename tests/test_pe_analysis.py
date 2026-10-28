@@ -355,3 +355,19 @@ def test_ml_does_not_count_packing_twice():
     assert [c.indicator for c in both.contributions] == ["pe_packed"]
     alone = ScoringMatrix().score({"ml": ml})
     assert [c.indicator for c in alone.contributions] == ["ml_classifier"]
+
+
+def test_delay_loaded_imports_are_read():
+    """A3: functions bound on first use (the delay-load table) count as imports, so
+    an injection chain cannot hide there - also with no ordinary import table."""
+    hidden = analyze(make_pe(imports={K32: ["ExitProcess"]}, delay_imports={K32: INJECT}))
+    assert hidden.injection and hidden.delay_loaded == [K32.lower()]
+    assert "delay-loaded" in hidden.detail and hidden.as_dict()["delay_loaded_dlls"] == [K32.lower()]
+    only = analyze(make_pe(delay_imports={"user32.dll": ["MessageBoxW"], K32: INJECT}, bits=64))
+    assert only.injection and set(only.delay_loaded) == {"user32.dll", K32.lower()}
+    assert only.import_count == 1 + len(INJECT)
+    old = analyze(make_pe(imports={K32: ["ExitProcess"]}, delay_imports={K32: INJECT},
+                          delay_va_form=True))                    # VC6 form: not read
+    assert not old.injection and old.delay_loaded == [] and not old.malformed
+    plain = analyze(make_pe(imports={K32: ["ExitProcess"]}))
+    assert plain.delay_loaded == [] and "delay-loaded" not in plain.detail

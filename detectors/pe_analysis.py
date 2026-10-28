@@ -65,6 +65,7 @@ SCN_MEM_WRITE = 0x80000000
 
 DIR_IMPORT = 1
 DIR_SECURITY = 4
+DIR_DELAY_IMPORT = 13
 
 # Section name -> packer / protector.
 PACKER_SECTIONS: Dict[str, str] = {
@@ -175,6 +176,7 @@ class PeResult:
     overlay_executable: bool = False
     overlay_encrypted: bool = False
     signature_present: bool = False
+    delay_loaded: List[str] = field(default_factory=list)   # DLLs from the delay-load table
     truncated: bool = False             # only the first max_read bytes were examined
     detail: str = ""
 
@@ -190,6 +192,7 @@ class PeResult:
             "packed": self.packed, "packer": self.packer,
             "wx_sections": self.wx_sections, "high_entropy_sections": self.high_entropy_sections,
             "import_dlls": len(self.imports), "import_count": self.import_count,
+            "delay_loaded_dlls": self.delay_loaded,
             "injection_apis": self.injection, "ransomware_apis": self.ransomware_apis,
             "runtime_imports_only": self.runtime_imports_only,
             "recovery_inhibition": self.recovery_inhibition,
@@ -327,15 +330,17 @@ class PeAnalyzer:
 
     # ------------------------------------------------------------------ imports
     def _imports(self, data: bytes, dirs: Sequence[Tuple[int, int]], res: PeResult) -> None:
+        total = self._import_table(data, dirs, res)
+        self._delay_imports(data, dirs, res, total)     # also when there is no import table
+
+    def _import_table(self, data: bytes, dirs: Sequence[Tuple[int, int]], res: PeResult) -> int:
+        total = 0
         if len(dirs) <= DIR_IMPORT or not dirs[DIR_IMPORT][0]:
-            return
+            return total
         desc = _rva_to_offset(res.sections, dirs[DIR_IMPORT][0])
         if desc is None:
             res.malformed.append("import table outside every section")
-            return
-        width, flag = (8, 1 << 63) if res.bits == 64 else (4, 1 << 31)
-        fmt = "<Q" if width == 8 else "<I"
-        total = 0
+            return total
         for _ in range(_MAX_DLLS):
             if desc + 20 > len(data):
                 break
@@ -344,19 +349,52 @@ class PeAnalyzer:
                 break
             desc += 20
             dll = _cstring(data, _rva_to_offset(res.sections, name_rva)).lower() or "?"
-            names = res.imports.setdefault(dll, [])
-            thunk = _rva_to_offset(res.sections, oft or ft)
-            while thunk is not None and thunk + width <= len(data) and total < _MAX_IMPORTS:
-                value = struct.unpack_from(fmt, data, thunk)[0]
-                if not value:
-                    break
-                thunk += width
-                total += 1
-                if value & flag:
-                    names.append(f"#{value & 0xFFFF}")
-                    continue
-                hint = _rva_to_offset(res.sections, value & 0x7FFFFFFF)
-                names.append(_cstring(data, None if hint is None else hint + 2))
+            total = self._thunks(data, res, oft or ft, res.imports.setdefault(dll, []), total)
+        return total
+
+    def _delay_imports(self, data: bytes, dirs: Sequence[Tuple[int, int]], res: PeResult,
+                       total: int) -> None:
+        """The delay-load table: DLLs and functions bound on first use. They count as
+        imports (a program can hide its injection chain there); `delay_loaded` names
+        the DLLs. Only the RVA form (every linker since 2000) is read."""
+        if len(dirs) <= DIR_DELAY_IMPORT or not dirs[DIR_DELAY_IMPORT][0]:
+            return
+        desc = _rva_to_offset(res.sections, dirs[DIR_DELAY_IMPORT][0])
+        if desc is None:
+            res.malformed.append("delay-import table outside every section")
+            return
+        for _ in range(_MAX_DLLS):
+            if desc + 32 > len(data):
+                break
+            attrs, name_rva, _hmod, _iat, int_rva = struct.unpack_from("<IIIII", data, desc)
+            if not (name_rva or int_rva):
+                break
+            desc += 32
+            if not attrs & 1:                      # old VA form (VC6): not read
+                continue
+            dll = _cstring(data, _rva_to_offset(res.sections, name_rva)).lower() or "?"
+            if dll not in res.delay_loaded:
+                res.delay_loaded.append(dll)
+            total = self._thunks(data, res, int_rva, res.imports.setdefault(dll, []), total)
+
+    @staticmethod
+    def _thunks(data: bytes, res: PeResult, rva: int, names: List[str], total: int) -> int:
+        """Append the function names of one lookup table; returns the running total."""
+        width, flag = (8, 1 << 63) if res.bits == 64 else (4, 1 << 31)
+        fmt = "<Q" if width == 8 else "<I"
+        thunk = _rva_to_offset(res.sections, rva)
+        while thunk is not None and thunk + width <= len(data) and total < _MAX_IMPORTS:
+            value = struct.unpack_from(fmt, data, thunk)[0]
+            if not value:
+                break
+            thunk += width
+            total += 1
+            if value & flag:
+                names.append(f"#{value & 0xFFFF}")
+                continue
+            hint = _rva_to_offset(res.sections, value & 0x7FFFFFFF)
+            names.append(_cstring(data, None if hint is None else hint + 2))
+        return total
 
     # ------------------------------------------------------------------ overlay
     @staticmethod
@@ -470,7 +508,8 @@ def _summary(res: PeResult) -> str:
     bits = [f"{res.bits}-bit {res.machine} {res.kind}".strip() if res.bits
             else "PE file"]
     bits.append(f"{len(res.sections)} section(s), {res.import_count} import(s) "
-                f"from {len(res.imports)} DLL(s)")
+                f"from {len(res.imports)} DLL(s)"
+                + (f" ({len(res.delay_loaded)} delay-loaded)" if res.delay_loaded else ""))
     if res.packed:
         bits.append(f"packed ({res.packer})")
     if res.wx_sections:
