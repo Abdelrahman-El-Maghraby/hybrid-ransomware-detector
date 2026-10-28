@@ -110,7 +110,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         """Fuzzy signatures and YARA rules: a per-user DB or folder, else an
         installed signed rule pack (core/rulepack.py), else the bundled ones."""
         from core.rulepack import FUZZY_NAME, active_pack
-        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR)
+        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR,
+                                    config.get("rulepack_public_keys") or [])
         fuzzy_db = config.get("fuzzy_signature_db")
         if (not (fuzzy_db and os.path.exists(fuzzy_db)) and self.rulepack
                 and self.rulepack.get("has_fuzzy")):

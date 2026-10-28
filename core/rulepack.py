@@ -11,11 +11,18 @@ whole archive (`<pack>.sig`). The scanner installs a pack only if
   * every file in the archive is listed in the manifest with a matching hash,
   * every member is a plain file under rules/ (.yar / .yara) or the fuzzy
     signature file - no links, no absolute or ../ paths, bounded sizes,
-  * its version is newer than the installed one (unless explicitly allowed),
+  * its version is newer than the installed one - always: an older or the same
+    pack is refused, so a pack whose rules are known to be bypassed cannot be
+    replayed. A rollback after a defective update is a *signed rollback*: the
+    publisher re-issues the previous good content under a new, higher version
+    (`rollback_pack`, manifest field `rollback_of`),
   * the rules compile.
 
 Installed packs live in DATA_DIR/rulepacks/<version>/; `active.json` points at
-the one in use, so a bad pack can be rolled back by pointing at the previous one.
+the one in use and records the key that signed it. A pack whose signing key is
+no longer trusted (removed from RULEPACK_PUBLIC_KEYS after a key compromise) is
+not used, and does not block installing a pack signed by a trusted key.
+See docs/RULE_PACKS.md.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ import base64
 import hashlib
 import io
 import json
+import logging
 import shutil
 import tarfile
 import time
@@ -35,6 +43,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 PathLike = Union[str, Path]
+logger = logging.getLogger("RansomwareScanner")
 
 MAX_PACK_BYTES = 50 * 1024 * 1024
 MAX_MEMBER_BYTES = 20 * 1024 * 1024
@@ -77,6 +86,16 @@ def _load_private(path: PathLike) -> Ed25519PrivateKey:
     return key
 
 
+def key_fingerprint(key: Ed25519PublicKey) -> str:
+    """First 16 hex digits of the SHA-256 of the raw public key."""
+    raw = key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def trusted_fingerprints(encoded: Iterable[str]) -> List[str]:
+    return [key_fingerprint(k) for k in _public_keys(encoded)]
+
+
 def _public_keys(encoded: Iterable[str]) -> List[Ed25519PublicKey]:
     keys = []
     for k in encoded:
@@ -98,6 +117,25 @@ def build_pack(rules_dir: PathLike, version: str, out: PathLike,
     manifest = {"format": 1, "version": version, "created": int(time.time()),
                 "min_engine": min_engine,
                 "files": {n: hashlib.sha256(d).hexdigest() for n, d in files.items()}}
+    return _write_pack(files, manifest, out)
+
+
+def rollback_pack(previous: PathLike, public_keys: Iterable[str], version: str,
+                  out: PathLike, signature: Optional[PathLike] = None) -> Path:
+    """Publisher side: the content of a previous, verified pack under a new and
+    higher `version`, with `rollback_of` naming the version it replaces. Sign it
+    like any pack; installs accept it because its version is newer."""
+    checked = verify_pack(previous, public_keys, signature)
+    old = checked["manifest"]
+    files = checked["files"]
+    manifest = {"format": 1, "version": version, "created": int(time.time()),
+                "min_engine": old.get("min_engine", "4.4.0"),
+                "rollback_of": str(old.get("version", "")),
+                "files": {n: hashlib.sha256(d).hexdigest() for n, d in files.items()}}
+    return _write_pack(files, manifest, out)
+
+
+def _write_pack(files: Dict[str, bytes], manifest: Dict, out: PathLike) -> Path:
     out = Path(out)
     with tarfile.open(out, "w:gz") as tar:
         for name, data in [("manifest.json", json.dumps(manifest, indent=1).encode())] + sorted(files.items()):
@@ -129,9 +167,11 @@ def verify_pack(pack: PathLike, public_keys: Iterable[str],
         raise RulePackError(f"signature file missing: {sig_path.name}")
     data = pack.read_bytes()
     sig = base64.b64decode(sig_path.read_text().strip())
+    signer = ""
     for key in keys:
         try:
             key.verify(sig, data)
+            signer = key_fingerprint(key)
             break
         except InvalidSignature:
             continue
@@ -166,32 +206,48 @@ def verify_pack(pack: PathLike, public_keys: Iterable[str],
     for name, blob in files.items():
         if hashlib.sha256(blob).hexdigest() != listed[name]:
             raise RulePackError(f"hash mismatch for {name}")
-    return {"manifest": manifest, "files": files}
+    return {"manifest": manifest, "files": files, "signer": signer}
 
 
-def active_pack(data_dir: PathLike) -> Optional[Dict]:
+def active_pack(data_dir: PathLike, public_keys: Optional[Iterable[str]] = None) -> Optional[Dict]:
+    """The installed pack in use, or None. With `public_keys`, a pack whose signing
+    key is no longer among them is not used (key compromise: remove the key and
+    the content it signed is dropped at once). Packs installed before 4.7 did not
+    record their signer and are kept."""
     f = Path(data_dir) / "rulepacks" / "active.json"
     try:
         info = json.loads(f.read_text())
-        if (Path(info["path"]) / "rules").is_dir():
-            return info
+        if not (Path(info["path"]) / "rules").is_dir():
+            return None
     except Exception:
-        pass
-    return None
+        return None
+    keys = [k for k in (public_keys or []) if str(k).strip()]
+    signer = info.get("signer")
+    if keys and signer and signer not in trusted_fingerprints(keys):
+        logger.warning("Rule pack %s was signed by key %s, which is no longer trusted: not "
+                       "used (bundled rules instead).", info.get("version"), signer,
+                       extra={"event": "rulepack_untrusted"})
+        return None
+    return info
 
 
 def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
                  engine_version: str, allow_downgrade: bool = False,
                  signature: Optional[PathLike] = None) -> Dict:
-    checked = verify_pack(pack, public_keys, signature)
+    if allow_downgrade:
+        raise RulePackError("older content is not installed (it could be a replay of a pack "
+                            "with known gaps); ask the publisher for a signed rollback - the "
+                            "previous rules under a new version (docs/RULE_PACKS.md)")
+    keys = list(public_keys)
+    checked = verify_pack(pack, keys, signature)
     m = checked["manifest"]
     version = str(m.get("version", ""))
     if not version:
         raise RulePackError("pack has no version")
     if _version_key(str(m.get("min_engine", "0"))) > _version_key(engine_version.split("-")[0]):
         raise RulePackError(f"pack needs engine {m.get('min_engine')} or newer")
-    current = active_pack(data_dir)
-    if current and not allow_downgrade and _version_key(version) <= _version_key(current["version"]):
+    current = active_pack(data_dir, keys)      # one signed by a distrusted key: no block
+    if current and _version_key(version) <= _version_key(current["version"]):
         raise RulePackError(f"pack {version} is not newer than installed {current['version']}")
 
     root = Path(data_dir) / "rulepacks"
@@ -215,6 +271,9 @@ def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
     shutil.rmtree(final, ignore_errors=True)
     staging.rename(final)
     info = {"version": version, "path": str(final), "installed": int(time.time()),
-            "files": len(checked["files"]), "has_fuzzy": FUZZY_NAME in checked["files"]}
+            "files": len(checked["files"]), "has_fuzzy": FUZZY_NAME in checked["files"],
+            "signer": checked["signer"]}
+    if m.get("rollback_of"):
+        info["rollback_of"] = str(m["rollback_of"])
     (root / "active.json").write_text(json.dumps(info, indent=1))
     return info

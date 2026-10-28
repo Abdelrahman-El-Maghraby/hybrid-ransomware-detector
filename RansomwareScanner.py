@@ -564,7 +564,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Install a signed rule pack (PACK + PACK.sig), verified against "
                              "RULEPACK_PUBLIC_KEYS, then exit")
     parser.add_argument("--allow-downgrade", action="store_true",
-                        help="With --update-rules: accept a pack that is not newer (roll back)")
+                        help="Refused since 4.7: older content could be a replay; a rollback "
+                             "is a signed pack with a newer version (docs/RULE_PACKS.md)")
     parser.add_argument("--jsonl", metavar="FILE",
                         help="Also append each result as one JSON line to FILE (for SIEM ingestion)")
     parser.add_argument("--allow", metavar="PATH",
