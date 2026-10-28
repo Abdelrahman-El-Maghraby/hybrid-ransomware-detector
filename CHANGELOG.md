@@ -6,9 +6,9 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [4.7.0-rc1] — 2026-10-28
+## [4.7.0] — 2026-10-28
 
-Release candidate of the on-prem production edition (`docs/RELEASE_SCOPE.md`). Built and checked locally; not published.
+The on-prem production edition (`docs/RELEASE_SCOPE.md`). First published as the pre-release 4.7.0-rc1 the same day; 4.7.0 has the same changes with the final version number.
 
 ### Added
 

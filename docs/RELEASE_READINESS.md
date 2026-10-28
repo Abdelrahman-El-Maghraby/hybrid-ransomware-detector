@@ -211,6 +211,13 @@ Tree: `integration/v4.7` at `9e64bdf` (code identical to the RC branch tip
   production or flavour problem; operations walk-through on a fresh clone and
   backup / restore passed.
 
+### 4.7.0
+
+Released on 2026-10-28 from the same code as 4.7.0-rc1, with the version number
+changed to 4.7.0 (owner's decision). Still open, as in the final check above: M1
+(real-sample evaluation), M2 and O1 on a clean Linux host, U1 (upgrade from a real
+4.6.0 install), the legal review of `docs/THIRD_PARTY.md`, X2 (code signing).
+
 ### External dependencies
 
 | ID | Needs | Blocks | Status |
