@@ -17,8 +17,10 @@ class MisbehavingScanner(RansomwareScanner):
             time.sleep(600)
         if name.startswith("exit"):
             os._exit(3)
-        if name.startswith("hog"):
-            bytearray(8 * 1024 * 1024 * 1024)
+        if name.startswith("hog"):              # runaway allocation that is really used:
+            hoard = []                           # untouched pages (one huge bytearray) are not
+            for _ in range(256):                 # resident on macOS, so the watchdog saw nothing
+                hoard.append(b"\x01" * (64 * 1024 * 1024))
         if name.startswith("litter"):            # unpacks, then hangs past the timeout
             sandbox = tempfile.mkdtemp(prefix="hrd_unpack_")
             with open(os.path.join(sandbox, "member.bin"), "wb") as fh:

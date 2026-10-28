@@ -160,12 +160,27 @@ class _TaskInfo(ctypes.Structure):
             "pti_threadnum", "pti_numrunning", "pti_priority")])
 
 
+RUSAGE_INFO_V0 = 0
+
+
+class _RusageInfoV0(ctypes.Structure):
+    """struct rusage_info_v0 from <sys/resource.h>."""
+    _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in (
+        "ri_user_time", "ri_system_time", "ri_pkg_idle_wkups", "ri_interrupt_wkups",
+        "ri_pageins", "ri_wired_size", "ri_resident_size", "ri_phys_footprint",
+        "ri_proc_start_abstime", "ri_proc_exit_abstime")]
+
+
 RssReader = Callable[[int], Optional[int]]
 
 
 def macos_rss_reader(libproc: Any = None) -> Optional[RssReader]:
-    """A function pid -> resident bytes using libproc's proc_pidinfo (the call
-    Activity Monitor and psutil use), or None when libproc is unavailable."""
+    """A function pid -> bytes of memory in use, or None when libproc is unavailable.
+
+    The physical footprint (proc_pid_rusage; Activity Monitor's "Memory") counts
+    memory the system compressed. Resident size does not: a worker filling memory
+    with repetitive data stayed far under the limit while using gigabytes. The
+    larger of the two is used; resident size alone where proc_pid_rusage is missing."""
     try:
         lib = libproc or ctypes.CDLL(ctypes.util.find_library("proc") or "libproc.dylib")
         fn = lib.proc_pidinfo
@@ -173,13 +188,22 @@ def macos_rss_reader(libproc: Any = None) -> Optional[RssReader]:
         return None
     fn.restype = ctypes.c_int
     fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    rusage = getattr(lib, "proc_pid_rusage", None)
+    if rusage is not None:
+        rusage.restype = ctypes.c_int
+        rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 
     def read(pid: int) -> Optional[int]:
         info = _TaskInfo()
         size = ctypes.sizeof(info)
         if fn(pid, PROC_PIDTASKINFO, 0, ctypes.byref(info), size) != size:
             return None
-        return int(info.pti_resident_size)
+        used = int(info.pti_resident_size)
+        if rusage is not None:
+            ri = _RusageInfoV0()
+            if rusage(pid, RUSAGE_INFO_V0, ctypes.byref(ri)) == 0:
+                used = max(used, int(ri.ri_phys_footprint))
+        return used
     return read
 
 
