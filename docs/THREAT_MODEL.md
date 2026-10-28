@@ -162,6 +162,11 @@ the account.
   Ollama model; cloud use is logged. The sandbox is the user's own server.
 - Webhooks send metadata only (verdict, hash, indicators), never content, and can
   be HMAC-signed.
+- Every result records what its scan sent outside (`provenance.shared`: hash, file
+  or text, local or cloud), members included, and each share is logged
+  (`external_share`), so a data-protection review can see exactly what left. The
+  production profile refuses `LLM_PROVIDER=auto`, which would fall back to the
+  cloud whenever the local model is unreachable.
 
 ### 7. Abuse the API
 - Bearer token required (constant-time compare); the server refuses to start with
