@@ -6,6 +6,10 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.7.0-rc1] — 2026-10-28
+
+Release candidate of the on-prem production edition (`docs/RELEASE_SCOPE.md`). Built and checked locally; not published.
+
 ### Added
 
 - **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).

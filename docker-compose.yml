@@ -27,7 +27,7 @@ x-hardening: &hardening
 services:
   intel:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
     build: {context: ., target: server}
     command: ["python", "-m", "api.intel"]
     user: "10002:10002"
@@ -63,7 +63,7 @@ services:
 
   analysis:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
     build: {context: ., target: server}
     command: ["python", "-m", "api.server"]
     # docker stop: stop taking uploads, let the ones in progress finish (a scan may
@@ -113,7 +113,7 @@ services:
 
   proxy:
     <<: *hardening
-    image: aegis-sentinel-proxy:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel-proxy:${AEGIS_VERSION:-4.7.0-rc1}
     build: {context: ., target: proxy}
     user: "10003:10003"
     group_add: ["10020"]                  # may connect to the API socket
@@ -135,7 +135,7 @@ services:
   #   docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/PACK.zip
   content:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
     build: {context: ., target: server}
     profiles: [tools]
     restart: "no"
