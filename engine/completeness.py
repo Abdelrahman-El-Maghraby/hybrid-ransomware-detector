@@ -46,6 +46,8 @@ RANK = {status: i for i, status in enumerate(PRECEDENCE)}
 MAX_REASONS = 100
 
 # Real formats (file_integrity.detect_format) with no type-specific analysis here.
+# content the integrity layer recognises as an archive: it must have been opened
+ARCHIVE_FORMATS = frozenset({"zip", "7z", "rar"})
 UNSUPPORTED_FORMATS = frozenset({"unknown", "macho", "gzip", "bzip2", "xz", "zstd", "zlib",
                                  "cab", "lnk"})
 _OOXML = frozenset({".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm",
@@ -141,6 +143,14 @@ def _archive_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
     if arc.get("zip_bomb"):
         out.append(reason(PARTIAL, ctx.display, "archive",
                           "unpacking stopped at the size limits (zip bomb)"))
+    # Members that were not extracted are listed above; anything else counted as
+    # unreadable is an archive (or nested archive) that could not be opened at all.
+    listed = sum(1 for m in arc.get("members") or [] if not m.get("extracted"))
+    unopened = int(arc.get("unreadable_members") or 0) - listed
+    if unopened > 0:
+        out.append(reason(PARTIAL, ctx.display, "archive",
+                          f"{unopened} archive(s) could not be opened (damaged, truncated, "
+                          "or a later volume of a set): content not inspected"))
 
 
 def _embedded_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
@@ -172,6 +182,9 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
             out.append(reason(PARTIAL, ctx.display, key,
                               f"nesting limit ({scanner.max_nesting}) reached: members listed, "
                               "not scanned"))
+    if (sr.get("mail") or {}).get("error"):
+        out.append(reason(PARTIAL, ctx.display, "mail",
+                          f"message not analysed: {sr['mail']['error']}"))
     if (sr.get("mail") or {}).get("attachments_skipped"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"{sr['mail']['attachments_skipped']} attachment(s) not unpacked"))
@@ -199,6 +212,18 @@ def _head(path: str, limit: int = 64 * 1024 * 1024) -> bytes:
         return b""
 
 
+def _office_package(ctx: ScanContext) -> bool:
+    """An OOXML document is a ZIP the document layers read, not an archive to open."""
+    if _ext(ctx) in _OOXML:
+        return True
+    try:
+        import zipfile
+        with zipfile.ZipFile(ctx.path) as z:
+            return "[Content_Types].xml" in z.namelist()
+    except Exception:          # damaged: not shown to be a document
+        return False
+
+
 def _format_gaps(ctx: ScanContext, out: List[Reason]) -> None:
     sr = ctx.scan_results
     fmt = str((sr.get("file_integrity") or {}).get("detected_format") or "")
@@ -206,6 +231,10 @@ def _format_gaps(ctx: ScanContext, out: List[Reason]) -> None:
         out.append(reason(LOCKED, ctx.display, "prompt-guard",
                           "password-protected PDF: its text was not read"))
     opened = any(isinstance(sr.get(k), dict) for k in _CONTAINER_RESULTS)
+    if fmt in ARCHIVE_FORMATS and not opened and not _office_package(ctx):
+        out.append(reason(PARTIAL, ctx.display, "archive",
+                          f"{fmt} content was not opened (damaged, truncated, or not a "
+                          "supported container): members not inspected"))
     if fmt in UNSUPPORTED_FORMATS and not opened:
         out.append(reason(UNSUPPORTED, ctx.display, "integrity",
                           f"no type-specific analysis for {fmt} content; only the generic "
