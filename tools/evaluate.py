@@ -20,10 +20,18 @@ Every file is scanned in a worker process with a time limit, so one hostile
 or pathological file cannot stop the run. Files whose extension the engine
 does not support are counted separately and left out of the rates.
 
+Before scanning, files are identified by SHA-256: a file present twice counts
+once, and one labelled both malicious and benign is left out (both reported).
+--split test evaluates only the test part of a fixed, family-grouped split
+(tools/splits.py), the part tools/calibrate_weights.py --split calibration
+never fits on - so proposed weights are measured on families they never saw.
+
 Outputs (in --out):
-  results.csv   one row per file: label, type, family, verdict, risk, reasons
-  summary.md    rates at three alert thresholds, per file type, per family,
-                timing, and the full list of misses and false alarms
+  results.csv   one row per file: label, type, family, split, verdict, risk,
+                scan_status, reasons
+  summary.md    rates at three alert thresholds (and a worst case that counts
+                errors and timeouts as misses), per file type, per family, scan
+                completeness, timing, and the full list of misses and false alarms
 
 Rates are reported at fixed verdict thresholds rather than as one "accuracy"
 number: with few malicious files in real traffic, accuracy hides false alarms.
@@ -42,6 +50,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools.splits import SPLITS, dedupe, load_families, select, sha256_file  # noqa: E402
+
 RANK = {"Clean": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 THRESHOLDS = ("Low", "Medium", "High")
 SKIP_DIRS = {"zips", "__MACOSX"}
@@ -87,6 +99,7 @@ def _scan(path: str) -> dict:
     return {
         "verdict": r.get("verdict", "Clean"),
         "risk": int(r.get("risk_score", 0)),
+        "scan_status": r.get("scan_status", "complete"),
         "sha256": r.get("sha256_hash", ""),
         "reasons": " | ".join(f"{c.get('indicator')}({float(c.get('points', 0)):.0f})"
                               for c in contribs[:4]),
@@ -109,14 +122,21 @@ def collect(roots, label, supported):
     return out
 
 
+def prepare(files, families, split):
+    """Hash every file, count duplicates once, drop files labelled both ways, and
+    keep one split. Returns (files, {"duplicates", "conflicts", "split"})."""
+    for f in files:
+        try:
+            f["sha256"] = sha256_file(f["path"])
+        except OSError:
+            f["sha256"] = ""
+    files, duplicates, conflicts = dedupe(files)
+    files = select(files, split, families)
+    return files, {"duplicates": duplicates, "conflicts": conflicts, "split": split}
+
+
 def load_labels(path):
-    fam = {}
-    if path and Path(path).expanduser().exists():
-        with open(Path(path).expanduser(), newline="") as f:
-            for row in csv.reader(f):
-                if len(row) >= 3 and len(row[0]) == 64:
-                    fam[row[0].lower()] = row[2]
-    return fam
+    return load_families(path)
 
 
 def run(files, jobs, timeout, with_vt, with_llm):
@@ -174,6 +194,11 @@ def summarise(rows, unsupported, out: Path, args) -> str:
              + (f" ({', '.join(f'{e} {c}' for e, c in Counter(u['ext'] for u in unsupported).most_common(8))})"
                 if unsupported else ""))
     L.append(f"- Errors / timeouts: {len(errors)}")
+    prep = getattr(args, "prep", {}) or {}
+    if prep:
+        L.append(f"- Duplicates (same SHA-256) counted once: {prep.get('duplicates', 0)}; "
+                 f"labelled both malicious and benign, left out: {len(prep.get('conflicts', []))}")
+        L.append(f"- Split: **{prep.get('split', 'all')}** (family-grouped, tools/splits.py)")
     L.append(f"- Reputation layers: VirusTotal {'ON' if args.with_vt else 'off'}, "
              f"LLM {'ON' if args.with_llm else 'off'} (engine-only unless ON)\n")
 
@@ -184,6 +209,19 @@ def summarise(rows, unsupported, out: Path, args) -> str:
         d, dh, dn = rate(rows, "malicious", thr)
         f, fh, fn = rate(rows, "benign", thr)
         L.append(f"| {thr} | {d:.1f}% ({dh}/{dn}) | {f:.2f}% ({fh}/{fn}) |")
+    mal_err = sum(1 for r in mal if "error" in r)
+    if mal_err:
+        d, dh, dn = rate(rows, "malicious", args.alert)
+        L.append(f"\nWorst case at {args.alert}: {100.0 * dh / (dn + mal_err):.1f}% "
+                 f"({dh}/{dn + mal_err}) when the {mal_err} malicious file(s) that errored or "
+                 "timed out count as misses.")
+
+    L.append("\n## Scan completeness\n")
+    L.append("| scan_status | Malicious | Benign |")
+    L.append("|---|---|---|")
+    for st in ("complete", "partial", "locked", "unsupported", "failed"):
+        L.append(f"| {st} | {sum(1 for r in mal if r.get('scan_status') == st)} "
+                 f"| {sum(1 for r in ben if r.get('scan_status') == st)} |")
 
     L.append("\n## Verdict distribution\n")
     L.append("| Verdict | Malicious | Benign |")
@@ -226,7 +264,8 @@ def summarise(rows, unsupported, out: Path, args) -> str:
     L.append(f"\n## Misses — malicious below {thr} ({len(misses)})\n")
     for r in sorted(misses, key=lambda r: (r["ext"], r["risk"]))[:300]:
         L.append(f"- `{Path(r['path']).name}` [{r['ext']}, {r.get('family') or '?'}] "
-                 f"{r['verdict']} {r['risk']}/100 — {r['reasons'] or 'no signal'}")
+                 f"{r['verdict']} {r['risk']}/100 ({r.get('scan_status', 'complete')} scan) — "
+                 f"{r['reasons'] or 'no signal'}")
     L.append(f"\n## False alarms — benign at or above {thr} ({len(fps)})\n")
     for r in sorted(fps, key=lambda r: -r["risk"])[:300]:
         L.append(f"- `{Path(r['path']).name}` [{r['ext']}, {r['group']}] "
@@ -253,6 +292,9 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="scan at most N files per label (0 = all)")
     ap.add_argument("--with-vt", action="store_true", help="include VirusTotal (needs VIRUSTOTAL_API_KEY)")
     ap.add_argument("--with-llm", action="store_true", help="include the LLM layer")
+    ap.add_argument("--split", choices=SPLITS, default="all",
+                    help="'test': only the family-grouped test part (never used by "
+                         "calibrate_weights.py --split calibration); default all")
     args = ap.parse_args(argv)
     if not args.malicious and not args.benign:
         ap.error("give --malicious and/or --benign")
@@ -264,6 +306,8 @@ def main(argv=None) -> int:
     files = collect(args.malicious, "malicious", supported) + collect(args.benign, "benign", supported)
     unsupported = [f for f in files if not f["supported"]]
     files = [f for f in files if f["supported"]]
+    families = load_labels(args.labels)
+    files, args.prep = prepare(files, families, args.split)
     if args.limit:
         keep, seen = [], Counter()
         for f in files:
@@ -291,7 +335,6 @@ def main(argv=None) -> int:
     t0 = time.time()
     rows = run(files, args.jobs, args.timeout, args.with_vt, args.with_llm)
 
-    families = load_labels(args.labels)
     for r in rows:
         r["family"] = families.get((r.get("sha256") or "").lower(), "") if r["label"] == "malicious" else ""
         r.setdefault("verdict", "Clean")
@@ -303,10 +346,11 @@ def main(argv=None) -> int:
 
     with open(out / "results.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["label", "folder", "ext", "family", "verdict", "risk", "seconds",
-                    "sha256", "reasons", "error", "path"])
+        w.writerow(["label", "folder", "ext", "family", "split", "verdict", "risk",
+                    "scan_status", "seconds", "sha256", "reasons", "error", "path"])
         for r in rows:
-            w.writerow([r["label"], r["group"], r["ext"], r["family"], r["verdict"], r["risk"],
+            w.writerow([r["label"], r["group"], r["ext"], r["family"], r.get("split", ""),
+                        r["verdict"], r["risk"], r.get("scan_status", ""),
                         f"{r.get('seconds', 0):.2f}", r.get("sha256", ""), r["reasons"],
                         r.get("error", ""), r["path"]])
     text = summarise(rows, unsupported, out, args)

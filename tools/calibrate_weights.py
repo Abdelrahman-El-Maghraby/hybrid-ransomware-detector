@@ -22,6 +22,11 @@ Outputs (in --out):
                   High threshold for the current and the proposed weights
                   (in-sample and 5-fold cross-validated)
 
+Cross-validation folds are grouped by malware family (--labels), so a family is
+never in both the training and the scoring part of a fold. --split calibration
+fits only on the calibration part of the fixed split in tools/splits.py; measure
+the result with tools/evaluate.py --split test, on families it never saw.
+
 Nothing is applied automatically. Indicators seen fewer than --min-support
 times are reported but keep their current weight: a handful of files cannot
 justify a change. Run it inside the analysis VM; the outputs hold indicator
@@ -33,7 +38,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -137,8 +141,10 @@ def rates(rows: List[Dict], scores: List[int], thr: int = HIGH) -> Dict[str, flo
 
 
 def calibrate(rows: Iterable[Dict], min_support: int = 10, folds: int = 5,
-              seed: int = 7) -> Dict:
+              seed: int = 7, families: Optional[Dict[str, str]] = None) -> Dict:
+    from tools.splits import group_folds, group_of
     rows = [r for r in rows if "indicators" in r]
+    families = families or {}
     names = sorted({k for r in rows for k in r["indicators"]})
     current: Dict[str, float] = {}
     for k in names:
@@ -163,13 +169,17 @@ def calibrate(rows: Iterable[Dict], min_support: int = 10, folds: int = 5,
     cur_scores = [min(100, r["risk"]) if "risk" in r else s
                   for r, s in zip(rows, score_rows(rows, as_is))]
 
-    shuffled = rows[:]
-    random.Random(seed).shuffle(shuffled)
+    # one family never in both the training and the scored part of a fold
+    groups = [group_of(str(r.get("sha256") or i), families.get(str(r.get("sha256") or "").lower(), "")
+                       if r["label"] == "malicious" else "") for i, r in enumerate(rows)]
+    fold_of = group_folds(groups, folds, seed=str(seed))
     cv_scores: List[Tuple[Dict, int]] = []
-    if len(shuffled) >= folds * 2:
+    if len(rows) >= folds * 2:
         for f in range(folds):
-            test = shuffled[f::folds]
-            train = [r for i, r in enumerate(shuffled) if i % folds != f]
+            test = [r for r, k in zip(rows, fold_of) if k == f]
+            train = [r for r, k in zip(rows, fold_of) if k != f]
+            if not test:
+                continue
             wts = fit(train)
             cv_scores += list(zip(test, score_rows(test, wts)))
 
@@ -231,6 +241,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--features-in", type=Path, help="reuse features.jsonl instead of scanning")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--min-support", type=int, default=10)
+    ap.add_argument("--labels", help="CSV with sha256,type,family (groups the folds by family)")
+    ap.add_argument("--split", choices=("all", "calibration", "test"), default="all",
+                    help="fit only on this part of the family-grouped split (tools/splits.py); "
+                         "use 'calibration', then evaluate.py --split test")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     if a.features_in:
@@ -242,7 +256,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         with open(a.out / "features.jsonl", "w") as fh:
             for r in rows:
                 fh.write(json.dumps(r) + "\n")
-    res = calibrate(rows, min_support=a.min_support)
+    from tools.splits import load_families, select
+    families = load_families(a.labels)
+    rows = select(rows, a.split, families)
+    res = calibrate(rows, min_support=a.min_support, families=families)
+    res["split"] = a.split
     (a.out / "weights.json").write_text(json.dumps(res, indent=2))
     (a.out / "summary.md").write_text(summary_md(res))
     (a.out / "weights.override.yaml").write_text(override_yaml(res))
