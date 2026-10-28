@@ -24,7 +24,8 @@ class ExternalLookupsMixin:
 
     if TYPE_CHECKING:
         def calculate_hashes(self, file_path: str) -> Dict[str, str]: ...
-        def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True) -> str: ...
+        def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True,
+                                    errors: Optional[List[str]] = None) -> str: ...
 
     def _llm_cache_layer(self) -> str:
         """Cache key part of an LLM answer: everything that changes it - the back-end,

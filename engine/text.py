@@ -3,7 +3,7 @@
 import logging
 import os
 import re
-from typing import List
+from typing import List, Optional
 
 import docx
 
@@ -81,8 +81,20 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
 class TextExtractionMixin:
     """Visible-text extraction (PDF, Word, OOXML parts, OCR fallback)."""
 
-    def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True) -> str:
-        """Extract readable text from a PDF or Office document ('' if none)."""
+    def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True,
+                                errors: Optional[List[str]] = None) -> str:
+        """Extract readable text from a PDF or Office document ('' if none).
+
+        '' also comes back when the document could not be parsed; pass `errors` to
+        tell the two apart - it receives why, when no text could be read because a
+        parser failed (engine/completeness.py turns that into a partial scan)."""
+        failures: List[str] = []
+        text = self._dispatch_text(file_path, allow_ocr, failures)
+        if errors is not None and failures and not text.strip():
+            errors.extend(failures)
+        return text
+
+    def _dispatch_text(self, file_path: str, allow_ocr: bool, errors: List[str]) -> str:
         file_ext = os.path.splitext(file_path)[1].lower()
 
         try:
@@ -90,26 +102,27 @@ class TextExtractionMixin:
                 with open(file_path, "rb") as fh:
                     return visible_text(fh.read(2 * 1024 * 1024))
             if file_ext == ".pdf":
-                text = self._extract_text_from_pdf(file_path)
+                text = self._extract_text_from_pdf(file_path, errors)
                 if not text.strip() and allow_ocr:
                     logger.info("No text found in PDF. Using OCR fallback for %s", file_path)
                     text = self._extract_text_with_ocr_from_pdf(file_path)
                 return text
             elif file_ext == ".docx":
                 return self._extract_text_from_word(file_path) or \
-                    self._extract_text_from_ooxml(file_path)
+                    self._extract_text_from_ooxml(file_path, errors=errors)
             elif file_ext in (".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".pptx", ".pptm"):
-                return self._extract_text_from_ooxml(file_path)
+                return self._extract_text_from_ooxml(file_path, errors=errors)
             else:
                 return ""     # legacy binary formats: the strings pass covers them
         except Exception as e:
             logger.error("Error extracting text from %s: %s", file_path, str(e))
+            errors.append(f"text extraction failed ({type(e).__name__})")
             return ""
 
     PDF_MAX_PAGES = 50
     PDF_MAX_CHARS = 200_000
 
-    def _extract_text_from_pdf(self, file_path: str) -> str:
+    def _extract_text_from_pdf(self, file_path: str, errors: Optional[List[str]] = None) -> str:
         """Extract text from a PDF file.
 
         Bounded like the OOXML path: the LLM reads the first 3,000 characters and
@@ -129,6 +142,8 @@ class TextExtractionMixin:
             return "\n".join(chunks)[:self.PDF_MAX_CHARS]
         except Exception as e:
             logger.warning("Could not extract PDF text from %s: %s", file_path, e)
+            if errors is not None:
+                errors.append(f"PDF could not be parsed ({type(e).__name__}: {str(e)[:80]})")
             return ""
 
     def _extract_text_with_ocr_from_pdf(self, file_path: str) -> str:
@@ -155,7 +170,8 @@ class TextExtractionMixin:
             return ""
 
     @staticmethod
-    def _extract_text_from_ooxml(file_path: str, max_chars: int = 200_000) -> str:
+    def _extract_text_from_ooxml(file_path: str, max_chars: int = 200_000,
+                                 errors: Optional[List[str]] = None) -> str:
         """Text from any OOXML file (Word/Excel/PowerPoint, incl. macro-enabled),
         read straight from the XML parts with defusedxml."""
         if not DEFUSEDXML_AVAILABLE:
@@ -182,5 +198,7 @@ class TextExtractionMixin:
                                 return " ".join(chunks)[:max_chars]
         except Exception as e:
             logger.debug("OOXML text extraction failed for %s: %s", file_path, e)
+            if errors is not None:
+                errors.append(f"Office document could not be parsed ({type(e).__name__})")
         return " ".join(chunks)
 

@@ -68,9 +68,10 @@ class YaraResult:
     matches: List[YaraMatch] = field(default_factory=list)
     top_severity: Optional[str] = None
     detail: str = ""
+    error: str = ""             # the scan failed (e.g. YARA's timeout): not "no match"
 
     def as_dict(self) -> Dict:
-        return {
+        out = {
             "available": self.available,
             "rules_loaded": self.rules_loaded,
             "matched": self.matched,
@@ -78,6 +79,9 @@ class YaraResult:
             "top_severity": self.top_severity,
             "detail": self.detail,
         }
+        if self.error:
+            out["error"] = self.error
+        return out
 
 
 # Variables every rule may use. file_ext is the lower-case extension without the
@@ -139,7 +143,7 @@ class YaraEngine:
         except Exception as e:
             logger.error("YARA scan failed for %s: %s", file_path, e)
             return YaraResult(available=True, rules_loaded=self._rules_count,
-                              detail=f"YARA scan error: {e}")
+                              detail=f"YARA scan error: {e}", error=f"{type(e).__name__}: {e}"[:200])
 
         matches: List[YaraMatch] = []
         for m in raw_matches:

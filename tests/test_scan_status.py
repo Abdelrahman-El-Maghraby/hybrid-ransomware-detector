@@ -370,3 +370,39 @@ def test_containers_that_could_not_be_opened_are_never_complete(scanner, tmp_pat
     with zipfile.ZipFile(good, "w") as z:
         z.writestr("notes.txt", "quarterly figures")
     assert scanner.scan_file(str(_write(tmp_path, "ok.zip", good.getvalue())))["scan_status"] == "complete"
+
+
+def test_documents_that_could_not_be_parsed_are_never_complete(scanner, tmp_path, monkeypatch):
+    """A2: a damaged PDF / Office file gave '' text (parser failed) and read
+    'Clean, complete'; YARA, macro and relationship failures sat in a free-text
+    detail. Each is now a partial gap - and a program merely named .pdf is not."""
+    pdf = make_pdf("Quarterly figures " * 40)
+    for name, data in (("cut.pdf", pdf[: len(pdf) // 2]),
+                       ("noise.pdf", b"%PDF-1.7\n" + b"\x00\xff" * 500)):
+        r = scanner.scan_file(str(_write(tmp_path, name, data)))
+        assert r["scan_status"] == "partial", name
+        assert any(g["reason"].startswith("document text not read: PDF could not be parsed")
+                   for g in r["incomplete_reasons"])
+    raw = make_docx(tmp_path / "full.docx").read_bytes()
+    r = scanner.scan_file(str(_write(tmp_path, "cut.docx", raw[: len(raw) // 2])))
+    assert any("Office document could not be parsed" in g["reason"] for g in r["incomplete_reasons"])
+
+    r = scanner.scan_file(str(_write(tmp_path, "broken.doc", bytes.fromhex("D0CF11E0A1B11AE1")
+                                     + b"\0" * 600)))
+    assert r["scan_results"]["macro_analysis"]["error"]
+    assert any(g["layer"] == "macro" and "could not analyse" in g["reason"]
+               for g in r["incomplete_reasons"])
+
+    class TimingOut:
+        def match(self, *a, **k):
+            raise RuntimeError("internal error: 30")   # what yara-python raises on a timeout
+    if scanner.yara_engine._rules is not None:
+        monkeypatch.setattr(scanner.yara_engine, "_rules", TimingOut())
+        r = scanner.scan_file(str(_write(tmp_path, "big.txt", b"plain text " * 100)))
+        assert r["scan_results"]["yara"]["error"].startswith("RuntimeError")
+        assert any(g["layer"] == "yara" for g in r["incomplete_reasons"])
+        monkeypatch.undo()
+
+    for name, data in (("invoice.pdf", _disguised_pe()), ("ok.pdf", pdf),
+                       ("ok.docx", raw)):
+        assert scanner.scan_file(str(_write(tmp_path, name, data)))["scan_status"] == "complete", name

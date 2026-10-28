@@ -56,6 +56,9 @@ _OOXML = frozenset({".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx
 _EXTERNAL_RESULTS = (("llm", "chatgpt_analysis"), ("virustotal", "virustotal"),
                      ("sandbox", "sandbox"), ("emulation", "emulation"))
 _CONTAINER_RESULTS = ("archive", "mail", "web", "embedded")
+# core layers that report "could not analyse" as data (an `error` field)
+_ANALYSIS_RESULTS = (("yara", "yara"), ("macro", "macro_analysis"),
+                     ("relationships", "relationships"))
 
 Reason = Dict[str, str]
 
@@ -110,6 +113,11 @@ def _layer_gaps(scanner: RansomwareScanner, ctx: ScanContext, out: List[Reason])
         test = APPLIES.get(name)
         if st["state"] == DOWN and test is not None and test(scanner, ctx):
             out.append(reason(PARTIAL, ctx.display, name, f"layer unavailable ({st['detail']})"))
+    for layer, key in _ANALYSIS_RESULTS:
+        entry = sr.get(key)
+        if isinstance(entry, dict) and entry.get("error"):
+            out.append(reason(PARTIAL, ctx.display, layer, f"{layer} could not analyse the file: "
+                                                          f"{entry['error']}"))
     for layer, key in _EXTERNAL_RESULTS:
         entry = sr.get(key)
         if not isinstance(entry, dict):
@@ -182,6 +190,12 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
             out.append(reason(PARTIAL, ctx.display, key,
                               f"nesting limit ({scanner.max_nesting}) reached: members listed, "
                               "not scanned"))
+    fmt = str((sr.get("file_integrity") or {}).get("detected_format") or "")
+    if (sr.get("text_extraction") or {}).get("error") and fmt in ("pdf", "zip"):
+        # only when the content really is a PDF / OOXML: a program named .pdf fails
+        # the PDF parser, but it is analysed as what it is
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          f"document text not read: {sr['text_extraction']['error']}"))
     if (sr.get("mail") or {}).get("error"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"message not analysed: {sr['mail']['error']}"))
