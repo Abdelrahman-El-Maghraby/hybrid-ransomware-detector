@@ -6,6 +6,8 @@
            [--fuzzy fuzzy_signatures.json]
     python tools/rulepack.py sign pack.tar.gz --key KEYDIR/rulepack_private.pem
     python tools/rulepack.py verify pack.tar.gz --pub <base64 public key>
+    python tools/rulepack.py rollback good-2026.10.21.tar.gz --version 2026.10.23 \
+           --out pack.tar.gz --pub <base64 public key>          # then sign it
 
 Users install with:  RULEPACK_PUBLIC_KEYS=<base64> python RansomwareScanner.py --update-rules pack.tar.gz
 """
@@ -16,7 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.rulepack import RulePackError, build_pack, generate_keypair, sign_pack, verify_pack
+from core.rulepack import (
+    RulePackError,
+    build_pack,
+    generate_keypair,
+    rollback_pack,
+    sign_pack,
+    verify_pack,
+)
 
 
 def main(argv=None) -> int:
@@ -36,6 +45,11 @@ def main(argv=None) -> int:
     v = sub.add_parser("verify")
     v.add_argument("pack", type=Path)
     v.add_argument("--pub", action="append", required=True)
+    r = sub.add_parser("rollback", help="re-issue a previous pack's content under a new version")
+    r.add_argument("previous", type=Path)
+    r.add_argument("--version", required=True, help="newer than the defective pack")
+    r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--pub", action="append", required=True)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "keygen":
@@ -45,6 +59,8 @@ def main(argv=None) -> int:
             print(build_pack(a.rules, a.version, a.out, a.fuzzy, a.min_engine))
         elif a.cmd == "sign":
             print(sign_pack(a.pack, a.key))
+        elif a.cmd == "rollback":
+            print(rollback_pack(a.previous, a.pub, a.version, a.out))
         else:
             m = verify_pack(a.pack, a.pub)["manifest"]
             print(f"OK: version {m['version']}, {len(m['files'])} file(s)")
