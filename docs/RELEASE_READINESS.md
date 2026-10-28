@@ -118,14 +118,76 @@ Phase 2 backlog (not blocking; owners in brackets):
 
 | ID | Task | Criteria | Status | Evidence |
 |---|---|---|---|---|
-| P4.1 | Install, configure, start, stop, upgrade, rollback, uninstall docs (Docker) | O1, U1 | open | |
-| P4.2 | Backup / restore of config and quarantine key | R1 | open | |
-| P4.3 | Runbooks: layer failure, worker failure, disk pressure, outdated rules, failed update | R2 | open | |
-| P4.4 | Data policy | R4 | open | |
-| P4.5 | Support doc (false positives) | R3 | open | |
-| P4.6 | Third-party dependency and service terms for legal review | L1 | open | |
-| P4.7 | Final readiness check against the acceptance criteria; prioritised remaining blockers | all | open | |
-| P4.8 | v4.7.0-rc1 locally: version, CHANGELOG, full validation, local build and smoke test. No merge to main, no tag, no release | S1, O5 | open | |
+| P4.1 | Install, configure, start, stop, upgrade, rollback, uninstall docs (Docker) | O1, U1 | done | `docs/OPERATIONS.md`; walk-through of it on a fresh clone (see the final check, O1). |
+| P4.2 | Backup / restore of config and quarantine key | R1 | done | `deploy/backup.sh` / `deploy/restore.sh`, tested end to end twice (data, owner, secrets restored to their folder, /ready 200); quarantine key: `--export-key` / `--import-key`, `tests/test_key_backup.py`. |
+| P4.3 | Runbooks: layer failure, worker failure, disk pressure, outdated rules, failed update | R2 | done | `docs/RUNBOOKS.md` (signals, checks and actions from the code: metrics, log events, failure reasons). |
+| P4.4 | Data policy | R4 | done | `docs/DATA_POLICY.md`. |
+| P4.5 | Support doc (false positives) | R3 | done | `docs/SUPPORT.md`. |
+| P4.6 | Third-party dependency and service terms for legal review | L1 | done | `docs/THIRD_PARTY.md`: licences as their metadata states, 16 items flagged for review; no legal conclusion. |
+| P4.7 | Final readiness check against the acceptance criteria; prioritised remaining blockers | all | done | Section 'Final check against the acceptance criteria' below. |
+| P4.8 | v4.7.0-rc1 locally: version, CHANGELOG, full validation, local build and smoke test. No merge to main, no tag, no release | S1, O5 | done | Version 4.7.0-rc1; full validation and local builds - see the final check (S1, O5) and the RC evidence paragraph. No merge to main, no tag, no release. |
+
+## Final check against the acceptance criteria (4.7.0-rc1, 2026-10-28)
+
+Status: **met**, **partly** (met with a stated gap) or **open**. Evidence points at
+commits, tests, CI runs and docs; CI run ids for the RC tree are in the RC evidence
+paragraph at the end.
+
+| ID | Status | Evidence / gap |
+|---|---|---|
+| S1 | met | ruff, mypy (0 errors, full install), bandit 0 medium/high in shipped code, pip-audit clean (lock), coverage 91 %, regression corpus, registry test, full suite on 3.9 and 3.12 (CI) and on 3.14 locally - counts in the RC evidence paragraph |
+| S2 | met | `tests/test_secret_store.py`, `tests/test_provenance.py`, intel capabilities carry no secret (`tests/test_intel_service.py`); Docker secrets via `_FILE`; `.env` is not in the image (`.dockerignore`, `tests/test_deployment.py`) |
+| S3 | met | `tests/test_api_auth.py` (per-IP limit, lockout, rotating tokens, quotas, X-Forwarded-For spoofing) |
+| S4 | met | `deploy/isolation_check.py` in the running containers (CI `docker.yml` on every branch); `tests/test_intel_service.py` (operations, inputs, token, rate limit, egress allowlist incl. redirects) |
+| S5 | met | `docker-compose.yml` + `tests/test_deployment.py`; checked live: not root, CapEff 0, no-new-privileges, Seccomp 2, read-only root, noexec tmpfs, limits |
+| S6 | met | A1: replay refused, signed rollback, signer recorded, compromise recovery (`tests/test_rulepack.py`, `docs/RULE_PACKS.md`) |
+| S7 | met | Desktop only (D3). Resume only recorded pids, reused pid refused, resume / unlock / quarantine / restore audit-logged with the OS user; GUI confirmations. Authorisation is the OS account that owns the vault key and the tripwire state - there is no separate approval step |
+| S8 | met | Off by default (D4; image `LLM_PROVIDER=none`; production refuses `auto`); start-up log `External services ->`; per result `provenance.external_services` and `provenance.shared` |
+| S9 | met | Per-artifact SBOM (release dry-run verified), actions pinned by SHA (test), least-privilege `permissions:`, no `continue-on-error` |
+| S10 | met | `docs/THREAT_MODEL.md` sections 2, 5 and 10, trust boundary 6 |
+| C1 | met | `engine/completeness.py`, schema 1.2+, `tests/test_scan_status.py` (precedence, members) |
+| C2 | met | `verdict_label`, text report, GUI (`verdict_text`), API result; containers and documents that could not be read are partial (A4, A2) |
+| C3 | met | `test_encrypted_member_locks_the_archive_without_lowering_the_score`; quarantine is a separate opt-in action |
+| C4 | met | `engine/provenance.py`, report header, GUI Provenance section, `/version` |
+| C5 | met | Cache keys (Phase 1), cache only in intel (Phase 3), content reload on change |
+| C6 | met | Schema 1.1 (4.6.0) -> 1.3, additive only; CHANGELOG entries |
+| C7 | met | Regression-corpus job green on every merge; no weight or threshold changed |
+| M1 | **open** | Real-sample detection and false-positive rates: owner runs `tools/evaluate.py --split test` in the VM (X1) |
+| M2 | **open** | Throughput and p50 / p95 per file type on a reference host: not yet defined. Measured on the dev Mac only: API small-file p50 257 ms with spare workers; in-process about 19 files/s on a synthetic container set |
+| O1 | partly | Walk-through of `docs/OPERATIONS.md` on a fresh clone (install, secrets, TLS, start, /health, /ready, /scan, /version, allowlist via the content service, stop / start, backup, uninstall) - on the dev Mac with Docker Desktop, not on a clean Linux host |
+| O2 | met | `engine/validation.py` (one line per problem; production refusals), `/ready` 503 with reasons |
+| O3 | met | `/health` vs `/ready` (`tests/test_readiness.py`) |
+| O4 | met | Start-up layer and service lines, `LOG_FORMAT=json`, `/metrics` (Prometheus) |
+| O5 | met | `build.py` preflight and packaged `--capabilities`; release dry-run (3 builds + image); local RC build passed its packaged smoke test |
+| O6 | met | `stop_grace_period`, scan slots (503), upload limits; temp removed after worker kill, crash of the scanner (sweep) and restart (tmpfs) |
+| U1 | partly | Upgrade (4.7.x and from 4.6.0 desktop / systemd) and rollback documented in `docs/OPERATIONS.md`; the 4.6.0 -> 4.7.0 path was not exercised on a real 4.6.0 installation |
+| U2 | met | `test_a_signed_rollback_restores_the_previous_rules`; `docs/RULE_PACKS.md` |
+| R1 | met | Docker backup / restore tested end to end (twice, incl. lost secrets); quarantine key backup / restore across machines (`tests/test_key_backup.py`) |
+| R2 | met | `docs/RUNBOOKS.md` |
+| R3 | met | `docs/SUPPORT.md` |
+| R4 | met | `docs/DATA_POLICY.md` |
+| L1 | met | `docs/THIRD_PARTY.md` (the legal review itself is the owner's) |
+
+### Remaining blockers, in order
+
+1. **M1 - real-sample evaluation** in the isolated VM (owner): detection and
+   false-positive rates per type and family, on the test split. An open release
+   criterion until it is run.
+2. **Legal review of `docs/THIRD_PARTY.md`** before commercial distribution: the
+   flagged copyleft components (for example pcodedmp, the LGPL archive libraries,
+   the PyInstaller bootloader in desktop binaries) and the VirusTotal / OpenAI
+   service terms for a commercial deployment.
+3. **O1 / M2 on a clean Linux amd64 host:** run the operations walk-through and
+   `deploy/check-deployment.sh` there, and record throughput and latency per file
+   type as the M2 reference.
+4. **U1:** exercise the upgrade from an actual 4.6.0 desktop and systemd install.
+5. **X2:** code-signing certificates for the desktop binaries (D2).
+6. arm64 server image: the release builds amd64 only until CI builds and tests
+   arm64 (D5).
+
+Not blocking (backlog): vulnerability scan of the image's Debian packages (A10-7),
+`stop_writers` dry-run and resume / unlock buttons in the GUI (A8), the macOS
+desktop needs zbar for the QR layer (reported as down otherwise).
 
 ### External dependencies
 
