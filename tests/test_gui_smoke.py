@@ -74,6 +74,10 @@ def test_full_gui_flow(app, tmp_path):
     _pump(app, 0.3)
     mail_win.destroy()
 
+    partial = dict(rows["invoice.pdf"], scan_status="partial",
+                   incomplete_reasons=[{"layer": "archive", "reason": "member not unpacked",
+                                        "member_path": "x.zip!/a.doc", "status": "partial"}])
+    gui.DetailWindow(app, partial).destroy()          # completeness + provenance sections
     win = gui.DetailWindow(app, rows["invoice.pdf"])
     _pump(app, 0.3)
     win._quarantine(confirm=False)

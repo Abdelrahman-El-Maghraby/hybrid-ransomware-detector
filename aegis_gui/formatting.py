@@ -108,6 +108,45 @@ def first_gap(result: dict) -> str:
     return f"not fully inspected: {reasons[0].get('reason', '')}"
 
 
+def gap_rows(result: dict, limit: int = 20) -> list:
+    """(layer, reason, where) for every gap of an incomplete scan, worst first as
+    the engine recorded them; [] for a complete one. `where` is the member path
+    inside a container, or ''."""
+    reasons = result.get("incomplete_reasons") or []
+    if (result.get("scan_status") or "complete") == "complete":
+        return []
+    top = result.get("file_path")
+    rows = [(str(r.get("layer") or "?"), str(r.get("reason") or ""),
+             "" if (r.get("member_path") or top) == top else str(r.get("member_path")))
+            for r in reasons[:limit]]
+    if len(reasons) > limit:
+        rows.append(("", f"... {len(reasons) - limit} more in the JSON report", ""))
+    return rows
+
+
+def provenance_rows(result: dict) -> list:
+    """(label, value) of what produced the result: rules, registry and schema,
+    profile, external services, and the layers that did not run on this file."""
+    pv = result.get("provenance") or {}
+    if not pv:
+        return []
+    rules = pv.get("rules") or {}
+    sha = str(rules.get("sha256") or "")
+    rows = [("Rules", f"{rules.get('version') or rules.get('source', 'none')} "
+                      f"({rules.get('files', 0)} file(s)" + (f", sha256 {sha[:16]}" if sha else "") + ")"),
+            ("Registry", f"{pv.get('registry_version', '?')}  ·  schema {pv.get('schema_version', '?')}"),
+            ("Profile", str(pv.get("profile", "standard"))),
+            ("Services", ", ".join(f"{k} {v}" for k, v in (pv.get("external_services") or {}).items())
+             or "n/a")]
+    for key, label in (("layers_down", "Down here"), ("layers_unavailable", "Unavailable"),
+                       ("layers_failed", "Failed"), ("layers_skipped", "Skipped")):
+        items = [(i.get("layer"), i.get("reason")) if isinstance(i, dict) else (i, "")
+                 for i in (pv.get(key) or [])]
+        if items:
+            rows.append((label, "; ".join(f"{n}: {why}" if why else str(n) for n, why in items)))
+    return rows
+
+
 def result_risk(result: dict) -> int:
     """The 0-100 risk score, derived from the legacy severity for old results."""
     if "risk_score" in result and result.get("risk_score") is not None:

@@ -286,3 +286,21 @@ def test_member_gaps_propagate_with_the_precedence(scanner, tmp_path):
     both = scanner.scan_file(_write(tmp_path, "q.zip", buf.getvalue()))
     assert both["scan_status"] == "locked"                    # locked outranks partial
     assert {r["status"] for r in both["incomplete_reasons"]} == {"partial", "locked"}
+
+
+def test_gui_lists_every_gap_and_the_provenance(scanner, tmp_path):
+    """A9-1: the analyst sees what was not inspected and what produced the result."""
+    from aegis_gui.formatting import gap_rows, provenance_rows
+    _all_up(scanner, macro={"state": DOWN, "detail": "needs oletools", "missing": ["oletools"]})
+    scanner.provenance = dict(scanner.provenance, layers_down=[{"layer": "macro",
+                                                                "reason": "needs oletools"}])
+    r = scanner.scan_file(str(make_docx(tmp_path / "b.docm")))
+    rows = gap_rows(r)
+    assert rows and rows[0][0] == "macro" and "oletools" in rows[0][1]
+    labels = dict(provenance_rows(r))
+    assert {"Rules", "Registry", "Profile", "Services"} <= set(labels)
+    assert labels["Profile"] == "standard" and "schema 1.2" in labels["Registry"]
+    assert "macro: needs oletools" in labels.get("Down here", "")
+    many = dict(r, incomplete_reasons=[{"layer": "x", "reason": str(i)} for i in range(25)])
+    assert len(gap_rows(many)) == 21 and "5 more" in gap_rows(many)[-1][1]
+    assert gap_rows(dict(r, scan_status="complete")) == [] and provenance_rows({}) == []
