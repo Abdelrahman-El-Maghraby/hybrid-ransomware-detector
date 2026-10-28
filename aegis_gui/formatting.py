@@ -147,6 +147,31 @@ def provenance_rows(result: dict) -> list:
     return rows
 
 
+def diagnostic_rows(states: dict, warnings=()) -> list:
+    """(level, text) for the Diagnostics panel and the first-run check:
+    'problem'  a layer the supported edition requires is down (scans are partial),
+    'note'     an optional layer is down, or a layer is switched off by a setting,
+    'warning'  a configuration warning from the start-up validation."""
+    from engine.capabilities import DISABLED, DOWN, PRODUCTION_REQUIRED
+    rows = []
+    for name, st in states.items():
+        if st.get("state") == DOWN:
+            level = "problem" if name in PRODUCTION_REQUIRED else "note"
+            rows.append((level, f"{name}: {st.get('detail') or 'unavailable'}"))
+        elif st.get("state") == DISABLED:
+            rows.append(("note", f"{name}: off ({st.get('detail') or 'switched off'})"))
+    rows += [("warning", str(w)) for w in warnings]
+    order = {"problem": 0, "warning": 1, "note": 2}
+    return sorted(rows, key=lambda r: order[r[0]])
+
+
+def diagnostics_text(rows: list, version: str, system: str) -> str:
+    """The copyable report (no paths, keys or file names)."""
+    lines = [f"Aegis Sentinel {version} on {system}"]
+    lines += [f"[{level}] {text}" for level, text in rows] or ["every layer is up"]
+    return "\n".join(lines)
+
+
 def result_risk(result: dict) -> int:
     """The 0-100 risk score, derived from the legacy severity for old results."""
     if "risk_score" in result and result.get("risk_score") is not None:

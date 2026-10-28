@@ -119,6 +119,7 @@ class App(ctk.CTk):
         self.show_page("dashboard")
 
         self._bootstrap_last_report()
+        self.after(600, self._first_run_check)
         self.reset_schedule()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(120, self._poll)
@@ -407,6 +408,24 @@ class App(ctk.CTk):
                 f"({self.next_scan_at.strftime('%H:%M')})")
 
     # -- shutdown ---------------------------------------------------------------------------------
+
+    def _first_run_check(self):
+        """Once: if a required layer cannot run on this computer, say so and show
+        Diagnostics (Settings), instead of letting every scan quietly be partial."""
+        if self.settings.data.get("diagnostics_seen"):
+            return
+        self.settings.data["diagnostics_seen"] = True
+        self.settings.save()
+        problems = [t for lvl, t in self.pages["settings"].refresh_diagnostics() if lvl == "problem"]
+        if not problems:
+            return
+        self.show_page("settings")
+        messagebox.showwarning(
+            "Some detection layers cannot run",
+            "Scans on this computer will be marked partial until these are fixed:\n\n"
+            + "\n".join(f"• {p}" for p in problems[:8])
+            + "\n\nSettings › Diagnostics lists everything and can copy a report.",
+            parent=self)
 
     def _on_close(self):
         if self.controller.running:

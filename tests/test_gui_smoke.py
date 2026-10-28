@@ -105,3 +105,21 @@ def test_full_gui_flow(app, tmp_path):
         _pump(app, 0.1)
     assert app.last_canary_report.triggered
     assert dash.card_canary.status_label.cget("text") == "TRIGGERED"
+
+
+def test_first_run_check_shows_diagnostics_once(app, monkeypatch):
+    """A9-4: a required layer that cannot run is reported on first launch, once."""
+    shown = []
+    monkeypatch.setattr(gui.messagebox, "showwarning", lambda *a, **k: shown.append(a))
+    page = app.pages["settings"]
+    monkeypatch.setattr(page, "diagnostics", lambda: [("problem", "qr: needs zbar"),
+                                                      ("note", "emulation: off")])
+    app.settings.data["diagnostics_seen"] = False
+    app._first_run_check()
+    assert len(shown) == 1 and "qr: needs zbar" in shown[0][1]
+    assert app.current_page == "settings" and app.settings.data["diagnostics_seen"] is True
+    assert "qr: needs zbar" in page.diag_label.cget("text")
+    app._first_run_check()
+    assert len(shown) == 1                                  # never again
+    page._copy_diagnostics()
+    assert app.clipboard_get().startswith("Aegis Sentinel ")

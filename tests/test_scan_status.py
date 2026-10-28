@@ -304,3 +304,24 @@ def test_gui_lists_every_gap_and_the_provenance(scanner, tmp_path):
     many = dict(r, incomplete_reasons=[{"layer": "x", "reason": str(i)} for i in range(25)])
     assert len(gap_rows(many)) == 21 and "5 more" in gap_rows(many)[-1][1]
     assert gap_rows(dict(r, scan_status="complete")) == [] and provenance_rows({}) == []
+
+
+def test_diagnostics_rank_required_layers_first():
+    """A9-4: a required layer that is down is a problem; an optional or switched-off
+    one is a note; configuration warnings sit in between. The copied report holds
+    no path or key."""
+    from aegis_gui.formatting import diagnostic_rows, diagnostics_text
+    states = {"qr": {"state": DOWN, "detail": "needs zbar", "missing": ["zbar"]},
+              "emulation": {"state": DISABLED, "detail": "EMULATION_ENABLED=0", "missing": []},
+              "yara": {"state": UP, "detail": "5 rule files", "missing": []},
+              "sandbox": {"state": DOWN, "detail": "needs intel service", "missing": ["intel service"]}}
+    rows = diagnostic_rows(states, ["ISOLATE_SCANS is off"])
+    assert rows[0] == ("problem", "qr: needs zbar")
+    assert rows[1] == ("warning", "ISOLATE_SCANS is off")
+    assert ("note", "sandbox: needs intel service") in rows
+    assert ("note", "emulation: off (EMULATION_ENABLED=0)") in rows
+    assert not any("yara" in t for _, t in rows)
+    text = diagnostics_text(rows, "4.7.0", "Windows 11")
+    assert text.splitlines()[0] == "Aegis Sentinel 4.7.0 on Windows 11"
+    assert "[problem] qr: needs zbar" in text
+    assert diagnostics_text([], "4.7.0", "macOS").endswith("every layer is up")
