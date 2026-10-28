@@ -86,6 +86,7 @@ class RelationshipResult:
     checked: bool = False
     findings: List[RelationshipFinding] = field(default_factory=list)
     detail: str = ""
+    error: str = ""             # the document could not be parsed: not "nothing found"
 
     @property
     def kinds(self) -> List[str]:
@@ -95,7 +96,7 @@ class RelationshipResult:
         return {"available": self.available, "checked": self.checked,
                 "suspicious": bool(self.findings), "kinds": self.kinds,
                 "findings": [f.as_dict() for f in self.findings[:25]],
-                "detail": self.detail}
+                "detail": self.detail, **({"error": self.error} if self.error else {})}
 
 
 def defang(url: str) -> str:
@@ -118,7 +119,8 @@ class RelationshipScanner:
                 return self._scan_ooxml(path)
         except Exception as e:
             logger.debug("Relationship scan failed for %s: %s", path, e)
-            return RelationshipResult(checked=False, detail=f"Relationship scan error: {e}")
+            return RelationshipResult(checked=False, detail=f"Relationship scan error: {e}",
+                                      error=f"{type(e).__name__}: {e}"[:200])
         return RelationshipResult(checked=False,
                                   detail="Not an OOXML/RTF document; relationships not checked.")
 
