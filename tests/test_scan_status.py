@@ -314,6 +314,9 @@ def test_diagnostics_rank_required_layers_first():
     states = {"qr": {"state": DOWN, "detail": "needs zbar", "missing": ["zbar"]},
               "emulation": {"state": DISABLED, "detail": "EMULATION_ENABLED=0", "missing": []},
               "yara": {"state": UP, "detail": "5 rule files", "missing": []},
+              "archive": {"state": UP, "missing": [],
+                          "detail": "RAR through bsdtar: encrypted RAR members are not opened "
+                                    "(install unar, unrar or 7-Zip)"},
               "sandbox": {"state": DOWN, "detail": "needs intel service", "missing": ["intel service"]}}
     rows = diagnostic_rows(states, ["ISOLATE_SCANS is off"])
     assert rows[0] == ("problem", "qr: needs zbar")
@@ -321,7 +324,49 @@ def test_diagnostics_rank_required_layers_first():
     assert ("note", "sandbox: needs intel service") in rows
     assert ("note", "emulation: off (EMULATION_ENABLED=0)") in rows
     assert not any("yara" in t for _, t in rows)
+    assert any(lvl == "note" and t.startswith("archive: RAR through bsdtar") for lvl, t in rows)
     text = diagnostics_text(rows, "4.7.0", "Windows 11")
     assert text.splitlines()[0] == "Aegis Sentinel 4.7.0 on Windows 11"
     assert "[problem] qr: needs zbar" in text
     assert diagnostics_text([], "4.7.0", "macOS").endswith("every layer is up")
+
+
+def test_containers_that_could_not_be_opened_are_never_complete(scanner, tmp_path):
+    """A4: a damaged archive, an archive that would not open, and a mail over the
+    analysis limit all came back 'Clean, complete' with nothing inspected."""
+    import io
+    import shutil
+    import zipfile
+
+    from tests.test_file_integrity import _pe_bytes
+    from tests.test_mail_analyzer import make_eml
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("payload.exe", _pe_bytes(4096))
+    truncated = _write(tmp_path, "invoice.zip", buf.getvalue()[: len(buf.getvalue()) // 2])
+    r = scanner.scan_file(str(truncated))
+    assert r["scan_status"] == "partial" and r["verdict_label"].endswith("(partial scan)")
+    assert any("zip content was not opened" in g["reason"] for g in r["incomplete_reasons"])
+
+    broken_7z = _write(tmp_path, "bundle.7z", b"7z\xbc\xaf\x27\x1c" + b"\0" * 100)
+    r = scanner.scan_file(str(broken_7z))
+    assert r["scan_status"] == "partial"
+    assert any("could not be opened" in g["reason"] for g in r["incomplete_reasons"])
+
+    mail = tmp_path / "statement.eml"
+    make_eml(mail, subject="Invoice", sender="a@example.com",
+             attachments=[("pay.exe", _pe_bytes(2048), "application", "octet-stream")])
+    scanner.mail_analyzer.max_message_bytes = 100
+    r = scanner.scan_file(str(mail))
+    assert r["scan_status"] == "partial"
+    assert any(g["reason"].startswith("message not analysed: Message is")
+               for g in r["incomplete_reasons"])
+
+    doc = make_docx(tmp_path / "letter.docx")                 # a ZIP the document layers read
+    shutil.copy(doc, tmp_path / "letter.bin")
+    for path in (doc, tmp_path / "letter.bin"):
+        assert scanner.scan_file(str(path))["scan_status"] == "complete"
+    good = io.BytesIO()
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("notes.txt", "quarterly figures")
+    assert scanner.scan_file(str(_write(tmp_path, "ok.zip", good.getvalue())))["scan_status"] == "complete"

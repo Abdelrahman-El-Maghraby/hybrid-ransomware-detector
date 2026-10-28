@@ -114,6 +114,9 @@ def _archive(s: RansomwareScanner) -> State:
                                    ("pycdlib", c.ISO_AVAILABLE), ("rarfile", c.RAR_AVAILABLE)) if not ok]
     if c.RAR_AVAILABLE and not c.rar_tool_available():
         missing.append("rar-decompressor")
+    elif c.RAR_AVAILABLE and not c.rar_decrypts():
+        return _state(missing, detail="RAR through bsdtar: encrypted RAR members are not "
+                                      "opened (install unar, unrar or 7-Zip)")
     return _state(missing)
 
 

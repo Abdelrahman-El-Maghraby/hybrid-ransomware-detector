@@ -165,6 +165,8 @@ def diagnostic_rows(states: dict, warnings=()) -> list:
             rows.append((level, f"{name}: {st.get('detail') or 'unavailable'}"))
         elif st.get("state") == DISABLED:
             rows.append(("note", f"{name}: off ({st.get('detail') or 'switched off'})"))
+        elif "install" in str(st.get("detail") or ""):     # up, but with a gap (bsdtar RAR)
+            rows.append(("note", f"{name}: {st['detail']}"))
     rows += [("warning", str(w)) for w in warnings]
     order = {"problem": 0, "warning": 1, "note": 2}
     return sorted(rows, key=lambda r: order[r[0]])

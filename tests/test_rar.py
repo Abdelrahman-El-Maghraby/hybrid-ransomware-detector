@@ -18,6 +18,9 @@ from tests.test_scanner_integration import _config, _indicators
 pytestmark = pytest.mark.skipif(not ce.RAR_AVAILABLE, reason="rarfile not installed")
 needs_tool = pytest.mark.skipif(not ce.rar_tool_available(),
                                 reason="no RAR decompressor (7-Zip / unrar / unar)")
+# bsdtar (on every Mac) reads plain RAR but takes no password (B1)
+needs_decrypting_tool = pytest.mark.skipif(not ce.rar_decrypts(),
+                                           reason="no RAR tool that decrypts (7-Zip / unrar / unar)")
 FIXTURES = Path(__file__).parent / "data" / "rar"
 
 
@@ -101,7 +104,7 @@ def test_nesting_across_formats(tmp_path):
         assert res.executable_members == ["outer.rar!/inner.zip!/payload.js"]
 
 
-@needs_tool
+@needs_decrypting_tool
 def test_encrypted_rar5_opened_with_delivery_password(tmp_path):
     with ContainerExtractor().open(fixture(tmp_path, "rar5-psw.rar")) as res:
         assert res.password_used == "password" and not res.encrypted_unreadable
@@ -110,7 +113,7 @@ def test_encrypted_rar5_opened_with_delivery_password(tmp_path):
         assert all(Path(m.path).stat().st_size == 2048 for m in res.members)
 
 
-@needs_tool
+@needs_decrypting_tool
 def test_encrypted_file_names_opened_with_delivery_password(tmp_path):
     with ContainerExtractor().open(fixture(tmp_path, "rar5-hpsw.rar")) as res:
         assert res.password_used == "password"
@@ -118,6 +121,7 @@ def test_encrypted_file_names_opened_with_delivery_password(tmp_path):
         assert all(m.extracted for m in res.members)
 
 
+@needs_decrypting_tool
 def test_unknown_password_is_reported(tmp_path):
     ex = ContainerExtractor(passwords=("infected",))
     with ex.open(fixture(tmp_path, "rar5-psw.rar")) as res:
@@ -225,3 +229,21 @@ def test_codec_less_7zip_is_reported_instead_of_a_password(tmp_path, monkeypatch
         assert "no RAR codec" in member.skipped_reason
         assert "password" not in member.skipped_reason
         assert any("RAR codec" in m for m in res.missing_support)
+
+
+def test_bsdtar_is_named_when_it_cannot_decrypt(tmp_path, monkeypatch):
+    """B1: with only bsdtar, an encrypted RAR is reported as needing a tool that
+    decrypts - not as 'no decompressor' or a wrong password - and the archive
+    layer says so in its state."""
+    monkeypatch.setattr(ce, "rar_tool_available", lambda: True)
+    monkeypatch.setattr(ce, "rar_decrypts", lambda: False)
+
+    def cannot(*a, **k):
+        raise ce._rarfile.RarCannotExec("bsdtar does not support passwords")
+    monkeypatch.setattr(ce._rarfile.RarFile, "open", cannot)
+    with ContainerExtractor().open(fixture(tmp_path, "rar5-psw.rar")) as res:
+        reasons = {m.skipped_reason for m in res.members if m.encrypted}
+    assert reasons == {ce.BSDTAR_NO_PASSWORDS}
+    from engine import capabilities as C
+    state = C._archive(None)
+    assert state["state"] == "up" and "bsdtar" in state["detail"]
