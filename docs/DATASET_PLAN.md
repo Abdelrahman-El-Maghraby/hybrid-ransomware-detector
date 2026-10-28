@@ -54,7 +54,7 @@ free-form on MalwareBazaar; families are its `signature` field
 | **Windows DLL (PE)**<br>`.dll` | `file_type`: dll<br>tags: loader, dll-sideloading, ransomware<br>families: QakBot, IcedID, Bumblebee, DarkGate, Latrodectus, PikaBot, Emotet (DLL era) | DLLs from the same open-source releases; System32 of a clean Windows VM | 150 / 400 |
 | **Screen saver / Control Panel item (PE)**<br>`.scr, .cpl` | `file_type`: scr, cpl<br>tags: scr, cpl, phishing<br>families: AgentTesla, Formbook, Remcos (often shipped as .scr) | System32 *.scr / *.cpl of a clean Windows VM<br>*Rare: 30 of each is enough.* | 60 / 60 |
 | **Windows driver (PE)**<br>`.sys` | `file_type`: sys<br>tags: driver, BYOVD, rootkit<br>families: vulnerable drivers used to kill EDR (BYOVD), rootkits | System32\drivers of a clean Windows VM | 40 / 100 |
-| **Linux executable (ELF)**<br>`.elf (content-detected)` | `file_type`: elf<br>tags: elf, ransomware, ESXi, botnet, Mirai<br>families: LockBit Linux/ESXi, Royal, Akira ESXi, BlackCat ESXi, Babuk ESXi, RansomEXX; Mirai, Gafgyt, XorDDoS, Tsunami | Binaries from Debian/Ubuntu packages and the Alpine minirootfs, BusyBox<br>*WARNING: tools/evaluate.py skips .elf (not in SUPPORTED_EXTENSIONS) - fix the tool or these are not counted.* | 200 / 400 |
+| **Linux executable (ELF)**<br>`.elf (content-detected)` | `file_type`: elf<br>tags: elf, ransomware, ESXi, botnet, Mirai<br>families: LockBit Linux/ESXi, Royal, Akira ESXi, BlackCat ESXi, Babuk ESXi, RansomEXX; Mirai, Gafgyt, XorDDoS, Tsunami | Binaries from Debian/Ubuntu packages and the Alpine minirootfs, BusyBox<br>*Measured by content: evaluate.py counts .elf samples.* | 200 / 400 |
 | **Legacy Office (OLE)**<br>`.doc, .xls, .ppt` | `file_type`: doc, xls, ppt<br>tags: macro, XLM, VBA, CVE-2017-11882, Emotet<br>families: Emotet, Dridex, QakBot, IcedID (macro waves); Equation Editor exploits (CVE-2017-11882) | GovDocs1 (Digital Corpora), NapierOne<br>*Macro, embedded-object and integrity layers.* | 150 / 300 |
 | **Office Open XML**<br>`.docx, .xlsx, .pptx` | `file_type`: docx, xlsx, pptx<br>tags: remote template, CVE-2017-0199, Follina, CVE-2022-30190, QR, phishing<br>families: remote-template droppers, Follina (CVE-2022-30190) documents, QR-code phishing documents | GovDocs1, NapierOne, Common Crawl document corpora<br>*Relationship, prompt-guard and QR layers.* | 150 / 400 |
 | **Macro-enabled Office**<br>`.docm, .dotm, .xlsm, .pptm` | `file_type`: docm, xlsm, pptm, dotm<br>tags: macro, VBA, AutoOpen<br>families: Emotet, QakBot, Dridex, Ursnif, Hancitor | Hard to find benign: vendor templates, VBA projects on GitHub, your own macro workbooks<br>*Benign macro files are the main false-positive risk: collect as many as possible.* | 150 / 150 |
@@ -82,12 +82,12 @@ free-form on MalwareBazaar; families are its `signature` field
 
 ## Before you collect
 
-1. **ELF and other skipped extensions.** `tools/evaluate.py` keeps only files
-   whose extension is in `SUPPORTED_EXTENSIONS`. MalwareBazaar names samples
-   `<sha256>.<file_type>`, so `.elf` (and `.lnk`, `.sh`, `.jar`, `.xlsb`) samples
-   would be counted as "unsupported" and **not evaluated**, although the ELF layer
-   recognises them by content. Fix the tool first (let it also take content-detected
-   executables), or these rows measure nothing.
+1. **Files recognised by content.** `tools/evaluate.py` measures a file when its
+   extension is supported **or** its content is a format the engine analyses
+   whatever the name: PE, ELF, Windows shortcut (LNK), OneNote, CHM, MSI. So
+   `<sha256>.elf`, `.lnk` and extension-less samples are measured; the summary lists
+   them ("Recognised by content"). `.sh`, `.jar` and `.xlsb` still count as
+   unsupported (the engine has no layer for them by content).
 2. **Unwrap MalwareBazaar downloads.** Each sample arrives in a ZIP with the
    password `infected`. Extract it in the VM; do not put the wrapper ZIPs in the
    malicious folder, or every "zip" result is the same password-protected wrapper.
