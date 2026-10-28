@@ -404,3 +404,38 @@ def test_scanner_passes_touched_paths_to_the_response(tmp_path, monkeypatch):
     assert report.triggered and seen["touched"] == [entry["path"] + ".lock"]
     alert = next(Path(scanner.report_dir).glob("canary_alert_*.txt")).read_text()
     assert "rapid containment" in alert and "[done] stop_writers: suspended evil" in alert
+
+
+def test_only_processes_the_tripwire_suspended_can_be_resumed(tmp_path, monkeypatch, caplog):
+    """A8-1: suspended pids are recorded with their program; resume refuses others,
+    a pid now used by another program, and logs who resumed what."""
+    import logging
+    state = tmp_path / "containment.json"
+    table = {9: (1, "evil"), 10: (9, "evil-child"), 11: (1, "bash")}
+    monkeypatch.setattr(C, "process_table", lambda system="": table)
+    resumed = []
+    monkeypatch.setattr(C, "resume", lambda pid, system="": resumed.append(pid) or "")
+    C.record_suspended(state, [9, 10], "Linux")
+    table[10] = (1, "unrelated")                       # pid 10 ended and was reused
+    with caplog.at_level(logging.WARNING, logger="RansomwareScanner"):
+        done, problems = C.resume_recorded(state, [9, 10, 11], who="analyst")
+    assert done == [9] and resumed == [9]
+    assert any("pid 10: now belongs to 'unrelated'" in p for p in problems)
+    assert any("pid 11: not suspended by the tripwire" in p for p in problems)
+    assert "RESUMED pid 9 (evil) suspended by the tripwire, by analyst" in caplog.text
+    del table[10]                                      # gone: forgotten, not resumed
+    done, problems = C.resume_recorded(state, None, who="analyst")
+    assert done == [] and problems == ["pid 10: no longer running"]
+    assert C.resume_recorded(state, None)[0] == [] and C._load_state(state)["suspended"] == {}
+
+
+def test_stop_writers_records_what_it_suspended(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "contain", lambda *a, **k: C.ContainmentResult(stopped=["evil (pid 9)"],
+                                                                          pids=[9]))
+    monkeypatch.setattr(C, "process_table", lambda system="": {9: (1, "evil")})
+    state = tmp_path / "containment.json"
+    StopWritersAction({"containment_state_file": str(state)}, system="Linux").run(dict(ALERT))
+    assert C._load_state(state)["suspended"] == {"9": "evil"}
+    StopWritersAction({"containment_state_file": str(state), "canary_contain_mode": "terminate"},
+                      system="Linux").run(dict(ALERT))
+    assert C._load_state(state)["suspended"] == {"9": "evil"}     # killed ones are not added

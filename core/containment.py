@@ -395,6 +395,54 @@ def contain(dirs: Sequence[str], files: Sequence[str] = (), terminate: bool = Fa
     return res
 
 
+def record_suspended(state_file: Path, pids: Sequence[int], system: str = "") -> None:
+    """Remember which processes the tripwire suspended, with their program names, so
+    they can be resumed later - and nothing else."""
+    table = process_table(system)
+    state = _load_state(state_file)
+    suspended = state.setdefault("suspended", {})
+    for pid in pids:
+        suspended[str(pid)] = table.get(pid, (0, ""))[1]
+    _save_state(state_file, state)
+
+
+def resume_recorded(state_file: Path, pids: Optional[Sequence[int]] = None,
+                    system: str = "", who: str = "") -> Tuple[List[int], List[str]]:
+    """Resume processes the tripwire suspended: all recorded ones, or those of `pids`.
+    A pid that was not recorded, or that now belongs to another program (the id was
+    reused after the process ended), is refused. Every resume is audit-logged.
+    Returns (resumed, problems)."""
+    state = _load_state(state_file)
+    recorded: Dict[str, str] = state.get("suspended", {})
+    table = process_table(system)
+    wanted = [int(p) for p in recorded] if pids is None else list(pids)
+    resumed, problems = [], []
+    for pid in wanted:
+        name = recorded.get(str(pid))
+        if name is None:
+            problems.append(f"pid {pid}: not suspended by the tripwire (refused)")
+            continue
+        current = table.get(pid, (0, None))[1]
+        if current is None:
+            recorded.pop(str(pid))
+            problems.append(f"pid {pid}: no longer running")
+            continue
+        if name and current != name:
+            problems.append(f"pid {pid}: now belongs to {current!r}, not {name!r} (refused)")
+            continue
+        error = resume(pid, system)
+        if error:
+            problems.append(f"pid {pid}: {error}")
+            continue
+        recorded.pop(str(pid))
+        resumed.append(pid)
+        logger.warning("RESUMED pid %d (%s) suspended by the tripwire, by %s", pid,
+                       name or "?", who or "unknown user",
+                       extra={"event": "containment_resume"})
+    _save_state(state_file, state)
+    return resumed, problems
+
+
 # ------------------------------------------------------------------ folder lock
 def lock_folders(dirs: Sequence[str], state_file: Path, system: str = "",
                  runner: Runner = subprocess.run) -> Tuple[List[str], List[str]]:

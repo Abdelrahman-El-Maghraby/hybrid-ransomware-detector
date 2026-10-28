@@ -585,9 +585,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Check every canary file now (exit code 2 if tripped)")
     parser.add_argument("--remove-canaries", action="store_true",
                         help="Delete all canary files this tool planted")
-    parser.add_argument("--resume-pid", metavar="PID[,PID...]",
+    parser.add_argument("--resume-pid", metavar="PID[,PID...]|all",
                         help="Resume processes the stop_writers response suspended "
-                             "(after you checked they are not ransomware)")
+                             "(after you checked they are not ransomware); others are refused")
     parser.add_argument("--unlock-folders", action="store_true",
                         help="Give back the write access the lock_folders response removed")
     parser.add_argument("--quarantine", metavar="PATH",
@@ -771,16 +771,25 @@ def _setup_command(args) -> bool:
 
 def _release_containment(args) -> None:
     """--resume-pid / --unlock-folders: undo the canary containment actions."""
-    from core.containment import resume, unlock_folders
+    import getpass
+
+    from core.containment import resume_recorded, unlock_folders
     failed = False
-    for raw in (args.resume_pid or "").split(","):
-        if raw.strip():
-            pid = int(raw)
-            error = resume(pid)
-            failed |= bool(error)
-            print(f"❌ pid {pid}: {error}" if error else f"✅ Resumed pid {pid}.")
+    who = getpass.getuser()
+    state_file = Path(CONFIG["containment_state_file"])
+    raw = (args.resume_pid or "").strip()
+    if raw:
+        pids = None if raw.lower() == "all" else [int(p) for p in raw.split(",") if p.strip()]
+        resumed, problems = resume_recorded(state_file, pids, who=who)
+        for pid in resumed:
+            print(f"✅ Resumed pid {pid}.")
+        for p in problems:
+            failed = True
+            print(f"❌ {p}")
     if args.unlock_folders:
-        restored, problems = unlock_folders(Path(CONFIG["containment_state_file"]))
+        restored, problems = unlock_folders(state_file)
+        logger.warning("UNLOCKED %d file(s) / folder(s) locked by the tripwire, by %s",
+                       restored, who, extra={"event": "containment_unlock"})
         print(f"✅ Write access restored on {restored} file(s) / folder(s).")
         for p in problems:
             failed = True
