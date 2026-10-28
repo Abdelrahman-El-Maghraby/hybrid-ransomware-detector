@@ -536,6 +536,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     "(PDF, Office, RTF, ZIP)")
     parser.add_argument("--version", action="version",
                         version=f"hybrid-ransomware-detector {ENGINE_VERSION}")
+    parser.add_argument("--capabilities", nargs="?", const="", metavar="FLAVOUR",
+                        choices=["", "cli", "gui", "api"],
+                        help="Print the state of every detection layer (up / down / disabled) "
+                             "as JSON, then exit. With FLAVOUR (cli, gui or api), exit 1 when "
+                             "a layer that build flavour requires is not up")
     parser.add_argument("--scan-now", action="store_true",
                         help="Run a scan immediately")
     parser.add_argument("--background", action="store_true",
@@ -559,7 +564,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Install a signed rule pack (PACK + PACK.sig), verified against "
                              "RULEPACK_PUBLIC_KEYS, then exit")
     parser.add_argument("--allow-downgrade", action="store_true",
-                        help="With --update-rules: accept a pack that is not newer (roll back)")
+                        help="Refused since 4.7: older content could be a replay; a rollback "
+                             "is a signed pack with a newer version (docs/RULE_PACKS.md)")
     parser.add_argument("--jsonl", metavar="FILE",
                         help="Also append each result as one JSON line to FILE (for SIEM ingestion)")
     parser.add_argument("--allow", metavar="PATH",
@@ -580,9 +586,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Check every canary file now (exit code 2 if tripped)")
     parser.add_argument("--remove-canaries", action="store_true",
                         help="Delete all canary files this tool planted")
-    parser.add_argument("--resume-pid", metavar="PID[,PID...]",
+    parser.add_argument("--resume-pid", metavar="PID[,PID...]|all",
                         help="Resume processes the stop_writers response suspended "
-                             "(after you checked they are not ransomware)")
+                             "(after you checked they are not ransomware); others are refused")
     parser.add_argument("--unlock-folders", action="store_true",
                         help="Give back the write access the lock_folders response removed")
     parser.add_argument("--quarantine", metavar="PATH",
@@ -626,6 +632,27 @@ def _apply_overrides(args) -> None:
         CONFIG["llm_provider"] = args.llm_provider
     if args.no_cache:
         CONFIG["cache_enabled"] = False
+
+
+def _capabilities_command(args) -> bool:
+    """--capabilities [FLAVOUR]: what this installation (or packaged build) can run."""
+    if args.capabilities is None:
+        return False
+    from engine.capabilities import (
+        external_services,
+        flavour_problems,
+        layer_states,
+        production_problems,
+    )
+    states = layer_states(RansomwareScanner(CONFIG))
+    report: Dict = {"engine_version": ENGINE_VERSION, "profile": CONFIG.get("profile", "standard"),
+                    "layers": states, "external_services": external_services(states),
+                    "production_problems": production_problems(states)}
+    problems = flavour_problems(states, args.capabilities) if args.capabilities else []
+    if args.capabilities:
+        report.update(flavour=args.capabilities, flavour_problems=problems)
+    print(json.dumps(report, indent=2))
+    sys.exit(1 if problems else 0)
 
 
 def _standalone_command(args) -> bool:
@@ -745,16 +772,25 @@ def _setup_command(args) -> bool:
 
 def _release_containment(args) -> None:
     """--resume-pid / --unlock-folders: undo the canary containment actions."""
-    from core.containment import resume, unlock_folders
+    import getpass
+
+    from core.containment import resume_recorded, unlock_folders
     failed = False
-    for raw in (args.resume_pid or "").split(","):
-        if raw.strip():
-            pid = int(raw)
-            error = resume(pid)
-            failed |= bool(error)
-            print(f"❌ pid {pid}: {error}" if error else f"✅ Resumed pid {pid}.")
+    who = getpass.getuser()
+    state_file = Path(CONFIG["containment_state_file"])
+    raw = (args.resume_pid or "").strip()
+    if raw:
+        pids = None if raw.lower() == "all" else [int(p) for p in raw.split(",") if p.strip()]
+        resumed, problems = resume_recorded(state_file, pids, who=who)
+        for pid in resumed:
+            print(f"✅ Resumed pid {pid}.")
+        for p in problems:
+            failed = True
+            print(f"❌ {p}")
     if args.unlock_folders:
-        restored, problems = unlock_folders(Path(CONFIG["containment_state_file"]))
+        restored, problems = unlock_folders(state_file)
+        logger.warning("UNLOCKED %d file(s) / folder(s) locked by the tripwire, by %s",
+                       restored, who, extra={"event": "containment_unlock"})
         print(f"✅ Write access restored on {restored} file(s) / folder(s).")
         for p in problems:
             failed = True
@@ -931,14 +967,16 @@ def main():
         except (AttributeError, ValueError):
             pass
     args = _build_parser().parse_args()
-    init_runtime()                      # folders, .env, logging: only for the program
+    # folders, .env, logging: only for the program. --capabilities prints JSON for
+    # scripts and build checks, so its log lines go to the log file only.
+    init_runtime(console=args.capabilities is None)
     _apply_overrides(args)
     try:
         check_config(CONFIG)
     except ConfigError as e:
         print(f"❌ {e}")
         sys.exit(2)
-    if _standalone_command(args):
+    if _capabilities_command(args) or _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)
     if not utility_mode:

@@ -56,6 +56,7 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
 
 # key -> (environment variable, allowed values, case-insensitive)
 CHOICES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "profile": ("AEGIS_PROFILE", ("standard", "production")),
     "llm_provider": ("LLM_PROVIDER", ("auto", "ollama", "openai", "none")),
     "sandbox_submit": ("SANDBOX_SUBMIT", ("suspicious", "all")),
     "webhook_min_verdict": ("WEBHOOK_MIN_VERDICT", VERDICTS),
@@ -139,13 +140,19 @@ def _is_local(url: str) -> bool:
 
 
 def _canary(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
-    from core.response import ACTIONS
     raw = str(cfg.get("canary_response") or "")
     names = [n.strip().lower() for n in raw.split(",") if n.strip()]
-    unknown = [n for n in names if n not in ACTIONS]
-    if unknown:
-        errors.append(f"CANARY_RESPONSE has unknown action(s) {', '.join(unknown)}; "
-                      f"known: {', '.join(ACTIONS)}")
+    if names:                        # only then: scanning never loads containment
+        try:
+            from core.response import ACTIONS
+        except ImportError:          # the server image ships without containment
+            errors.append("CANARY_RESPONSE is set, but this build has no containment "
+                          "(canary responses are part of the desktop builds only)")
+            return
+        unknown = [n for n in names if n not in ACTIONS]
+        if unknown:
+            errors.append(f"CANARY_RESPONSE has unknown action(s) {', '.join(unknown)}; "
+                          f"known: {', '.join(ACTIONS)}")
     script = str(cfg.get("canary_response_script") or "")
     if "script" in names and not script:
         errors.append("CANARY_RESPONSE includes 'script' but CANARY_RESPONSE_SCRIPT is not set")
@@ -206,5 +213,63 @@ def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -
                         "stop_writers")
 
 
+# Settings that switch off a layer the production profile requires (docs/RELEASE_SCOPE.md).
+PRODUCTION_SWITCHES = (("qr_scan_enabled", "QR_SCAN_ENABLED", "qr"),
+                       ("ml_enabled", "ML_ENABLED", "ml"))
+
+
+def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """AEGIS_PROFILE=production: a required layer may not be switched off, and the
+    layers that execute attacker code may not be switched on. Whether each required
+    layer is also *available* is reported by GET /ready and --capabilities."""
+    if str(cfg.get("profile") or "standard").strip().lower() != "production":
+        return
+    for key, env, layer in PRODUCTION_SWITCHES:
+        if key in cfg and not cfg[key]:
+            errors.append(f"{env}=0 switches off the '{layer}' layer, which the production "
+                          "profile requires")
+    if cfg.get("emulation_enabled"):
+        errors.append("EMULATION_ENABLED runs attacker JavaScript; it is outside the "
+                      "production profile (use it in an analysis VM)")
+    rules = str(cfg.get("yara_rules_dir") or "")
+    if rules and not Path(rules).is_dir():
+        errors.append(f"YARA_RULES_DIR={rules} does not exist: the production profile "
+                      "requires the YARA layer")
+    if str(cfg.get("llm_provider") or "auto").strip().lower() == "auto" and not cfg.get("intel_socket"):
+        errors.append("LLM_PROVIDER=auto can fall back to a cloud LLM when the local one is not "
+                      "reachable; the production profile needs an explicit choice: none, "
+                      "ollama or openai")
+    if str(cfg.get("canary_response") or "").strip():
+        errors.append("CANARY_RESPONSE suspends, kills or locks on the host; containment is "
+                      "part of the desktop builds only, outside the production profile")
+    if cfg.get("isolate_scans") is False:
+        warnings.append("ISOLATE_SCANS is off: a hostile file can hang or crash the service "
+                        "instead of being reported as a failed scan")
+
+
+# Secrets and destinations that belong to the intel service, not to analysis.
+INTEL_OWNED = (("virustotal_api_key", "VIRUSTOTAL_API_KEY"), ("chatgpt_api_key", "OPENAI_API_KEY"),
+               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"))
+
+
+def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """With AEGIS_INTEL_SOCKET the external services are the intel service's: the
+    analysis side needs the token and must not hold their secrets (in the
+    production profile that is an error - the point is that a compromised parser
+    finds no key to steal)."""
+    if not cfg.get("intel_socket"):
+        return
+    from engine.secret_store import from_environment
+    if not (cfg.get("intel_token") or from_environment("AEGIS_INTEL_TOKEN")):
+        errors.append("AEGIS_INTEL_SOCKET is set but AEGIS_INTEL_TOKEN (or _FILE) is not")
+    held = [env for key, env in INTEL_OWNED if cfg.get(key)]
+    if held:
+        text = (f"{', '.join(held)} set on the analysis side: with AEGIS_INTEL_SOCKET these "
+                "belong to the intel service only")
+        production = str(cfg.get("profile") or "").strip().lower() == "production"
+        (errors if production else warnings).append(text)
+
+
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts,
+                             _profile, _intel)

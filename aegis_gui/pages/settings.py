@@ -1,7 +1,6 @@
 """Settings page: schedule, autostart, uploads, API keys."""
 
 import logging
-import os
 import platform
 import threading
 
@@ -25,7 +24,7 @@ from aegis_gui.common import (
     ctk,
     set_key,
 )
-from aegis_gui.formatting import mask_key, open_path
+from aegis_gui.formatting import diagnostic_rows, diagnostics_text, mask_key, open_path
 from aegis_gui.pages.base import BasePage
 from aegis_gui.widgets import Section
 
@@ -89,9 +88,10 @@ class SettingsPage(BasePage):
         sec = Section(outer, "API keys", app)
         sec.pack(fill="x", pady=(14, 0))
         ctk.CTkLabel(sec.body,
-                     text=f"Keys are stored only in {ENV_FILE} "
-                          "(git-ignored, never committed). Leave a field empty to keep "
-                          "the current value.",
+                     text="Keys are stored in the OS keyring (macOS Keychain, Windows "
+                          "Credential Manager, Linux Secret Service), never in a file. An "
+                          "environment variable with the same name takes precedence. Leave "
+                          "a field empty to keep the current value.",
                      font=app.font_small, text_color=MUTED, anchor="w", wraplength=720,
                      justify="left").pack(fill="x", padx=14, pady=(12, 6))
         self.key_rows = {}
@@ -124,6 +124,26 @@ class SettingsPage(BasePage):
                                        text_color=MUTED, anchor="w")
         self.keys_label.pack(fill="x", padx=14, pady=(0, 12))
 
+        # -- diagnostics -----------------------------------------------------------------
+        sec = Section(outer, "Diagnostics", app)
+        sec.pack(fill="x", pady=(14, 0))
+        ctk.CTkLabel(sec.body, text="Layers that cannot run here make scans partial. Each line "
+                                    "says what is missing.", font=app.font_small,
+                     text_color=MUTED, anchor="w", wraplength=560,
+                     justify="left").pack(fill="x", padx=14, pady=(10, 4))
+        self.diag_label = ctk.CTkLabel(sec.body, text="", font=app.font_mono_small, anchor="w",
+                                       justify="left", wraplength=560, text_color=TEXT)
+        self.diag_label.pack(fill="x", padx=14, pady=(0, 6))
+        row = ctk.CTkFrame(sec.body, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=(0, 12))
+        for text, command in (("Re-check", self.refresh_diagnostics),
+                              ("Copy report", self._copy_diagnostics)):
+            ctk.CTkButton(row, text=text, width=110, height=28, font=app.font_small,
+                          fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                          border_color=BORDER_2, text_color=BLUE,
+                          command=command).pack(side="left", padx=(0, 8))
+        self.refresh_diagnostics()
+
         # -- locations -------------------------------------------------------------------
         sec = Section(outer, "Locations", app)
         sec.pack(fill="x", pady=(14, 24))
@@ -144,6 +164,29 @@ class SettingsPage(BasePage):
         ctk.CTkLabel(sec.body, text="", font=app.font_small).pack(pady=2)
 
     # -- callbacks ------------------------------------------------------------------
+
+    def diagnostics(self) -> list:
+        from engine.capabilities import layer_states
+        from engine.config import ENV_PROBLEMS
+        from engine.validation import validate_config
+        _, warnings = validate_config(self.app.scanner.config, ENV_PROBLEMS)
+        return diagnostic_rows(layer_states(self.app.scanner), warnings)
+
+    def refresh_diagnostics(self) -> list:
+        rows = self.diagnostics()
+        colors = {"problem": RED_SOFT, "warning": AMBER_SOFT, "note": MUTED}
+        text = "\n".join(f"{'!' if lvl == 'problem' else '·'} {t}" for lvl, t in rows)
+        worst = rows[0][0] if rows else ""
+        self.diag_label.configure(text=text or "Every layer is up.",
+                                  text_color=colors.get(worst, ACCENT_SOFT))
+        return rows
+
+    def _copy_diagnostics(self):
+        report = diagnostics_text(self.diagnostics(), RS.ENGINE_VERSION,
+                                  f"{platform.system()} {platform.release()}")
+        self.clipboard_clear()
+        self.clipboard_append(report)
+        self.app.gui_log.info("Diagnostics copied to the clipboard.")
 
     def _schedule_toggled(self):
         self.app.settings["schedule_enabled"] = bool(self.schedule_var.get())
@@ -200,26 +243,27 @@ class SettingsPage(BasePage):
             text_color=AMBER_SOFT if enabled else ACCENT_SOFT)
 
     def _save_keys(self):
+        from engine.secret_store import SecretStoreError, store
         changed = []
         try:
             for env_name, (entry, status, config_key) in self.key_rows.items():
                 value = entry.get().strip()
                 if not value:
                     continue
-                ENV_FILE.touch(exist_ok=True)
-                set_key(str(ENV_FILE), env_name, value)
-                os.environ[env_name] = value
+                store(env_name, value)           # written, read back and compared
                 RS.CONFIG[config_key] = value
                 self.app.scanner.config[config_key] = value
                 status.configure(text=mask_key(value))
                 entry.delete(0, "end")
                 changed.append(env_name)
-        except Exception as e:
-            self.keys_label.configure(text=f"Could not save keys: {e}",
-                                      text_color=RED_SOFT)
+        except SecretStoreError as e:            # the message never holds the key
+            self.keys_label.configure(
+                text=f"Could not save to the OS keyring: {e}. Nothing was written to disk; "
+                     "set the key as an environment variable instead.",
+                text_color=RED_SOFT)
             return
         if changed:
-            self.keys_label.configure(text=f"Saved to {ENV_FILE.name}: "
+            self.keys_label.configure(text=f"Saved to the OS keyring: "
                                            f"{', '.join(changed)}",
                                       text_color=ACCENT_SOFT)
             logging.getLogger("RansomwareScanner.GUI").info(

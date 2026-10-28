@@ -23,6 +23,9 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Tuple
 
 from detectors.signals import ArchiveSignal, EmbeddedSignal, MailSignal, WebSignal, WorstMember
 
+from .completeness import PARTIAL
+from .completeness import reason as incomplete_reason
+
 if TYPE_CHECKING:  # pragma: no cover
     from .layers import ScanContext
     from .scanner import RansomwareScanner
@@ -41,6 +44,7 @@ def member_summary(r: Dict) -> Dict:
         "sha256_hash": r.get("sha256_hash", ""),
         "indicators": [c.get("indicator") for c in contributions][:8],
         "archive_password": (r.get("scan_results", {}).get("archive") or {}).get("password_used"),
+        "scan_status": r.get("scan_status", "complete"),
     }
 
 
@@ -103,6 +107,14 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                             member_path, _depth=ctx.depth + 1, _display_name=display_name))
                     except Exception as e:
                         logger.error("Error scanning %s %s: %s", handler.error_label, label, e)
+                        ctx.member_reasons.append(incomplete_reason(
+                            PARTIAL, display_name, handler.result_key,
+                            f"member scan failed: {type(e).__name__}"))
+                        continue
+                    ctx.member_reasons.extend(member_results[-1].get("incomplete_reasons") or [])
+                    ctx.member_shared.extend(
+                        dict(s, member_path=s.get("member_path") or display_name)
+                        for s in (member_results[-1].get("provenance") or {}).get("shared") or [])
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 

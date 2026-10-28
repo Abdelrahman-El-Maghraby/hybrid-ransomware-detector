@@ -113,3 +113,32 @@ def test_paths_are_normalised(setup):
     mgr, d1, *_ = setup
     norm = mgr.paths()
     assert os.path.normcase(os.path.abspath(str(_canary(d1, ".pdf")))) in norm
+
+
+def test_windows_toast_passes_text_outside_the_script(monkeypatch):
+    """A9-2: Windows alerts use a toast; title and message travel as environment
+    values inserted as XML text nodes, never pasted into the PowerShell command."""
+    import core.canary as C
+    seen = {}
+
+    class Done:
+        returncode = 0
+
+    def run(argv, env=None, **kw):
+        seen["argv"], seen["env"] = argv, env
+        return Done()
+    monkeypatch.setattr(C.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(C, "trusted_which", lambda name: r"C:\Windows\System32\powershell.exe"
+                        if name == "powershell" else None)
+    monkeypatch.setattr(C.subprocess, "run", run)
+    hostile = "invoice'); Remove-Item C:\\ -Recurse; ('.pdf"
+    assert C.desktop_notify("Ransomware tripwire triggered", hostile) is True
+    assert hostile not in " ".join(seen["argv"])
+    assert seen["env"]["AEGIS_TOAST_TEXT"] == hostile
+    assert seen["argv"][1:4] == ["-NoProfile", "-NonInteractive", "-Command"]
+    assert "CreateTextNode($env:AEGIS_TOAST_TEXT)" in seen["argv"][-1]
+
+    Done.returncode = 1
+    assert C.desktop_notify("t", "m") is False
+    monkeypatch.setattr(C, "trusted_which", lambda name: None)
+    assert C.desktop_notify("t", "m") is False

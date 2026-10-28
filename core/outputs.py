@@ -41,6 +41,7 @@ def alert_payload(r: Dict) -> Dict:
         "engine_version": r.get("engine_version"), "scan_time": r.get("scan_time"),
         "file_path": r.get("file_path"), "sha256": r.get("sha256_hash"),
         "verdict": r.get("verdict"), "risk_score": r.get("risk_score"),
+        "scan_status": r.get("scan_status", "complete"),
         "indicators": [c.get("indicator") for c in contribs[:8]],
         "top_reason": contribs[0].get("detail", "") if contribs else "",
     }

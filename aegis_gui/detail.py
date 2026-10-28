@@ -23,12 +23,15 @@ from aegis_gui.common import (
     messagebox,
 )
 from aegis_gui.formatting import (
+    gap_rows,
     llm_skipped,
     open_path,
+    provenance_rows,
     result_risk,
     result_verdict,
     risk_bar,
     verdict_color,
+    verdict_text,
 )
 from aegis_gui.widgets import Section
 
@@ -76,11 +79,13 @@ class DetailWindow(ctk.CTkToplevel):
     def _members(self, body, members, limit, flags_key=None):
         for m in (members or [])[:limit]:
             v = m.get("verdict", "Clean")
+            status = m.get("scan_status") or "complete"
+            shown = v if status == "complete" else f"{v} ({status})"
             name = str(m.get("name", "?")).split("!/", 1)[-1]
             flags = (m.get(flags_key) or []) if flags_key else []
             tag = f"   ← {', '.join(f.replace('_', ' ') for f in flags)}" if flags else ""
             color = RED_SOFT if flags and v == "Clean" else verdict_color(v)
-            self._line(body, f"{v:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
+            self._line(body, f"{shown:<8}  {m.get('risk_score', 0):>3}/100   {name}{tag}",
                        color, self.app.font_mono_small)
 
     # ----------------------------------------------------------------- header
@@ -100,7 +105,7 @@ class DetailWindow(ctk.CTkToplevel):
         vrow.pack(fill="x", padx=14, pady=(8, 12))
         ctk.CTkLabel(vrow, text=risk_bar(result_risk(result)), font=app.font_mono,
                      text_color=vcolor).pack(side="left")
-        ctk.CTkLabel(vrow, text=f"   {verdict}", font=app.font_bold,
+        ctk.CTkLabel(vrow, text=f"   {verdict_text(result)}", font=app.font_bold,
                      text_color=vcolor).pack(side="left")
 
     # --------------------------------------------------------------- sections
@@ -397,8 +402,36 @@ class DetailWindow(ctk.CTkToplevel):
                      text_color=MUTED, font=app.font_small,
                      anchor="w").pack(fill="x", padx=14, pady=(4, 10))
 
-    SECTIONS = (_file_info, _local_db, _fuzzy, _macro, _yara, _integrity, _pe, _guard,
-                _relationships, _archive, _mail, _web, _ml, _virustotal, _llm, _breakdown)
+    def _completeness(self, sr):
+        """What was not inspected, and why (engine/completeness.py)."""
+        rows = gap_rows(self.result)
+        if not rows:
+            return
+        body = self._section(f"Not fully inspected — {self.result.get('scan_status')} scan")
+        self._status(body, "The verdict covers only what was inspected:", AMBER_SOFT, pady=(10, 4))
+        for layer, reason, where in rows:
+            self._line(body, f"[{layer}] {reason}" + (f"   ({where})" if where else ""),
+                       AMBER_SOFT, pad=(0, 2))
+        self._spacer(body)
+
+    def _provenance(self, sr):
+        """Which rules, registry, profile and services produced this result."""
+        rows = provenance_rows(self.result)
+        if not rows:
+            return
+        body = self._section("Provenance")
+        for label, value in rows:
+            row = ctk.CTkFrame(body, fg_color="transparent")
+            row.pack(fill="x", padx=14, pady=3)
+            ctk.CTkLabel(row, text=label, width=90, anchor="w",
+                         text_color=MUTED, font=self.app.font_small).pack(side="left")
+            ctk.CTkLabel(row, text=value, anchor="w", text_color=TEXT,
+                         font=self.app.font_mono_small, wraplength=420,
+                         justify="left").pack(side="left", fill="x", expand=True)
+
+    SECTIONS = (_completeness, _file_info, _local_db, _fuzzy, _macro, _yara, _integrity, _pe, _guard,
+                _relationships, _archive, _mail, _web, _ml, _virustotal, _llm, _breakdown,
+                _provenance)
 
     # ---------------------------------------------------------------- actions
     def _actions(self):
@@ -415,12 +448,18 @@ class DetailWindow(ctk.CTkToplevel):
                       border_color=BORDER_2, text_color=TEXT,
                       command=self._copy_sha).pack(side="left", padx=8)
         path = str(result.get("file_path", ""))
+        self.undo_button = None
         if "!/" not in path and os.path.isfile(path):
             self.quarantine_button = ctk.CTkButton(
                 actions, text="Quarantine file", height=32, font=app.font_small,
                 fg_color="transparent", hover_color=PANEL_2, border_width=1,
                 border_color=RED, text_color=RED_SOFT, command=self._quarantine)
             self.quarantine_button.pack(side="right")
+            # shown once the file is in the vault: puts it back where it was
+            self.undo_button = ctk.CTkButton(
+                actions, text="Undo", width=70, height=32, font=app.font_small,
+                fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                border_color=BORDER_2, text_color=TEXT, command=self._undo_quarantine)
 
     def _copy_sha(self):
         self.clipboard_clear()
@@ -445,8 +484,40 @@ class DetailWindow(ctk.CTkToplevel):
         self.result["quarantine"] = {"id": meta["id"], "vault_file": meta["vault_file"],
                                      "original_removed": meta["original_removed"]}
         self.quarantine_button.configure(state="disabled", text=f"Quarantined · {meta['id']}")
+        if self.undo_button is not None:
+            self.undo_button.pack(side="right", padx=(0, 8))
         self.app.gui_log.warning(f"Quarantined from GUI: {path} -> vault id {meta['id']}")
         self.app.refresh_protection_views()
         if confirm:
-            messagebox.showinfo("Quarantined", f"Moved to the vault (id {meta['id']}).",
-                                parent=self)
+            messagebox.showinfo("Quarantined", f"Moved to the vault (id {meta['id']}). "
+                                "Undo puts it back.", parent=self)
+
+    def _undo_quarantine(self, confirm: bool = True):
+        """Restore the file this window quarantined to where it was. The vault never
+        overwrites: if a new file took its place, it comes back as
+        <name>.restored-<id>. Every restore is in the audit log (RESTORED ...)."""
+        item = (self.result.get("quarantine") or {}).get("id")
+        if not item:
+            return
+        path = str(self.result.get("file_path", ""))
+        if confirm and not messagebox.askyesno(
+                "Undo quarantine",
+                f"Put this file back where it was?\n\n{path}\n\nIt was flagged "
+                f"{result_verdict(self.result)} ({result_risk(self.result)}/100). Only "
+                "restore it if you are sure it is safe.", parent=self):
+            return
+        try:
+            dest = self.app.scanner.quarantine_vault.restore(item)
+        except Exception as e:
+            messagebox.showerror("Undo failed", str(e), parent=self)
+            return
+        self.result.pop("quarantine", None)
+        self.quarantine_button.configure(state="normal", text="Quarantine file")
+        if self.undo_button is not None:
+            self.undo_button.pack_forget()
+        self.app.gui_log.warning(f"Quarantine undone from GUI: vault id {item} -> {dest}")
+        self.app.refresh_protection_views()
+        if confirm:
+            moved = "" if str(dest) == path else f"\n\nA new file had taken its place, so it was restored as:\n{dest}"
+            messagebox.showinfo("Restored", f"The file is back in its folder.{moved}", parent=self)
+        return dest

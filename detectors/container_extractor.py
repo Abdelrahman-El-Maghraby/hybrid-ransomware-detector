@@ -66,7 +66,7 @@ import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Dict, Iterator, List, Optional, Union
+from typing import BinaryIO, Dict, Iterator, List, Optional, Union, cast
 
 from core.tools import trusted_which
 
@@ -99,14 +99,14 @@ try:
     import py7zr as _py7zr  # type: ignore
     SEVENZIP_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    _py7zr = None
+    _py7zr = None  # type: ignore[assignment]
     SEVENZIP_AVAILABLE = False
 
 try:
     import pycdlib as _pycdlib  # type: ignore
     ISO_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    _pycdlib = None
+    _pycdlib = None  # type: ignore[assignment]
     ISO_AVAILABLE = False
 
 try:
@@ -190,6 +190,21 @@ def rar_tool_available() -> bool:
         except Exception:
             _rar_tool_state = False
     return _rar_tool_state
+
+BSDTAR_NO_PASSWORDS = ("encrypted RAR needs 7-Zip, unrar or unar "
+                       "(the RAR tool found, bsdtar, cannot decrypt)")
+
+
+def rar_decrypts() -> bool:
+    """True when the RAR tool rarfile chose can open encrypted members. bsdtar
+    (libarchive; on every Mac) reads plain RAR but takes no password."""
+    if not rar_tool_available():
+        return False
+    try:
+        return _rarfile.tool_setup().setup.get("open_cmd", ("",))[0] != "BSDTAR_TOOL"
+    except Exception:
+        return False
+
 
 def sevenzip_lacks_rar_codec(info_output: str) -> bool:
     """True when `7z i` output lists codecs but none of them is a RAR codec.
@@ -785,7 +800,10 @@ class ContainerExtractor:
                 # No decompressor installed. Stored members don't need one, so this
                 # is per member; the name checks above were still applied.
                 target.unlink(missing_ok=True)
-                member.skipped_reason = "needs a RAR decompressor (7-Zip, unrar or unar)"
+                if member.encrypted and rar_tool_available() and not rar_decrypts():
+                    member.skipped_reason = BSDTAR_NO_PASSWORDS
+                else:
+                    member.skipped_reason = "needs a RAR decompressor (7-Zip, unrar or unar)"
                 self._missing("rar-tool", res, count=0)
                 break
             except Exception as e:               # wrong password, CRC error, tool failure
@@ -840,8 +858,9 @@ class ContainerExtractor:
                 if key == "iso_path":
                     name = re.sub(r";\d+$", "", name)
                 size = rec.get_data_length()
-                is_link = bool(key == "rr_path" and getattr(rec, "rock_ridge", None)
-                               and rec.rock_ridge.is_symlink())
+                rock_ridge = getattr(rec, "rock_ridge", None)     # absent on UDF entries
+                is_link = bool(key == "rr_path" and rock_ridge is not None
+                               and rock_ridge.is_symlink())
                 shown = f"{display}!/{visible_name(name)}"
                 if not self._admit(name, size, size, is_link, shown, res):
                     continue
@@ -851,7 +870,7 @@ class ContainerExtractor:
                 try:
                     with open(target, "wb") as fh:
                         sink = _BoundedWriter(fh, budget)
-                        iso.get_file_from_iso_fp(sink, **{key: p})
+                        iso.get_file_from_iso_fp(cast(BinaryIO, sink), **{key: p})
                     res.total_uncompressed += sink.written
                     member.extracted, member.path = True, str(target)
                 except _BudgetExceeded:

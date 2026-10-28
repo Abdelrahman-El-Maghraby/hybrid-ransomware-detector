@@ -17,3 +17,5 @@ os.environ["HOME"] = _TEST_HOME
 os.environ["USERPROFILE"] = _TEST_HOME          # Windows equivalent
 os.environ.setdefault("LLM_PROVIDER", "none")    # never call a real LLM in tests
 os.environ.setdefault("VIRUSTOTAL_API_KEY", "")
+# Tests never read or write the developer's real OS keyring.
+os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"

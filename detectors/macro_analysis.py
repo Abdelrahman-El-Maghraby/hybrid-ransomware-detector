@@ -87,6 +87,7 @@ class MacroResult:
     xlm_macros: bool = False                               # Excel 4.0 macro sheets
     xlm_evidence: List[str] = field(default_factory=list)
     detail: str = ""
+    error: str = ""             # the file could not be analysed: not "no macros"
 
     def as_dict(self) -> Dict:
         return {
@@ -101,6 +102,7 @@ class MacroResult:
             "xlm_macros": self.xlm_macros,
             "xlm_evidence": self.xlm_evidence,
             "detail": self.detail,
+            **({"error": self.error} if self.error else {}),
         }
 
 
@@ -152,7 +154,8 @@ class MacroAnalyzer:
         except Exception as e:
             logger.warning("Macro analysis failed for %s: %s", file_path, e)
             return MacroResult(available=True, has_macros=False,
-                               detail=f"Macro analysis error: {e}")
+                               detail=f"Macro analysis error: {e}",
+                               error=f"{type(e).__name__}: {e}"[:200])
         finally:
             if parser is not None:
                 try:

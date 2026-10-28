@@ -74,10 +74,34 @@ def test_full_gui_flow(app, tmp_path):
     _pump(app, 0.3)
     mail_win.destroy()
 
+    partial = dict(rows["invoice.pdf"], scan_status="partial",
+                   incomplete_reasons=[{"layer": "archive", "reason": "member not unpacked",
+                                        "member_path": "x.zip!/a.doc", "status": "partial"}])
+    gui.DetailWindow(app, partial).destroy()          # completeness + provenance sections
     win = gui.DetailWindow(app, rows["invoice.pdf"])
     _pump(app, 0.3)
+    original = tmp_path / "Downloads" / "invoice.pdf"
+    content = original.read_bytes()
     win._quarantine(confirm=False)
-    assert not (tmp_path / "Downloads" / "invoice.pdf").exists()
+    assert not original.exists()
+    assert win.undo_button.winfo_manager() == "pack"           # Undo offered
+
+    # Undo from the result view puts the file back, byte for byte
+    assert win._undo_quarantine(confirm=False) == original
+    assert original.read_bytes() == content and app.scanner.quarantine_vault.list() == []
+    assert win.quarantine_button.cget("text") == "Quarantine file"
+    assert win.undo_button.winfo_manager() == ""                # hidden again
+
+    # a new file took the name meanwhile: nothing is overwritten
+    win._quarantine(confirm=False)
+    original.write_bytes(b"a new, different file")
+    restored = win._undo_quarantine(confirm=False)
+    assert restored.name.startswith("invoice.pdf.restored-") and restored.read_bytes() == content
+    assert original.read_bytes() == b"a new, different file"
+    restored.unlink()
+    original.write_bytes(content)
+    win._quarantine(confirm=False)                              # for the vault checks below
+    assert not original.exists()
     win.destroy()
 
     app.show_page("protection")
@@ -101,3 +125,21 @@ def test_full_gui_flow(app, tmp_path):
         _pump(app, 0.1)
     assert app.last_canary_report.triggered
     assert dash.card_canary.status_label.cget("text") == "TRIGGERED"
+
+
+def test_first_run_check_shows_diagnostics_once(app, monkeypatch):
+    """A9-4: a required layer that cannot run is reported on first launch, once."""
+    shown = []
+    monkeypatch.setattr(gui.messagebox, "showwarning", lambda *a, **k: shown.append(a))
+    page = app.pages["settings"]
+    monkeypatch.setattr(page, "diagnostics", lambda: [("problem", "qr: needs zbar"),
+                                                      ("note", "emulation: off")])
+    app.settings.data["diagnostics_seen"] = False
+    app._first_run_check()
+    assert len(shown) == 1 and "qr: needs zbar" in shown[0][1]
+    assert app.current_page == "settings" and app.settings.data["diagnostics_seen"] is True
+    assert "qr: needs zbar" in page.diag_label.cget("text")
+    app._first_run_check()
+    assert len(shown) == 1                                  # never again
+    page._copy_diagnostics()
+    assert app.clipboard_get().startswith("Aegis Sentinel ")

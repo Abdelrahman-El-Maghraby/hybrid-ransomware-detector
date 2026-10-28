@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import os
 import sys
 from datetime import datetime
@@ -27,7 +28,10 @@ from typing import Any, Dict, List, Optional
 TEXT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 # Fields a log call may pass with extra={...}; they are copied into the JSON.
 EVENT_FIELDS = ("event", "path", "sha256", "verdict", "risk_score", "duration_ms", "layer",
-                "files", "files_per_sec", "error")
+                "files", "files_per_sec", "error",
+                # 4.7: completeness, layer states, readiness problems, lockouts, secret sources,
+                # what was sent to external services
+                "scan_status", "layers", "problems", "client", "sources", "shared")
 _MARK = "_aegis_handler"
 
 
@@ -51,6 +55,14 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(out, ensure_ascii=False, default=str)
 
 
+def _env_number(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, "") or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def make_formatter(fmt: Optional[str] = None) -> logging.Formatter:
     fmt = (fmt or os.getenv("LOG_FORMAT") or "text").strip().lower()
     return JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT)
@@ -69,7 +81,11 @@ def configure_logging(log_file: Path, console: bool = True, level: int = logging
     level = logging.getLevelName(env_level) if env_level in (
         "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL") else level
     formatter = make_formatter(fmt)
-    handlers: List[logging.Handler] = [logging.FileHandler(log_file, encoding="utf-8")]
+    # A long-running service must not fill its volume: LOG_MAX_MB per file (20),
+    # LOG_BACKUPS old files kept (5). Only the main process writes this file.
+    handlers: List[logging.Handler] = [logging.handlers.RotatingFileHandler(
+        log_file, maxBytes=int(_env_number("LOG_MAX_MB", 20) * 1024 * 1024),
+        backupCount=int(_env_number("LOG_BACKUPS", 5)), encoding="utf-8")]
     if console:
         handlers.append(logging.StreamHandler(sys.stdout))
     for h in handlers:

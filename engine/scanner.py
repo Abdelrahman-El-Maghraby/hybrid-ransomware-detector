@@ -10,12 +10,14 @@ engine/report.py.
 """
 
 import csv
+import glob
 import hashlib
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core import (
     CanaryManager,
@@ -26,11 +28,6 @@ from core import (
 )
 from core.allowlist import load_allowlist
 from detectors import (
-    DEFUSEDXML_AVAILABLE,
-    FUZZY_AVAILABLE,
-    MSG_AVAILABLE,
-    OLEVBA_AVAILABLE,
-    YARA_AVAILABLE,
     ContainerExtractor,
     FileIntegrityAnalyzer,
     FuzzyHasher,
@@ -47,10 +44,11 @@ from detectors import (
 from detectors.elf_analysis import ElfAnalyzer
 from detectors.embedded_content import EmbeddedContentAnalyzer
 from detectors.pe_analysis import PeAnalyzer
-from detectors.qr_scanner import QR_AVAILABLE, QR_BACKEND, QRScanner
+from detectors.qr_scanner import QRScanner
 from detectors.script_analysis import ScriptAnalyzer
 from detectors.web_content import WebContentAnalyzer
 
+from .capabilities import external_services, layer_states, summary_line
 from .config import (
     BUNDLED_FUZZY_SIGS,
     BUNDLED_RULES_DIR,
@@ -61,6 +59,7 @@ from .external import ExternalLookupsMixin
 from .layers import Layer, default_pipeline
 from .metrics import METRICS
 from .protection import ProtectionMixin
+from .provenance import scanner_provenance
 from .report import ReportMixin
 from .staging import StagedPipelineMixin
 from .text import TextExtractionMixin
@@ -86,6 +85,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self.hash_database = self._load_kaggle_database()
 
         self._init_signatures(config)
+        from core.intel_client import client_from_config
+        self.intel = client_from_config(config)      # external services via api/intel.py
         self._init_static_layers(config)
         self._init_optional_layers(config)
         from detectors.registry import load_overrides
@@ -101,13 +102,16 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None
         self._log_layers()
+        self._content_lock = threading.Lock()
+        self._content_fp = self._content_fingerprint()
 
     # ------------------------------------------------------------------ setup
     def _init_signatures(self, config: Dict) -> None:
         """Fuzzy signatures and YARA rules: a per-user DB or folder, else an
         installed signed rule pack (core/rulepack.py), else the bundled ones."""
         from core.rulepack import FUZZY_NAME, active_pack
-        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR)
+        self.rulepack = active_pack(config.get("data_dir") or DATA_DIR,
+                                    config.get("rulepack_public_keys") or [])
         fuzzy_db = config.get("fuzzy_signature_db")
         if (not (fuzzy_db and os.path.exists(fuzzy_db)) and self.rulepack
                 and self.rulepack.get("has_fuzzy")):
@@ -123,10 +127,56 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
             logger.info("YARA rules from signed rule pack %s.", self.rulepack["version"])
         self.yara_engine = YaraEngine(rules_dir=rules_dir)
 
+    def _content_fingerprint(self) -> Tuple:
+        """(path, mtime, size) of everything detection content is loaded from: the
+        active rule pack, the YARA rule files, the fuzzy signatures, the allowlist."""
+        data_dir = str(self.config.get("data_dir") or DATA_DIR)
+        paths = [os.path.join(data_dir, "rulepacks", "active.json")]
+        for folder in sorted({str(self.config.get("yara_rules_dir") or ""),
+                              str(getattr(self.yara_engine, "rules_dir", "") or "")}):
+            if folder and os.path.isdir(folder):
+                paths += sorted(glob.glob(os.path.join(folder, "*.yar"))
+                                + glob.glob(os.path.join(folder, "*.yara")))
+        paths += [str(getattr(self.fuzzy_hasher, "signature_db_path", "") or ""),
+                  str(self.config.get("allowlist_path") or "")]
+        out: List[Tuple[str, Optional[int], Optional[int]]] = []
+        for p in paths:
+            try:
+                st = os.stat(p)
+                out.append((p, st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((p, None, None))
+        return tuple(out)
+
+    def refresh_detection_content(self) -> bool:
+        """Reload rules, fuzzy signatures and the allowlist when they changed on disk
+        (a rule-pack update, an edited rule, --allow from another process), so a
+        long-running scanner never scores with content that was replaced. A few
+        stat() calls per top-level scan; True when something was reloaded."""
+        fingerprint = self._content_fingerprint()
+        if fingerprint == self._content_fp:
+            return False
+        with self._content_lock:
+            if self._content_fingerprint() == self._content_fp:
+                return False
+            self._init_signatures(self.config)
+            self.allowlist = load_allowlist(self.config.get("allowlist_path"))
+            self._log_layers()                       # new layer states and provenance
+            self._content_fp = self._content_fingerprint()
+        logger.info("Detection content changed on disk: reloaded (rules %s, sha256 %s).",
+                    self.provenance["rules"]["version"] or self.provenance["rules"]["source"],
+                    self.provenance["rules"]["sha256"][:16],
+                    extra={"event": "content_reloaded"})
+        return True
+
     def _init_static_layers(self, config: Dict) -> None:
         total_bytes = int(float(config.get("archive_max_total_mb", 100)) * 1024 * 1024)
         self.macro_analyzer = MacroAnalyzer()
-        self.llm_backend = build_llm_backend(config)
+        if self.intel is not None:
+            from core.intel_client import IntelLLMBackend
+            self.llm_backend: Any = IntelLLMBackend(self.intel)
+        else:
+            self.llm_backend = build_llm_backend(config)
         self.integrity = FileIntegrityAnalyzer()
         self.prompt_guard = PromptGuard()
         self.relationship_scanner = RelationshipScanner()
@@ -160,8 +210,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                                            int(config.get("emulation_timeout", 20)))
             logger.info("Emulation layer: %s.", f"ON ({self.emulator.tool})"
                         if self.emulator.available else "enabled but box-js was not found")
-        self.sandbox = None
-        if config.get("sandbox_url"):
+        self.sandbox: Any = None
+        if self.intel is not None:
+            if self.intel.service("sandbox").get("enabled"):
+                from core.intel_client import IntelSandbox
+                self.sandbox = IntelSandbox(self.intel,
+                                            wait_seconds=int(config.get("sandbox_wait_seconds", 600)))
+        elif config.get("sandbox_url"):
             from core.sandbox import CapeClient
             self.sandbox = CapeClient(config["sandbox_url"], token=config.get("sandbox_token", ""),
                                       wait_seconds=int(config.get("sandbox_wait_seconds", 600)))
@@ -175,34 +230,26 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self.http_timeout = int(config.get("http_timeout", 30))
         self.vt_limiter = RateLimiter(float(config.get("virustotal_requests_per_minute", 4)))
         self.cache: Optional[ResultCache] = None
-        if config.get("cache_enabled", True) and config.get("cache_db_path"):
+        # With the intel service the answers are cached there, written only from the
+        # real reply: a cache here would be writable by the scan workers, which open
+        # hostile files, so one exploited parser could plant clean answers.
+        if (self.intel is None and config.get("cache_enabled", True)
+                and config.get("cache_db_path")):
             self.cache = ResultCache(config["cache_db_path"],
                                      float(config.get("cache_ttl_hours", 24)) * 3600)
 
     def _log_layers(self) -> None:
         logger.info("Scanner initialized (engine v%s). Monitoring directories: %s",
                     ENGINE_VERSION, self.scan_dirs)
-        logger.info(
-            "Detection layers -> fuzzy:%s  macro:%s  yara:%s(%d rule files)  "
-            "integrity:on  prompt-guard:%s  relationships:%s  archives:on  "
-            "mail:%s  elf:on  pe:on  qr:%s  ml:%s  llm:%s%s  virustotal:%s  cache:%s",
-            "on" if FUZZY_AVAILABLE else "off (install python-tlsh/ppdeep)",
-            "on" if OLEVBA_AVAILABLE else "off (install oletools)",
-            "on" if YARA_AVAILABLE else "off (install yara-python)",
-            getattr(self.yara_engine, "_rules_count", 0),
-            "on" if DEFUSEDXML_AVAILABLE else "partial (install defusedxml)",
-            "on" if DEFUSEDXML_AVAILABLE else "rtf-only (install defusedxml)",
-            "on" if MSG_AVAILABLE else "eml-only (install oletools)",
-            ("off" if self.qr_scanner is None else
-             QR_BACKEND if QR_AVAILABLE else "off (install pyzbar or opencv)"),
-            ("off" if self.ml is None else
-             f"model ({self.ml.model_name})" if self.ml.has_model else "rules"),
-            self.llm_backend.name,
-            " [LOCAL]" if getattr(self.llm_backend, "is_local", False) else
-            (" [CLOUD]" if self.llm_backend.name == "openai" else ""),
-            "on" if self.config.get("virustotal_api_key") else "off (no API key)",
-            "on" if (self.cache and self.cache.enabled) else "off",
-        )
+        states = layer_states(self)
+        self.capability_states = states      # read by engine/completeness.py per scan
+        self.provenance = scanner_provenance(self, states)
+        logger.info("Detection layers -> %s  cache:%s", summary_line(states),
+                    "intel" if self.intel is not None
+                    else "on" if (self.cache and self.cache.enabled) else "off",
+                    extra={"event": "layers", "layers": {n: s["state"] for n, s in states.items()}})
+        logger.info("External services -> %s",
+                    "  ".join(f"{n}:{v}" for n, v in external_services(states).items()))
 
     # ------------------------------------------------------------------ setup
 

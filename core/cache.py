@@ -65,6 +65,7 @@ class ResultCache:
             self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self._conn.commit()
             self.enabled = True
+            self.purge_expired()             # expired answers are never served; drop them
         except Exception as e:
             logger.warning("Result cache disabled (could not open %s): %s", self.db_path, e)
             self._close_quietly()

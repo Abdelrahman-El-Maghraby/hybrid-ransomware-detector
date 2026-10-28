@@ -107,3 +107,22 @@ def test_cli_export_then_import(tmp_path):
                          timeout=120, env=dict(env, HOME=str(tmp_path / "h4"),
                                                HRD_KEY_PASSPHRASE="wrong passphrase!!"))
     assert bad.returncode == 1 and "Wrong passphrase" in bad.stdout
+
+
+def test_quarantine_and_restore_are_audit_logged_with_the_user(tmp_path, caplog):
+    """S7: who quarantined or restored a file is in the log."""
+    import getpass
+    import logging
+
+    from core.quarantine import QuarantineVault
+    f = tmp_path / "doc.bin"
+    f.write_bytes(b"inert test bytes")
+    vault = QuarantineVault(tmp_path / "vault", tmp_path / "keys")
+    with caplog.at_level(logging.WARNING):
+        meta = vault.quarantine(str(f), reason="test")
+        vault.restore(meta["id"])
+    user = getpass.getuser()
+    assert f"QUARANTINED {f}" in caplog.text and f"by {user}" in caplog.text
+    assert f"RESTORED vault id {meta['id']}" in caplog.text
+    assert [r.event for r in caplog.records if hasattr(r, "event")] == ["quarantined",
+                                                                         "quarantine_restored"]

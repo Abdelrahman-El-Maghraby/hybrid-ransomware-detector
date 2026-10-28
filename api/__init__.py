@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-SCHEMA_VERSION = "1.1"   # 1.1: optional scan_duration_ms
+SCHEMA_VERSION = "1.3"   # 1.1: optional scan_duration_ms; 1.2: scan_status, incomplete_reasons, verdict_label; 1.3: provenance.shared
 SCHEMA_PATH = Path(__file__).with_name("scan_result.schema.json")
 
 

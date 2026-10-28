@@ -4,6 +4,112 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [4.7.0-rc1] — 2026-10-28
+
+Release candidate of the on-prem production edition (`docs/RELEASE_SCOPE.md`). Built and checked locally; not published.
+
+### Added
+
+- **Per-layer capabilities** (`engine/capabilities.py`): every pipeline layer reports `up`, `down` (with what it needs) or `disabled` (with the setting), from the engines the scanner really built. The start-up log lists every layer this way, plus the external services (`llm`, `virustotal`, `sandbox`) and whether each is on. This also fixes the v4.6.0 binaries' start-up log, which did not show the PE layer (`pe:on`).
+- **`GET /ready`**, distinct from `/health` (process alive): 200 only when the YARA rules compiled, the indicator registry loaded with every category cap, the report / data / temporary folders accept a file, isolated workers start (a warm-up scan at start-up), and, in the production profile, every required layer is up. Otherwise 503. With the bearer token it lists each check and every layer's state; without it, only `{"ready": ...}`. The API logs ready / not ready at start-up.
+- **`AEGIS_PROFILE`** (`standard` or `production`, validated at start-up).
+- **Scan completeness** (`engine/completeness.py`, result schema **1.2**, additive): every result has
+  - `scan_status`: `complete`, `partial` (an applicable, enabled layer errored, was unavailable or was skipped, or content was not unpacked), `locked` (encrypted content not opened: archive members, password-protected Office files and, newly detected, PDFs that need a user password), `unsupported` (a format with no type-specific analysis), or `failed` (worker timeout, crash or memory limit);
+  - `incomplete_reasons`: one `{member_path, layer, reason, status}` per gap;
+  - `verdict_label`, e.g. `Clean (partial scan)`.
+
+  A container takes its most severe member status: failed > locked > partial > unsupported > complete. Intended skips (score already 100, allowlisted file, a layer that does not apply to the file type, an optional layer switched off) do not make a scan partial. The status never changes the score, the verdict or the response action: a malicious member keeps its full score next to a locked one.
+- **Provenance** in every result (`provenance`, schema 1.2) and in the text report's header (`engine/provenance.py`):
+  - engine, schema and registry versions (with `+override`);
+  - the YARA rules (bundled / rule pack / custom folder, version, SHA-256 over the compiled files) and the fuzzy-signature database (source, SHA-256);
+  - the profile and the external services (`llm`, `virustotal`, `sandbox`: off, or how each is used);
+  - the layers disabled or down for this installation, with the reason;
+  - for each file, the layers that ran, were unavailable, did not apply, failed or were skipped (with the reason).
+
+  It never contains a key, token, password or service URL. `GET /version` also returns the rules, the profile and the external services.
+- A clean score on an incomplete scan never shows as plain "Clean": text reports have a "Scan completeness" line and a "NOT FULLY INSPECTED" section, flagged files list their gaps, the GUI shows the label in the results table and the detail window, and webhooks / JSON Lines carry `scan_status`.
+- **Production profile configuration** (`AEGIS_PROFILE=production`): switching off a required layer (`QR_SCAN_ENABLED=0`, `ML_ENABLED=0`), a missing `YARA_RULES_DIR` or `EMULATION_ENABLED=1` stops the program at start-up.
+- **GUI:** the result view lists every gap of an incomplete scan (layer, reason, member) and the provenance (rules version and hash, registry, schema, profile, external services, layers that did not run). Settings has a **Diagnostics** section: required layers that are down, configuration warnings, switched-off layers, with Re-check and a copyable report. On first launch the app reports, once, any required layer that cannot run on this computer.
+- **Undo a quarantine from the result view:** after "Quarantine file" an Undo button restores the file to its folder, after a confirmation. It never overwrites a file that took the name meanwhile, and each restore is audit-logged.
+- **Desktop alerts on Windows** (toast notifications through the built-in WinRT API); before, a canary tripwire raised no notification there.
+- **What left the machine, per file** (`provenance.shared`, result schema **1.3**, additive): one entry per external service a scan really contacted. VirusTotal records `sha256`, plus `file` when it uploaded; the LLM records `text` and whether it was `local` or `cloud`; the sandbox records `file`. Archive and mail members are included with their path, and an answer from a cache records nothing. The text report has a "Sent outside" line, the GUI shows it per file, and each share is logged (`external_share`, no content).
+- **Delay-loaded imports** are read by the PE layer (data directory 13, RVA form): an injection chain bound on first use no longer escapes the import checks, even in a program with no ordinary import table. Results list `delay_loaded_dlls`.
+- **Evaluation you can trust** (`tools/evaluate.py`, `tools/calibrate_weights.py`, `tools/splits.py`):
+  - files are hashed first; duplicates count once, and files labelled both malicious and benign are left out;
+  - a fixed, family-grouped calibration / test split (`--split`), and cross-validation folds grouped by family, so a family is never on both sides;
+  - a worst-case detection rate that counts errors and timeouts as misses;
+  - a scan-completeness table, and `split` and `scan_status` columns in `results.csv`;
+  - files whose content is a format the engine analyses (PE, ELF, LNK, OneNote, CHM, MSI) are measured even when the extension is not on the list, so MalwareBazaar's `<sha256>.elf` / `.lnk` samples count.
+- **Operations:** `deploy/backup.sh` and `deploy/restore.sh` for the Docker deployment, and the docs `docs/OPERATIONS.md` (install to uninstall), `docs/RUNBOOKS.md`, `docs/DATA_POLICY.md`, `docs/SUPPORT.md` and `docs/THIRD_PARTY.md` (for legal review).
+- `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
+- **Docker deployment** (`Dockerfile`, `docker-compose.yml`, `deploy/`): three services from a pinned image.
+  - `analysis` runs `aegis-api` with `network_mode: none` (no interface but loopback) and listens on a Unix socket; it holds no external-service secret, and the detection content is mounted read-only.
+  - `intel` (`aegis-intel`, `api/intel.py`) is the only service with egress. It offers fixed operations only: VirusTotal hash look-up, upload when `VT_UPLOAD_UNKNOWN` is on, LLM analysis, and sandbox submit and poll of its own tasks. Inputs are validated exactly, the shared `AEGIS_INTEL_TOKEN` is required, each operation is rate-limited, and each external service has a session that refuses every origin outside the configuration, redirects included.
+  - `proxy` (Caddy) terminates TLS with the operator's certificate.
+  - Every service runs non-root with a read-only root file system, all capabilities dropped, no-new-privileges, Docker's default seccomp profile, memory / CPU / process limits and a size-limited `noexec` tmpfs. Secrets are Docker secrets.
+  - `deploy/check-deployment.sh` (run in CI by `docker.yml`) proves the isolation from inside the running containers and scans a file through TLS.
+- `AEGIS_INTEL_SOCKET` / `AEGIS_INTEL_TOKEN`: the scanner reaches VirusTotal, the LLM and the sandbox through the intel service; capability states show `... via intel`, or `down` when it is unreachable.
+- **Faster API uploads with the same isolation:** `AEGIS_API_SPARE_WORKERS` (default one per scan slot) workers are started ahead and each scans exactly one upload. Small-file latency with uploads 2 s apart: p50 1,399 ms to 257 ms (measured on macOS).
+- `AEGIS_API_SOCKET` (serve on a Unix socket), `AEGIS_API_TOKEN_FILE`, `CACHE_DB_PATH`, and `python -m api.probe SOCKET [PATH]` (container health check).
+
+### Fixed / security
+
+- **API authentication throttling.** The rate-limit buckets were keyed on IP address + token, so a client rotating wrong tokens got a fresh bucket for every guess. Now:
+  - a per-IP limit applies before authentication (`AEGIS_API_IP_RATE_PER_MINUTE`, `AEGIS_API_IP_BURST`);
+  - an address that is locked out is refused before the token is compared;
+  - each failed constant-time compare is recorded against the address, and `AEGIS_API_AUTH_FAILURES` failures within `AEGIS_API_AUTH_WINDOW_SECONDS` lock it out for `AEGIS_API_AUTH_LOCKOUT_SECONDS` (429 with Retry-After);
+  - a valid token keeps its per-client quota.
+
+  `GET /ready` shows its details only to a valid token, through the same policy, so it cannot be used to guess tokens. Lockouts are logged (`auth_lockout`) and counted in `/metrics` (`auth_failed`, `auth_locked`).
+
+- **Secrets out of `.env`** (`engine/secret_store.py`). The desktop app used to write API keys in plain text into `.env`; it now saves them to the OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), reads each one back to verify it, and writes nothing to disk when no keyring is available.
+  - Precedence: the process environment, or `NAME_FILE` (Docker secrets), then the keyring, then `.env`.
+  - First-run migration: secrets in `.env` are written to the keyring and read back. Only when every value matches are their lines removed (atomic rewrite, permissions kept); on any failure `.env` is left untouched and a warning names the secret, never its value.
+  - The start-up log shows each secret's source. New dependency: `keyring` (pure Python; added to the lock with its dependencies).
+
+- **Stale answers after a content or configuration change.** Verdicts were never cached, but cached evidence and loaded content could be stale:
+  - LLM answers are now keyed by the prompt version and the engine version as well as the back-end and model;
+  - VirusTotal answers are keyed by the upload setting, so turning `VT_UPLOAD_UNKNOWN` on is no longer ignored for 6 hours;
+  - sandbox reports are keyed by the CAPE server and options;
+  - a running scanner reloads the YARA rules, the active rule pack, the fuzzy signatures and the allowlist when they change on disk, before the next top-level scan.
+
+- **Cache poisoning from a scan worker.** In the Docker deployment the scan workers, which open hostile files, read and wrote the result cache. One exploited parser could plant a clean VirusTotal, LLM or sandbox answer for another file. With `AEGIS_INTEL_SOCKET` the analysis side now keeps no cache of external answers. The intel service caches them in its own volume, and only from the real service's reply, keyed by what it derives itself: the requested hash, the hash of the bytes it received, the hash of the text it was given. Without intel (desktop, CLI) the local cache is unchanged.
+- **The macOS memory watchdog missed compressed memory.** It read resident size, so a worker filling memory with repetitive data used gigabytes without being stopped. It now reads the physical footprint, which includes compressed memory. The memory-limit test allocated an untouched buffer that macOS never made resident, so it tested nothing there (B5); it now writes the memory it allocates.
+- **Temp folders of a crashed scanner stayed behind** (outside Docker): worker folders carry the scanner's process id, and the next scanner removes those of processes that no longer exist.
+- **`--resume-pid` acted on any process** and resume / unlock left no log entry. The tripwire now records which processes it suspended, with their program names. `--resume-pid PID|all` resumes only those, refuses a reused pid, and audit-logs each resume and unlock with the OS user.
+- **No implicit cloud LLM in the production profile.** `LLM_PROVIDER=auto` falls back to OpenAI whenever the local Ollama is unreachable, so a passing outage could send documents to the cloud. The production profile now requires `none`, `ollama` or `openai`, and the server image defaults to `none`. The intel service now validates its own settings at start.
+- **Documents a parser could not read were reported as complete scans.** A damaged PDF or Office file gave empty text that looked like "no text". YARA errors (including its timeout), macro-analysis errors and relationship-scan errors appeared only in a free-text detail. Each now makes the scan `partial` with the parser's error, and these layers' results carry an `error` field. A program merely named `.pdf` is analysed as what it is and stays complete.
+- **Containers that could not be opened were reported as complete scans.** A damaged or truncated ZIP, an archive the extractor could not open, and a mail over the analysis size limit (or one that failed to parse) all came back "Clean, complete" with nothing inside inspected. Each is now `partial` with its reason. Scores and verdicts are unchanged.
+- **Encrypted RAR with only bsdtar** (as on a stock Mac) said "needs a RAR decompressor" although one was installed. It now says bsdtar cannot decrypt and names 7-Zip, unrar or unar; the archive layer's state and the GUI diagnostics show the same note (B1).
+- **Rule packs: no replay of older content, signed rollback, compromise recovery.** `--allow-downgrade` installed any older signed pack, including one whose rules are known to be bypassed. Older packs, or the same pack again, are now always refused. A rollback is a signed pack with a newer version that carries `rollback_of` (`tools/rulepack.py rollback`). Each install records its signing key. Removing a compromised key from `RULEPACK_PUBLIC_KEYS` stops the scanner from using what that key signed, and a pack signed by a new key installs even if the attacker published a huge version (`docs/RULE_PACKS.md`).
+- **The log file grew without limit.** It now rotates at `LOG_MAX_MB` (20), keeping `LOG_BACKUPS` (5) old files. Expired cache answers, which were never served, are now deleted when the cache opens.
+- `--capabilities` printed log lines to stdout before its JSON; its output is now only the JSON.
+- The quarantine and restore audit lines now name the OS user.
+- **X-Forwarded-For spoofing behind an appending proxy.** With `AEGIS_API_TRUST_PROXY=1` the first entry was used, which a proxy that appends (nginx `$proxy_add_x_forwarded_for`) takes from the client. Each request could claim a new address and escape the per-address rate limit and the token lockout. The last entry, which the trusted proxy added, is used now.
+- **A killed worker's unpacked files stayed in the temp folder.** A worker stopped for the timeout or the memory limit cannot clean up, so repeated hostile files could fill a size-limited `/tmp`. Each worker now has its own temporary folder, which the parent removes.
+- **Scanning loaded the containment code.** Validation imported `core.response` on every start. It is now imported only when `CANARY_RESPONSE` is set. The production profile refuses `CANARY_RESPONSE` (containment is desktop-only), and the server image does not contain it.
+- **The engine did not start without the optional OCR packages** (`pytesseract`, `pdf2image` were imported unconditionally). OCR is now skipped when they are missing.
+- The readiness storage check required the data folder to be writable, which ruled out read-only detection content. It now checks where scans write: reports, the cache, and temporary files.
+
+- The start-up "Detection layers" line did not list `pe:on` (cosmetic; the layer ran; PR #21).
+
+### Release and CI
+
+- Releases include the server images (`aegis-sentinel-server-<version>-linux-amd64.tar.gz`, for `docker load` on an offline host), built and proven by the deployment check first.
+- An SBOM per artifact, from the environment it was built in (the image also lists its Debian packages), instead of one SBOM of the lock file; every file is checksummed and Sigstore-signed.
+- Every GitHub Action is pinned to a commit SHA, and Dependabot proposes updates. A tag can be moved; a SHA cannot. This matters most in the release job, which can publish and sign.
+- mypy in CI runs against every optional package (`requirements.lock`); the 10 errors that only a full install showed are fixed.
+- `docs/RELEASING.md`: tagging, what a release contains, verifying signatures, offline install, and the Authenticode / notarisation steps once certificates exist.
+
+### Changed
+
+- The sandbox client has `submit()` and `poll()` steps (`analyze()` uses them), and the LLM back-ends accept an injected HTTP session.
+- LLM back-ends mark real failures (API error, unreachable server) with an `error` field, so they count as a partial scan rather than as "nothing to analyse".
+- A file over `fuzzy_max_bytes` is recorded in `layer_skips` (the fuzzy layer did not run on it).
+- **Builds fail on a missing required dependency** (`build.py`): every package a production-profile layer needs, and the GUI toolkit, must be installed (preflight). The smoke test runs `--capabilities cli` on the packaged program and fails the build, and so the release job, when a required layer is not up in the artifact. A folder build must contain customtkinter. Host tools a desktop binary cannot bundle (a RAR decompressor, the zbar library) are reported, not required; the Docker image must carry them.
+
 ## [4.6.0] — 2026-10-26
 
 ### Added

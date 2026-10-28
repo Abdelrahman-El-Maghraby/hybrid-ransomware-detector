@@ -1,0 +1,169 @@
+# Aegis Sentinel: one on-prem deployment per customer (docs/DEPLOYMENT.md).
+#
+#   proxy     TLS on AEGIS_HTTPS_PORT -> the analysis socket. The only published port.
+#   analysis  opens the files. network_mode: none - no interface but loopback, so a
+#             compromised parser cannot reach the internet, the LAN or another
+#             container. It reaches intel only through intel's Unix socket.
+#   intel     the only service with outbound network; fixed operations to the
+#             destinations in its own configuration (api/intel.py). Holds the
+#             VirusTotal / OpenAI / sandbox secrets and the only cache of their
+#             answers; analysis holds neither (its workers open hostile files).
+#
+# Every service: non-root, read-only root file system, all capabilities dropped,
+# no-new-privileges, Docker's default seccomp profile, CPU / memory / process limits.
+#
+#   deploy/check-deployment.sh   builds, starts and proves the isolation
+name: aegis
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+
+services:
+  intel:
+    <<: *hardening
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
+    build: {context: ., target: server}
+    command: ["python", "-m", "api.intel"]
+    user: "10002:10002"
+    networks: [egress]
+    environment:
+      HOME: /var/lib/aegis-intel
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
+      AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
+      # External services (all off unless configured; decision D4: hash look-up
+      # only, uploads are a separate switch).
+      VIRUSTOTAL_API_KEY_FILE: /run/secrets/virustotal_api_key
+      VT_UPLOAD_UNKNOWN: ${VT_UPLOAD_UNKNOWN:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      SANDBOX_URL: ${SANDBOX_URL:-}
+      SANDBOX_TOKEN_FILE: /run/secrets/sandbox_token
+    secrets: [intel_token, virustotal_api_key, openai_api_key, sandbox_token]
+    volumes:
+      - intel-socket:/run/aegis/intel
+      - intel-state:/var/lib/aegis-intel
+    tmpfs:
+      - /tmp:size=256m,mode=1777,noexec,nosuid,nodev
+    healthcheck:
+      test: ["CMD", "python", "-m", "api.probe", "/run/aegis/intel/intel.sock"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+    mem_limit: ${AEGIS_INTEL_MEMORY:-1g}
+    cpus: ${AEGIS_INTEL_CPUS:-1}
+    pids_limit: 128
+
+  analysis:
+    <<: *hardening
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
+    build: {context: ., target: server}
+    command: ["python", "-m", "api.server"]
+    # docker stop: stop taking uploads, let the ones in progress finish (a scan may
+    # take up to SCAN_TIMEOUT_SECONDS), then exit. Docker's default is 10 s.
+    stop_grace_period: ${AEGIS_STOP_GRACE:-120s}
+    user: "10001:10001"
+    group_add: ["10010"]                  # may connect to the intel socket
+    network_mode: none
+    environment:
+      HOME: /var/lib/aegis
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      AEGIS_PROFILE: production
+      AEGIS_API_SOCKET: /run/aegis/api/api.sock
+      AEGIS_API_TOKEN_FILE: /run/secrets/api_token
+      AEGIS_API_TRUST_PROXY: "1"           # safe: only the proxy can reach the socket
+      AEGIS_API_MAX_UPLOAD_MB: ${AEGIS_API_MAX_UPLOAD_MB:-50}
+      AEGIS_API_MAX_CONCURRENT_SCANS: ${AEGIS_API_MAX_CONCURRENT_SCANS:-2}
+      AEGIS_API_SPARE_WORKERS: ${AEGIS_API_SPARE_WORKERS:-2}   # started ahead, one file each
+      AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
+      AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
+      LLM_PROVIDER: none                   # the intel service decides
+      SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-300}
+      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
+      TMPDIR: /tmp
+    secrets: [api_token, intel_token]
+    volumes:
+      - analysis-state:/var/lib/aegis
+      # detection content (rule packs, allowlist, hash and fuzzy databases):
+      # read-only here, so a compromised parser cannot change what is detected.
+      # Updated with: docker compose run --rm content --update-rules /import/PACK
+      - content:/var/lib/aegis/RansomwareScanner/data:ro
+      - api-socket:/run/aegis/api
+      - intel-socket:/run/aegis/intel
+    tmpfs:
+      # the extraction sandbox: archives and attachments are unpacked here
+      - /tmp:size=${AEGIS_TMP_SIZE:-2g},mode=1777,noexec,nosuid,nodev
+    depends_on:
+      intel: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-m", "api.probe", "/run/aegis/api/api.sock"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+    mem_limit: ${AEGIS_ANALYSIS_MEMORY:-6g}
+    cpus: ${AEGIS_ANALYSIS_CPUS:-2}
+    pids_limit: 256
+
+  proxy:
+    <<: *hardening
+    image: aegis-sentinel-proxy:${AEGIS_VERSION:-4.7.0-rc1}
+    build: {context: ., target: proxy}
+    user: "10003:10003"
+    group_add: ["10020"]                  # may connect to the API socket
+    networks: [edge]
+    ports: ["${AEGIS_HTTPS_PORT:-8443}:8443"]
+    volumes:
+      - ${AEGIS_TLS_DIR:-./deploy/tls}:/etc/caddy/tls:ro
+      - api-socket:/run/aegis/api
+    tmpfs:
+      - /data:size=16m,mode=1777,noexec,nosuid,nodev
+      - /config:size=16m,mode=1777,noexec,nosuid,nodev
+    depends_on:
+      analysis: {condition: service_healthy}
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+
+  # One-off maintenance of the detection content (the only writer of `content`):
+  #   docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/PACK.zip
+  content:
+    <<: *hardening
+    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}
+    build: {context: ., target: server}
+    profiles: [tools]
+    restart: "no"
+    entrypoint: ["python", "RansomwareScanner.py"]
+    user: "10001:10001"
+    network_mode: none
+    environment:
+      HOME: /var/lib/aegis
+    volumes:
+      - analysis-state:/var/lib/aegis
+      - content:/var/lib/aegis/RansomwareScanner/data
+    tmpfs:
+      - /tmp:size=512m,mode=1777,noexec,nosuid,nodev
+
+networks:
+  edge: {}                                # the published HTTPS port
+  egress: {}                              # intel's outbound traffic
+
+volumes:
+  analysis-state: {}
+  content: {}
+  intel-state: {}
+  api-socket: {}
+  intel-socket: {}
+
+secrets:
+  api_token: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/api_token"}
+  intel_token: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/intel_token"}
+  virustotal_api_key: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/virustotal_api_key"}
+  openai_api_key: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/openai_api_key"}
+  sandbox_token: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/sandbox_token"}

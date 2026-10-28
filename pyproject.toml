@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hybrid-ransomware-detector"
 description = "Aegis Sentinel: hybrid, explainable static scanner for ransomware and phishing delivery files"
-version = "4.6.0"
+version = "4.7.0rc1"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Abdelrahman El-Maghraby" }]
@@ -23,6 +23,7 @@ dependencies = [
     "defusedxml>=0.7",
     "cryptography>=42",
     "olefile>=0.46",
+    "keyring>=24",          # API keys in the OS keyring, not in .env (desktop)
 ]
 
 [project.optional-dependencies]
@@ -51,6 +52,7 @@ dev = [
 hrd-scanner = "RansomwareScanner:main"
 hrd-scanner-gui = "gui:main"
 aegis-api = "api.server:main"
+aegis-intel = "api.intel:main"
 
 [project.urls]
 Repository = "https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector"

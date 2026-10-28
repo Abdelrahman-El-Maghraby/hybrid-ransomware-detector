@@ -18,16 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip ruff mypy bandit types-requests types-PyYAML
       - name: ruff (lint + import order + bug patterns + bandit-style checks)
         run: ruff check --output-format=github .
-      - name: mypy (engine, core, detectors, API)
+      - name: mypy (engine, core, detectors, API) against every optional package
+        # With only the core packages, mypy treats the optional ones as Any and checks
+        # less than ships (B2); the lock installs all of them.
         run: |
-          python -m pip install -e .
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
           mypy
       - name: bandit (security linter; medium and high findings fail the job)
         run: bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll
@@ -36,8 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -60,23 +63,31 @@ jobs:
         run: |
           set -o pipefail
           status=0
-          xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml 2>&1 | tee pytest.log || status=$?
+          xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml \
+            --junitxml=junit.xml 2>&1 | tee pytest.log || status=$?
           { grep -E '^(FAILED|ERROR) |^TOTAL|Required test coverage|FAIL Required' pytest.log || true; } | head -20 | while read -r line; do
             echo "::error title=coverage job::$line"
           done
           exit $status
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
           name: coverage-xml
           path: coverage.xml
+      # Every test case with its outcome, so "the GUI tests ran" can be checked
+      # (pytest -q shows only failures).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: junit-coverage-job
+          path: junit.xml
 
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip pip-audit
@@ -87,8 +98,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
           cache: pip

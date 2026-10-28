@@ -45,6 +45,54 @@
       }
     },
     "scan_duration_ms": {"type": "integer", "minimum": 0, "description": "Wall-clock time of the scan in milliseconds (schema 1.1)."},
+    "scan_status": {"enum": ["complete", "partial", "locked", "unsupported", "failed"], "description": "How far the evidence goes, independent of risk_score and verdict (schema 1.2). complete: every applicable, enabled layer ran; partial: an applicable layer errored or was unavailable, or content was not unpacked; locked: encrypted content was not opened; unsupported: the format has no type-specific analysis; failed: the worker timed out, crashed or ran out of memory. A container takes its most severe member status: failed > locked > partial > unsupported > complete."},
+    "incomplete_reasons": {
+      "type": "array",
+      "description": "Every gap behind a scan_status other than complete (schema 1.2).",
+      "items": {
+        "type": "object",
+        "required": ["member_path", "layer", "reason"],
+        "properties": {
+          "member_path": {"type": "string", "description": "The file or container member the gap is in (outer!/inner)."},
+          "layer": {"type": "string"},
+          "reason": {"type": "string"},
+          "status": {"enum": ["partial", "locked", "unsupported", "failed"]}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "What produced this result (schema 1.2; shared: 1.3). Never contains keys, tokens, passwords or service URLs.",
+      "properties": {
+        "engine_version": {"type": "string"},
+        "schema_version": {"type": "string"},
+        "registry_version": {"type": "string"},
+        "rules": {"type": "object", "properties": {
+          "source": {"enum": ["bundled", "rule pack", "custom folder", "none"]},
+          "version": {"type": "string"}, "files": {"type": "integer", "minimum": 0},
+          "compiled": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^([0-9a-f]{64})?$"}}},
+        "fuzzy_signatures": {"type": "object"},
+        "profile": {"enum": ["standard", "production"]},
+        "external_services": {"type": "object", "additionalProperties": {"type": "string"},
+                              "description": "llm / virustotal / sandbox: 'off' or how each is used."},
+        "layers_disabled": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "layers_down": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "layers_run": {"type": "array", "items": {"type": "string"}},
+        "layers_unavailable": {"type": "array", "items": {"type": "string"}},
+        "layers_not_applicable": {"type": "array", "items": {"type": "string"}},
+        "layers_failed": {"type": "array", "items": {"type": "string"}},
+        "layers_skipped": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},
+        "shared": {"type": "array",
+                   "description": "What left the machine for this file in this scan (schema 1.3): one entry per external service really contacted; an answer from a cache sent nothing. member_path: the member of this container it was sent for.",
+                   "items": {"type": "object", "required": ["service", "sent"],
+                             "properties": {"service": {"enum": ["virustotal", "llm", "sandbox"]},
+                                            "sent": {"type": "array", "items": {"enum": ["sha256", "file", "text"]}},
+                                            "destination": {"enum": ["local", "cloud"]},
+                                            "member_path": {"type": "string"}}}}
+      }
+    },
+    "verdict_label": {"type": "string", "description": "The verdict as it should be shown: 'Clean (partial scan)' when scan_status is not complete (schema 1.2)."},
     "scan_results": {"type": "object", "description": "Per-layer evidence (hashes, yara, mail, archive, ...)."}
   }
 }

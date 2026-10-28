@@ -6,10 +6,16 @@ Abuse protection for the REST API, as plain ASGI middleware (no extra package).
   counted as it streams and cut off at the limit. (FastAPI's UploadFile spools
   the whole multipart body to a temporary file before the endpoint runs, so a
   check inside the endpoint alone lets a client fill the disk.)
-* RateLimit - a token bucket per client (IP address + a fingerprint of the
-  bearer token): RATE requests per minute with BURST in hand; over that, 429
-  with Retry-After. /health is exempt. Behind a reverse proxy set
+* RateLimit - a token bucket per client IP address, applied BEFORE authentication:
+  IP_RATE requests per minute with IP_BURST in hand; over that, 429 with
+  Retry-After. /health is exempt. Behind a reverse proxy set
   AEGIS_API_TRUST_PROXY=1 so the first X-Forwarded-For address is the client.
+* AuthGuard - failed bearer tokens are counted per IP address: THRESHOLD failures
+  within WINDOW seconds lock that address out for LOCKOUT seconds (429 with
+  Retry-After), checked before the token is compared. Rotating wrong tokens does
+  not help: the count is per address, not per token.
+* After a token matches, the per-client quota (IP + token: RATE per minute with
+  BURST in hand) applies as before.
 * ScanSlots - at most N scans at once (they are CPU- and memory-heavy); a
   request beyond that gets 503 with Retry-After instead of queueing forever.
 
@@ -23,7 +29,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Tuple
 
 from engine.metrics import METRICS
 
@@ -43,7 +49,7 @@ async def _reply(send: Send, status: int, detail: str,
     await send({"type": "http.response.body", "body": body})
 
 
-def _header(scope: Scope, name: bytes) -> str:
+def _header(scope: Mapping[str, Any], name: bytes) -> str:
     for k, v in scope.get("headers") or []:
         if k.lower() == name:
             return v.decode("latin-1")
@@ -131,17 +137,71 @@ class TokenBuckets:
             return wait
 
 
-def client_key(scope: Scope, trust_proxy: bool) -> str:
+def client_ip(scope: Mapping[str, Any], trust_proxy: bool) -> str:
+    """The peer address, or behind the one trusted reverse proxy the address that
+    proxy saw: the LAST X-Forwarded-For entry. Earlier entries come from the client
+    (a proxy that appends keeps them), so trusting the first one would let every
+    request pick a fresh address and escape the rate limit and the lockout."""
     ip = (scope.get("client") or ("unknown", 0))[0]
     if trust_proxy:
-        forwarded = _header(scope, b"x-forwarded-for").split(",")[0].strip()
+        forwarded = _header(scope, b"x-forwarded-for").split(",")[-1].strip()
         ip = forwarded or ip
+    return str(ip)
+
+
+def client_key(scope: Mapping[str, Any], trust_proxy: bool) -> str:
+    """IP address + a fingerprint of the bearer token: the authenticated quota."""
     auth = _header(scope, b"authorization")
     token = hashlib.sha256(auth.encode()).hexdigest()[:12] if auth else "anonymous"
-    return f"{ip}|{token}"
+    return f"{client_ip(scope, trust_proxy)}|{token}"
+
+
+class AuthGuard:
+    """Locks an IP address out after repeated failed bearer tokens.
+
+    `failure(ip)` records one failed compare; `threshold` failures within `window`
+    seconds lock the address for `lockout` seconds. `locked_for(ip)` answers the
+    seconds left (0 = not locked) and is checked BEFORE the token is compared. The
+    table forgets the least recently seen addresses beyond `max_clients`."""
+
+    def __init__(self, threshold: int = 5, window: float = 300, lockout: float = 900,
+                 clock=time.monotonic, max_clients: int = 10_000):
+        self.threshold = max(1, int(threshold))
+        self.window, self.lockout = float(window), float(lockout)
+        self.clock, self.max_clients = clock, max_clients
+        # ip -> (failure times within the window, locked until)
+        self._state: OrderedDict[str, Tuple[Tuple[float, ...], float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def locked_for(self, ip: str) -> float:
+        now = self.clock()
+        with self._lock:
+            _, until = self._state.get(ip, ((), 0.0))
+            return max(0.0, until - now)
+
+    def failure(self, ip: str) -> float:
+        """Record a failed token; the lockout in seconds if this one triggered it."""
+        now = self.clock()
+        with self._lock:
+            times, until = self._state.pop(ip, ((), 0.0))
+            times = tuple(t for t in times if now - t < self.window) + (now,)
+            locked = 0.0
+            if len(times) >= self.threshold:
+                until, times, locked = now + self.lockout, (), self.lockout
+            self._state[ip] = (times, until)
+            while len(self._state) > self.max_clients:
+                self._state.popitem(last=False)
+            return locked
+
+    def success(self, ip: str) -> None:
+        with self._lock:
+            times, until = self._state.get(ip, ((), 0.0))
+            if times and until <= self.clock():
+                del self._state[ip]
 
 
 class RateLimit:
+    """The general per-IP limit, before authentication (the token plays no part)."""
     EXEMPT = ("/health",)
 
     def __init__(self, app: ASGIApp, buckets: TokenBuckets, trust_proxy: bool = False):
@@ -149,7 +209,7 @@ class RateLimit:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and scope.get("path") not in self.EXEMPT:
-            wait = self.buckets.take(client_key(scope, self.trust_proxy))
+            wait = self.buckets.take(client_ip(scope, self.trust_proxy))
             if wait > 0:
                 METRICS.reject("rate_limited")
                 await _reply(send, 429, "too many requests",

@@ -92,6 +92,93 @@ def result_verdict(result: dict) -> str:
     return "Low"
 
 
+def verdict_text(result: dict) -> str:
+    """The verdict as shown: a scan that was not complete never reads as plain
+    "Clean" (engine/completeness.py)."""
+    status = result.get("scan_status") or "complete"
+    verdict = result_verdict(result)
+    return verdict if status == "complete" else f"{verdict} ({status} scan)"
+
+
+def first_gap(result: dict) -> str:
+    """The first reason a scan is not complete ('' when it is)."""
+    reasons = result.get("incomplete_reasons") or []
+    if (result.get("scan_status") or "complete") == "complete" or not reasons:
+        return ""
+    return f"not fully inspected: {reasons[0].get('reason', '')}"
+
+
+def gap_rows(result: dict, limit: int = 20) -> list:
+    """(layer, reason, where) for every gap of an incomplete scan, worst first as
+    the engine recorded them; [] for a complete one. `where` is the member path
+    inside a container, or ''."""
+    reasons = result.get("incomplete_reasons") or []
+    if (result.get("scan_status") or "complete") == "complete":
+        return []
+    top = result.get("file_path")
+    rows = [(str(r.get("layer") or "?"), str(r.get("reason") or ""),
+             "" if (r.get("member_path") or top) == top else str(r.get("member_path")))
+            for r in reasons[:limit]]
+    if len(reasons) > limit:
+        rows.append(("", f"... {len(reasons) - limit} more in the JSON report", ""))
+    return rows
+
+
+def provenance_rows(result: dict) -> list:
+    """(label, value) of what produced the result: rules, registry and schema,
+    profile, external services, and the layers that did not run on this file."""
+    pv = result.get("provenance") or {}
+    if not pv:
+        return []
+    rules = pv.get("rules") or {}
+    sha = str(rules.get("sha256") or "")
+    rows = [("Rules", f"{rules.get('version') or rules.get('source', 'none')} "
+                      f"({rules.get('files', 0)} file(s)" + (f", sha256 {sha[:16]}" if sha else "") + ")"),
+            ("Registry", f"{pv.get('registry_version', '?')}  ·  schema {pv.get('schema_version', '?')}"),
+            ("Profile", str(pv.get("profile", "standard"))),
+            ("Services", ", ".join(f"{k} {v}" for k, v in (pv.get("external_services") or {}).items())
+             or "n/a")]
+    for key, label in (("layers_down", "Down here"), ("layers_unavailable", "Unavailable"),
+                       ("layers_failed", "Failed"), ("layers_skipped", "Skipped")):
+        items = [(i.get("layer"), i.get("reason")) if isinstance(i, dict) else (i, "")
+                 for i in (pv.get(key) or [])]
+        if items:
+            rows.append((label, "; ".join(f"{n}: {why}" if why else str(n) for n, why in items)))
+    sent = [f"{s.get('service')}: {', '.join(s.get('sent') or [])}"
+            + (f" ({s['destination']})" if s.get("destination") else "")
+            + (f" for {s['member_path']}" if s.get("member_path") else "")
+            for s in pv.get("shared") or []]
+    rows.append(("Sent outside", "; ".join(sent) if sent else "nothing"))
+    return rows
+
+
+def diagnostic_rows(states: dict, warnings=()) -> list:
+    """(level, text) for the Diagnostics panel and the first-run check:
+    'problem'  a layer the supported edition requires is down (scans are partial),
+    'note'     an optional layer is down, or a layer is switched off by a setting,
+    'warning'  a configuration warning from the start-up validation."""
+    from engine.capabilities import DISABLED, DOWN, PRODUCTION_REQUIRED
+    rows = []
+    for name, st in states.items():
+        if st.get("state") == DOWN:
+            level = "problem" if name in PRODUCTION_REQUIRED else "note"
+            rows.append((level, f"{name}: {st.get('detail') or 'unavailable'}"))
+        elif st.get("state") == DISABLED:
+            rows.append(("note", f"{name}: off ({st.get('detail') or 'switched off'})"))
+        elif "install" in str(st.get("detail") or ""):     # up, but with a gap (bsdtar RAR)
+            rows.append(("note", f"{name}: {st['detail']}"))
+    rows += [("warning", str(w)) for w in warnings]
+    order = {"problem": 0, "warning": 1, "note": 2}
+    return sorted(rows, key=lambda r: order[r[0]])
+
+
+def diagnostics_text(rows: list, version: str, system: str) -> str:
+    """The copyable report (no paths, keys or file names)."""
+    lines = [f"Aegis Sentinel {version} on {system}"]
+    lines += [f"[{level}] {text}" for level, text in rows] or ["every layer is up"]
+    return "\n".join(lines)
+
+
 def result_risk(result: dict) -> int:
     """The 0-100 risk score, derived from the legacy severity for old results."""
     if "risk_score" in result and result.get("risk_score") is not None:

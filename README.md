@@ -3,7 +3,7 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.6.0-brightgreen)
+![Version](https://img.shields.io/badge/version-4.7.0--rc1-orange)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
@@ -13,7 +13,7 @@ A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / Po
 
 Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
 
-Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6); a hardened Docker deployment, scan completeness and provenance (4.7). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
 ![Aegis Sentinel dashboard](docs/screenshot-v4-dashboard.png)
 
@@ -21,6 +21,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.7](#-whats-new-in-47)
 - [🆕 What's new in 4.6](#-whats-new-in-46)
 - [🆕 What's new in 4.5](#-whats-new-in-45)
 - [🗂️ Earlier releases](#️-earlier-releases)
@@ -44,6 +45,17 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 - [👤 Author](#-author)
 
 ---
+
+## 🆕 What's new in 4.7
+
+Release candidate 4.7.0-rc1: the on-prem production edition (`docs/RELEASE_SCOPE.md`).
+
+- **A hardened Docker deployment** ([deployment](docs/DEPLOYMENT.md), [operations](docs/OPERATIONS.md)). The service that opens files runs with **no network** and without any API key. A separate intel service is the only part that reaches VirusTotal, an LLM or a sandbox, through fixed operations and to allowlisted destinations only. TLS terminates at a proxy. Every container runs non-root, with a read-only file system and no capabilities.
+- **Never a silent "Clean".** Every result says whether the scan was `complete`, `partial`, `locked`, `unsupported` or `failed`, and lists what was not inspected and why. That includes damaged documents, archives that would not open, parser errors and layers that are not installed.
+- **Provenance in every result:** the rules version and hash, the registry and schema versions, which layers ran, and **what was sent outside** for that file.
+- **Security fixes:** API login throttling; secrets in the OS keyring or Docker secrets; a cache of external answers that a compromised parser cannot poison; signed rule packs that cannot be replayed, with signed rollback and recovery from a compromised key; GitHub Actions pinned to commits.
+- **Operations:** `/ready`, start-up checks of required layers, backup and restore scripts, runbooks, a data policy, and per-artifact SBOMs. Releases include the server images for offline install.
+- **Desktop:** a Diagnostics panel, Windows alerts, and undo of a quarantine from the result view.
 
 ## 🆕 What's new in 4.6
 
@@ -423,7 +435,11 @@ Notes:
 
 ## 🔑 Configuration
 
-API keys and settings are loaded from a local `.env` file and are **never** stored in the code.
+Settings are loaded from a local `.env` file and are **never** stored in the code. Secrets
+(`OPENAI_API_KEY`, `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`) come
+from the environment first (or `NAME_FILE`, e.g. a Docker secret), then the OS keyring (the
+desktop app saves keys there), then `.env`. Since 4.7 a secret found in `.env` is moved to the OS
+keyring on the next start: written, read back, and only then removed from the file.
 
 ```bash
 cp .env.example .env        # Windows: copy .env.example .env
@@ -456,6 +472,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `CANARY_CONTAIN_MODE`, `CANARY_CONTAIN_EXCLUDE`, `CANARY_LOCK_DIRS` | `suspend`, empty, canary folders | `terminate` to kill; extra process names never stopped; folders `lock_folders` makes read-only |
 | `LOG_FORMAT`, `LOG_LEVEL` | `text`, `INFO` | `json` for one JSON object per log line |
 | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_TRUST_PROXY` | `60`, `10`, `2`, off | REST API abuse limits (see [deployment](docs/DEPLOYMENT.md)) |
+| `AEGIS_API_SOCKET`, `AEGIS_INTEL_SOCKET`, `AEGIS_INTEL_TOKEN` | empty | Docker deployment: API on a Unix socket; external services through the intel service (see [deployment](docs/DEPLOYMENT.md)) |
 | `EMULATION_ENABLED`, `EMULATION_TOOL`, `EMULATION_TIMEOUT` | `false`, `box-js`, `20` | JavaScript emulation (analysis VM only) |
 | `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | worker processes for folder scans |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |
@@ -812,7 +829,7 @@ Being explicit about what the tool does *not* do:
 - **Canaries are a rapid-containment tripwire, not prevention.** They fire about a second after a canary in a watched folder changes. `stop_writers` then suspends the process that has files open there for writing. Ransomware that opens, encrypts and closes each file in a few milliseconds may have no file open at that moment and is not found; the folder lock and network cut still apply. Files encrypted before the trip stay encrypted. Stopping a process *before* it writes needs kernel-level hooks (an EDR); on Windows, Controlled Folder Access is the built-in blocker.
 - **Quarantine key** is stored locally (`~/RansomwareScanner/keystore`, mode 0600). Use `--export-key` to back it up; a lost key and no backup means quarantined items can't be restored.
 - **Detection content is a starting point:** the bundled YARA rules are original triage heuristics and the fuzzy database ships empty. Real coverage grows with your own signatures.
-- **Windows programs: static structure only.** The PE layer reads headers, sections, imports and strings. Code that resolves its APIs at run time, unpacks itself in memory or is protected by a strong packer shows only as *packed* or *hidden imports*. Authenticode signatures are reported, not verified against the Windows trust store. Delay-load imports are not parsed.
+- **Windows programs: static structure only.** The PE layer reads headers, sections, imports and strings. Code that resolves its APIs at run time, unpacks itself in memory or is protected by a strong packer shows only as *packed* or *hidden imports*. Authenticode signatures are reported, not verified against the Windows trust store. Delay-load imports are read in their modern (RVA) form; the old VC6 form is not.
 - **Detection rate on real malware is not measured yet.** False alarms are (0.7% High/Critical on 3,713 benign files, including 401 Windows binaries); `tools/evaluate.py` measures detection on your own labelled samples.
 
 ---

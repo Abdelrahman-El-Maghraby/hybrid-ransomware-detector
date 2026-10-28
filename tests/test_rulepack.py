@@ -14,7 +14,9 @@ from core.rulepack import (
     build_pack,
     generate_keypair,
     install_pack,
+    rollback_pack,
     sign_pack,
+    trusted_fingerprints,
     verify_pack,
 )
 from tests.test_scanner_integration import _config
@@ -108,12 +110,67 @@ def test_signed_but_malformed_packs_are_refused(tmp_path, keys, entries, manifes
         install_pack(pack, tmp_path / "data", [keys[1]], "4.4.0")
 
 
-def test_versions_are_monotonic_unless_rolling_back(tmp_path, keys):
+def test_versions_are_monotonic_and_older_content_is_never_installed(tmp_path, keys):
+    """S6: an older or the same pack is refused - also with the old downgrade flag -
+    so a pack with known gaps cannot be replayed."""
     install_pack(make_pack(tmp_path, keys, "2026.10.21"), tmp_path / "data", [keys[1]], "4.4.0")
     old = make_pack(tmp_path, keys, "2026.9.1")
     with pytest.raises(RulePackError, match="not newer"):
         install_pack(old, tmp_path / "data", [keys[1]], "4.4.0")
-    assert install_pack(old, tmp_path / "data", [keys[1]], "4.4.0", allow_downgrade=True)["version"] == "2026.9.1"
+    with pytest.raises(RulePackError, match="not newer"):              # the same one again
+        install_pack(make_pack(tmp_path, keys, "2026.10.21"), tmp_path / "data", [keys[1]], "4.4.0")
+    with pytest.raises(RulePackError, match="signed rollback"):
+        install_pack(old, tmp_path / "data", [keys[1]], "4.4.0", allow_downgrade=True)
+    assert active_pack(tmp_path / "data")["version"] == "2026.10.21"
+
+
+def test_a_signed_rollback_restores_the_previous_rules(tmp_path, keys):
+    """The publisher re-issues the good content under a newer version."""
+    good = make_pack(tmp_path, keys, "2026.10.21", rule=RULE)
+    install_pack(good, tmp_path / "data", [keys[1]], "4.4.0")
+    bad_rule = RULE.replace("Pack_Test_Marker", "Pack_Broken_Marker")
+    install_pack(make_pack(tmp_path, keys, "2026.10.22", rule=bad_rule), tmp_path / "data",
+                 [keys[1]], "4.4.0")
+    back = rollback_pack(good, [keys[1]], "2026.10.23", tmp_path / "rollback.tar.gz")
+    sign_pack(back, keys[0])
+    info = install_pack(back, tmp_path / "data", [keys[1]], "4.4.0")
+    assert info["version"] == "2026.10.23" and info["rollback_of"] == "2026.10.21"
+    rules = list((Path(info["path"]) / "rules").glob("*.yar"))
+    assert rules and "Pack_Test_Marker" in rules[0].read_text()
+    assert "Pack_Broken_Marker" not in rules[0].read_text()
+    unsigned = rollback_pack(good, [keys[1]], "2026.10.24", tmp_path / "unsigned.tar.gz")
+    with pytest.raises(RulePackError, match="signature file missing"):
+        install_pack(unsigned, tmp_path / "data", [keys[1]], "4.4.0")
+
+
+def test_a_distrusted_key_drops_its_pack_and_does_not_block_recovery(tmp_path, keys):
+    """Key compromise: an attacker signs a huge version to block every later update.
+    Removing that key from RULEPACK_PUBLIC_KEYS stops its pack from being used at
+    once, and a pack signed by the new key installs."""
+    data = tmp_path / "data"
+    evil = make_pack(tmp_path, keys, "9999.1")
+    install_pack(evil, data, [keys[1]], "4.4.0")
+    new_priv, new_pub = generate_keypair(tmp_path / "newkeys")
+    assert active_pack(data, [keys[1], new_pub])["version"] == "9999.1"
+    assert active_pack(data, [new_pub]) is None                      # old key removed
+    scanner = RS.RansomwareScanner(_config(tmp_path, data_dir=str(data),
+                                           rulepack_public_keys=[new_pub]))
+    assert scanner.rulepack is None and scanner.provenance["rules"]["source"] != "rule pack"
+    fresh = make_pack(tmp_path, (new_priv, new_pub), "2026.11.1")
+    info = install_pack(fresh, data, [new_pub], "4.4.0")
+    assert info["version"] == "2026.11.1"
+    assert info["signer"] == trusted_fingerprints([new_pub])[0]
+    with pytest.raises(RulePackError, match="not newer"):           # monotonic again
+        install_pack(make_pack(tmp_path, (new_priv, new_pub), "2026.10.1"), data, [new_pub], "4.4.0")
+
+
+def test_packs_installed_before_the_signer_was_recorded_stay_in_use(tmp_path, keys):
+    import json
+    info = install_pack(make_pack(tmp_path, keys), tmp_path / "data", [keys[1]], "4.4.0")
+    active = tmp_path / "data" / "rulepacks" / "active.json"
+    legacy = {k: v for k, v in json.loads(active.read_text()).items() if k != "signer"}
+    active.write_text(json.dumps(legacy))
+    assert active_pack(tmp_path / "data", [generate_keypair(tmp_path / "k2")[1]])["version"] == info["version"]
 
 
 def test_rules_that_do_not_compile_are_refused(tmp_path, keys):

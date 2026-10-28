@@ -64,3 +64,15 @@ def test_concurrent_writers(tmp_path):
     for t in threads:
         t.join()
     assert c.stats()["entries"] == 200
+
+
+def test_expired_rows_are_dropped_when_the_cache_opens(tmp_path):
+    from core.cache import ResultCache
+    db = tmp_path / "c.sqlite3"
+    c = ResultCache(db)
+    c.put("a" * 64, "virustotal", {"x": 1}, ttl_seconds=-1)
+    c.put("b" * 64, "virustotal", {"x": 2})
+    c.close()
+    again = ResultCache(db)
+    rows = again._conn.execute("SELECT sha256 FROM layer_cache").fetchall()
+    assert rows == [("b" * 64,)]
