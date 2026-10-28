@@ -23,8 +23,10 @@ from aegis_gui.common import (
     messagebox,
 )
 from aegis_gui.formatting import (
+    gap_rows,
     llm_skipped,
     open_path,
+    provenance_rows,
     result_risk,
     result_verdict,
     risk_bar,
@@ -400,8 +402,36 @@ class DetailWindow(ctk.CTkToplevel):
                      text_color=MUTED, font=app.font_small,
                      anchor="w").pack(fill="x", padx=14, pady=(4, 10))
 
-    SECTIONS = (_file_info, _local_db, _fuzzy, _macro, _yara, _integrity, _pe, _guard,
-                _relationships, _archive, _mail, _web, _ml, _virustotal, _llm, _breakdown)
+    def _completeness(self, sr):
+        """What was not inspected, and why (engine/completeness.py)."""
+        rows = gap_rows(self.result)
+        if not rows:
+            return
+        body = self._section(f"Not fully inspected — {self.result.get('scan_status')} scan")
+        self._status(body, "The verdict covers only what was inspected:", AMBER_SOFT, pady=(10, 4))
+        for layer, reason, where in rows:
+            self._line(body, f"[{layer}] {reason}" + (f"   ({where})" if where else ""),
+                       AMBER_SOFT, pad=(0, 2))
+        self._spacer(body)
+
+    def _provenance(self, sr):
+        """Which rules, registry, profile and services produced this result."""
+        rows = provenance_rows(self.result)
+        if not rows:
+            return
+        body = self._section("Provenance")
+        for label, value in rows:
+            row = ctk.CTkFrame(body, fg_color="transparent")
+            row.pack(fill="x", padx=14, pady=3)
+            ctk.CTkLabel(row, text=label, width=90, anchor="w",
+                         text_color=MUTED, font=self.app.font_small).pack(side="left")
+            ctk.CTkLabel(row, text=value, anchor="w", text_color=TEXT,
+                         font=self.app.font_mono_small, wraplength=420,
+                         justify="left").pack(side="left", fill="x", expand=True)
+
+    SECTIONS = (_completeness, _file_info, _local_db, _fuzzy, _macro, _yara, _integrity, _pe, _guard,
+                _relationships, _archive, _mail, _web, _ml, _virustotal, _llm, _breakdown,
+                _provenance)
 
     # ---------------------------------------------------------------- actions
     def _actions(self):

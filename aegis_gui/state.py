@@ -17,6 +17,7 @@ class SettingsStore:
         "file_extensions": None,
         "scan_interval_hours": None,
         "schedule_enabled": True,
+        "diagnostics_seen": False,     # the first-run check has been shown
     }
 
     def __init__(self):

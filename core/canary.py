@@ -338,10 +338,35 @@ class CanaryManager:
         return removed
 
 
+# Windows: a toast through the built-in WinRT API, from Windows PowerShell. The title
+# and message travel in environment variables and are inserted as XML text nodes,
+# never pasted into the script, so a file name cannot inject commands.
+WINDOWS_TOAST = (
+    "$ErrorActionPreference='Stop';"
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
+    "ContentType = WindowsRuntime] | Out-Null;"
+    "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+    "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+    "$x = $t.GetElementsByTagName('text');"
+    "$x.Item(0).AppendChild($t.CreateTextNode($env:AEGIS_TOAST_TITLE)) | Out-Null;"
+    "$x.Item(1).AppendChild($t.CreateTextNode($env:AEGIS_TOAST_TEXT)) | Out-Null;"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+    "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe')"
+    ".Show([Windows.UI.Notifications.ToastNotification]::new($t))")
+
+
 def desktop_notify(title: str, message: str) -> bool:
-    """Best-effort desktop notification (macOS / Linux). Never raises."""
+    """Best-effort desktop notification (Windows / macOS / Linux). Never raises."""
     system = platform.system()
     try:
+        if system == "Windows":
+            powershell = trusted_which("powershell")
+            if not powershell:
+                return False
+            env = dict(os.environ, AEGIS_TOAST_TITLE=title[:200], AEGIS_TOAST_TEXT=message[:500])
+            done = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command",
+                                   WINDOWS_TOAST], env=env, capture_output=True, timeout=15)
+            return done.returncode == 0
         osascript = trusted_which("osascript") if system == "Darwin" else None
         notify_send = trusted_which("notify-send") if system == "Linux" else None
         if osascript:

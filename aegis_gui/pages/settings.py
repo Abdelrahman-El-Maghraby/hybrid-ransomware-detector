@@ -24,7 +24,7 @@ from aegis_gui.common import (
     ctk,
     set_key,
 )
-from aegis_gui.formatting import mask_key, open_path
+from aegis_gui.formatting import diagnostic_rows, diagnostics_text, mask_key, open_path
 from aegis_gui.pages.base import BasePage
 from aegis_gui.widgets import Section
 
@@ -124,6 +124,26 @@ class SettingsPage(BasePage):
                                        text_color=MUTED, anchor="w")
         self.keys_label.pack(fill="x", padx=14, pady=(0, 12))
 
+        # -- diagnostics -----------------------------------------------------------------
+        sec = Section(outer, "Diagnostics", app)
+        sec.pack(fill="x", pady=(14, 0))
+        ctk.CTkLabel(sec.body, text="Layers that cannot run here make scans partial. Each line "
+                                    "says what is missing.", font=app.font_small,
+                     text_color=MUTED, anchor="w", wraplength=560,
+                     justify="left").pack(fill="x", padx=14, pady=(10, 4))
+        self.diag_label = ctk.CTkLabel(sec.body, text="", font=app.font_mono_small, anchor="w",
+                                       justify="left", wraplength=560, text_color=TEXT)
+        self.diag_label.pack(fill="x", padx=14, pady=(0, 6))
+        row = ctk.CTkFrame(sec.body, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=(0, 12))
+        for text, command in (("Re-check", self.refresh_diagnostics),
+                              ("Copy report", self._copy_diagnostics)):
+            ctk.CTkButton(row, text=text, width=110, height=28, font=app.font_small,
+                          fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                          border_color=BORDER_2, text_color=BLUE,
+                          command=command).pack(side="left", padx=(0, 8))
+        self.refresh_diagnostics()
+
         # -- locations -------------------------------------------------------------------
         sec = Section(outer, "Locations", app)
         sec.pack(fill="x", pady=(14, 24))
@@ -144,6 +164,29 @@ class SettingsPage(BasePage):
         ctk.CTkLabel(sec.body, text="", font=app.font_small).pack(pady=2)
 
     # -- callbacks ------------------------------------------------------------------
+
+    def diagnostics(self) -> list:
+        from engine.capabilities import layer_states
+        from engine.config import ENV_PROBLEMS
+        from engine.validation import validate_config
+        _, warnings = validate_config(self.app.scanner.config, ENV_PROBLEMS)
+        return diagnostic_rows(layer_states(self.app.scanner), warnings)
+
+    def refresh_diagnostics(self) -> list:
+        rows = self.diagnostics()
+        colors = {"problem": RED_SOFT, "warning": AMBER_SOFT, "note": MUTED}
+        text = "\n".join(f"{'!' if lvl == 'problem' else '·'} {t}" for lvl, t in rows)
+        worst = rows[0][0] if rows else ""
+        self.diag_label.configure(text=text or "Every layer is up.",
+                                  text_color=colors.get(worst, ACCENT_SOFT))
+        return rows
+
+    def _copy_diagnostics(self):
+        report = diagnostics_text(self.diagnostics(), RS.ENGINE_VERSION,
+                                  f"{platform.system()} {platform.release()}")
+        self.clipboard_clear()
+        self.clipboard_append(report)
+        self.app.gui_log.info("Diagnostics copied to the clipboard.")
 
     def _schedule_toggled(self):
         self.app.settings["schedule_enabled"] = bool(self.schedule_var.get())
