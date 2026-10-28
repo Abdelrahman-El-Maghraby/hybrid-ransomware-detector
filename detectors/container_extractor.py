@@ -191,6 +191,21 @@ def rar_tool_available() -> bool:
             _rar_tool_state = False
     return _rar_tool_state
 
+BSDTAR_NO_PASSWORDS = ("encrypted RAR needs 7-Zip, unrar or unar "
+                       "(the RAR tool found, bsdtar, cannot decrypt)")
+
+
+def rar_decrypts() -> bool:
+    """True when the RAR tool rarfile chose can open encrypted members. bsdtar
+    (libarchive; on every Mac) reads plain RAR but takes no password."""
+    if not rar_tool_available():
+        return False
+    try:
+        return _rarfile.tool_setup().setup.get("open_cmd", ("",))[0] != "BSDTAR_TOOL"
+    except Exception:
+        return False
+
+
 def sevenzip_lacks_rar_codec(info_output: str) -> bool:
     """True when `7z i` output lists codecs but none of them is a RAR codec.
 
@@ -785,7 +800,10 @@ class ContainerExtractor:
                 # No decompressor installed. Stored members don't need one, so this
                 # is per member; the name checks above were still applied.
                 target.unlink(missing_ok=True)
-                member.skipped_reason = "needs a RAR decompressor (7-Zip, unrar or unar)"
+                if member.encrypted and rar_tool_available() and not rar_decrypts():
+                    member.skipped_reason = BSDTAR_NO_PASSWORDS
+                else:
+                    member.skipped_reason = "needs a RAR decompressor (7-Zip, unrar or unar)"
                 self._missing("rar-tool", res, count=0)
                 break
             except Exception as e:               # wrong password, CRC error, tool failure

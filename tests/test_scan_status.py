@@ -314,6 +314,9 @@ def test_diagnostics_rank_required_layers_first():
     states = {"qr": {"state": DOWN, "detail": "needs zbar", "missing": ["zbar"]},
               "emulation": {"state": DISABLED, "detail": "EMULATION_ENABLED=0", "missing": []},
               "yara": {"state": UP, "detail": "5 rule files", "missing": []},
+              "archive": {"state": UP, "missing": [],
+                          "detail": "RAR through bsdtar: encrypted RAR members are not opened "
+                                    "(install unar, unrar or 7-Zip)"},
               "sandbox": {"state": DOWN, "detail": "needs intel service", "missing": ["intel service"]}}
     rows = diagnostic_rows(states, ["ISOLATE_SCANS is off"])
     assert rows[0] == ("problem", "qr: needs zbar")
@@ -321,6 +324,7 @@ def test_diagnostics_rank_required_layers_first():
     assert ("note", "sandbox: needs intel service") in rows
     assert ("note", "emulation: off (EMULATION_ENABLED=0)") in rows
     assert not any("yara" in t for _, t in rows)
+    assert any(lvl == "note" and t.startswith("archive: RAR through bsdtar") for lvl, t in rows)
     text = diagnostics_text(rows, "4.7.0", "Windows 11")
     assert text.splitlines()[0] == "Aegis Sentinel 4.7.0 on Windows 11"
     assert "[problem] qr: needs zbar" in text
