@@ -189,6 +189,28 @@ Not blocking (backlog): vulnerability scan of the image's Debian packages (A10-7
 `stop_writers` dry-run and resume / unlock buttons in the GUI (A8), the macOS
 desktop needs zbar for the QR layer (reported as down otherwise).
 
+### RC evidence (4.7.0-rc1)
+
+Tree: `integration/v4.7` at `9e64bdf` (code identical to the RC branch tip
+`1412ade`). Nothing merged into `main`; no tag; no release.
+
+* Local, macOS arm64, Python 3.14: ruff clean; mypy 0 errors (full install);
+  bandit 0 medium/high in shipped code; pip-audit on `requirements.lock`: no known
+  vulnerabilities; pytest 1,010 passed, 0 failed, 13 skipped (host tools / other
+  OS); coverage 91 %; `test_smoke.py` passed.
+* CI on `1412ade`: tests 40632200786 (Linux, macOS, Windows x Python 3.9, 3.12:
+  6/6), quality 40632204142 (lint and types, coverage incl. the GUI tests under
+  xvfb, dependency audit, regression corpus: 4/4), release dry-run 40632207203
+  (Windows, macOS, Linux desktop builds and the amd64 server images, which passed
+  the deployment check; publish skipped); docker 40632864516 on `9e64bdf`.
+* Local builds: `hrd-scanner-4.7.0-rc1-macos-arm64.tar.gz` passed its packaged
+  smoke test (`--version` 4.7.0-rc1, a clean PDF Clean, a disguised program
+  Critical; the QR layer is down on this Mac without zbar, as reported). Server
+  images `aegis-sentinel:4.7.0-rc1` / `aegis-sentinel-proxy:4.7.0-rc1` (arm64
+  here): 33/33 isolation checks, `/ready` 200, `--capabilities api` with no
+  production or flavour problem; operations walk-through on a fresh clone and
+  backup / restore passed.
+
 ### External dependencies
 
 | ID | Needs | Blocks | Status |
