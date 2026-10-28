@@ -31,6 +31,11 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Desktop alerts on Windows** (toast notifications through the built-in WinRT API); before, a canary tripwire raised no notification there.
 - **What left the machine, per file** (`provenance.shared`, result schema **1.3**, additive): one entry per external service a scan really contacted. VirusTotal records `sha256`, plus `file` when it uploaded; the LLM records `text` and whether it was `local` or `cloud`; the sandbox records `file`. Archive and mail members are included with their path, and an answer from a cache records nothing. The text report has a "Sent outside" line, the GUI shows it per file, and each share is logged (`external_share`, no content).
 - **Delay-loaded imports** are read by the PE layer (data directory 13, RVA form): an injection chain bound on first use no longer escapes the import checks, even in a program with no ordinary import table. Results list `delay_loaded_dlls`.
+- **Evaluation you can trust** (`tools/evaluate.py`, `tools/calibrate_weights.py`, `tools/splits.py`):
+  - files are hashed first; duplicates count once, and files labelled both malicious and benign are left out;
+  - a fixed, family-grouped calibration / test split (`--split`), and cross-validation folds grouped by family, so a family is never on both sides;
+  - a worst-case detection rate that counts errors and timeouts as misses;
+  - a scan-completeness table, and `split` and `scan_status` columns in `results.csv`.
 - `--capabilities [cli|gui|api]` prints the layer states as JSON. With a build flavour, it exits 1 when a layer that flavour requires is not up.
 - **Docker deployment** (`Dockerfile`, `docker-compose.yml`, `deploy/`): three services from a pinned image.
   - `analysis` runs `aegis-api` with `network_mode: none` (no interface but loopback) and listens on a Unix socket; it holds no external-service secret, and the detection content is mounted read-only.
