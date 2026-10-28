@@ -285,10 +285,65 @@ def _main_not_reimported():
             main.__dict__.update(saved)
 
 
+WORKER_TEMP_PREFIX = "aegis_worker_"
+_SWEPT = False
+
+
+def _pid_alive(pid: int) -> bool:
+    """True when a process with this id exists (or might: when in doubt, alive)."""
+    if os.name == "nt":                      # os.kill would terminate it on Windows
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
+            if not handle:
+                return False
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            kernel32.CloseHandle(handle)
+            return code.value == 259                             # STILL_ACTIVE
+        except (AttributeError, OSError):
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:                          # exists, owned by someone else
+        return True
+    return True
+
+
+def sweep_stale_worker_dirs(folder: Optional[str] = None) -> int:
+    """Remove worker temp folders whose scanner process no longer exists. A crash or
+    kill of the scanner itself (not just a worker) leaves them behind, and nothing
+    else would delete them outside a container's tmpfs. Returns how many went."""
+    removed = 0
+    root = folder or tempfile.gettempdir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith(WORKER_TEMP_PREFIX):
+            continue
+        owner = name[len(WORKER_TEMP_PREFIX):].split("_", 1)[0]
+        if not owner.isdigit() or int(owner) == os.getpid() or _pid_alive(int(owner)):
+            continue
+        shutil.rmtree(os.path.join(root, name), ignore_errors=True)
+        removed += 1
+    if removed:
+        logger.info("Removed %d temporary folder(s) left by a scanner that stopped "
+                    "abnormally.", removed)
+    return removed
+
+
 class _Worker:
     def __init__(self, ctx, config: Dict, memory_mb: int):
+        global _SWEPT
+        if not _SWEPT:                       # once per scanner process
+            _SWEPT = True
+            sweep_stale_worker_dirs()
         self.parent, child = ctx.Pipe()
-        self.temp_dir = tempfile.mkdtemp(prefix="aegis_worker_")
+        self.temp_dir = tempfile.mkdtemp(prefix=f"{WORKER_TEMP_PREFIX}{os.getpid()}_")
         self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child, self.temp_dir),
                                 daemon=True)
         with _START_LOCK, _main_not_reimported():

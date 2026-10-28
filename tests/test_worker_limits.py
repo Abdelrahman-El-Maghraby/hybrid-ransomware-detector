@@ -355,3 +355,23 @@ def test_cancel_before_start_returns_quickly(tmp_path):
 @pytest.mark.skipif(sys.platform == "darwin", reason="libproc exists on macOS")
 def test_macos_reader_elsewhere_is_none():
     assert W.macos_rss_reader() is None
+
+
+def test_folders_of_a_dead_scanner_are_swept(tmp_path):
+    """A7-1: a scanner that crashed leaves its workers' temp folders; the next one
+    removes them, and never a folder of a scanner that is still running."""
+    import subprocess
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    stale = tmp_path / f"{W.WORKER_TEMP_PREFIX}{dead.pid}_abc"
+    (stale / "member").mkdir(parents=True)
+    mine = tmp_path / f"{W.WORKER_TEMP_PREFIX}{os.getpid()}_def"
+    mine.mkdir()
+    other = tmp_path / f"{W.WORKER_TEMP_PREFIX}notapid_x"
+    other.mkdir()
+    unrelated = tmp_path / "hrd_unpack_keep"
+    unrelated.mkdir()
+    assert W.sweep_stale_worker_dirs(str(tmp_path)) == 1
+    assert not stale.exists() and mine.exists() and other.exists() and unrelated.exists()
+    assert W._pid_alive(os.getpid()) and not W._pid_alive(dead.pid)
+    assert W.sweep_stale_worker_dirs(str(tmp_path / "missing")) == 0
