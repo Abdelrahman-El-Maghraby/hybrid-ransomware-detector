@@ -7,7 +7,6 @@ import io
 import logging
 import zipfile
 
-import jsonschema
 import pytest
 import requests
 
@@ -38,6 +37,16 @@ class CloudModel:
                 "details": "ok", "analyzed": True}
 
 
+def _valid(result):
+    """Against the published schema. jsonschema is a dev extra: the test matrix lacks
+    it and checks the rest; the coverage job has it and validates too."""
+    try:
+        import jsonschema
+    except ImportError:
+        return
+    jsonschema.validate(result, load_schema())
+
+
 def _scanner(tmp_path, **extra):
     cfg = _config(tmp_path, data_dir=str(tmp_path / "data"), virustotal_api_key="vt-test-key",
                   virustotal_requests_per_minute=0, skip_heavy_when_saturated=False, **extra)
@@ -65,7 +74,7 @@ def test_hash_lookup_is_recorded_and_a_cached_answer_sends_nothing(tmp_path, cap
     second = s.scan_file(str(f))
     assert second["scan_results"]["virustotal"]["cached"] is True
     assert second["provenance"]["shared"] == [] and len(s.http.urls) == 1
-    jsonschema.validate(first, load_schema())
+    _valid(first)
 
 
 def test_upload_and_cloud_llm_are_recorded(tmp_path, monkeypatch):
@@ -80,7 +89,7 @@ def test_upload_and_cloud_llm_are_recorded(tmp_path, monkeypatch):
     shared = {e["service"]: e for e in r["provenance"]["shared"]}
     assert shared["virustotal"]["sent"] == ["sha256", "file"]
     assert shared["llm"] == {"service": "llm", "sent": ["text"], "destination": "cloud"}
-    jsonschema.validate(r, load_schema())
+    _valid(r)
 
 
 def test_nothing_is_recorded_when_no_service_is_configured(tmp_path):
@@ -102,7 +111,7 @@ def test_members_of_a_container_are_included(tmp_path):
     if not members:
         pytest.skip("this installation does not scan archive members with the external layers")
     assert members[0]["service"] == "virustotal" and members[0]["member_path"].endswith("readme.txt")
-    jsonschema.validate(r, load_schema())
+    _valid(r)
 
 
 def test_through_intel_what_intel_sent_is_recorded(tmp_path):
