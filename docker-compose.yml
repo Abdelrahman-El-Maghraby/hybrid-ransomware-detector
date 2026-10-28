@@ -66,6 +66,9 @@ services:
     image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
     build: {context: ., target: server}
     command: ["python", "-m", "api.server"]
+    # docker stop: stop taking uploads, let the ones in progress finish (a scan may
+    # take up to SCAN_TIMEOUT_SECONDS), then exit. Docker's default is 10 s.
+    stop_grace_period: ${AEGIS_STOP_GRACE:-120s}
     user: "10001:10001"
     group_add: ["10010"]                  # may connect to the intel socket
     network_mode: none
@@ -78,6 +81,7 @@ services:
       AEGIS_API_TRUST_PROXY: "1"           # safe: only the proxy can reach the socket
       AEGIS_API_MAX_UPLOAD_MB: ${AEGIS_API_MAX_UPLOAD_MB:-50}
       AEGIS_API_MAX_CONCURRENT_SCANS: ${AEGIS_API_MAX_CONCURRENT_SCANS:-2}
+      AEGIS_API_SPARE_WORKERS: ${AEGIS_API_SPARE_WORKERS:-2}   # started ahead, one file each
       AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
       AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
       LLM_PROVIDER: none                   # the intel service decides
