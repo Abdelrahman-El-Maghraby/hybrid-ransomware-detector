@@ -967,7 +967,9 @@ def main():
         except (AttributeError, ValueError):
             pass
     args = _build_parser().parse_args()
-    init_runtime()                      # folders, .env, logging: only for the program
+    # folders, .env, logging: only for the program. --capabilities prints JSON for
+    # scripts and build checks, so its log lines go to the log file only.
+    init_runtime(console=args.capabilities is None)
     _apply_overrides(args)
     try:
         check_config(CONFIG)

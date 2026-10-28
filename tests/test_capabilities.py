@@ -172,3 +172,19 @@ def test_build_checks_the_gui_toolkit_in_a_folder_bundle(tmp_path, monkeypatch, 
     build.check_gui_bundle(onefile=True)
     out = capsys.readouterr().out
     assert "GUI toolkit (customtkinter) bundled" in out and "not inspected" in out
+
+
+def test_capabilities_prints_nothing_but_json(tmp_path):
+    """stdout of --capabilities is one JSON object (no log lines before it)."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path), LLM_PROVIDER="none",
+               PYTHONIOENCODING="utf-8")
+    out = subprocess.run([sys.executable, str(root / "RansomwareScanner.py"), "--capabilities"],
+                         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=180)
+    report = json.loads(out.stdout)
+    assert out.stdout.lstrip().startswith("{") and "layers" in report
