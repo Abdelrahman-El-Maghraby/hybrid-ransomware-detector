@@ -80,8 +80,28 @@ def test_full_gui_flow(app, tmp_path):
     gui.DetailWindow(app, partial).destroy()          # completeness + provenance sections
     win = gui.DetailWindow(app, rows["invoice.pdf"])
     _pump(app, 0.3)
+    original = tmp_path / "Downloads" / "invoice.pdf"
+    content = original.read_bytes()
     win._quarantine(confirm=False)
-    assert not (tmp_path / "Downloads" / "invoice.pdf").exists()
+    assert not original.exists()
+    assert win.undo_button.winfo_manager() == "pack"           # Undo offered
+
+    # Undo from the result view puts the file back, byte for byte
+    assert win._undo_quarantine(confirm=False) == original
+    assert original.read_bytes() == content and app.scanner.quarantine_vault.list() == []
+    assert win.quarantine_button.cget("text") == "Quarantine file"
+    assert win.undo_button.winfo_manager() == ""                # hidden again
+
+    # a new file took the name meanwhile: nothing is overwritten
+    win._quarantine(confirm=False)
+    original.write_bytes(b"a new, different file")
+    restored = win._undo_quarantine(confirm=False)
+    assert restored.name.startswith("invoice.pdf.restored-") and restored.read_bytes() == content
+    assert original.read_bytes() == b"a new, different file"
+    restored.unlink()
+    original.write_bytes(content)
+    win._quarantine(confirm=False)                              # for the vault checks below
+    assert not original.exists()
     win.destroy()
 
     app.show_page("protection")
