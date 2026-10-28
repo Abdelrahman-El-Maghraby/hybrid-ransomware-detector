@@ -144,6 +144,11 @@ def provenance_rows(result: dict) -> list:
                  for i in (pv.get(key) or [])]
         if items:
             rows.append((label, "; ".join(f"{n}: {why}" if why else str(n) for n, why in items)))
+    sent = [f"{s.get('service')}: {', '.join(s.get('sent') or [])}"
+            + (f" ({s['destination']})" if s.get("destination") else "")
+            + (f" for {s['member_path']}" if s.get("member_path") else "")
+            for s in pv.get("shared") or []]
+    rows.append(("Sent outside", "; ".join(sent) if sent else "nothing"))
     return rows
 
 

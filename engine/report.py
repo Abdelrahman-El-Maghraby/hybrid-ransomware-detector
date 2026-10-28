@@ -232,7 +232,20 @@ def _provenance_lines(results: List[Dict], fallback: Dict) -> str:
             f"({rules.get('files', 0)} file(s){', sha256 ' + sha[:16] if sha else ''})\n"
             f"Registry / schema:      {pv.get('registry_version', '?')} / {pv.get('schema_version', '?')}\n"
             f"Profile:                {pv.get('profile', 'standard')}\n"
-            f"External services:      {services or 'n/a'}\n")
+            f"External services:      {services or 'n/a'}\n"
+            f"Sent outside:           {_shared_summary(results)}\n")
+
+
+def _shared_summary(results: List[Dict]) -> str:
+    """What these scans sent to external services (provenance.shared, schema 1.3),
+    e.g. "virustotal sha256 for 3 file(s); llm text (cloud) for 1 file(s)"."""
+    counts: Dict[str, int] = {}
+    for r in results:
+        for s in (r.get("provenance") or {}).get("shared") or []:
+            key = (f"{s.get('service')} {'+'.join(s.get('sent') or [])}"
+                   + (f" ({s['destination']})" if s.get("destination") else ""))
+            counts[key] = counts.get(key, 0) + 1
+    return "; ".join(f"{k} for {n} file(s)" for k, n in sorted(counts.items())) or "nothing"
 
 
 def _completeness_label(results: List[Dict]) -> str:

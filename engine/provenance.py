@@ -136,4 +136,24 @@ def file_provenance(scanner: RansomwareScanner, ctx: ScanContext,
             "layers_not_applicable": [n for n in order if n not in disabled and n not in ran
                                       and outcome.get(n) == NOT_APPLICABLE],
             "layers_failed": [n for n in order if outcome.get(n) == FAILED],
-            "layers_skipped": skipped}
+            "layers_skipped": skipped,
+            "shared": shared(sr) + list(ctx.member_shared)}
+
+
+# result key -> service name, for what a file's scan sent outside (schema 1.3)
+SHARING_KEYS = (("virustotal", "virustotal"), ("chatgpt_analysis", "llm"), ("sandbox", "sandbox"))
+
+
+def shared(scan_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """What left the machine for this file, per service: [{"service", "sent",
+    "destination"?}]. Built from the `sent` field each external layer sets when it
+    really contacted its service (an answer from a cache sent nothing)."""
+    out = []
+    for key, service in SHARING_KEYS:
+        res = scan_results.get(key) or {}
+        if res.get("sent"):
+            entry: Dict[str, Any] = {"service": service, "sent": list(res["sent"])}
+            if res.get("destination"):
+                entry["destination"] = res["destination"]
+            out.append(entry)
+    return out

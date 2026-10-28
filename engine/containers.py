@@ -112,6 +112,9 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                             f"member scan failed: {type(e).__name__}"))
                         continue
                     ctx.member_reasons.extend(member_results[-1].get("incomplete_reasons") or [])
+                    ctx.member_shared.extend(
+                        dict(s, member_path=s.get("member_path") or display_name)
+                        for s in (member_results[-1].get("provenance") or {}).get("shared") or [])
         view_dict = view.as_dict()
         handler.capture(view, ctx)
 

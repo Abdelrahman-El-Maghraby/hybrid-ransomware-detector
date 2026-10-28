@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .text import extract_suspicious_strings
 
@@ -95,6 +95,9 @@ class ExternalLookupsMixin:
             result = self.llm_backend.analyze(combined)
             if sha256 and self.cache is not None and result.get("analyzed"):
                 self.cache.put(sha256, cache_layer, result)
+            if not result.get("cached"):             # intel may have answered from its cache
+                result = dict(result, sent=["text"],
+                              destination="local" if self.llm_backend.is_local else "cloud")
             return result
         except Exception as e:
             logger.error("Error in LLM analysis for %s: %s", file_path, str(e))
@@ -120,10 +123,16 @@ class ExternalLookupsMixin:
         """Look the file up on VirusTotal by SHA-256 (upload only if opted in).
 
         Results are cached per SHA-256 (24 h for verdicts, 6 h for "unknown"),
-        requests are paced to the API quota, and every call has a timeout.
-        """
+        requests are paced to the API quota, and every call has a timeout. The
+        result's `sent` lists what left the machine for it: "sha256", "file"
+        (nothing when the answer came from a cache)."""
+        sent: List[str] = []
+        result = self._virustotal(file_path, hashes, sent)
+        return dict(result, sent=sent) if sent else result
+
+    def _virustotal(self, file_path: str, hashes: Optional[Dict], sent: List[str]) -> Dict:
         if self.intel is not None:
-            return self._virustotal_via_intel(file_path, hashes)
+            return self._virustotal_via_intel(file_path, hashes, sent)
         if not self.config.get("virustotal_api_key"):
             return self._vt_empty(details="VirusTotal API key not configured; "
                                           "reputation layer skipped.")
@@ -141,6 +150,7 @@ class ExternalLookupsMixin:
             headers = {"x-apikey": self.config["virustotal_api_key"]}
             check_url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
             self.vt_limiter.wait()
+            sent.append("sha256")
             response = self.http.get(check_url, headers=headers, timeout=self.http_timeout)
 
             if response.status_code == 404:
@@ -153,6 +163,7 @@ class ExternalLookupsMixin:
                         self.cache.put(file_hash, self._vt_cache_layer(), result,
                                        ttl_seconds=6 * 3600)
                     return result
+                sent.append("file")
                 response = self._vt_upload_and_wait(file_path, headers, check_url) or response
 
             # Process VirusTotal results
@@ -187,7 +198,8 @@ class ExternalLookupsMixin:
             logger.error("Error in VirusTotal scan for %s: %s", file_path, str(e))
             return self._vt_empty(error=str(e))
 
-    def _virustotal_via_intel(self, file_path: str, hashes: Optional[Dict]) -> Dict:
+    def _virustotal_via_intel(self, file_path: str, hashes: Optional[Dict],
+                              sent: List[str]) -> Dict:
         """The same look-up through the intel service (no network here): the hash
         first, the file only when it is unknown and intel allows uploads."""
         from core.intel_client import IntelError
@@ -207,8 +219,10 @@ class ExternalLookupsMixin:
                 return cached
         try:
             result = self.intel.vt_lookup(sha)
+            sent.extend(result.pop("sent", None) or [])
             if result.get("not_found") and info.get("upload"):
                 result = self.intel.vt_upload(file_path)
+                sent.extend(s for s in result.pop("sent", None) or [] if s not in sent)
         except (IntelError, OSError) as e:
             logger.error("VirusTotal via the intel service failed for %s: %s", file_path, e)
             return self._vt_empty(error=str(e))

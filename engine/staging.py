@@ -67,6 +67,13 @@ class StagedPipelineMixin:
             cast("RansomwareScanner", self), ctx)
         result["verdict_label"] = verdict_label(result)
         result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
+        own = [s for s in result["provenance"]["shared"] if "member_path" not in s]
+        if own:
+            logger.info("Sent outside for %s: %s", display,
+                        "; ".join(f"{s['service']} ({', '.join(s['sent'])}"
+                                  + (f", {s['destination']}" if s.get("destination") else "") + ")"
+                                  for s in own),
+                        extra={"event": "external_share", "path": display, "shared": own})
         result["scan_duration_ms"] = int((time.perf_counter() - started) * 1000)
 
         logger.info(
