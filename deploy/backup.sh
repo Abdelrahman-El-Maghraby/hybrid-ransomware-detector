@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 dest="${1:?usage: deploy/backup.sh BACKUP_DIR}"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
-image="aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}"
+image="aegis-sentinel:${AEGIS_VERSION:-4.7.0}"
 mkdir -p "$dest/volumes"
 dest="$(cd "$dest" && pwd)"
 

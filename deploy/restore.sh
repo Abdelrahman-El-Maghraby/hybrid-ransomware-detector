@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 src="$(cd "${1:?usage: deploy/restore.sh BACKUP_DIR}" && pwd)"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
-image="aegis-sentinel:${AEGIS_VERSION:-4.7.0-rc1}"
+image="aegis-sentinel:${AEGIS_VERSION:-4.7.0}"
 
 if [ -f "$src/config.tar.gz" ]; then
   unpacked="$(mktemp -d)"

@@ -3,7 +3,7 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.7.0--rc1-orange)
+![Version](https://img.shields.io/badge/version-4.7.0-brightgreen)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
@@ -48,7 +48,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ## 🆕 What's new in 4.7
 
-Release candidate 4.7.0-rc1: the on-prem production edition (`docs/RELEASE_SCOPE.md`).
+The on-prem production edition (`docs/RELEASE_SCOPE.md`).
 
 - **A hardened Docker deployment** ([deployment](docs/DEPLOYMENT.md), [operations](docs/OPERATIONS.md)). The service that opens files runs with **no network** and without any API key. A separate intel service is the only part that reaches VirusTotal, an LLM or a sandbox, through fixed operations and to allowlisted destinations only. TLS terminates at a proxy. Every container runs non-root, with a read-only file system and no capabilities.
 - **Never a silent "Clean".** Every result says whether the scan was `complete`, `partial`, `locked`, `unsupported` or `failed`, and lists what was not inspected and why. That includes damaged documents, archives that would not open, parser errors and layers that are not installed.

@@ -1,7 +1,7 @@
 # Evaluation dataset plan
 
 For re-collecting the labelled dataset that `tools/evaluate.py` measures. Part 1
-lists what the scanner inspects, taken from the code (v4.7.0-rc1). Part 2 is the
+lists what the scanner inspects, taken from the code (v4.7.0). Part 2 is the
 collection plan. Collect, unpack and run everything **inside the isolated analysis
 VM**; nothing here downloads anything. Only hashes, labels and results leave the
 VM. The same plan is in `~/Downloads/dataset_plan.csv` (one row per file type).
