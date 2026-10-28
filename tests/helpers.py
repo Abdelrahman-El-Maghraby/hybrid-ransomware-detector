@@ -138,17 +138,19 @@ SCN_RWX = 0xE0000020
 
 
 def make_pe(sections=((".text", b"\x90" * 0x400, SCN_CODE_RX),), imports=None, bits=32,
-            kind="exe", overlay=b"", cert=b"", strings=b"") -> bytes:
+            kind="exe", overlay=b"", cert=b"", strings=b"", delay_imports=None,
+            delay_va_form=False) -> bytes:
     """A structurally valid PE file built from scratch (nothing runs: the code
     sections are NOPs). `imports` maps a DLL name to imported function names;
     `strings` lands in a data section; `cert` becomes the Authenticode
-    directory, appended after `overlay` as signed files have it."""
+    directory, appended after `overlay` as signed files have it; `delay_imports`
+    (same shape as `imports`) becomes the delay-load table (data directory 13)."""
     plus = bits == 64
     file_align, sect_align = 0x200, 0x1000
     secs = [list(s) for s in sections]
     if strings:
         secs.append([".rdata", strings, 0x40000040])
-    n = len(secs) + (1 if imports else 0)
+    n = len(secs) + (1 if imports else 0) + (1 if delay_imports else 0)
     opt_size = 240 if plus else 224
     table = 0x80 + 24 + opt_size
     headers_end = _align(table + 40 * n, file_align)
@@ -159,6 +161,11 @@ def make_pe(sections=((".text", b"\x90" * 0x400, SCN_CODE_RX),), imports=None, b
     if imports:                                   # build .idata at its final RVA
         base = va(len(secs))
         secs.append([".idata", _idata(imports, base, plus), SCN_DATA_RW])
+    didata = None
+    if delay_imports:
+        didata = len(secs)
+        secs.append([".didat", _didata(delay_imports, va(len(secs)), plus, delay_va_form),
+                     SCN_DATA_RW])
     raw, layout, off = bytearray(), [], headers_end
     for i, (name, data, chars) in enumerate(secs):
         size = _align(len(data), file_align)
@@ -181,8 +188,10 @@ def make_pe(sections=((".text", b"\x90" * 0x400, SCN_CODE_RX),), imports=None, b
     struct.pack_into("<I", h, opt + (108 if plus else 92), 16)
     dirs = opt + (112 if plus else 96)
     if imports:
-        idata = layout[-1]
+        idata = [s for s in layout if s[0] == ".idata"][0]
         struct.pack_into("<II", h, dirs + 8, idata[1], idata[2])
+    if didata is not None:
+        struct.pack_into("<II", h, dirs + 13 * 8, layout[didata][1], layout[didata][2])
     if cert:
         struct.pack_into("<II", h, dirs + 32, body_end + len(overlay), len(cert))
     for i, (name, v, vsize, ptr, size, c) in enumerate(layout):
@@ -191,6 +200,32 @@ def make_pe(sections=((".text", b"\x90" * 0x400, SCN_CODE_RX),), imports=None, b
         struct.pack_into("<IIII", h, o + 8, vsize, v, size, ptr)
         struct.pack_into("<I", h, o + 36, c)
     return bytes(h) + bytes(raw) + overlay + cert
+
+
+def _didata(imports, base, plus, va_form=False):
+    """Delay-load descriptors (32 bytes: attributes, DLL name, module handle, IAT,
+    name table, ...) followed by the same lookup tables and names as .idata."""
+    width = 8 if plus else 4
+    dlls = list(imports.items())
+    desc_size = 32 * (len(dlls) + 1)
+    thunk_len = sum((len(f) + 1) * width for _, f in dlls)
+    names_start = desc_size + thunk_len
+    descs, thunks_blob, names_blob = bytearray(), bytearray(), bytearray()
+    for dll, funcs in dlls:
+        int_rva = base + desc_size + len(thunks_blob)
+        for f in funcs:
+            entry_rva = base + names_start + len(names_blob)
+            names_blob += b"\x00\x00" + f.encode() + b"\x00"
+            if len(names_blob) % 2:
+                names_blob += b"\x00"
+            thunks_blob += entry_rva.to_bytes(width, "little")
+        thunks_blob += bytes(width)
+        dll_rva = base + names_start + len(names_blob)
+        names_blob += dll.encode() + b"\x00"
+        descs += struct.pack("<IIIIIIII", 0 if va_form else 1, dll_rva, 0, int_rva, int_rva,
+                             0, 0, 0)
+    descs += bytes(32)
+    return bytes(descs + thunks_blob + names_blob)
 
 
 def _align(n, a):
