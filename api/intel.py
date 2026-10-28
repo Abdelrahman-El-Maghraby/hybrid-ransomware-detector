@@ -367,9 +367,14 @@ def main() -> None:
     if not socket_path:
         raise SystemExit("aegis-intel: set AEGIS_INTEL_SOCKET to the Unix socket path to "
                          "listen on (a volume shared with the analysis service)")
+    from engine.config import CONFIG
+    from engine.validation import ConfigError, check_config
     try:
+        # its own settings, checked like the analysis service's (AEGIS_INTEL_SOCKET is
+        # where this service listens, not a client setting here)
+        check_config(dict(CONFIG, intel_socket=""))
         app = create_intel_app()
-    except RuntimeError as e:
+    except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-intel: {e}") from e
     uvicorn.run(app, uds=socket_path, workers=1)
 

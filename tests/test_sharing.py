@@ -116,3 +116,30 @@ def test_through_intel_what_intel_sent_is_recorded(tmp_path):
     assert s.scan_file_with_virustotal(str(f))["sent"] == ["sha256"]
     s.intel = ScriptedIntel(CAPS, {"/v1/virustotal/lookup": dict(clean, cached=True)})
     assert "sent" not in s.scan_file_with_virustotal(str(f))       # intel's cache answered
+
+
+def test_production_profile_needs_an_explicit_llm_choice():
+    """A5-1: 'auto' falls back to a cloud LLM when the local one is unreachable."""
+    from engine.validation import validate_config
+    errors, _ = validate_config({"profile": "production", "llm_provider": "auto"}, ())
+    assert any("LLM_PROVIDER=auto" in e for e in errors)
+    for ok in ({"profile": "production", "llm_provider": "none"},
+               {"profile": "production", "llm_provider": "ollama"},
+               {"profile": "standard", "llm_provider": "auto"},
+               {"profile": "production", "llm_provider": "auto", "intel_socket": "/x.sock",
+                "intel_token": "i" * 40}):                      # intel decides there
+        assert not any("LLM_PROVIDER=auto" in e for e in validate_config(ok, ())[0]), ok
+
+
+def test_intel_refuses_to_start_with_a_bad_setting(tmp_path):
+    """A5-2: the intel service validates its own configuration at start."""
+    pytest.importorskip("fastapi")
+    import os
+    import subprocess
+    import sys
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path),
+               AEGIS_INTEL_SOCKET=str(tmp_path / "i.sock"), AEGIS_INTEL_TOKEN="i" * 40,
+               VT_REQUESTS_PER_MINUTE="lots")
+    out = subprocess.run([sys.executable, "-m", "api.intel"], env=env, capture_output=True,
+                         text=True, timeout=120, cwd=os.path.dirname(os.path.dirname(__file__)))
+    assert out.returncode != 0 and "aegis-intel:" in out.stderr and "VT_REQUESTS_PER_MINUTE" in out.stderr

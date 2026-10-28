@@ -235,6 +235,10 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
     if rules and not Path(rules).is_dir():
         errors.append(f"YARA_RULES_DIR={rules} does not exist: the production profile "
                       "requires the YARA layer")
+    if str(cfg.get("llm_provider") or "auto").strip().lower() == "auto" and not cfg.get("intel_socket"):
+        errors.append("LLM_PROVIDER=auto can fall back to a cloud LLM when the local one is not "
+                      "reachable; the production profile needs an explicit choice: none, "
+                      "ollama or openai")
     if str(cfg.get("canary_response") or "").strip():
         errors.append("CANARY_RESPONSE suspends, kills or locks on the host; containment is "
                       "part of the desktop builds only, outside the production profile")
