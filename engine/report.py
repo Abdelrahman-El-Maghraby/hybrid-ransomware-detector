@@ -125,6 +125,9 @@ LLM posture:            {self._llm_posture_label()}
         with open(text_report_file, 'w') as f:
             f.write(report_text)
 
+        # optional cloud storage: the redacted upload view, queued (core/cloud.py)
+        from core.cloud import spool_report
+        spool_report(results, getattr(self, "config", {}) or {})
         return report_text
 
     @staticmethod
