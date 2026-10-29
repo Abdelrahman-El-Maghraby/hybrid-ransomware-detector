@@ -3,7 +3,7 @@
 *Desktop app name: **Aegis Sentinel**.*
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-4.7.0-brightgreen)
+![Version](https://img.shields.io/badge/version-4.8.0-brightgreen)
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
@@ -45,6 +45,25 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 - [👤 Author](#-author)
 
 ---
+
+## 🆕 What's new in 4.8
+
+- **Desktop folder monitoring:** new, modified and renamed files are scanned
+  after settling, in isolated workers, with bounded queues and own-output exclusions.
+- **Monitoring** and **Alerts & cloud** GUI pages: live monitoring results,
+  delivery status, TLS e-mail test, optional S3-compatible report/log upload test,
+  and quarantine key export/import on **Protection**.
+- **Persistent alert outbox:** webhook and TLS e-mail delivery retry after failures;
+  canary trips and verdicts share the delivery path. Docker sends mail through intel.
+- **Optional desktop cloud storage:** off by default; an allowlisted redacted view
+  of reports and structured log events. Bucket retention is operator-controlled.
+- **Fail-closed isolation** for every scan, schema 1.4 isolation provenance,
+  event-driven worker dispatch, confined rule-pack installs, streamed DMG/CHM
+  members and hash-verified dependency installs. Weights and thresholds unchanged.
+
+See [operations](docs/OPERATIONS.md), [data policy](docs/DATA_POLICY.md) and
+[upgrade notes](CHANGELOG.md). CLI exit code **3** means isolated workers could
+not start and files were not scanned. API callers receive 503 in this case.
 
 ## 🆕 What's new in 4.7
 
@@ -477,6 +496,15 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | isolated worker processes for every scan (folders, single files, the API). When workers cannot start, nothing is scanned in the main process: the files get a `failed` result (`isolation_unavailable`), the CLI exits with code 3 and the API answers 503. `ISOLATE_SCANS=0` is a development-only opt-out, recorded in `provenance.isolation` and refused under `AEGIS_PROFILE=production` |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |
 | `JSONL_PATH`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `WEBHOOK_MIN_VERDICT` | empty, empty, empty, `High` | SIEM outputs (HMAC-signed webhook) |
+| `WATCH_DIRS`, `WATCH_SETTLE_SECONDS`, `WATCH_MAX_QUEUE`, `WATCH_RETRY_MINUTES` | empty, `2`, `1000`, `5` | desktop monitoring roots (semicolon-separated), settle delay, queue bound and retry delay |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD` | empty, `465`, `tls`, empty, empty | e-mail over verified TLS (`starttls` also supported); password from secret store; Docker settings belong to intel |
+| `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO`, `ALERT_EMAIL_MIN_VERDICT` | empty, empty, `High` | sender, comma-separated recipients, verdict threshold |
+| `ALERT_EMAIL_PER_HOUR`, `ALERT_EMAIL_PER_DAY` | `20`, `100` | delivery caps |
+| `OUTBOX_DIR`, `OUTBOX_MAX_AGE_HOURS` | app outbox, `24` | persistent pending alerts and expiry |
+| `CLOUD_UPLOAD`, `CLOUD_ENDPOINT`, `CLOUD_REGION`, `CLOUD_BUCKET`, `CLOUD_PREFIX` | `false`, empty, `us-east-1`, empty, `aegis` | optional desktop report/log uploads to HTTPS S3-compatible storage |
+| `CLOUD_ACCESS_KEY_ID`, `CLOUD_SECRET_ACCESS_KEY`, `CLOUD_CA_BUNDLE` | empty | restricted upload credentials and optional private CA |
+| `CLOUD_CONDITIONAL_WRITES`, `CLOUD_UPLOAD_FULL` | `true`, `false` | create-only writes; explicit full-result opt-in with privacy warning |
+| `CLOUD_SPOOL_DIR`, `CLOUD_SPOOL_DAYS`, `CLOUD_SPOOL_MAX_MB` | app cloud_spool, `30`, `1024` | local pending-upload retention, separate from bucket lifecycle |
 | `RULEPACK_PUBLIC_KEYS`, `WEIGHTS_OVERRIDE` | empty | trusted rule-pack signers; reviewed weight changes |
 
 > Every setting is checked at start-up; an invalid value stops the program with one line per problem.
@@ -649,11 +677,15 @@ A machine-readable `ransomware_scan_<timestamp>.json` with the complete per-laye
 
 ![Protection page](docs/screenshot-v4-protection.png)
 
-**Protection.** Deploy, verify and remove canaries, set automatic quarantine, restore or delete vault items, and clear the result cache. While the window is open, canaries are re-checked every few minutes and a trigger raises an alert.
+**Monitoring.** Configure watched roots, start/stop monitoring and inspect queue, pause and drop status. Results appear in the dashboard and reports.
+
+**Alerts & cloud.** Configure delivery, test e-mail/upload and inspect pending or expired items. Cloud upload is optional and desktop only.
+
+**Protection.** Export/import the encrypted quarantine key backup. Deploy, verify and remove canaries, set automatic quarantine, restore or delete vault items, and clear the result cache. While the window is open, canaries are re-checked every few minutes and a trigger raises an alert.
 
 ![Scan page](docs/screenshot-v4-scan.png)
 
-**Scan, Reports, Database, Logs, Settings.** Monitored directories and file types, past JSON/TXT reports and canary alerts, the malware-hash dataset, the live log stream, the scan schedule, start-at-login, the VirusTotal-upload switch, and API keys. Keys are written only to the git-ignored `.env` file.
+**Scan, Reports, Database, Logs, Settings.** Monitored directories and file types, past JSON/TXT reports and canary alerts, the malware-hash dataset, the live log stream, the scan schedule, start-at-login, the VirusTotal-upload switch, and API keys. Secrets are saved in the OS keyring; non-secret settings go in the git-ignored `.env` file.
 
 ![Settings](docs/screenshot-settings.png)
 

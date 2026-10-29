@@ -202,8 +202,14 @@ Still to do in step 12:
 
 ## Next action
 
-Continue step 12 with README, CHANGELOG, version and implementation evidence.
-OPERATIONS and RUNBOOKS are drafted and diff-checked; application checks pending.
+Finish step 12 validation, update PR #43 and restore the integration handoff
+when ready. Then implement the owner-authorised separate cloud checksum PR
+into integration/v4.8: explicit SHA256 algorithm, no-response-checksum test,
+keep response validation, update DATA_POLICY/OPERATIONS. Final integrated checks
+and benchmark follow owner merges.
+OPERATIONS, RUNBOOKS, README, CHANGELOG, version 4.8.0 and report section 25
+are drafted. Ruff, mypy, bandit and all three lock audits passed. Full suite
+is running outside the sandbox after a local TLS bind denial; results pending.
 Cloud checksum documentation now distinguishes absent response checksums from
 verified returned checksums; final acceptance review must retain this limitation.
 

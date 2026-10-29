@@ -49,7 +49,7 @@ names - of scanned files, archive members, attachments and embedded objects - us
 and host names, and free text: log message text, indicator detail strings,
 extracted strings, URLs, e-mail addresses and subjects. A file is identified by a
 keyed pseudonym (HMAC-SHA-256 of its path with a per-installation key kept in the OS
-keyring and never uploaded), so the same file can be followed across uploads
+keyring, or an owner-only fallback file when unavailable, and never uploaded), so the same file can be followed across uploads
 without its name.
 
 **The metadata that remains:**
@@ -90,7 +90,7 @@ uploaded report is only as trustworthy as the host that produced it
 | Quarantined files (desktop) | the encrypted vault (AES-256-GCM) | until restored or deleted by the user |
 | Alert outbox (4.8) | `OUTBOX_DIR` (app folder; `analysis-state` in Docker), one owner-only file of alert metadata per alert | until delivered, at most `OUTBOX_MAX_AGE_HOURS` (24 h); an expired alert is dropped and logged. A `sent/` marker (the alert id only) is kept for the same time to stop duplicates |
 | Cloud spool (4.8, desktop, only with cloud on) | `CLOUD_SPOOL_DIR` (app folder), owner-only copies of the upload view | removed at once after a confirmed upload; otherwise at most `CLOUD_SPOOL_DAYS` (30) and `CLOUD_SPOOL_MAX_MB` (1024, oldest first); each deletion is logged. Turning cloud off keeps what is spooled until it expires; nothing is deleted remotely |
-| Installation id and pseudonym key (4.8, only with cloud on) | `installation_id` in the app folder; the key in the OS keyring (an owner-only file where there is none) | for the life of the installation; deleting them makes later uploads unlinkable to earlier ones |
+| Installation id and pseudonym key (4.8, only with cloud on) | `installation_id` in the app folder; the key in the OS keyring (an owner-only file where there is none) | for the life of the installation; deleting them changes later installation ids and pseudonyms; hashes and other metadata can still correlate uploads |
 | Samples | not kept by the product | the evaluation tools (`tools/evaluate.py`) run on samples you hold, in your own analysis VM |
 
 Secrets (API tokens, service keys, the IMAP and SMTP passwords, the cloud secret key) are kept in the OS keyring

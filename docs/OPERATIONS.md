@@ -192,7 +192,10 @@ or set `WATCH_DIRS` (semicolon-separated paths) for `hrd-scanner --background`.
 New, modified and renamed files are queued, deduplicated and scanned after
 `WATCH_SETTLE_SECONDS=2`. `WATCH_MAX_QUEUE=1000` bounds pending files.
 Worker-start failure pauses scanning and retries after `WATCH_RETRY_MINUTES=5`.
-Own output folders, canaries and links are excluded. Results feed the dashboard,
+Own output folders, canaries and links are excluded. Linux inotify limits,
+macOS event coalescing, Windows notification-buffer overflow and unreliable
+network-drive events can cause missed notifications; schedule manual scans as
+a backstop. Results feed the dashboard,
 reports and configured outputs. `AUTO_QUARANTINE` is opt-in; a changed file is
 refused by quarantine. This is inspection after an event, not guaranteed prevention.
 

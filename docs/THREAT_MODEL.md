@@ -342,7 +342,7 @@ Mitigated (TMA-7, `core/cloud.py`; owner decisions D-D1 to D-D3):
   inspected files, the vault, keys, the outbox, the cache. Full detail is an
   explicit opt-in, recorded in every upload and warned.
 - HTTPS with certificate verification to the configured endpoint only; the SHA-256
-  checksum is sent and checked; object keys are unique and written create-only where
+  checksum is sent; a returned checksum is checked (an omitted checksum is accepted); object keys are unique and written create-only where
   the endpoint supports it. The client never lists, reads or deletes remote objects,
   so the credential can be limited to creating objects under the installation's
   prefix (`docs/OPERATIONS.md`).

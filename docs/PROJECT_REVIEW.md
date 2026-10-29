@@ -2076,3 +2076,75 @@ recorded here, because recording it would need yet another commit; see the PR's
 checks. The PR changes only the three review files, and
 `docs/HANDOFF.md` is idle at its tip. Stage 3 must check the PR's real state again
 at start-up.
+
+## 25. Stage 3 implementation record (4.8.0)
+
+This supplements, rather than rewrites, the historical review above. Baseline:
+`main` at `bd46fff` (review PR #30 merged); steps 1-11 are merged into
+`integration/v4.8` at `c4906ac`. Step 12 is PR #43 (`docs/v4.8` →
+`integration/v4.8`). The owner merges all PRs; #39 remains a draft into main.
+
+### Implementation trace
+
+Commits below are implementation commits, verified against local fetched history.
+Tests named here describe the implemented acceptance coverage; execution evidence
+is recorded separately below, not inferred from the existence of tests.
+
+| Step / IDs | PR | Implementation | Acceptance coverage |
+|---|---|---|---|
+| 1: PR-01, PR-14; TMA-2 | #31 | `40b690f` | `test_rulepack.py`: invalid versions, confinement, planted links, atomic active state |
+| 2: PR-02, PR-03, PR-11; TMA-4 | #32 | `9d1062d` | `test_isolation_policy.py`, `test_workers.py`, `test_readiness.py`: fail closed, single file, provenance, live readiness |
+| 3: PR-17 | #36 | `aaf6415` | `test_workers.py`, `test_worker_limits.py`: event-driven dispatch, limits and cleanup; final benchmark pending |
+| 4: PR-07, PR-09, PR-10 | #33 | `1e0801a` | `test_background_reliability.py`: guarded jobs, raising scans represented; docstrings corrected |
+| 5: PR-04, S-01; TMA-3 | #35 | `600d8bc` | `test_dmg_streaming.py`: generated benign link image, traversal, pipe-only extraction and budgets |
+| 6: PR-05, PR-06, PR-13, S-04 | #34 | `056ab85` | matrix API/Hypothesis extras, release gate; Python 3.12 lock, explicit 3.9 exception |
+| 7: PR-08, S-03, F4; TMA-6 | #37 | `af8deda` | `test_alerts.py`: channels, canaries, retries, deduplication, real local TLS, caps, intel schema and secrets |
+| 8: F1, F3; TMA-5 | #40 | `ecaca34` | `test_folder_monitor.py`: I-1/I-2/I-3, exclusions, overflow, pause, changed-file refusal |
+| 9: F5; TMA-7 | #38 | `0209d7b` | `test_cloud.py`: default off, marker redaction, retries, expiry, HTTPS, conditional PUT and checksum mismatch |
+| 10: F2 | #42 | `9fcefdc` | `test_gui_integration.py`, `test_gui_smoke.py`: settings, key backup, delivery status and GUI integration |
+| 11: PR-12 | #41 | `d64add6` | hash-pinned desktop/server/build locks; required hash installs and audits in CI |
+| 12: B16, TMA-1 to TMA-7 | #43 | `9a24a13`, `97aeda3`, subsequent PR commits | data policy, threat model, operating/recovery procedures, README, changelog and version 4.8.0 |
+
+S-01 was not reproduced with 7-Zip 26.05, but streaming removes reliance on its
+filesystem extraction. S-03 was not reproduced in 3,000 GIL-enabled trials;
+no speculative lock was added. S-04 is the documented Python 3.9 lock exception.
+PR-15, PR-16 and the other O items remain outside the approved release scope.
+TMA-1 and remaining TMA-5 to TMA-7 risks are accepted residual risks, not claims
+that local state or uploads are tamper-evident. TMA commit references were checked.
+
+### Step 12 validation and closure boundary
+
+The version change is limited to engine/package versions and Compose image tag
+defaults; no tag or release is created. No weights, thresholds or layer coverage
+changed. Existing readiness prerequisites remain open; RELEASE_READINESS has not
+been changed to imply closure without new evidence.
+
+- Local quality commands: `.venv/bin/ruff check .`, `.venv/bin/mypy`,
+  `.venv/bin/bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll`:
+  passed (mypy: 67 source files).
+- `.venv/bin/pip-audit --no-deps --disable-pip -r <lock> --progress-spinner off`
+  for `requirements.lock`, `requirements-server.lock`, `requirements-build.lock`:
+  no known vulnerabilities. Initial sandbox DNS denial was rerun outside it.
+- Full suite: pending completion. The first sandbox run was interrupted after
+  112 passes and a TLS listener bind permission failure; it is not a passing run.
+- Documentation: `git diff --check` passed. Threat-model commit ids resolve to
+  the expected implementation commits. Application versions agree at 4.8.0.
+
+Final I-1 to I-7 and the section 15 benchmark must be recorded on the integrated
+final code after the owner merges step 12 and the separately requested checksum
+follow-up. Existing tests cover I-1/I-2/I-3 on macOS with real watchdog events and
+fake benign worker behaviour; GUI routing is tested separately. I-4/I-5 use local
+TLS services and controlled failures. I-6 requires Docker CI; I-7 uses rule-pack
+and cache-key tests. None substitutes for manual Windows/macOS GUI checks,
+real Windows/Linux desktop monitoring or a real SMTP/S3 provider check.
+
+The owner authorised a separate follow-up PR for explicit S3 SHA-256 algorithm
+selection and a missing-response-checksum test. Current code sends ChecksumSHA256
+and checks a returned value, but accepts a missing response checksum; step 12
+records this accurately. The follow-up will update the integrity wording.
+
+Development completion is **not yet established**: final integrated checks,
+benchmark and atheris long runs remain. Production readiness is separately
+**not established**: M1/X1, M2 on a reference host, O1, U1, X2, legal review of
+THIRD_PARTY, D5 if arm64 is claimed, deployment verification on the release
+commit and owner manual checks remain. No accuracy inference is made here.
