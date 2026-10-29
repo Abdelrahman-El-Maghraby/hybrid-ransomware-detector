@@ -7,7 +7,8 @@ How much of a file was actually inspected: `scan_status` and `incomplete_reasons
     partial      an applicable, enabled layer errored or was unavailable, or part of
                  the content was not unpacked (limits, a missing decompressor)
     locked       encrypted or password-protected content was not opened
-    failed       the scan worker timed out, crashed or ran out of memory
+    failed       the scan worker timed out, crashed or ran out of memory, or no
+                 isolated worker could start, so the file was not scanned at all
 
 A container takes the most severe status among itself and its members, in this
 order (docs/RELEASE_SCOPE.md, criterion C1):
@@ -274,9 +275,10 @@ def assess(scanner: RansomwareScanner, ctx: ScanContext) -> Tuple[str, List[Reas
     return status, out
 
 
-def failed(path: str, why: str) -> Tuple[str, List[Reason]]:
-    """Status for a file whose worker timed out, crashed or hit the memory limit."""
-    return FAILED, [reason(FAILED, path, "worker", why)]
+def failed(path: str, why: str, layer: str = "worker") -> Tuple[str, List[Reason]]:
+    """Status for a file whose worker timed out, crashed or hit the memory limit
+    (layer "worker"), or that no isolated worker could take (layer "isolation")."""
+    return FAILED, [reason(FAILED, path, layer, why)]
 
 
 def verdict_label(result: Dict) -> str:

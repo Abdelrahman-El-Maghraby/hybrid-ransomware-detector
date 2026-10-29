@@ -474,7 +474,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_TRUST_PROXY` | `60`, `10`, `2`, off | REST API abuse limits (see [deployment](docs/DEPLOYMENT.md)) |
 | `AEGIS_API_SOCKET`, `AEGIS_INTEL_SOCKET`, `AEGIS_INTEL_TOKEN` | empty | Docker deployment: API on a Unix socket; external services through the intel service (see [deployment](docs/DEPLOYMENT.md)) |
 | `EMULATION_ENABLED`, `EMULATION_TOOL`, `EMULATION_TIMEOUT` | `false`, `box-js`, `20` | JavaScript emulation (analysis VM only) |
-| `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | worker processes for folder scans |
+| `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | isolated worker processes for every scan (folders, single files, the API). When workers cannot start, nothing is scanned in the main process: the files get a `failed` result (`isolation_unavailable`), the CLI exits with code 3 and the API answers 503. `ISOLATE_SCANS=0` is a development-only opt-out, recorded in `provenance.isolation` and refused under `AEGIS_PROFILE=production` |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |
 | `JSONL_PATH`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `WEBHOOK_MIN_VERDICT` | empty, empty, empty, `High` | SIEM outputs (HMAC-signed webhook) |
 | `RULEPACK_PUBLIC_KEYS`, `WEIGHTS_OVERRIDE` | empty | trusted rule-pack signers; reviewed weight changes |

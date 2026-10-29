@@ -301,21 +301,27 @@ def test_shutdown_kills_a_worker_that_does_not_stop():
     assert killed == [1]
 
 
-def test_in_process_fallback_records_a_crash(tmp_path):
+def test_files_left_when_workers_cannot_start_are_not_parsed(tmp_path):
+    """Fail closed (D-E): what is left gets isolation_unavailable results; the
+    scanner's own scan_file is never called."""
     import RansomwareScanner as RS
     scanner = RS.RansomwareScanner(_config(tmp_path))
-    p = tmp_path / "scan" / "a.pdf"
-    p.write_bytes(make_pdf("a"))
+    paths = []
+    for n in ("a.pdf", "b.pdf"):
+        p = tmp_path / "scan" / n
+        p.write_bytes(make_pdf(n))
+        paths.append(str(p))
 
-    def boom(path, *a, **k):
-        raise RuntimeError("parser bug")
-    scanner.scan_file = boom
+    def parsed(path, *a, **k):
+        raise AssertionError("parsed in the main process")
+    scanner.scan_file = parsed
     scan = _bare_scan(scanner)
-    scan.pending = [str(p)]
-    scan._scan_in_process()
-    path, result = scan.results[0]
-    assert result["scan_results"]["scan_failed"]["reason"] == "RuntimeError: parser bug"
-    assert result["sha256_hash"]
+    scan.pending, scan.failed_starts, scan.not_scanned = list(paths), 3, 0
+    scan._not_scanned()
+    assert [p for p, _ in scan.results] == paths and scan.not_scanned == 2 and not scan.pending
+    for _, r in scan.results:
+        assert W.isolation_unavailable(r) and r["provenance"]["isolation"] == "unavailable"
+        assert r["sha256_hash"] and r["verdict"] == "Clean" and r["scan_status"] == "failed"
 
 
 def test_failure_result_without_hashes(tmp_path):
