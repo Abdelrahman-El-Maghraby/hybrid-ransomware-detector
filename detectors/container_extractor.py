@@ -43,12 +43,14 @@ FORMATS AND LIBRARIES (all optional, pure Python or prebuilt wheels)
 A recognised archive whose library is missing is reported as unreadable, with
 the package to install.
 
-RAR is the only format that runs an external program. It is only ever asked to
-decompress ONE member to stdout (`7z e -so`, `unrar p`), never to write files,
-so its own path handling (the source of past unrar traversal bugs) is never
-used: every byte comes back through the same bounded writer and the sandbox
-naming as the other formats. Member names, sizes, encryption and symlinks are
-read by `rarfile` in Python, so the name checks work even with no tool installed.
+RAR and macOS disk images (and CHM help files, detectors/embedded_content.py)
+run an external program. It is only ever asked to decompress ONE member to
+stdout (`7z e -so`, `unrar p`), never to write files, so its own path and link
+handling (the source of past unrar traversal bugs) is never used: every byte
+comes back through a bounded writer and the sandbox naming as the other
+formats. RAR member names, sizes, encryption and symlinks are read by `rarfile`
+in Python, so the name checks work even with no tool installed; a disk image is
+listed with `7z l -slt` first and its links and folders are never requested.
 """
 
 from __future__ import annotations
@@ -74,12 +76,12 @@ from .macos_packages import (
     FS_IMAGE_SUFFIXES,
     BudgetExceeded,
     FormatError,
+    SevenZipMember,
     TooManyEntries,
     dmg_kind,
     is_xar,
     read_cpio,
     read_xar,
-    sevenzip_extract,
     sevenzip_list,
     sevenzip_tool,
     stream_decompress,
@@ -990,14 +992,19 @@ class ContainerExtractor:
 
     def _sevenzip_image(self, tool: str, image: Path, display: str, sandbox: Path,
                         depth: int, res: ContainerResult, level: int) -> None:
-        """List, size-check, extract; open file-system images inside one level deeper."""
+        """List and size-check, then stream each regular file through the byte
+        budget with `7z e -so`, one at a time (RF-4). 7-Zip never writes a file,
+        so its own path and link handling is not relied on (S-01); links and
+        folders are never requested, and an entry 7-Zip cannot read costs that
+        entry only, not the whole image. File-system images inside are opened
+        one level deeper."""
         try:
             items = sevenzip_list(tool, image)
         except Exception as e:
             res.unreadable_members += 1
             logger.debug("7-Zip could not list %s: %s", display, e)
             return
-        files = [i for i in items if not i.is_dir and not i.is_link]
+        files = sorted((i for i in items if not i.is_dir and not i.is_link), key=lambda i: i.path)
         declared = sum(i.size for i in files)
         if len(res.members) + len(files) > self.max_members:
             self._too_many(f"{display}!/", len(files), res)
@@ -1005,37 +1012,53 @@ class ContainerExtractor:
         if res.total_uncompressed + declared > self.max_total_bytes:
             self._too_large(f"{display}!/", declared, res)   # large apps are normal here
             return
-        out = Path(tempfile.mkdtemp(prefix="img_", dir=sandbox))
+        work = Path(tempfile.mkdtemp(prefix="img_", dir=sandbox))    # 7-Zip's cwd: stays empty
+        for item in files:
+            rel = item.path.replace("\\", "/").lstrip("/")
+            shown = f"{display}!/{visible_name(rel)}"
+            if len(res.members) >= self.max_members:
+                self._too_many(shown, 1, res)
+                return
+            target = self._target(rel, sandbox, res)
+            outcome = self._stream_image_member(tool, image, item.path, target, work, res)
+            if outcome == "too-large":                 # the listing under-stated the size
+                self._too_large(shown, item.size, res)
+                return
+            if (outcome == "ok" and level < 2 and rel.lower().endswith(FS_IMAGE_SUFFIXES)
+                    and not detect_container(target)):
+                self._sevenzip_image(tool, target, shown, sandbox, depth, res, level + 1)
+                target.unlink(missing_ok=True)
+                continue
+            member = self._new_member(rel, item.size, item.size, False, shown, res)
+            if outcome == "ok":
+                member.extracted, member.path = True, str(target)
+            else:
+                member.skipped_reason = "7-Zip could not extract this file"
+            self._finish(member, target, sandbox, depth, res)
+
+    def _stream_image_member(self, tool: str, image: Path, name: str, target: Path,
+                             work: Path, res: ContainerResult) -> str:
+        """'ok' | 'too-large' (past the byte budget while streaming) | 'failed'."""
+        budget = self.max_total_bytes - res.total_uncompressed
+        written = 0
+        member = SevenZipMember(tool, image, name, work)
         try:
-            sevenzip_extract(tool, image, out)
-        except Exception as e:
-            res.unreadable_members += 1
-            logger.debug("7-Zip could not extract %s: %s", display, e)
-            return
-        for root, dirs, names in os.walk(out, followlinks=False):
-            dirs.sort()
-            for fn in sorted(names):
-                path = Path(root) / fn
-                if path.is_symlink() or not path.is_file():
-                    continue
-                rel = path.relative_to(out).as_posix()
-                shown = f"{display}!/{visible_name(rel)}"
-                size = path.stat().st_size
-                if res.total_uncompressed + size > self.max_total_bytes:
-                    self._too_large(shown, size, res)
-                    return
-                if level < 2 and rel.lower().endswith(FS_IMAGE_SUFFIXES) and not detect_container(path):
-                    res.total_uncompressed += size
-                    self._sevenzip_image(tool, path, shown, sandbox, depth, res, level + 1)
-                    path.unlink(missing_ok=True)
-                    continue
-                if len(res.members) >= self.max_members:
-                    self._too_many(shown, 1, res)
-                    return
-                member = self._new_member(rel, size, size, False, shown, res)
-                res.total_uncompressed += size
-                member.extracted, member.path = True, str(path)
-                self._finish(member, path, sandbox, depth, res)
+            with open(target, "wb") as dst:
+                for chunk in member.chunks():
+                    written += len(chunk)
+                    if written > budget:
+                        break
+                    dst.write(chunk)
+        finally:
+            ok = member.close()
+        if written > budget:
+            target.unlink(missing_ok=True)
+            return "too-large"
+        if not ok:
+            target.unlink(missing_ok=True)
+            return "failed"
+        res.total_uncompressed += written
+        return "ok"
 
     @staticmethod
     def _too_many(shown: str, count: int, res: ContainerResult) -> None:

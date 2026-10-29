@@ -39,7 +39,7 @@ import shutil
 import struct
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Dict, Iterator, List, Optional, Sequence, Union
 
 from .file_integrity import detect_format
@@ -263,29 +263,34 @@ class EmbeddedContentAnalyzer:
 
     # ------------------------------------------------------------- CHM
     def _chm(self, path: Path, res: EmbeddedResult, sandbox: Path, extract: bool) -> None:
-        from .macos_packages import sevenzip_extract
+        """Pages and files of a compiled help file, read one at a time with
+        `7z e -so` (7-Zip never writes a file; see container_extractor)."""
+        from .macos_packages import sevenzip_list, sevenzip_read
         tool = self.sevenzip()
         if not tool:
             res.skipped.append("7-Zip is needed to unpack CHM files")
             return
-        out = sandbox / "chm"
-        out.mkdir()
-        sevenzip_extract(tool, path, out)
-        for f in sorted(out.rglob("*")):
-            if not f.is_file() or f.is_symlink() or f.name.startswith(("#", "$")):
+        work = sandbox / "chm"
+        work.mkdir()
+        for item in sorted(sevenzip_list(tool, path), key=lambda i: i.path):
+            name = PurePosixPath(item.path.replace("\\", "/")).name
+            if item.is_dir or item.is_link or not name or name.startswith(("#", "$")):
                 continue                                 # internal index streams
-            size = f.stat().st_size
-            if size > MAX_MEMBER_BYTES:
-                res.skipped.append(f"{f.name}: too large")
+            if item.size > MAX_MEMBER_BYTES:
+                res.skipped.append(f"{name}: too large")
                 continue
-            data = f.read_bytes()
+            data = sevenzip_read(tool, path, item.path, work, MAX_MEMBER_BYTES)
+            if data is None:
+                res.skipped.append(f"{name}: could not be read")
+                continue
             low = data.lower()
             if _HHCTRL_CLSID.encode() in low and (b'"shortcut"' in low or b"'shortcut'" in low
                                                   or b"value=shortcut" in low):
                 res.chm_shortcut = True
-            if f.suffix.lower() in (".htm", ".html", ".js", ".vbs", ".hta", ".exe", ".dll",
-                                    ".bat", ".cmd", ".ps1", ".lnk") or detect_format(data[:4096]):
-                self._add(res, sandbox, extract, f.name, data)
+            if PurePosixPath(name).suffix.lower() in (
+                    ".htm", ".html", ".js", ".vbs", ".hta", ".exe", ".dll", ".bat", ".cmd",
+                    ".ps1", ".lnk") or detect_format(data[:4096]):
+                self._add(res, sandbox, extract, name, data)
         if res.chm_shortcut:
             res.findings.append("help page runs a command through the HTML Help ShortCut object")
 

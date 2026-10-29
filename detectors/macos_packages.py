@@ -38,10 +38,11 @@ import lzma
 import os
 import struct
 import subprocess
+import threading
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, List, Optional, Tuple
+from typing import IO, Callable, Iterator, List, Optional, Tuple, cast
 
 from core.tools import trusted_which
 
@@ -328,13 +329,76 @@ def sevenzip_list(tool: str, archive: Path, timeout: int = 60,
     return items
 
 
-def sevenzip_extract(tool: str, archive: Path, out_dir: Path, timeout: int = 120,
-                     runner: Callable = subprocess.run) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    proc = runner([tool, "x", "-y", "-p", f"-o{out_dir}", str(archive)],
-                  capture_output=True, timeout=timeout)
-    if proc.returncode not in (0, 1):             # 1 = warnings (e.g. a skipped link)
-        raise FormatError("7-Zip failed to extract the image")
+class SevenZipMember:
+    """One member's bytes from `7z e -so`: 7-Zip writes them to a pipe and never
+    creates a file, so its own path and link handling is never relied on (RF-4).
+    `-spd` makes the name literal (no wildcards) and `--` ends the switches, so a
+    name starting with "-" is not read as one. The process runs in `work_dir`
+    (an empty folder in the sandbox) and is killed after `timeout` seconds.
+
+        member = SevenZipMember(tool, image, "Payload/a.pdf", work)
+        try:
+            for chunk in member.chunks(): ...
+        finally:
+            ok = member.close()
+    """
+
+    CHUNK = 64 * 1024
+
+    def __init__(self, tool: str, archive: Path, name: str, work_dir: Path,
+                 timeout: float = 120, popen: Optional[Callable] = None):
+        self.proc = (popen or subprocess.Popen)([tool, "e", "-so", "-y", "-p", "-spd", "-bd", "--", str(archive), name],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, cwd=str(work_dir))
+        self.out: IO[bytes] = cast(IO[bytes], self.proc.stdout)    # stdout=PIPE
+        self.timed_out = False
+        self._timer = threading.Timer(timeout, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _expire(self) -> None:
+        self.timed_out = True
+        self._kill()
+
+    def _kill(self) -> None:
+        try:
+            self.proc.kill()
+        except OSError:
+            pass
+
+    def chunks(self) -> Iterator[bytes]:
+        return iter(lambda: self.out.read(self.CHUNK), b"")
+
+    def close(self) -> bool:
+        """Stop the process (a reader that stopped early closes the pipe); True when
+        7-Zip finished normally (exit code 0, or 1 for warnings) in time."""
+        self._timer.cancel()
+        try:
+            self.out.close()
+        except OSError:
+            pass
+        try:
+            code = self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._kill()
+            code = self.proc.wait()
+        return code in (0, 1) and not self.timed_out
+
+
+def sevenzip_read(tool: str, archive: Path, name: str, work_dir: Path, limit: int,
+                  timeout: float = 120, popen: Optional[Callable] = None) -> Optional[bytes]:
+    """A member's bytes, or None when 7-Zip failed or it is larger than `limit`."""
+    member = SevenZipMember(tool, archive, name, work_dir, timeout, popen)
+    parts, size = [], 0
+    try:
+        for chunk in member.chunks():
+            size += len(chunk)
+            if size > limit:
+                return None
+            parts.append(chunk)
+    finally:
+        ok = member.close()
+    return b"".join(parts) if ok else None
 
 
 def gzip_bytes(data: bytes) -> bytes:              # used by the package builder in tests
