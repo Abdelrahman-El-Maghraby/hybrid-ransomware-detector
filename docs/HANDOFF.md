@@ -5,7 +5,9 @@
 - Branch: `fix/cloud-put-checksum`, based on step 12 `docs/v4.8` at `b770763`.
 - Base for the requested separate PR: `integration/v4.8`; wait for owner merge
   of #43 before opening it so the diff is only the checksum fix.
-- Step 12 PR #43: implementation and local checks complete, final CI pending.
+- Step 12 PR #43: ready for owner merge, out of draft. Final head b770763
+  has all 11 checks green: tests 40868054269, quality 40868054104, Docker
+  40868054126. The owner has been notified.
   Tests 1197 passed / 7 skipped; ruff, mypy, bandit and three lock audits passed.
   Previous head `ed3736c` had green tests, quality and Docker CI.
 - Owner explicitly authorised this follow-up: explicit SHA256 on every cloud
@@ -29,10 +31,10 @@
   report on final integrated code, through a separate PR into integration/v4.8.
   #39 stays draft. Production prerequisites and manual/atheris checks remain
   as PROJECT_REVIEW section 25 records.
-- Exact next action: inspect #43 final CI and mark ready once green; owner
-  merges #43, then fetch and open the checksum PR into integration/v4.8.
+- Exact next action: wait for owner merge of #43, fetch and inspect its
+  integration tip, then open the checksum PR into integration/v4.8.
   Scratch benchmark generator prepared from repository builders, seed 20261029:
   163 benign files / 24,681,977 bytes. No benchmark measurements run yet;
   regenerate as a new baseline after final code is integrated.
-- Last verified push: fix/cloud-put-checksum at 4d113a6, local and origin
+- Last verified push: fix/cloud-put-checksum at 48f3959, local and origin
   tips equal. This documentation checkpoint is not yet pushed.
