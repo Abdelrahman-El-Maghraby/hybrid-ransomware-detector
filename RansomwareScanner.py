@@ -945,6 +945,10 @@ def _scan_or_schedule(args, scanner) -> None:
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
         _schedule_background_jobs(scanner, watcher, CONFIG)
+        from core.folder_watch import monitor_from_config
+        monitor = monitor_from_config(scanner, CONFIG)      # WATCH_DIRS (desktop, F1)
+        if monitor is not None:
+            monitor.start()
 
         if not args.scan_now:
             _guarded("scan", scanner.run_scan)()
@@ -955,6 +959,8 @@ def _scan_or_schedule(args, scanner) -> None:
             logger.info("Scanner stopped by user.")
         finally:
             watcher.stop()
+            if monitor is not None:
+                monitor.stop()
 
 
 def _guarded(name: str, job):

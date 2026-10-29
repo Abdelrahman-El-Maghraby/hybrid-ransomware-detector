@@ -298,11 +298,15 @@ class QuarantineVault:
     # ----------------------------------------------------------- quarantine
     def quarantine(self, file_path: PathLike, reason: str = "",
                    extra: Optional[Dict[str, Any]] = None,
-                   delete_original: bool = True) -> Dict[str, Any]:
+                   delete_original: bool = True,
+                   expected_sha256: str = "") -> Dict[str, Any]:
         """Encrypt `file_path` into the vault; remove the original once verified.
 
         Returns the item's metadata record. `original_removed` tells whether the
-        original could actually be deleted (it may be locked on Windows).
+        original could actually be deleted (it may be locked on Windows). With
+        `expected_sha256` (the hash of the file that was scanned), a file whose
+        content changed since - another file renamed into its place - is refused:
+        only the file that was judged is ever vaulted.
         """
         src = Path(file_path)
         if src.is_symlink():
@@ -318,6 +322,9 @@ class QuarantineVault:
 
         st = src.stat()
         original_sha256 = _sha256_file(src, self.chunk_size)
+        if expected_sha256 and original_sha256 != expected_sha256.lower():
+            raise QuarantineError("The file changed after it was scanned; it was not "
+                                  "quarantined (scan it again).")
         self.vault_dir.mkdir(parents=True, exist_ok=True)
         item_id = uuid.uuid4().hex[:12]
         vault_file = self._vault_path(item_id)

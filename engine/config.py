@@ -202,6 +202,11 @@ CONFIG = {
     # The alert outbox (core/outbox.py): pending alerts, retried until delivered
     "outbox_dir": _getenv("OUTBOX_DIR", str(APP_DIR / "outbox")),
     "outbox_max_age_hours": _env_float("OUTBOX_MAX_AGE_HOURS", 24),
+    # Folder monitoring (core/folder_watch.py, desktop): scan files as they arrive
+    "watch_dirs": _getenv("WATCH_DIRS", ""),
+    "watch_settle_seconds": _env_float("WATCH_SETTLE_SECONDS", 2),
+    "watch_max_queue": int(_env_float("WATCH_MAX_QUEUE", 1000)),
+    "watch_retry_minutes": _env_float("WATCH_RETRY_MINUTES", 5),
     # Optional cloud storage of reports and logs (core/cloud.py): off by default,
     # desktop only, a redacted upload view to one S3-compatible bucket over HTTPS.
     "cloud_upload": _env_bool("CLOUD_UPLOAD", False),
