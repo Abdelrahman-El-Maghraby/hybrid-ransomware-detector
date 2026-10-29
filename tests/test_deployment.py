@@ -93,7 +93,7 @@ def test_dockerfile_pins_bases_and_runs_unprivileged():
         assert "@sha256:" in line, line
     assert "USER 10001:10001" in text
     assert "setcap -r /usr/bin/caddy" in text
-    assert "-c requirements.lock" in text
+    assert "--require-hashes -r requirements-server.lock" in text      # PR-12 (was -c requirements.lock)
     assert "test ! -e /app/core/containment.py && test ! -e /app/core/response.py" in text
     ignored = (ROOT / ".dockerignore").read_text().splitlines()
     assert {"core/containment.py", "core/response.py", ".env", "tests", ".git"} <= set(ignored)

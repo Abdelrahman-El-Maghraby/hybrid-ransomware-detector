@@ -29,7 +29,7 @@ jobs:
         # With only the core packages, mypy treats the optional ones as Any and checks
         # less than ships (B2); the lock installs all of them.
         run: |
-          python -m pip install -r requirements.lock
+          python -m pip install --require-hashes -r requirements.lock
           python -m pip install -e . --no-deps
           mypy
       - name: bandit (security linter; medium and high findings fail the job)
@@ -51,9 +51,9 @@ jobs:
       - name: Install (pinned versions from the lock file)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.lock
+          python -m pip install --require-hashes -r requirements.lock
           python -m pip install -e ".[dev]" --no-deps
-          python -m pip install pytest pytest-cov hypothesis qrcode httpx jsonschema "boto3>=1.35"
+          python -m pip install pytest pytest-cov hypothesis qrcode httpx jsonschema
       - name: Tests with coverage gate (fail under 85 %)
         env:
           LLM_PROVIDER: none
@@ -92,7 +92,10 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip pip-audit
       - name: Known vulnerabilities in the pinned dependencies
-        run: pip-audit -r requirements.lock --progress-spinner off
+        run: |
+          for lock in requirements.lock requirements-server.lock requirements-build.lock; do
+            pip-audit --require-hashes -r "$lock" --progress-spinner off
+          done
 
   regression-corpus:
     runs-on: ubuntu-latest
@@ -106,7 +109,8 @@ jobs:
           cache-dependency-path: requirements.lock
       - run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.lock pytest
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install pytest
       - name: Verdicts, scores and indicators of the 13-file corpus are unchanged
         env:
           LLM_PROVIDER: none

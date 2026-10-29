@@ -21,8 +21,9 @@ def test_matrix_installs_the_lock_first_and_states_the_dependency_set():
     job = _load("tests.yml")["jobs"]["pytest"]
     assert job["strategy"]["matrix"]["python"] == ["3.9", "3.12"]
     install = _steps(job)["Install dependencies"]["run"]
-    assert install.index("pip install -r requirements.lock") < install.index("per_package requirements.txt")
+    assert "pip install --require-hashes -r requirements.lock" in install    # 3.12: must install
     assert "S-04" in install and "Dependency set" in install and "pip freeze" in install
+    assert "per_package requirements.lock" not in install    # no unhashed per-package path
 
 
 def test_matrix_installs_the_api_and_test_extras_and_fails_on_their_skips():

@@ -40,34 +40,26 @@ jobs:
         run: brew install unar || true
 
       - name: Install dependencies
-        # The shipped set first (PR-06): the pinned lock, as the release builds and
-        # the image install it. Where the whole lock does not install:
-        #   * Python 3.12 (the release runtime): the lock one package at a time, as
-        #     release.yml does (python-tlsh has no Windows wheel);
-        #   * Python 3.9: the lock is resolved for 3.13 (S-04), so the latest
-        #     releases are tested instead, and the job says so.
-        # Every job states the set it tested (annotation and the log), and then adds
-        # the REST API and test extras so no API or fuzz test is skipped (PR-05).
+        # The shipped set first (PR-06, PR-12): the hash-pinned lock, as the release
+        # builds install it. On Python 3.12 (the release runtime) it must install
+        # completely; Python 3.9 cannot install it (S-04, a recorded exception), so
+        # the latest releases are tested there and the job says so. Every job then
+        # adds the REST API and test extras so no API or fuzz test is skipped (PR-05).
         env:
           OS_PY: ${{ runner.os }} / Python ${{ matrix.python }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest
-          per_package() {
-            grep -vE '^\s*(#|$)' "$1" | sed 's/#.*//; s/[[:space:]]*$//' | while read -r pkg; do
-              python -m pip install "$pkg" || echo "::warning::could not install $pkg on $OS_PY"
-            done
-          }
-          if python -m pip install -r requirements.lock; then
-            deps="requirements.lock (pinned, complete)"
-          elif [ "${{ matrix.python }}" = "3.9" ]; then
+          if [ "${{ matrix.python }}" = "3.9" ]; then
             deps="latest releases: requirements.lock does not install on Python 3.9 (S-04)"
             echo "::warning title=S-04 ($OS_PY)::requirements.lock does not install on Python 3.9; testing the latest releases instead"
-            per_package requirements.txt
+            grep -vE '^\s*(#|$)' requirements.txt | sed 's/#.*//; s/[[:space:]]*$//' | while read -r pkg; do
+              python -m pip install "$pkg" || echo "::warning::could not install $pkg on $OS_PY"
+            done
             python -m pip install -r requirements-ml.txt || echo "::warning::ML extras not installed"
           else
-            deps="requirements.lock, one package at a time (as release.yml)"
-            per_package requirements.lock
+            python -m pip install --require-hashes -r requirements.lock
+            deps="requirements.lock (pinned with hashes, complete)"
           fi
           python -m pip install fastapi uvicorn python-multipart httpx hypothesis jsonschema qrcode
           echo "::notice title=Dependency set ($OS_PY)::$deps"
