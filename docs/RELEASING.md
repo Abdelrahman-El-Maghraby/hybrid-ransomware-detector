@@ -5,8 +5,12 @@ branch.
 
 ## 1. Before the tag
 
-1. `integration/v4.7` (or the release branch) is merged into `main` through a pull
-   request with every check green: `tests`, `quality`, `docker`.
+1. `integration/v4.8` (or the release branch) is merged into `main` through a pull
+   request with every check green: `tests`, `quality`, `docker`. The release
+   workflow enforces this for the tagged commit itself: its `gate` job stops the
+   release unless each of the three workflows has a successful run for exactly
+   that commit (the push to `main` after the merge runs all three). Tag a
+   commit only after those runs have finished.
 2. `ENGINE_VERSION` in `engine/config.py`, `version` in `pyproject.toml` and the
    `CHANGELOG.md` heading say the same version.
 3. The readiness matrix (`docs/RELEASE_READINESS.md`) has no open blocker for this
@@ -24,6 +28,7 @@ A tag with a suffix (`v4.7.0-rc1`) becomes a pre-release. `release.yml` then:
 
 | Job | Produces |
 |---|---|
+| `gate` | nothing: it fails the release when `tests`, `quality` or `docker` has no successful run for the tagged commit |
 | `build` (Windows, macOS, Linux) | `hrd-scanner-<version>-<os>-<arch>.zip` / `.tar.gz`, smoke-tested by `build.py` (fails when a required layer is missing), and `<same name>.cdx.json`: the SBOM of the environment that build packaged |
 | `image` | `aegis-sentinel-server-<version>-linux-amd64.tar.gz` (the server and proxy images, after `deploy/check-deployment.sh` passed on them), its `.cdx.json` (Python packages) and `.debian-packages.txt` |
 | `publish` | `SHA256SUMS`, a keyless Sigstore signature (`*.sigstore.json`) for every file, and the GitHub release |
