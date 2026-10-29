@@ -34,14 +34,17 @@ branches. Details live only in the report; follow the references.
   cloud storage for logs and reports.
 - **Owner decisions:** D-A to D-E were answered on 2026-10-29 (report section 24.1):
   4.8.0, monitoring desktop only, e-mail through one intel operation, optional
-  S3-compatible logs and reports, and fail closed everywhere. Still open: D-D1,
-  D-D2, D-D3, D-E1, D-F, D-G, D-H, D-I (report section 24.8).
+  S3-compatible logs and reports, and fail closed everywhere. D-D1 to D-D3,
+  D-E1, D-F (B1), D-G and D-I were answered the same day (report section 24.9).
+  Still open: D-H, merging PR #30; its status is in report section 24.10.
 - **Revised Stage 3 plan** (proposed, **not approved**): report section 24.
   - steps 1-12 and the release requirement / optional split: 24.2-24.3;
   - branch and combined-testing workflow: 24.4;
   - unreviewed areas and the validation still required: 24.5;
   - TMA-1 to TMA-7: 24.6;
-  - PR #30 checks: 24.7.
+  - PR #30 checks: 24.7 and 24.10;
+  - owner answers and the B1 workflow: 24.9;
+  - the Stage 3 startup prompt: `docs/tasks/project-review.md`, last section.
 - **Remaining closure items:**
   - block checklists, report section 13;
   - project release closure checklist, report section 21 (block closure,

@@ -272,3 +272,123 @@ application code changes or merging any PR. The three-file scope still applies.
   "Last Dance" reference, and keep the historical findings and measurements
   identifiable.
 - Result: report section 24.
+
+## Second plan revision (owner answers, 2026-10-29)
+
+Authorises documentation and planning updates only. Stage 3 is to be authorised
+separately in a fresh session. The answers to D-D1 to D-D3, D-E1, D-F (B1), D-G
+and D-I are recorded in report section 24.9. PR #30's actual status is recorded in
+section 24.10; it must not be merged by Claude.
+
+## Stage 3 startup prompt (for a fresh session, after the owner authorises Stage 3)
+
+```text
+Repository: https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector
+Local checkout: ~/Projects/hybrid-ransomware-detector. Verify the working
+directory is this repository (git remote, top-level files) before anything else.
+
+I authorise Stage 3 (implementation) of the project review for release 4.8.0:
+steps 1-12 of docs/PROJECT_REVIEW.md section 24.3, as refined by sections 24.1
+and 24.9. This authorises routine code, test and documentation changes,
+commits, pushes, creating integration/v4.8, and opening implementation PRs. It
+does not authorise merging any PR or merging into main.
+
+Decisions (all final):
+- D-A: 4.8.0, steps 1-12. Keep release requirements (R), production
+  prerequisites (P) and optional improvements (O) separate (24.2). Do not do
+  O items unless I approve them separately.
+- D-B: folder monitoring is desktop only (Windows, macOS, Linux desktop app and
+  its background service). No watcher in Docker or the REST API.
+- D-C: Docker e-mail goes through one narrowly scoped intel operation with a
+  fixed metadata schema; intel holds SMTP settings, credentials and recipients;
+  TLS with verification; SMTP destination check; rate limit and daily cap;
+  analysis keeps no network. The desktop sends directly over TLS.
+- D-D: optional S3-compatible upload of logs and reports only, off by default,
+  desktop only (D-D2). Local spool: 30 days and a size cap, separate from cloud
+  retention, cleanup as in 24.3 step 9.
+- D-D1: 90-day cloud retention through the bucket lifecycle configuration
+  (operator-configured and documented). Least-privilege credentials: create
+  objects under this installation's prefix only, no list/read/delete/config.
+  Unique object keys, create-only conditional writes where supported, checksum
+  verified. Never claim that write-only access prevents overwriting or
+  tampering; document bucket versioning / object lock as operator controls and
+  that uploads are not tamper-evident.
+- D-D3: uploads are an allowlisted, redacted view. File paths, folder names and
+  file names (targets, archive members, attachments, embedded objects), user
+  and host names are redacted by default (keyed per-installation pseudonyms;
+  replacing the home folder with ~ is not enough). No free text by default; logs
+  as structured allowlisted events. Document in DATA_POLICY the metadata that
+  remains. Full-detail upload is an explicit opt-in, recorded and warned. A
+  marker-name test proves no path or name leaks.
+- D-E: fail closed by default on desktop and API when isolated workers cannot
+  start, with a clear error; never silently scan in the main process.
+- D-E1: disabling isolation (ISOLATE_SCANS=0) stays a development-only opt-out,
+  recorded in every result (provenance.isolation), and is rejected at start-up
+  under the production profile.
+- D-F: Option B1. Create integration/v4.8 from updated main. Never commit to
+  it directly; every change reaches it through a step PR that I review and
+  merge. Follow the B1 workflow in 24.9: branch from the integration tip when
+  the prerequisites are merged; stack on a single unmerged parent (PR base =
+  parent branch, retarget to integration/v4.8 after I merge the parent);
+  wait when a step has two unmerged parents. Open integration/v4.8 -> main early
+  as a draft for combined CI. You merge no PR and never merge into main.
+- D-G: threat-model updates TMA-1 to TMA-7 approved for step 12, written after
+  steps 1-11, matching the final implementation, and separating mitigated
+  defects (with commit and test) from accepted residual risks.
+- D-I: schema 1.4 (additive provenance.isolation) and the scoped contract and
+  dependency changes the plan needs are approved: the intel e-mail operation,
+  an optional [cloud] extra and its client dependency, CI workflow changes, the
+  hash-pinned lock. Nothing beyond the plan.
+
+Start-up checks (before editing):
+1. Read AGENTS.md, CLAUDE.md, docs/AI_WORKFLOW.md and docs/HANDOFF.md.
+2. Check PR #30 (gh pr view 30): record whether it is merged. If merged, read the
+   report from main. If not, read docs/PROJECT_REVIEW.md and
+   docs/tasks/project-review.md from origin/review/project-review with git show,
+   and record that in the handoff; do not assume it is merged and do not merge it.
+3. Read the report sections 10, 13, 14, 15, 20, 21 and 24, and
+   docs/RELEASE_READINESS.md for tracked IDs.
+4. Check the working tree and preserve unrelated changes. Fetch origin; record
+   the implementation baseline (origin/main SHA) and whether it moved past
+   af5e6d2; if it did, re-check the cited file:line references of the step
+   being started.
+5. Create integration/v4.8 from updated main, push it, then start step 1.
+
+Rules:
+- Order and dependencies: 24.3 "Builds on". One focused branch and PR per step,
+  using the branch names in 24.3, base per the B1 workflow. Each PR states its
+  parent, IDs, acceptance criteria, checks run with results and skips, and the
+  limitations. Mark it ready only when its CI is green.
+- Before each step, do the inspection 24.5 assigns to it, and record it.
+- Commit identity and attribution exactly as AGENTS.md says. No force-push, no
+  auto-merge, no commits to main.
+- No secrets, .env files, tokens or private data in commits, logs, PRs or the
+  handoff; the repository is public.
+- This Mac is the host: never download, extract or run malware samples; use
+  generated benign fixtures only (including the S-01 DMG test).
+- Do not change detection weights, thresholds or inspection coverage. ML
+  training/model work and accuracy evaluation are out of scope; record any
+  cross-boundary dependency.
+- Change docs/THREAT_MODEL.md only in step 12. Change docs/RELEASE_READINESS.md
+  only to record evidence for items actually closed.
+- Tests for every acceptance criterion (sections 10, 20 I-1 to I-7, 24.3, 24.9),
+  including failure paths. Run pytest, ruff, mypy, bandit and pip-audit locally
+  and rely on CI for Python 3.9/3.12, Windows, Linux and Docker. Never weaken a
+  protection to make a test pass. Record what actually ran; do not invent results.
+- Handoff: keep the active checkpoint in docs/HANDOFF.md on the step branch
+  being worked on (fields per AI_WORKFLOW.md, list every step PR and its state);
+  before marking a step PR ready, restore docs/HANDOFF.md exactly to its
+  content on integration/v4.8. Save and push small checkpoints.
+- Record fixes against implementation commits; do not rewrite the historical
+  review evidence in docs/PROJECT_REVIEW.md.
+- If something is unavailable (for example Windows or Linux desktops), record
+  the exact limitation and continue with the feasible work.
+- Progress updates and summaries in English.
+
+Finish: run I-1 to I-7 and the section 15 benchmark where relevant (re-measure
+after step 3), update user-facing docs, and report development completion and
+production readiness separately, listing the remaining tracked prerequisites
+(M1/X1, M2, O1, U1, X2, legal review of docs/THIRD_PARTY.md, D5 if arm64 is
+claimed). Stop when the final integration/v4.8 -> main PR is ready for my
+review; do not merge it.
+```

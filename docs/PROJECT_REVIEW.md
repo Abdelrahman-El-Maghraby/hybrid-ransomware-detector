@@ -6,7 +6,7 @@ separate approval.
 
 **Plan revision (2026-10-29, after Stage 2):** the owner answered D-A to D-E.
 The revised Stage 3 plan, the PR #30 check results and the decisions still open
-are in section 24 (proposed, not approved). Sections 0-23 are kept as the Stage 1
+are in section 24 (proposed, not approved). The owner's answers to the open decisions are in 24.9, and PR #30's status in 24.10. Sections 0-23 are kept as the Stage 1
 and Stage 2 record.
 
 Task brief: [tasks/project-review.md](tasks/project-review.md).
@@ -1585,7 +1585,7 @@ remain open until answered.
   ☐ legal review of `docs/THIRD_PARTY.md` (no own ID) · ☐ D5 if arm64 is claimed.
 - **External decisions:** ☐ D-A, D-B, D-C, D-D, D-E (section 13). *Plan
   revision:* ☑ D-A to D-E answered (section 24.1). ☐ D-D1, D-D2, D-D3, D-E1, D-F,
-  D-G, D-H, D-I (section 24.8).
+  D-G, D-H, D-I (section 24.8). *Second revision:* ☑ D-D1 to D-D3, D-E1, D-F, D-G and D-I answered (24.9); ☐ D-H, merging PR #30 (24.10).
 
 ## 22. The 10 highest-value actions
 
@@ -1735,7 +1735,7 @@ because of D-B to D-E.
 - I-1 and I-2 run on macOS here. On Windows and Linux they run in CI and in the
   owner's manual check (24.5).
 
-**Step 9: cloud storage for logs and reports (D-D).**
+**Step 9: cloud storage for logs and reports (D-D).** *Credentials, keys and redaction are refined by D-D1 and D-D3 in 24.9.*
 - **Content:** off by default. It uploads reports and rotated log files only,
   never inspected files, vault contents, keys, the outbox or the cache. A test
   asserts this (I-5).
@@ -1831,6 +1831,8 @@ explicit authorisations.**
   `integration/v4.8`, through small direct checkpoint commits there (never on
   `main`). Step PRs do not edit it, which avoids conflicts. It is reset to idle as
   the last commit before the owner merges the final PR.
+
+*Second revision: the owner chose B1. The workflow that applies is in 24.9 (D-F).*
 
 Under either option, there is no force-push, no merge into `main`, and no
 auto-merge. Each step PR states its parent, its IDs and its checks.
@@ -1937,7 +1939,7 @@ test is `af5e6d2`'s, and these runs add CI evidence for the reviewed code.
   annotation even when the job passes (`.github/workflows/quality.yml:68-70`). It
   is cosmetic, has no ID, and is listed as optional (24.2).
 
-### 24.8 Decisions still open
+### 24.8 Decisions still open (as of the first plan revision; answered in 24.9 except D-H)
 
 | ID | Question | Recommendation |
 |---|---|---|
@@ -1952,3 +1954,125 @@ test is `af5e6d2`'s, and these runs add CI evidence for the reviewed code.
 
 The owner's tracked prerequisites are unchanged: M1 / X1, M2, O1, U1, X2, the legal
 review, and D5 if arm64 is claimed.
+
+### 24.9 Owner answers to the open decisions (second plan revision, 2026-10-29)
+
+Recorded on 2026-10-29, in response to section 24.8. These answers **supersede**
+the recommendations in 24.3, 24.4 and 24.8 wherever the two differ. The plan is
+still proposed. Stage 3 is to be authorised separately, in a fresh session.
+
+| ID | Owner answer | Effect on the plan |
+|---|---|---|
+| D-D1 | **90-day cloud retention, set by the bucket's lifecycle configuration.** Least-privilege upload credentials and unique object keys. Do not claim that write-only access alone prevents overwriting or tampering | design below |
+| D-D2 | **Cloud uploads are desktop only in 4.8.0** | Docker gets no F5 and no intel operation for uploads |
+| D-D3 | **Sensitive file paths and file names are redacted by default** from uploaded reports and logs. Replacing the home folder with `~` is not enough. Document the metadata that remains | design below; replaces the 24.8 recommendation |
+| D-E1 | **Disabling isolation stays an explicit opt-out for development only.** It is recorded in the results, rejected under the production profile, and fail closed is the default | step 2: `ISOLATE_SCANS=0` becomes a start-up error under the production profile (today a warning, `engine/validation.py:245-246`); every result records `provenance.isolation` |
+| D-F | **Option B1.** Claude may create `integration/v4.8`. The owner reviews and merges the implementation PRs into it. **Claude merges no PR and never merges into `main`** | workflow below; replaces 24.4's direct handoff commits to the integration branch |
+| D-G | **TMA-1 to TMA-7 approved** for the threat model. The wording must reflect the final implementation and must separate mitigated defects from accepted residual risks | step 12 writes the text only after steps 1-11 have landed, and checks it against the code |
+| D-H | **not answered in this message.** Status of PR #30: see 24.10 | Stage 3 checks PR #30's real state at start-up and does not assume it was merged |
+| D-I | **Approved:** schema 1.4 and the scoped contract and dependency changes the agreed plan needs | additive `provenance.isolation`; the intel e-mail operation (Docker); an optional `[cloud]` extra and its client dependency; CI workflow changes (step 6); the hash-pinned lock (step 11). Nothing outside the plan |
+
+**D-D1: cloud retention and credentials (step 9).**
+- **Retention:** 90 days, enforced by a lifecycle rule on the bucket. The
+  operator configures it, and OPERATIONS documents an example rule for the
+  prefix. The app does not delete remote objects, and it cannot check or enforce
+  the bucket's retention. DATA_POLICY says so.
+- **Least privilege:** the credential is limited to creating objects under this
+  installation's prefix. It has no list, read, delete or bucket-configuration
+  permission. OPERATIONS documents an example policy.
+- **Unique object keys:**
+  `<prefix>/<install-id>/<reports|logs>/<yyyy>/<mm>/<dd>/<UTC time>-<128-bit random id>-<sha256 prefix>.json`.
+  Where the endpoint supports conditional writes, the upload is create-only
+  (`If-None-Match: *`). The content checksum is sent and verified.
+- **Limits, stated plainly in OPERATIONS, DATA_POLICY and TMA-7:**
+  - Unique keys prevent the app from overwriting its own objects by accident.
+    They do not stop a deliberate overwrite.
+  - Anyone holding the credential can still upload forged or junk objects under
+    the prefix. On endpoints without conditional writes, they can also overwrite
+    an existing key.
+  - Overwrites and deletions can only be prevented or detected on the bucket
+    side: object versioning, or object lock / WORM with a lock period of 90 days
+    or less. The operator configures these, and they are recommended.
+  - Even with those controls, an uploaded report or log is only as trustworthy as
+    the host that produced it (TMA-1, TMA-7). Uploads are not described as
+    tamper-evident.
+
+**D-D3: redaction of uploads (step 9).**
+- **An allowlisted upload view.** What is uploaded is a separate upload view,
+  built from an explicit allowlist of fields. It is not the local report with
+  some fields removed, so a new field is not uploaded until someone adds it to the
+  allowlist.
+- **File identity removed by default:** full paths, folder names and file names
+  (scan targets, archive members, attachments, embedded objects), plus user and
+  host names. Each file name is replaced by a keyed pseudonym (HMAC-SHA-256,
+  truncated). The key is a per-installation secret kept in the secret store and
+  never uploaded. The same file therefore correlates across uploads without its
+  name being revealed.
+- **Free text is not uploaded by default:** log message text, indicator detail
+  strings, extracted strings, URLs, e-mail addresses and subjects. Logs are
+  uploaded as structured events with allowlisted fields (event type, level, time,
+  scan id, code, counts), never as raw log files.
+- **Metadata that remains (documented in DATA_POLICY):**
+  - file facts: SHA-256 and MD5, size, detected type and extension;
+  - scan outcome: verdict, risk and severity scores, signal and rule IDs and
+    counts, layer states, `scan_status` and `incomplete_reasons` codes;
+  - provenance: engine, schema, registry and rule-pack versions;
+  - identifiers: timestamps, scan id, installation id, OS family, app version.
+
+  DATA_POLICY also explains that anyone who already has a file can match it to an
+  uploaded hash.
+- **Full-detail opt-out:** an unredacted-upload setting, off by default. When
+  on, it is marked in every upload's metadata and shown as a warning in the GUI.
+- **Test:** files and folders with unique marker names are scanned. No marker
+  (path, file name, folder, user name) may appear in any uploaded byte. This
+  extends I-5.
+
+**D-F: workflow under B1** (replaces the Option B description in 24.4 where the
+two differ).
+- **Integration branch:** Claude creates `integration/v4.8` from the up-to-date
+  `main`. Claude never commits to it directly. Every change reaches it through a
+  step PR that the owner reviews and merges.
+- **Where a step branches from:**
+  - if the steps it builds on are already merged, from the tip of
+    `integration/v4.8`, with that branch as the PR base;
+  - if it has one unmerged parent, from that parent's branch, with the parent
+    branch as the PR base. Once the owner merges the parent, Claude changes the
+    PR's base to `integration/v4.8` (`gh pr edit --base`) and, if needed, merges
+    `integration/v4.8` into the step branch. That merge commit lands on Claude's
+    own branch and is not a PR merge.
+  - if it has two unmerged parents (step 8: steps 3 and 7), it waits until both
+    are merged into `integration/v4.8`. It does not combine the parents itself.
+- **Combined testing:** the final PR, `integration/v4.8` → `main`, is opened early
+  as a draft, so `tests.yml`, `quality.yml` and `docker.yml` run on every merge
+  into the integration branch. Each stacked step PR also gets full CI on its
+  combined code (24.4 facts). The owner merges the final PR.
+- **Handoff:**
+  - The active checkpoint lives in `docs/HANDOFF.md` on the step branch being
+    worked on, and lists every step PR and its state.
+  - Before a step PR is marked ready for the owner, its last commit restores
+    `docs/HANDOFF.md` exactly to its content on `integration/v4.8` (idle, with
+    the Last Dance reference). Step PRs therefore never conflict on it, and the
+    integration branch always holds the idle state.
+  - The progress between steps is in the PR descriptions and in the next active
+    branch's checkpoint.
+- **Never:** force-push, auto-merge, merge any PR, or merge into `main`.
+
+**D-G: threat-model wording (step 12).** Each TMA entry says whether it is:
+- **a mitigated defect**, with the fixing commit and the test (TMA-2 after step 1,
+  TMA-3 after step 5, TMA-4 after step 2); or
+- **an accepted residual risk**, with its conditions (TMA-1; the remaining parts of
+  TMA-5 to TMA-7, such as the uploader host's trustworthiness, the operator owning
+  remote retention, and alert metadata reaching the mail provider).
+
+The text describes what was actually implemented and is written after steps 1-11.
+
+### 24.10 PR #30 status (checked 2026-10-29)
+
+**Not merged.** It is open, targets `main`, is not a draft and has no review
+decision. GitHub reports it as mergeable (`CLEAN`). At head `e1b9cdf` (the first
+plan revision), all 11 checks passed (runs: tests 40814970632, quality
+40814970637, docker 40814970574). The commit that records 24.9 starts a new CI run. Its result is not
+recorded here, because recording it would need yet another commit; see the PR's
+checks. The PR changes only the three review files, and
+`docs/HANDOFF.md` is idle at its tip. Stage 3 must check the PR's real state again
+at start-up.
