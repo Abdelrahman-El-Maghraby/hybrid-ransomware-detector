@@ -1,7 +1,9 @@
 # Current task handoff
 
-- Status: active. **Stage 1 complete; waiting for the owner's explicit "continue"**
-  before Stage 2. Do not start Stage 2 without it.
+- Status: active. **Stage 2 in progress**: the owner said "continue" for Stage 2
+  only. Stage 3 is not authorised. Done so far: baseline re-checked (unchanged
+  `af5e6d2`), parser sample, benchmarks, full gates, report sections 14-17.
+  Remaining: sections 18-23, reconcile section 10, final validation, PR.
 - Technical goal: evidence-based architecture, code quality, performance and
   readiness review plus development closure plan.
 - Sanitised brief: [tasks/project-review.md](tasks/project-review.md).

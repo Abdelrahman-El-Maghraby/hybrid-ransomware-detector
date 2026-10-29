@@ -935,20 +935,216 @@ ML integration dependency (separate contributor): no model ships, and the server
 image has no scikit-learn (RELEASE_READINESS Phase 2 backlog). No integration
 change is needed for the requested capabilities so far.
 
-## 14. Pending sections (Stage 2)
+## 14. Refactoring proposals (incremental)
 
-- **Refactoring and optimisation proposals**, with steps, effort, risk, checks and
-  timing for each.
-- **Performance benchmark** with `tools/profile_layers.py` and a timed mixed-file
-  scan on this Mac: methodology, results, hotspots with numbers, and H-01 to H-03.
-- **Stage 2 parser sample**: `pe_analysis.py`, `mail_analyzer.py`,
-  `embedded_content.py` with `cfb_writer.py`, the rest of `macos_packages.py`,
-  `web_content.py`. Then B3, B4, B5, B8, B11 and scoring.
-- **Gap analysis and grades** against section 12, per block and for the project.
-- **Final block closure checklists, dependency-ordered implementation sequence,
-  cross-block integration checks, project release closure checklist.**
-- **Overall assessment and prioritised roadmap**, with separate statements on
-  development completion and production readiness.
-- **The 10 highest-value actions.**
-- **Validation:** check the file:line references, readiness IDs and tables;
-  Markdown / Mermaid syntax check; three-file diff check; PR.
+Every proposal is a small step that preserves behaviour unless the related
+finding says otherwise. None changes detection weights, thresholds or inspection
+coverage. "Checks" are existing tests unless marked new.
+
+| ID | Problem (evidence) | Benefit | Steps | Depends on | Effort | Risk / compatibility | Checks | Acceptance | Timing |
+|---|---|---|---|---|---|---|---|---|---|
+| RF-1 Explicit isolation policy | Hidden fallback and no isolation for single files (PR-02 `engine/workers.py:461-462`; PR-03 `engine/scanner.py:372`) | One rule for "where does a file get parsed", visible in the result | 1) add `on_unavailable="fail"\|"in_process"` to `scan_isolated`; 2) API and production profile pass `"fail"`; 3) record `provenance.isolation`; 4) route `total == 1`, `--scan-file` and the GUI single file through it | none | M | additive provenance field (schema minor bump, C6); +~1.1 s first-file latency on the desktop unless a spare is kept | `tests/test_workers.py`, `tests/test_worker_limits.py`; change `tests/test_workers.py:80` on purpose; new tests per PR-02/03 | PR-02 and PR-03 acceptance | during current development |
+| RF-2 Event-driven worker loop | Round-robin blocking poll costs throughput (PR-17, measured: section 15) | about +60 % small-file throughput with 4 workers in the experiment | 1) replace the per-worker `poll(0.05)` with `multiprocessing.connection.wait(busy_pipes, timeout)`; 2) keep the timeout / memory checks on a short tick; 3) keep `_step` semantics for ready / dead workers | none | S | timing-sensitive; Windows pipes are supported by `connection.wait` | `tests/test_workers.py`, `tests/test_worker_limits.py:155-176` | same results as today on the regression corpus; the section 15 benchmark shows steady-state files/s with 4 workers ≥ with 1 worker | during current development |
+| RF-3 Injected VirusTotal client | Intel builds a stand-in scanner to reuse a mixin (`api/intel.py:91-101`) | removes an implicit attribute contract; typed | 1) move the VirusTotal calls of `engine/external.py` into a `VirusTotalClient(session, cache, limiter, config)`; 2) the mixin delegates to it; 3) intel instantiates it directly | none | M | internal only; result fields unchanged | `tests/test_intel_service.py`, `tests/test_cache_keys.py`, `tests/test_sharing.py` | intel no longer subclasses `ExternalLookupsMixin`; all tests pass | before production (B8 owner) or later |
+| RF-4 DMG members streamed | `7z x` into a folder (PR-04) | one extraction model for every external tool | 1) list with `sevenzip_list`; 2) per admitted regular file `7z e -so -- image member` through `_stream_into`; 3) nested FS images through the same path; 4) correct THREAT_MODEL §2 wording if anything remains | S-01 result for urgency | M | slower for images with many files (one process per member); keep the member cap | `tests/test_macos_packages.py:155-194`; new traversal / link test | PR-04 acceptance | during current development |
+| RF-5 Guarded background jobs and an alert outbox | Unguarded scheduler (PR-07); fire-once delivery, no canary alerts in outputs (PR-08) | the background service survives errors; one delivery path for webhook and future e-mail | 1) `_safe_job(fn)` wrapper and failure counter; 2) `core/outputs.py`: an outbox folder with one JSON per alert, retry with backoff, de-duplicated by alert id; 3) `_canary_alert` enqueues an alert | none for 1; 2 before the e-mail feature | S + M | outbox files hold metadata only (DATA_POLICY unchanged in content) | `tests/test_outputs_and_api.py:45-76`, `tests/test_canary*.py`; new loop and outbox tests | PR-07 and PR-08 acceptance | during current development (before the new capabilities) |
+| RF-6 Rule-pack path confinement | PR-01, PR-14 | closes a High defect | 1) `_VERSION = re.compile(r"^\d+(\.\d+){0,5}$")` checked in `verify_pack`, `rollback_pack` and `tools/rulepack.py build`; 2) `final.resolve()` must be inside `root.resolve()`; 3) atomic `active.json` with `os.replace` and a log line on read failure | none | S | an existing pack with a non-numeric version would be refused; the documented scheme is numeric (`docs/RULE_PACKS.md` "Publishing") | `tests/test_rulepack.py`; new traversal tests | PR-01 and PR-14 acceptance | now |
+| RF-7 One result skeleton | Top-level result built twice (`engine/layers.py:109-118`, `engine/workers.py:387-403`) | schema fields cannot drift between normal and failed results | a `result_skeleton(path, display, size)` used by both | none | S | none (same fields) | `tests/test_outputs_and_api.py:28`, `:36` | both paths call it | later improvement |
+| RF-8 Split `RansomwareScanner.py` | autostart, parser, handlers and scheduler in one 999-line file (B12) | smaller units; autostart testable alone | move autostart (`:98-369`) to `core/autostart.py`, scheduler to `engine/background.py`; keep the CLI module as the entry point | RF-5 | M | import paths in `scanner.spec` / PyInstaller (`build.py`); keep `RansomwareScanner` module name | full suite; `test_smoke.py`; `build.py` smoke test | entry points unchanged (`pyproject.toml:51-55`) | later improvement |
+| RF-9 Thin `create_app` | `create_app` at complexity 19 (cap) | room for new endpoints (monitoring status, alert test) without breaking the C90 gate | move each endpoint group into a function receiving `service`, `auth`, `slots` | none | S | none | `tests/test_api_auth.py`, `tests/test_readiness.py`, `tests/test_outputs_and_api.py` | ruff C90 well under 19 | with the first new API endpoint |
+
+Not proposed: a typed configuration object (no demonstrated defect), replacing the
+mixins wholesale (RF-3 handles the one demonstrated coupling), or merging the
+password loops in `container_extractor.py` (format-specific errors; no defect).
+
+## 15. Performance benchmark (this Mac only)
+
+**These are local measurements on the development Mac. They are not reference
+Linux server results (M2 stays open) and say nothing about Windows or Linux.**
+
+### Method
+
+| Item | Value |
+|---|---|
+| Hardware / OS | Apple M1, 8 cores, 8 GB; macOS 27.0.1 |
+| Runtime | Python 3.14.2 (`.venv`; 3.14 is not a supported runtime, B3) |
+| Libraries | yara-python 4.5.4, py7zr 1.1.4, pypdf 6.21.3, oletools 0.60.2, pyzipper 0.4.0, rarfile 4.5, pycdlib 1.22.0, python-docx 1.2.0, Pillow 13.0.0, pyzbar 0.1.9, numpy 2.5.4, python-tlsh 4.5.0, ppdeep 20260221; tools: 7-Zip 26.05 (`7zz`), unar 1.10.7 |
+| Code | `af5e6d2`, unmodified. One environment setting: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` so pyzbar finds the installed zbar (without it the QR layer is `down` on this Mac, a known item in RELEASE_READINESS "Not blocking") |
+| Isolation of the run | `HOME` set to an empty scratch folder (no user configuration, data, rule packs or hash database), `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`, `LLM_PROVIDER=none`, no VirusTotal / OpenAI / sandbox settings, cache off: **no network calls** |
+| Layers | every required production layer `up` (hashes, allowlist, fuzzy, local-db, macro, yara, integrity, elf, pe, script, mail, prompt-guard, relationships, qr, archive, web, embedded, ml in rule-engine mode); disabled by configuration: emulation, llm, virustotal, sandbox (the production defaults, RELEASE_SCOPE §3) |
+| Settings | defaults: `SCAN_TIMEOUT_SECONDS` 300, `WORKER_MEMORY_MB` 2048, `ARCHIVE_*` defaults, `parallel_heavy_layers` on (isolated runs) / off (`profile_layers.py` sets it off) |
+| Dataset | 163 synthetic **benign** files generated by a scratch script from the repository's own test builders (`tests/helpers.py`, `tests/msg_builder.py`, `tests/rar_builder.py`, `tests/macos_builder.py`, `tests/test_mail_analyzer.py:make_eml`), random seed 20261029; total 25,307,181 bytes. Types are known by construction (one folder per type) and confirmed by the integrity layer (162 complete results) |
+| Composition (files / bytes) | pdf 20 / 203,410 · docx 20 / 792,644 · zip 10 / 46,876 (5 PDFs + 1 script each) · 7z 5 / 9,911 · rar 3 / 19,453 · iso 3 / 227,328 · eml 15 / 48,638 (8 with a PDF attachment) · msg 5 / 33,280 · html 15 / 1,226,485 · svg 5 / 565 · js, vbs, ps1, bat 10 each / 17,214, 16,247, 19,042, 9,624 · images 10 / 34,247 (5 JPEG, 5 PNG) · exe 10 / 92,160 (PE stubs) · large 2 / 22,510,057 (a 1.5 MB text PDF; a 21 MB ZIP storing 20 MB of random bytes) |
+| "Small" subset | the same set without the two large files: 161 files, 2,797,124 bytes |
+| Not covered | real-world documents and programs, macro documents, OneNote / CHM / MSI, DMG and PKG, ELF, encrypted archives, very large mailboxes, any malware. **Nothing here is accuracy evidence** |
+| Cache / warm-up | OS file cache warm (the dataset was read by the generator and by earlier runs); each measurement is a fresh process; the scanner's result cache off |
+| Repetitions | 3 per configuration (isolated scans, `profile_layers.py`), 5 worker starts |
+| Commands | `python tools/profile_layers.py <dataset> --out <json>`; scratch driver calling `RansomwareScanner._scan_targets(paths)` with `isolate_scans=True`, `scan_workers=N` (the product's folder-scan path); worker start with `engine.workers.start_worker` until its `ready` message. Scripts and raw results stay outside the repository |
+
+**Metric definitions.**
+- *Batch wall*: from `_scan_targets` call to return. It includes worker start-up.
+- *Steady-state files/s*: files ÷ (wall − time to the first result). This
+  approximates throughput after start-up.
+- *Processing time per file*: the result's `scan_duration_ms`, measured inside
+  `scan_file` in the worker. It excludes queueing, IPC and worker start.
+- *In-process per-file wall*: the per-file time from `profile_layers.py`.
+- *Peak memory*: `getrusage` `ru_maxrss` of the parent, and of `RUSAGE_CHILDREN`.
+  On macOS the latter is the largest single terminated child, **not** the sum of
+  concurrent workers.
+- *Layer cost*: `profile_layers.py` sums the time per layer. A container layer's
+  time **includes** its members' layers, so the layer totals exceed wall time
+  for container-heavy sets.
+
+### Results
+
+**Full mixed set, isolated folder scan** (3 runs each; ranges):
+
+| Workers | Wall (s) | Files/s | MB/s | First result (s) | Parent peak (MB) | Largest worker peak (MB) | Status |
+|---|---|---|---|---|---|---|---|
+| 1 | 6.42-6.46 | 25.2-25.4 | 3.92-3.94 | 1.15 | 197-198 | 446-492 | 162 complete, 1 partial, 0 failed |
+| 2 | 5.63-5.65 | 28.8-28.9 | 4.48-4.49 | 1.22 | 197 | 369-374 | same |
+| 4 (default here: `min(4, cpu)`, `engine/workers.py:582`) | 5.85-5.98 | 27.3-27.9 | 4.23-4.33 | 1.34-1.40 | 195-196 | 260-325 | same |
+
+The one partial result is `large/big.zip`. Its 20 MB member is over
+`fuzzy_max_bytes` (fuzzy skipped), and its random content has no type-specific
+analysis. These are intended gaps (`engine/completeness.py`). There were no
+timeouts, crashes or skipped files.
+
+**Small subset, isolated** (3 runs each):
+
+| Workers | Wall (s) | Files/s | Steady-state files/s | Largest worker peak (MB) |
+|---|---|---|---|---|
+| 1 | 3.22-3.31 | 48.7-50.0 | 75.9-77.8 | 313 |
+| 2 | 3.46-3.53 | 45.7-46.5 | 70.9-71.9 | 250-259 |
+| 4 | 4.04-4.05 | 39.7-39.9 | 59.2-60.1 | 211-232 |
+| in-process (`profile_layers.py`, no isolation) | 1.77 | 91.0 | n/a | n/a |
+
+**Experiment for H-01**: identical runs, with `_IsolatedScan.POLL_SECONDS` set
+to 0.002 instead of 0.05 inside the benchmark process only. This was not a code
+change:
+
+| Workers | Steady-state files/s (50 ms poll) | Steady-state files/s (2 ms poll) | Change |
+|---|---|---|---|
+| 1 | 75.9-77.8 | 78.2-78.5 | +1 % |
+| 2 | 70.9-71.9 | 101.3-102.5 | +42 % |
+| 4 | 59.2-60.1 | 95.3-96.4 | +60 % |
+
+**Worker start-up**: 1.121-1.142 s, median 1.133 s, over 5 starts (process
+spawn, imports and scanner build until `ready`). An idle worker's peak is 196 MB.
+This agrees with RELEASE_READINESS A7-2 ("about 1.4 s", "idle spare ~193 MB").
+
+**Per-type latency, in-process per-file wall** (`profile_layers.py`, 3 runs pooled;
+n = files × 3). The isolated-run processing times (`scan_duration_ms`, 4
+workers) match these within a few ms:
+
+| Type | n | p50 (ms) | p95 (ms) | Type | n | p50 (ms) | p95 (ms) |
+|---|---|---|---|---|---|---|---|
+| pdf | 60 | 10.3 | 14.8 | html | 45 | 42.0 | 88.1 |
+| docx | 60 | 14.5 | 15.9 | svg | 15 | 0.8 | 1.9 |
+| zip | 30 | 21.7 | 22.0 | js | 30 | 1.8 | 3.1 |
+| 7z | 15 | 19.0 | 23.8 | vbs | 30 | 2.0 | 3.0 |
+| rar | 9 | 11.5 | 12.0 | ps1 | 30 | 1.9 | 3.7 |
+| iso | 9 | 15.7 | 18.0 | bat | 30 | 1.3 | 1.8 |
+| eml | 45 | 5.0 | 6.0 | images | 30 | 1.7 | 13.8 |
+| msg | 15 | 5.4 | 6.8 | exe | 30 | 4.1 | 4.2 |
+| large | 6 | 997.6 | 2237.9 | | | | |
+
+For types with n ≤ 15 (rar, iso, svg, msg, large), p95 is close to the maximum
+and has little statistical meaning.
+
+**Per-layer cost** (`profile_layers.py`, run 2 of 3; the 3 runs took 4.98-5.00 s in
+total):
+
+| Layer | Full set (s) | Small subset (s) | Two large files (s) |
+|---|---|---|---|
+| yara | 1.99 | 0.13 | 1.85 |
+| archive (inclusive of members) | 1.66 | 0.37 | 1.28 |
+| prompt-guard | 1.53 | 0.77 | 0.75 |
+| qr | 0.38 | 0.13 | 0.26 |
+| ml | 0.28 | 0.13 | 0.15 |
+| web | 0.23 | 0.23 | 0 |
+| integrity | 0.13 | 0.12 | - |
+| fuzzy | 0.12 | - | 0.10 |
+| every other layer | < 0.12 each | < 0.06 each | - |
+
+**Micro-measurements.**
+- YARA with the bundled rules: 0.894-0.900 s on the 21.0 MB ZIP (about 23 MB/s),
+  0.064 s on the 1.5 MB PDF (3 runs each).
+- `completeness.assess` over all 163 files: 0.004 s of 5.07 s in-process (0.09 %).
+- `WebContentAnalyzer` on synthetic pages of 25 / 50 / 100 / 200 KB: normal
+  markup 0.005 / 0.009 / 0.018 / 0.038 s; 200 KB of `<` 0.040 s; 200 KB of
+  repeated `<form ` 0.037 s.
+
+### Hypotheses resolved
+
+| ID | Hypothesis | Outcome |
+|---|---|---|
+| H-01 | The round-robin 50 ms poll costs throughput | **Confirmed by experiment.** Now PR-17 |
+| H-02 | `assess` re-parsing is expensive | **Rejected:** 0.09 % of scan time |
+| H-03 | Nested containers keep each level's bytes in memory | **Not measured** (the dataset has no deep nesting). Stays unvalidated: measure peak worker memory for a 3-level ZIP of 20 MB members |
+| H-04 (Stage 2) | Web regexes backtrack quadratically on pathological markup | **Rejected:** time grows linearly up to 200 KB |
+
+## 16. Hotspots and optimisation proposals
+
+| # | Measured hotspot | Evidence | Proposal | Expected gain (basis) | Risk | Coverage-equivalence check |
+|---|---|---|---|---|---|---|
+| O-1 | Worker dispatch loop: steady-state throughput **falls** as workers are added (77 → 60 files/s from 1 to 4 workers on small files). The default here is 4 | section 15 tables; `engine/workers.py:428`, `:455-456`, `:522-528` | RF-2 (event-driven wait) | +42 % (2 workers) to +60 % (4 workers) in the 2 ms-poll experiment. The real change is unvalidated until implemented and re-measured | low; timing logic | the same results per file (verdict, score, `scan_status`, provenance layers) on the regression corpus and on this dataset, before and after |
+| O-2 | Worker start-up 1.13 s, paid once per folder scan and once per API upload unless a spare is ready | section 15 start-up | already mitigated in the API by spares (A7-2). For the desktop (RF-1 / PR-03 and future monitoring), keep one spare worker per slot as the API does | removes about 1.1 s from the first file of each scan (basis: the A7-2 API measurement, p50 1,399 → 257 ms). Unvalidated on the desktop | memory: about 196 MB per idle spare | none (same worker code) |
+| O-3 | YARA on large inputs: about 23 MB/s with the bundled rules. A 20 MB stored member is scanned twice (container bytes and member), which is 1.8 s of the file's 2.2 s | section 15 micro and large-file layer table | profile the rules (`yara` per-rule timing, or bisect the rule set) to find the expensive rules. **Do not drop the container-level or member-level scan** | unknown until rule profiling; unvalidated | rule changes are detection content (A1 owner); behaviour must stay identical | the regression corpus and `tests/test_yara_rules.py` unchanged; identical matches on a fixed benign set |
+| O-4 | prompt-guard is the largest share for ordinary documents (37.6 % of the small set) | per-layer table | profile `PromptGuard.inspect_hidden_content` and text extraction per format first; no change proposed before that | unknown; unvalidated | detection-relevant code | identical `prompt_guard` result dicts on the corpus |
+
+The benchmark suggests no other optimisation. Per-file times for ordinary
+documents are 1-90 ms, and at this scale the throughput limits are the dispatch
+loop (O-1) and start-up (O-2).
+
+## 17. Gap analysis to "A+"
+
+Grades use the criteria in section 12 (1 correctness, 2 untrusted input, 3
+resources / cleanup, 4 observability, 5 platform coverage exercised, 6 design, 7
+docs accuracy, 8 deployment / release). The scale:
+
+- **A+**: every applicable criterion met, with executed evidence.
+- **A**: met except Low items.
+- **B**: one or more Medium gaps.
+- **C**: a High gap, or several Medium ones.
+- **n/a**: not assessable within the review scope.
+
+"Current stage" judges fitness for active development. "Production" judges what
+remains before deployment.
+
+| Block | Current stage | Production | Main gaps (IDs) | What is missing for A+ |
+|---|---|---|---|---|
+| B1 Engine core | A | A | PR-09, RF-7 | a result for every file; one result skeleton |
+| B2 Worker isolation | B | B | PR-02, PR-03, PR-17 | fail-closed policy, isolated single files, efficient dispatch, metrics for start failures |
+| B3 Configuration | A (partly inspected) | n/a | duplicated defaults | one defaults source when touched; `engine/validation.py` not reviewed |
+| B4 Document layers | n/a (not inspected) | n/a | O-4 | a review of the layer code; prompt-guard profiling |
+| B5 Executable layers | A (PE sampled) | n/a | none found | the rest of B5 (ELF, ML) not reviewed |
+| B6 Containers | B | B | PR-04, S-01 | streamed DMG members; a traversal / link test |
+| B7 Content and scoring | C | C | PR-01, PR-14 | path confinement and atomic activation; scoring not reviewed |
+| B8 Intel | A | A | PR-16, RF-3; Phase 2 backlog [A5] | capability refresh; injected client |
+| B9 Host protection | B (partly inspected) | n/a (desktop, outside paid support D3) | PR-08, S-03 | canary alerts to outputs; thread-safe check |
+| B10 API | B | B | PR-02, PR-11, PR-10 | fail closed; live readiness for workers |
+| B11 GUI | B (sampled) | B | PR-03; requested views | isolated single-file scans; monitoring, alert and cloud views |
+| B12 CLI and outputs | B | B | PR-07, PR-08 | guarded jobs, reliable delivery |
+| B13 Docker | A | B | PR-12, TMA-1; O1, D5 (tracked) | hash-pinned installs; clean-host walk-through (O1) |
+| B14 Release and CI | B | B | PR-05, PR-06, PR-13, S-04 | API and fuzz tests in every matrix job; lock-based matrix; release gated on checks |
+| B15 Tests | A | A | missing tests for PR-01/02/03/04/07/09 | those tests |
+| B16 Docs | A | A | PR-10; TMA-1..4 (owner) | corrected statements |
+| **Project** | **B** | **B** | PR-01 (the only High) plus the Medium set | close PR-01 and the Medium findings; the tracked items M1, M2, O1, U1, X2 and the legal review remain the owner's |
+
+The project's current state is strong for active development. Release
+engineering, threat modelling, result completeness and deployment hardening are
+above typical for a project of this size. The grade is held at B by one High
+defect that needs a trusted signature to trigger (PR-01) and by a cluster of
+Medium isolation and CI gaps. It is **not** held there by missing features.
+
+**By dimension (project level).**
+- *Production-ready and stable*: PR-02, PR-07, PR-11; tracked O1, U1.
+- *Deployment-ready*: PR-12, PR-13; tracked O1, D5, X2.
+- *Fast and optimised*: PR-17 / O-1, O-2; tracked M2.
+- *Secure in code*: PR-01, PR-04, PR-02, PR-03. Never "100 % secure".
+- *Clean and well refactored*: RF-3, RF-7, RF-8, RF-9. Low urgency.
+- *A+ architecture*: the boundaries are sound. Make isolation explicit (RF-1).
+- *Tested against a defined scope*: PR-05, PR-06, and the missing tests listed for
+  B15. Coverage (91 %) is reported for `engine`, `detectors`, `core` and `api`
+  only (PR-15) and is not proof of correctness.
