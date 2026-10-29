@@ -56,6 +56,9 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
     "alert_email_per_hour": ("ALERT_EMAIL_PER_HOUR", 1, 10_000),
     "alert_email_per_day": ("ALERT_EMAIL_PER_DAY", 1, 100_000),
     "outbox_max_age_hours": ("OUTBOX_MAX_AGE_HOURS", 1, 720),
+    "watch_settle_seconds": ("WATCH_SETTLE_SECONDS", 0.2, 3_600),
+    "watch_max_queue": ("WATCH_MAX_QUEUE", 1, 1_000_000),
+    "watch_retry_minutes": ("WATCH_RETRY_MINUTES", 0.1, 1_440),
 }
 
 # key -> (environment variable, allowed values, case-insensitive)
@@ -209,6 +212,24 @@ def _email(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
                         "or SMTP_PASSWORD_FILE)")
 
 
+def _watch(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """Folder monitoring (core/folder_watch.py): desktop only (decision D-B)."""
+    from core.folder_watch import WATCHDOG_AVAILABLE, split_dirs
+    dirs = split_dirs(cfg.get("watch_dirs"))
+    if not dirs:
+        return
+    production = str(cfg.get("profile") or "").strip().lower() == "production"
+    if cfg.get("intel_socket") or production:
+        errors.append("WATCH_DIRS is a desktop feature; the Docker edition and the REST API "
+                      "have no folder monitoring (decision D-B)")
+    if not WATCHDOG_AVAILABLE:
+        warnings.append("WATCH_DIRS is set but 'watchdog' is not installed: no folder "
+                        "monitoring (pip install watchdog)")
+    for d in dirs:
+        if not os.path.isdir(d):
+            warnings.append(f"WATCH_DIRS: {d} is not a folder (not watched)")
+
+
 def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     rules = str(cfg.get("yara_rules_dir") or "")
     if rules and not Path(rules).is_dir():
@@ -314,5 +335,5 @@ def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _paths,
-                             _conflicts, _profile, _intel)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _watch,
+                             _paths, _conflicts, _profile, _intel)

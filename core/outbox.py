@@ -62,6 +62,8 @@ def verdict_alert(result: Mapping[str, Any]) -> Dict[str, Any]:
     contribs = sorted((result.get("score_breakdown") or {}).get("contributions") or [],
                       key=lambda c: -float(c.get("points", 0) or 0))
     codes = [str(c.get("indicator")) for c in contribs if c.get("indicator")][:8]
+    if (result.get("quarantine") or {}).get("id"):         # F3: the alert says it was vaulted
+        codes = codes[:7] + ["quarantined"]
     name = clean_text(result.get("file_name") or os.path.basename(path), 120)
     email = {"alert_id": alert_id, "kind": "verdict",
              "verdict": str(result.get("verdict") or "Clean"),

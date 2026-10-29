@@ -202,6 +202,11 @@ CONFIG = {
     # The alert outbox (core/outbox.py): pending alerts, retried until delivered
     "outbox_dir": _getenv("OUTBOX_DIR", str(APP_DIR / "outbox")),
     "outbox_max_age_hours": _env_float("OUTBOX_MAX_AGE_HOURS", 24),
+    # Folder monitoring (core/folder_watch.py, desktop): scan files as they arrive
+    "watch_dirs": _getenv("WATCH_DIRS", ""),
+    "watch_settle_seconds": _env_float("WATCH_SETTLE_SECONDS", 2),
+    "watch_max_queue": int(_env_float("WATCH_MAX_QUEUE", 1000)),
+    "watch_retry_minutes": _env_float("WATCH_RETRY_MINUTES", 5),
     # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
     "rulepack_public_keys": [k for k in _getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
     "data_dir": str(DATA_DIR),

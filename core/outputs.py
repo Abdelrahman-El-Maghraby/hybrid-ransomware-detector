@@ -46,7 +46,18 @@ def alert_payload(r: Dict) -> Dict:
         "scan_status": r.get("scan_status", "complete"),
         "indicators": [c.get("indicator") for c in contribs[:8]],
         "top_reason": contribs[0].get("detail", "") if contribs else "",
+        **_quarantine(r),
     }
+
+
+def _quarantine(r: Dict) -> Dict:
+    """The automatic quarantine taken on this file, when there was one (F3)."""
+    q = r.get("quarantine") or {}
+    if q.get("id"):
+        return {"quarantine": {"id": q["id"], "original_removed": bool(q.get("original_removed"))}}
+    if q.get("error"):
+        return {"quarantine": {"error": str(q["error"])[:200]}}
+    return {}
 
 
 def sign(body: bytes, secret: str) -> str:
