@@ -37,3 +37,8 @@ class MisbehavingScanner(RansomwareScanner):
 
 def make(config):
     return MisbehavingScanner(config)
+
+
+def never_ready(config):
+    """A worker whose scanner build never finishes (a start-up hang)."""
+    time.sleep(600)

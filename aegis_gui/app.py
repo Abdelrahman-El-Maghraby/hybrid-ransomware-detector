@@ -309,6 +309,8 @@ class App(ctk.CTk):
             dashboard.progress_bar.set(0)
             dashboard.progress_file.configure(text=f"Scan failed: {event[1]}",
                                               text_color=RED_SOFT)
+        elif kind == "isolation_unavailable":
+            self._on_isolation_unavailable(*event[1:])
         elif kind == "autostart_done":
             self.pages["settings"].autostart_finished(event[1], event[2])
         elif kind == "canary_report":
@@ -316,6 +318,19 @@ class App(ctk.CTk):
             self._on_canary_report(event[1])
         elif kind == "canary_event":
             self.check_canaries_now()
+
+    def _on_isolation_unavailable(self, count, mode, target):
+        """Isolated workers could not start: say so, never scan in this process."""
+        dashboard = self.pages["dashboard"]
+        dashboard.progress_file.configure(
+            text=f"Not scanned: isolated scan workers could not start ({count} file(s)).",
+            text_color=RED_SOFT)
+        if messagebox.askretrycancel(
+                "Aegis Sentinel: isolated scanning unavailable",
+                f"Isolated scan workers could not start, so {count} file(s) were not "
+                "scanned. No file was scanned in the main process.\n\n"
+                "The cause is in the Logs page. Retry the scan?"):
+            self.start_scan(mode=mode, target=target)
 
     # -- canary tripwires ---------------------------------------------------------------------
 

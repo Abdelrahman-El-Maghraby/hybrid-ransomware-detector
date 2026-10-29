@@ -101,6 +101,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self._vault: Optional[QuarantineVault] = None
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None
+        self.last_not_scanned = 0        # files of the last scan no isolated worker could take
         self._log_layers()
         self._content_lock = threading.Lock()
         self._content_fp = self._content_fingerprint()
@@ -369,14 +370,17 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                 except Exception as e:
                     logger.error("Progress callback error: %s", e)
 
-        if self.config.get("isolate_scans", True) and total > 1:
-            from engine.workers import default_workers, scan_isolated
-            scan_isolated(self, targets, default_workers(self.config),
-                          float(self.config.get("scan_timeout_seconds", 300)),
-                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
+        self.last_not_scanned = 0
+        if self.config.get("isolate_scans", True):     # one file too (PR-03)
+            if targets:
+                from engine.workers import default_workers, scan_isolated
+                self.last_not_scanned = scan_isolated(
+                    self, targets, default_workers(self.config),
+                    float(self.config.get("scan_timeout_seconds", 300)),
+                    int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
             order = {p: i for i, p in enumerate(targets)}
             results.sort(key=lambda r: order.get(str(r.get("file_path")), 0))
-        else:
+        else:                                           # ISOLATE_SCANS=0: development only
             self._scan_in_order(targets, collect, cancel_event)
         if total:
             summary = METRICS.batch_summary(results, time.perf_counter() - started)
@@ -387,6 +391,23 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                                "files_per_sec": summary["files_per_sec"],
                                "duration_ms": int(summary["seconds"] * 1000)})
         return results
+
+    def scan_one(self, file_path: str) -> Dict:
+        """One file, as --scan-file and the GUI scan it: in an isolated worker with
+        the time and memory limits of a folder scan (PR-03), or in this process
+        only with the ISOLATE_SCANS=0 development opt-out. A file that hangs or
+        crashes its worker comes back as a failed result; when no worker can start,
+        as an isolation_unavailable failure (self.last_not_scanned == 1), and the
+        file was not parsed here. Unlike a folder scan, no automatic quarantine."""
+        self.last_not_scanned = 0
+        if not self.config.get("isolate_scans", True):
+            return self.scan_file(file_path)
+        from engine.workers import scan_isolated
+        box: List[Dict] = []
+        self.last_not_scanned = scan_isolated(
+            self, [file_path], 1, float(self.config.get("scan_timeout_seconds", 300)),
+            int(self.config.get("worker_memory_mb", 2048)), lambda i, p, r: box.append(r))
+        return box[0]
 
     def _scan_in_order(self, targets: List[str], collect, cancel_event) -> None:
         """Scan in this process, one file after the other."""
