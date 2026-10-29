@@ -11,7 +11,7 @@
   nothing into `main`.** Optional (O) items need separate approval.
 - Active agent: Claude. Previous agent: none active.
 - Workflow: B1 (24.9 D-F). This file holds the active checkpoint on the step
-  branch being worked on (now `feat/alert-outbox-email`, step 7); each step
+  branch being worked on (now `feat/cloud-reports`, step 9); each step
   PR's last commit restores it to the `integration/v4.8` content before the PR
   is marked ready.
 
@@ -33,9 +33,9 @@
 | 4 | `fix/background-reliability` | #33 | `integration/v4.8` | ready, CI green |
 | 5 | `fix/dmg-streaming` | #35 | `integration/v4.8` | ready, CI green |
 | 6 | `ci/matrix-coverage` | #34 | `integration/v4.8` | ready, CI green |
-| 7 | `feat/alert-outbox-email` | draft | `fix/background-reliability` (#33) | implemented; this checkpoint |
+| 7 | `feat/alert-outbox-email` | #37 | `fix/background-reliability` (#33) | CI green; handoff restored (`c8721b3`); mark ready when CI on it is green; retarget after #33 merges |
 | 8 | `feat/folder-monitoring` | - | - | waits: needs 2, 3, 4, 7 merged |
-| 9 | `feat/cloud-reports` | - | (stack on step 7) | next |
+| 9 | `feat/cloud-reports` | draft | `feat/alert-outbox-email` (#37) | implemented (`0209d7b`); this checkpoint |
 | 10 | `feat/gui-integration` | - | - | waits: needs 2, 7, 8, 9 |
 | 11 | `build/hash-pinned-lock` | - | - | waits: needs 6 and 9 merged |
 | 12 | `docs/v4.8` | - | - | waits: needs 7-11 |
@@ -47,7 +47,7 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 - 1 `40b690f` PR-01, PR-14. 2 `9d1062d` + `e8ee3d2` PR-02, PR-03, PR-11,
   D-E, D-E1 (schema 1.4). 3 `aaf6415` PR-17. 4 `1e0801a` PR-07, PR-09,
   PR-10. 5 `600d8bc` S-01, PR-04 (and CHM). 6 `056ab85` PR-05, PR-06, S-04,
-  PR-13. 7 `af8deda` PR-08, F4, S-03.
+  PR-13. 7 `af8deda` PR-08, F4, S-03. 9 `0209d7b` F5 (D-D, D-D1-D-D3).
 - S-01: not reproduced with 7-Zip 26.05 (benign generated images); a link
   entry made `7z x` refuse the whole image (nothing inspected). Fixed by
   streaming.
@@ -62,9 +62,12 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 ## Checks run (macOS, Python 3.14.2, `.venv`)
 
 - Each step's full suite on its own branch: 1 1049, 2 1036, 3 1040 (2+3),
-  4 1024, 5 1031, 7 1070 (4+7) passed; 8 skipped each. ruff, mypy, bandit
+  4 1024, 5 1031, 7 1070 (4+7), 9 1092 (4+7+9) passed; 8 skipped each. ruff, mypy, bandit
   clean on every branch. pip-audit (lock, no resolution) clean (step 1).
-- CI: #31-#36 all checks green on their final heads (run IDs in each PR).
+- CI: #31-#37 all checks green (run IDs in each PR); #37's deployment job ran
+  the new intel e-mail checks.
+- Local combined preview (all step branches merged in a throwaway local
+  branch, not pushed): see the step 9 PR for the result.
 
 ## Limitations
 
@@ -80,20 +83,22 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 
 ## Remaining steps
 
-1. Open the step 7 PR (draft) with this checkpoint; CI.
-2. Step 9 (`feat/cloud-reports`, stacked on step 7): inspection done
-   (`engine/report.py`, `engine/logs.py` read): uploads are an allowlisted,
-   redacted view built from results and structured log events, never the
-   report or log files.
-3. After the owner merges step PRs: retarget #36 (after #32) and step 7's PR
-   (after #33); open the draft `integration/v4.8` -> `main` PR; then steps 8,
-   10, 11, 12 in order; finish with I-1 to I-7 and the release report.
+1. Owner: review and merge #31-#35 into `integration/v4.8` (B1), then #36
+   and #37 after their parents, then step 9.
+2. Agent, after merges: retarget #36 (after #32), #37 (after #33), step 9
+   (after #37) to `integration/v4.8`, merging the integration branch into
+   them if needed; open the draft `integration/v4.8` -> `main` PR.
+3. Before step 8: the 24.5 review pass of the B4/B5 parsers and ML layer,
+   and a full read of `core/quarantine.py`, `core/containment.py`,
+   `core/response.py` (F3). Then step 8 (needs 2, 3, 4, 7 merged), step 10
+   (needs 8, 9), step 11 (needs 6, 9), step 12 (needs 7-11), then I-1 to
+   I-7 and the release report.
 
 ## Next action
 
-Push `feat/alert-outbox-email` and open its draft PR; then start step 9.
+Wait for the owner's merges; then step 2 of the list above.
 
 ## Last verified push
 
-- `perf/worker-dispatch` at `aaf6415` and `fix/isolation-fail-closed` at
-  `e722fa2`: pushed and verified.
+- `feat/alert-outbox-email` at `c8721b3`: pushed and verified. Step 9 push:
+  see the PR.
