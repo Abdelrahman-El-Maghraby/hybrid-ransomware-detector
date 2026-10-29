@@ -33,9 +33,9 @@
 | 4 | `fix/background-reliability` | #33 | `integration/v4.8` | ready, CI green |
 | 5 | `fix/dmg-streaming` | #35 | `integration/v4.8` | ready, CI green |
 | 6 | `ci/matrix-coverage` | #34 | `integration/v4.8` | ready, CI green |
-| 7 | `feat/alert-outbox-email` | #37 | `fix/background-reliability` (#33) | CI green; handoff restored (`c8721b3`); mark ready when CI on it is green; retarget after #33 merges |
+| 7 | `feat/alert-outbox-email` | #37 | `fix/background-reliability` (#33) | ready, CI green on `c8721b3`; retarget after #33 merges |
 | 8 | `feat/folder-monitoring` | - | - | waits: needs 2, 3, 4, 7 merged |
-| 9 | `feat/cloud-reports` | draft | `feat/alert-outbox-email` (#37) | implemented (`0209d7b`); this checkpoint |
+| 9 | `feat/cloud-reports` | #38 (draft) | `feat/alert-outbox-email` (#37) | CI green; holds this checkpoint: restore this file, then mark ready |
 | 10 | `feat/gui-integration` | - | - | waits: needs 2, 7, 8, 9 |
 | 11 | `build/hash-pinned-lock` | - | - | waits: needs 6 and 9 merged |
 | 12 | `docs/v4.8` | - | - | waits: needs 7-11 |
@@ -67,7 +67,9 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 - CI: #31-#37 all checks green (run IDs in each PR); #37's deployment job ran
   the new intel e-mail checks.
 - Local combined preview (all step branches merged in a throwaway local
-  branch, not pushed): see the step 9 PR for the result.
+  branch `local/combined-preview`, not pushed): every merge clean; pytest
+  1167 passed, 8 skipped; ruff, mypy, bandit clean. #38 coverage job: 1096
+  passed, 5 skipped, 92 %.
 
 ## Limitations
 
@@ -100,5 +102,6 @@ Wait for the owner's merges; then step 2 of the list above.
 
 ## Last verified push
 
-- `feat/alert-outbox-email` at `c8721b3`: pushed and verified. Step 9 push:
-  see the PR.
+- `feat/alert-outbox-email` at `c8721b3` and `feat/cloud-reports` at
+  `e52a217` (merge of step 7 to resolve the handoff conflict, keeping this
+  checkpoint): pushed and verified. Nothing uncommitted.
