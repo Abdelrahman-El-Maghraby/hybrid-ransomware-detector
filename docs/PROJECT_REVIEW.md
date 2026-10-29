@@ -2154,3 +2154,227 @@ benchmark and atheris long runs remain. Production readiness is separately
 **not established**: M1/X1, M2 on a reference host, O1, U1, X2, legal review of
 THIRD_PARTY, D5 if arm64 is claimed, deployment verification on the release
 commit and owner manual checks remain. No accuracy inference is made here.
+
+
+## 26. Final integrated validation and new performance baseline
+
+Application baseline: **`087b460`**, the owner merge of checksum PR #44 into
+`integration/v4.8`, after step 12 (#43, `3a35a6f`). The application tree is
+identical to #44 head `f4ff8c9`. The validation branch
+`docs/v4.8-final-validation` changes documentation only. No weights, thresholds,
+inspection coverage, dependencies or application code changed during this pass.
+This section supersedes the pending validation statements in section 25; the
+historical review and its original measurements remain intact.
+
+### 26.1 I-1 to I-7: evidence and limits
+
+On macOS 27.0.1 / Python 3.14.2, the following command passed **190 tests, no
+skips**, one Starlette/httpx deprecation warning, in **126.63 s**:
+
+```sh
+DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib RUN_GUI_TESTS=1 .venv/bin/python -m pytest -q -rs tests/test_folder_monitor.py tests/test_gui_integration.py tests/test_gui_smoke.py tests/test_alerts.py tests/test_cloud.py tests/test_isolation_policy.py tests/test_readiness.py tests/test_rulepack.py tests/test_cache_keys.py tests/test_deployment.py
+```
+
+Additional I-3 audit/recovery verification:
+`.venv/bin/python -m pytest -q -rs tests/test_key_backup.py tests/test_quarantine.py`:
+**23 passed, no skips**, **6.93 s**. Benign fixtures and fake hanging parsers only;
+no samples downloaded or executed.
+
+| ID | Exercised evidence | Result and boundary |
+|---|---|---|
+| I-1 | `test_i1_create_modify_rename_each_scanned_once_into_the_report`; GUI `test_monitoring_alerts_cloud_and_key_backup` | Passed: real watchdog events, isolated worker results, report/JSONL, own-output exclusions; a dropped PDF appears in the live GUI dashboard. Manual Windows/Linux desktop checks remain; OS CI is not a substitute for them |
+| I-2 | `test_i2_a_hanging_file_fails_after_the_timeout_and_the_watcher_stays_responsive`; isolation failure/GUI tests | Passed: fake hanging worker times out, subsequent event is queued and scanned; fail-closed pause/retry. GUI responsiveness under every real slow-file scenario is not established |
+| I-3 | `test_i3_a_monitored_file_is_quarantined_and_restored_without_overwrite`, changed-file refusal; GUI manual quarantine/undo; key-backup and audit tests | Passed: vault verification, auto-quarantine metadata in alerts, restore without overwrite, manual GUI flow, audit lines and key recovery. Automatic monitor and manual GUI paths are tested separately |
+| I-4 | `test_alerts.py` | Passed: verdict/canary routing, per-channel thresholds, persistence/retry/expiry, sent-id deduplication, local TLS, schema/caps/secret checks. Exactly-once delivery across a lost remote acknowledgement is not guaranteed; real SMTP provider not exercised |
+| I-5 | `test_cloud.py`, GUI output tests | Passed: default off, marker redaction, reports/structured events only, spool recovery/expiry, HTTPS and conditional PUT; SHA256 request validation with and without a returned checksum. Raw rotated logs are intentionally not uploaded (D-D3). Real bucket policy/lifecycle/provider not exercised |
+| I-6 | `test_api_scan_answers_503_and_ready_turns_503_when_workers_cannot_start`, schema/isolation tests; Docker deployment job below | Passed: local controlled worker-start failure returns 503, schema 1.4 isolation; actual hardened Docker deployment, `/ready` 200 and scan through TLS. Failure injection is in the API tests, not injected into the live Docker deployment |
+| I-7 | `test_rulepack.py`; `test_rule_change_on_disk_is_used_by_the_next_scan` | Passed: invalid/traversal versions refused, confinement/atomic state, signed install/rollback; next scan sees changed rules and provenance hash. These exercise installer and reload paths through separate tests |
+
+PR #44's full local run (same application tree) was **1199 passed, 7 skipped**
+in **272.21 s**, with GUI tests and zbar enabled. The seven skips were Windows
+Restart Manager/Job Object; Linux system ELF and `/proc`; a non-macOS fallback;
+missing optional box-js and OpenCV. No skip rules were changed. The primary QR
+path ran. The focused final run above does not replace a full-suite run: the
+unchanged application tree's full local result and final integration CI are
+reported separately.
+
+### 26.2 CI on the integration merge
+
+All workflows completed successfully on **`087b460`**. Inspected job results and
+logs, not inferred from an older PR head:
+
+| Workflow | Run | Evidence |
+|---|---|---|
+| tests | 40926556295 | Linux 3.12: 1193 passed / 11 skipped; Linux 3.9: 1190 / 14; macOS 3.12: 1191 / 13; macOS 3.9: 1188 / 16; Windows 3.12: 1180 / 24; Windows 3.9: 1177 / 27. All six missing-API/Hypothesis-package skip gates passed |
+| quality | 40926556376 | lint/types, dependency audit, regression corpus and coverage passed; coverage job 1201 passed / 5 skipped; **92%** (12,346 statements, 984 missed) |
+| docker | 40926556459 | deployment job 123633511381: build/start/check passed. Log reports no cache files in analysis, destination restrictions, `/ready` 200, authenticated scan through TLS, unauthenticated version request 401 and `deployment check passed` |
+
+Python 3.12 tests the shipped lock; Python 3.9 retains the recorded S-04 latest
+compatible dependency exception. GUI coverage runs separately in the coverage
+job; ordinary matrix skip counts are not evidence that every GUI path ran there.
+Docker was unavailable locally; this is Linux CI evidence, not a clean-host
+operator walkthrough or an arm64 deployment claim.
+
+### 26.3 Benchmark method: regenerated benign dataset
+
+**New local baseline, not a direct before/after comparison with section 15.**
+The original scratch corpus is unavailable. This regeneration preserves the type
+counts and seed **20261029**, but document sizes and archive metadata differ.
+No detection-rate or false-positive inference is made. M2 remains open for a
+reference-host workload.
+
+- Host: Apple M1, 8 cores, 8 GiB RAM; macOS 27.0.1 arm64. Python 3.14.2,
+  outside the 3.9/3.12 CI matrix. Package versions match section 15: yara-python
+  4.5.4, py7zr 1.1.4, pypdf 6.21.3, oletools 0.60.2, pyzipper 0.4.0, rarfile
+  4.5, pycdlib 1.22.0, python-docx 1.2.0, Pillow 13.0.0, pyzbar 0.1.9,
+  numpy 2.5.4, python-tlsh 4.5.0, ppdeep 20260221.
+- Code: benchmark launcher recorded `7ee847f` (only the handoff differs from
+  `087b460`); a documentation checkpoint was made during the run. No application
+  file changed. No tests ran concurrently with benchmark measurements.
+- Input generation: `tests/helpers.py` (PDF, DOCX, inert PE stub),
+  `tests/msg_builder.py`, `tests/rar_builder.py`,
+  `tests/test_mail_analyzer.py:make_eml`, py7zr, pycdlib and Pillow. Scripts only
+  print a greeting; PE stubs are never executed. Five PDFs and a greeting script
+  per ZIP; a PDF in each 7z/RAR/ISO/MSG; eight EMLs with a PDF attachment.
+  Large inputs: about 1.53 MB text PDF and a stored ZIP of 20 MiB seeded random
+  bytes. No malware, private documents, deep nesting, macro documents, DMG,
+  CHM/MSI/OneNote, ELF or encrypted archives.
+- Total: **163 files / 24,681,978 bytes**. Small subset excludes the two large
+  files: **161 files / 2,179,756 bytes**. Types are known by construction;
+  results confirm 162 complete and one partial, described below.
+- Fixed corpus for all runs; warm OS file cache (generation and prior runs).
+  Archive timestamps can vary on regeneration. Dataset manifest SHA-256:
+  `661a6be59dfb0d2a3808500e23031a0438edd4a4d8b7d0a50e2ef6eb84768696`
+  (SHA-256 of sorted relative path, NUL, binary SHA-256 of each file, concatenated).
+- Clean scratch state: repository dotenv values ignored, process environment
+  limited to PATH/PYTHONPATH/zbar path/null keyring, user-data config paths
+  replaced with fresh temporary paths. Bundled rules/signatures only, empty
+  hash database, no model; cache off. LLM/VT/sandbox/emulation and all outbound
+  delivery off; no external calls. No layer thresholds or budgets tuned.
+- Every required layer reported **up**, ML in rule-engine mode, QR through
+  pyzbar. Default timeout 300 s, worker memory 2048 MiB, archive budgets unchanged.
+  Isolated runs retain parallel heavy layers; `tools/profile_layers.py` turns
+  that parallelism off as in section 15.
+- Three fresh processes per full/small × 1/2/4-worker configuration; three
+  in-process profiles per subset; five fresh worker-start measurements. The
+  scratch launcher invoked `_scan_targets` and `tools.profile_layers.profile`;
+  startup used `start_worker`/`wait_ready` until the ready message, then stopped
+  the worker. Scripts/raw results stay outside Git per the task brief.
+- Commands: `PYTHONPATH=. .venv/bin/python /tmp/aegis_benchmark_generate.py`,
+  then `.venv/bin/python /tmp/aegis_benchmark_launch.py`. Each child ran
+  `/tmp/aegis_benchmark_run.py --mode isolated|profile|startup --subset full|small
+  --workers N --out <scratch-json>`. The launcher sets
+  `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` for zbar.
+- Batch wall includes startup; first-result delay comes from the progress
+  callback. Steady-state estimate = files / (wall − first-result delay).
+  Profile latency is per-file wall; p50 median, p95 nearest-rank, pooled over
+  three runs. MB below is decimal. Peak memory is `getrusage`: parent and largest
+  single terminated child, **not summed simultaneous workers**. Layer times
+  include recursive member work and cannot be summed into batch wall.
+
+Dataset composition (count / bytes):
+
+| Type | Files | Bytes |
+|---|---:|---:|
+| 7z | 5 | 2,548 |
+| bat | 10 | 180 |
+| docx | 20 | 733,610 |
+| eml | 15 | 19,438 |
+| exe | 10 | 15,360 |
+| html | 15 | 1,051,025 |
+| images | 10 | 6,231 |
+| iso | 3 | 153,600 |
+| js | 10 | 280 |
+| large | 2 | 22,502,222 |
+| msg | 5 | 17,920 |
+| pdf | 20 | 151,970 |
+| ps1 | 10 | 270 |
+| rar | 3 | 3,045 |
+| svg | 5 | 440 |
+| vbs | 10 | 270 |
+| zip | 10 | 23,569 |
+
+### 26.4 Measurements
+
+Full set, three runs per worker count (ranges):
+
+| Workers | Wall s | Files/s | MB/s | First result s | Steady files/s | Parent peak MB | Largest worker peak MB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 5.90–5.98 | 27.24–27.62 | 4.12–4.18 | 1.13–1.14 | 33.65–34.13 | 205.78–207.27 | 416.73–493.93 |
+| 2 | 4.41–4.45 | 36.61–36.92 | 5.54–5.59 | 1.20–1.22 | 50.37–50.91 | 207.08–207.22 | 385.19–387.35 |
+| 4 | 4.75–4.91 | 33.21–34.28 | 5.03–5.19 | 1.31–1.36 | 45.81–47.90 | 204.18–206.91 | 290.37–341.64 |
+
+Every isolated full run: **162 complete, 1 partial, 0 failed, 0 unscanned**.
+The large ZIP exceeds `fuzzy_max_bytes`; its random member has no type-specific
+analysis. The result explicitly reports both gaps. Small runs: **161 complete**.
+No timeout/crash or worker-start failure occurred.
+
+Small subset, three runs per worker count:
+
+| Workers | Wall s | Files/s | Steady files/s | Largest worker peak MB |
+|---|---:|---:|---:|---:|
+| 1 | 2.76–2.81 | 57.35–58.44 | 99.11–100.52 | 318.23–319.62 |
+| 2 | 2.40–2.42 | 66.53–67.15 | 135.69–137.12 | 264.60–264.67 |
+| 4 | 2.62–2.67 | 60.39–61.55 | 124.27–126.66 | 224.80–237.42 |
+
+In-process profile wall: full **4.58–4.70 s**, small **1.32–1.33 s**.
+Worker startup: five successful starts, **1.145–1.178 s**, median **1.147 s**.
+
+Per-type in-process wall latency (three full profiles pooled):
+
+| Type | n | p50 ms | p95 ms |
+|---|---:|---:|---:|
+| 7z | 15 | 4.5 | 6.5 |
+| bat | 30 | 0.8 | 1.0 |
+| docx | 60 | 12.4 | 12.9 |
+| eml | 45 | 3.8 | 4.6 |
+| exe | 30 | 1.1 | 1.3 |
+| html | 45 | 37.1 | 37.5 |
+| images | 30 | 1.3 | 5.3 |
+| iso | 9 | 8.3 | 17.3 |
+| js | 30 | 0.8 | 0.9 |
+| large | 6 | 1629.0 | 2363.9 |
+| msg | 15 | 4.1 | 6.1 |
+| pdf | 60 | 8.6 | 9.0 |
+| ps1 | 30 | 0.8 | 0.9 |
+| rar | 9 | 3.8 | 4.4 |
+| svg | 15 | 1.2 | 1.7 |
+| vbs | 30 | 0.8 | 0.9 |
+| zip | 30 | 14.7 | 16.3 |
+
+Small sample tails (n ≤ 15) are close to maxima and have little statistical
+precision. These are synthetic-file latency measurements, not workload SLAs.
+
+Largest inclusive layer costs across full profiles: YARA **1.94–2.07 s**,
+archive **1.48–1.50 s**, prompt-guard **1.30–1.32 s**, QR **0.32 s**,
+ML **0.24–0.26 s**, web **0.20 s**; every other layer at most **0.12 s**.
+
+Two workers were fastest on both subsets. Four workers add startup/coordination
+cost without improving this workload; one worker still spends about 1.1 s
+starting. The default was not changed. The data supports workload-specific
+measurement, not a general throughput or optimisation claim. Section 15's polling
+experiment is historical evidence; it was not repeated with altered settings.
+
+### 26.5 Closure assessment and next gate
+
+**Implementation:** steps 1-12 and the separately authorised checksum follow-up
+are merged. The final automated integration pass and regenerated benchmark are
+complete within the environments and test boundaries above. PR #45 records this
+technical evidence; the owner reviews and merges it into `integration/v4.8`.
+
+**Development release validation is still incomplete** under section 24.5:
+atheris long runs on the changed/B4 parsers have not run; manual Windows/macOS
+GUI checks and real Windows/Linux desktop monitoring remain; real SMTP/S3
+provider checks need owner-controlled accounts. Automated local TLS receivers
+and CI do not establish those results. No new High/Medium defect was found in
+this validation pass, which is not a new complete code audit.
+
+**Production readiness is not established.** M1/X1, reference-host M2, clean Linux
+O1, actual-installation U1 (4.6.0 and 4.7.x upgrades), X2 signing, legal review of
+THIRD_PARTY, D5 if arm64 is claimed, and deployment verification on the eventual
+release commit remain. This Mac benchmark does not close M2. RELEASE_READINESS
+is unchanged because no tracked prerequisite was closed by this pass.
+
+No agent merges, tags or releases. PR #39 remains draft while these release
+validation requirements remain unresolved; the final evidence PR being ready
+must not be mistaken for approval to publish or a claim of production readiness.
