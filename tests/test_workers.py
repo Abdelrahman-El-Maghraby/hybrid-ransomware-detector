@@ -4,6 +4,8 @@ is reported (scan_failed) and the scan carries on."""
 import sys
 import threading
 
+import pytest
+
 import RansomwareScanner as RS
 from engine.workers import default_workers
 from tests.helpers import make_pdf
@@ -77,12 +79,24 @@ def test_worker_count():
     assert 1 <= default_workers({}) <= 4
 
 
-def test_workers_that_cannot_start_fall_back_to_in_process(tmp_path):
+def test_workers_that_cannot_start_fail_closed(tmp_path, monkeypatch):
+    """PR-02 / D-E (this test asserted the in-process fallback before 4.8): no file
+    is parsed in the main process; each one gets an isolation_unavailable result."""
+    from engine.workers import ISOLATION_UNAVAILABLE, isolation_unavailable
     s = _setup(tmp_path, ["a.pdf", "b.pdf", "c.pdf"],
                _scanner_factory="tests.worker_fakes:does_not_exist")
+    monkeypatch.setattr(s, "scan_file", lambda *a, **k: pytest.fail("parsed in the main process"))
     res = s.scan_all_directories()
     assert sorted(r["file_name"] for r in res) == ["a.pdf", "b.pdf", "c.pdf"]
-    assert all(r["verdict"] == "Clean" for r in res)
+    assert s.last_not_scanned == 3
+    for r in res:
+        assert isolation_unavailable(r) and r["scan_status"] == "failed"
+        assert r["scan_results"]["scan_failed"]["code"] == ISOLATION_UNAVAILABLE
+        assert r["provenance"]["isolation"] == "unavailable"
+        assert r["incomplete_reasons"][0]["layer"] == "isolation"
+        # never opened: no "file broke the scanner" indicator, so no quarantine or alert
+        assert r["verdict"] == "Clean" and r["verdict_label"] == "Clean (failed scan)"
+        assert not r["score_breakdown"]["contributions"] and len(r["sha256_hash"]) == 64
 
 
 def test_a_script_without_main_guard_is_not_rerun_by_the_workers(tmp_path):

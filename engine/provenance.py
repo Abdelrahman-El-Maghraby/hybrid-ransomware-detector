@@ -8,6 +8,9 @@ Every result carries `provenance`:
                 file count of the YARA rules that were compiled
     fuzzy_signatures  source and SHA-256 of the signature database
     profile     standard | production
+    isolation   where the file was parsed: worker (an isolated worker process),
+                in_process (the ISOLATE_SCANS=0 development opt-out) or
+                unavailable (no worker could start; the file was not scanned)
     external_services  llm / virustotal / sandbox: "off" or how they are used
     layers_disabled / layers_down   switched off by configuration / missing something
     layers_run, layers_unavailable, layers_not_applicable, layers_failed,
@@ -105,6 +108,8 @@ def scanner_provenance(scanner: RansomwareScanner, states: Dict[str, Dict[str, A
         "rules": rules_info(scanner),
         "fuzzy_signatures": fuzzy_info(scanner),
         "profile": str(scanner.config.get("profile") or "standard"),
+        # a worker's scanner is built with _isolation="worker" (engine/workers.py)
+        "isolation": "worker" if scanner.config.get("_isolation") == "worker" else "in_process",
         "external_services": external_services(states),
         "layers_disabled": [{"layer": n, "reason": s["detail"]} for n, s in states.items()
                             if s["state"] == DISABLED],

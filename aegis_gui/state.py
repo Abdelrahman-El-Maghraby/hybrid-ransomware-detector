@@ -102,9 +102,9 @@ class ScanController:
         try:
             def callback(done, total, path, res):
                 bus.put(("progress", done, total, path, res))
-            if mode == "file":
+            if mode == "file":                      # isolated like a folder scan (PR-03)
                 bus.put(("progress", 0, 1, target, None))
-                results = [scanner.scan_file(target)]
+                results = [scanner.scan_one(target)]
                 bus.put(("progress", 1, 1, target, results[0]))
             elif mode == "dir":
                 results = scanner.scan_directory(target, callback, self.cancel_event)
@@ -117,6 +117,8 @@ class ScanController:
                 impact = scanner.last_impact if mode != "file" else None
                 report_text = scanner.generate_report(results, impact=impact)
             bus.put(("scan_done", results, report_text, cancelled))
+            if getattr(scanner, "last_not_scanned", 0):     # fail closed (D-E)
+                bus.put(("isolation_unavailable", scanner.last_not_scanned, mode, target))
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").exception("Scan failed")
             bus.put(("scan_error", str(e)))

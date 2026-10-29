@@ -891,17 +891,31 @@ def _mailbox_command(args, scanner) -> bool:
     return True
 
 
+EXIT_ISOLATION_UNAVAILABLE = 3
+
+
+def _isolation_error(count: int) -> None:
+    """The CLI side of failing closed (D-E): say why files were not scanned."""
+    print(f"❌ Isolated scan workers could not start: {count} file(s) were not scanned. "
+          "No file was scanned in the main process. See the log for the cause.",
+          file=sys.stderr)
+
+
 def _scan_or_schedule(args, scanner) -> None:
     """--scan-file, --scan-now and the scheduled background loop."""
-    # --scan-file: analyse exactly one file, print its verdict, and exit.
+    # --scan-file: analyse exactly one file (in an isolated worker), print its
+    # verdict, and exit.
     if args.scan_file:
         if not os.path.exists(args.scan_file):
             print(f"Error: file not found: {args.scan_file}")
             return
-        result = scanner.scan_file(args.scan_file)
+        result = scanner.scan_one(args.scan_file)
         print(scanner.generate_report([result]))
         from core.outputs import deliver
         deliver([result], CONFIG)
+        if scanner.last_not_scanned:
+            _isolation_error(scanner.last_not_scanned)
+            sys.exit(EXIT_ISOLATION_UNAVAILABLE)
         return
 
     if args.scan_now:
@@ -911,8 +925,13 @@ def _scan_or_schedule(args, scanner) -> None:
         print(report)
         print("=" * 56)
         print(f"\nDetailed reports saved to: {CONFIG['report_directory']}")
+        unscanned = scanner.last_not_scanned
+        if unscanned:
+            _isolation_error(unscanned)
         if not args.background:
             input("\nPress Enter to exit...")
+            if unscanned:
+                sys.exit(EXIT_ISOLATION_UNAVAILABLE)
 
     if args.background or not args.scan_now:
         if not os.path.exists(CONFIG['kaggle_database_path']):

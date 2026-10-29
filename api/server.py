@@ -10,9 +10,11 @@ Endpoints
     GET  /health        liveness (no token)
     GET  /version       engine, registry and schema versions
     GET  /schema        the JSON schema of a result
-    GET  /metrics       counters (files, files/s, verdicts, layer errors, rejections);
-                        ?format=prometheus for the Prometheus text format
-    POST /scan          multipart "file" -> one result (api/scan_result.schema.json)
+    GET  /ready         200 when a scan would be correct and complete, else 503
+    GET  /metrics       counters (files, files/s, verdicts, layer errors, rejections,
+                        worker starts); ?format=prometheus for the Prometheus text format
+    POST /scan          multipart "file" -> one result (api/scan_result.schema.json);
+                        503 when isolated scan workers cannot start (fail closed)
 
 Security
   * A bearer token is required for everything except /health; the server refuses
@@ -30,6 +32,8 @@ Security
     for display), scanned, and deleted.
   * Each scan runs in an isolated worker process with a time and memory limit
     (engine/workers.py), so a hostile upload cannot hang or crash the service.
+    When workers cannot start, /scan answers 503 and nothing is parsed in this
+    process; /ready turns 503 from the live worker-start counters.
   * The file is never executed; nothing is sent to third parties unless the
     operator configured VirusTotal / an LLM / a sandbox.
 """
@@ -55,6 +59,7 @@ from api import SCHEMA_VERSION, load_schema
 from api.limits import AuthGuard, BodyLimit, RateLimit, ScanSlots, TokenBuckets, client_ip, client_key
 from engine.metrics import METRICS
 from engine.readiness import readiness
+from engine.workers import ISOLATION_UNAVAILABLE, IsolationUnavailable
 
 
 def _env_number(name: str, default: float) -> float:
@@ -76,7 +81,12 @@ class _ScanService:
     Every upload gets a fresh worker process, so a file that compromises a parser
     cannot touch another upload. Starting one (process + scanner) takes about 1.4 s,
     so `spares` workers are started ahead and replaced in the background after use:
-    one idle worker per scan slot, each used for exactly one file."""
+    one idle worker per scan slot, each used for exactly one file. A spare joins
+    the queue only once it is ready; a failed start is retried with a growing
+    pause until it succeeds, so the count returns to its target (PR-11)."""
+
+    SPARE_READY_SECONDS = 120.0
+    SPARE_RETRY_MAX_SECONDS = 60.0
 
     def __init__(self, config: Dict, isolate: bool = True, spares: int = 0):
         from engine.scanner import RansomwareScanner
@@ -84,7 +94,10 @@ class _ScanService:
         self.scanner = RansomwareScanner(self.config)
         self.isolate = isolate
         self._lock = threading.Lock()
+        self._closed = threading.Event()
         self._spares: queue.SimpleQueue[Any] = queue.SimpleQueue()
+        self._warm: Tuple[bool, str] = (True, "not checked yet")
+        self._warm_starts = 0
         for _ in range(spares if isolate else 0):
             self._refill()
 
@@ -93,37 +106,63 @@ class _ScanService:
 
     def _refill(self) -> None:
         def start() -> None:
-            from engine.workers import start_worker
-            try:
-                self._spares.put(start_worker(self.scanner, self._memory_mb()))
-            except Exception as e:      # scans still work: they start their own worker
-                logger.warning("Could not start a spare scan worker: %s", e)
+            from engine.workers import start_worker, wait_ready
+            pause = 1.0
+            while not self._closed.is_set():
+                try:
+                    w = start_worker(self.scanner, self._memory_mb())
+                except Exception as e:      # counted like any failed start
+                    METRICS.worker_start(False, reason=f"{type(e).__name__}: {e}")
+                    w = None
+                if w is not None and wait_ready(w, self.SPARE_READY_SECONDS):
+                    if self._closed.is_set():
+                        w.kill()
+                    else:
+                        self._spares.put(w)
+                    return
+                logger.warning("Could not start a spare scan worker; retrying in %.0fs.", pause)
+                self._closed.wait(pause)
+                pause = min(pause * 2, self.SPARE_RETRY_MAX_SECONDS)
         threading.Thread(target=start, name="aegis-spare-worker", daemon=True).start()
 
     def _take_spare(self) -> Any:
-        try:
-            return self._spares.get_nowait()
-        except queue.Empty:
-            return None
+        while True:
+            try:
+                spare = self._spares.get_nowait()
+            except queue.Empty:
+                return None
+            if spare.proc.is_alive():
+                return spare
+            spare.kill()                    # ended while idle: replace it, do not use it
+            if not self._closed.is_set():
+                self._refill()
+
+    def spare_count(self) -> int:
+        return self._spares.qsize()
 
     def close(self) -> None:
         """Stop the idle spares (their temp folders go with them)."""
+        self._closed.set()
         while (spare := self._take_spare()) is not None:
             spare.kill()
 
     def scan(self, path: str, display: str) -> Dict:
+        """One upload; raises IsolationUnavailable when no isolated worker could
+        start (the file was not parsed anywhere)."""
         if not self.isolate:
             result = self.scanner.scan_file(path)
         else:
-            from engine.workers import scan_isolated
+            from engine.workers import ISOLATION_TEXT, IsolationUnavailable, scan_isolated
             box: Dict = {}
             spare = self._take_spare()
-            scan_isolated(self.scanner, [path], 1,
-                          float(self.config.get("scan_timeout_seconds", 300)),
-                          self._memory_mb(), lambda i, p, r: box.setdefault("r", r),
-                          spare=spare)
+            unscanned = scan_isolated(self.scanner, [path], 1,
+                                      float(self.config.get("scan_timeout_seconds", 300)),
+                                      self._memory_mb(), lambda i, p, r: box.setdefault("r", r),
+                                      spare=spare)
             if spare is not None:
                 self._refill()
+            if unscanned:
+                raise IsolationUnavailable(ISOLATION_TEXT)
             result = box["r"]
         result["file_path"] = display
         result["file_name"] = display
@@ -132,13 +171,21 @@ class _ScanService:
     def warm_up(self) -> Tuple[bool, str]:
         """Prove isolated workers start and finish a scan: one small text file, once,
         at start-up (a readiness probe must not spawn a process each time)."""
+        self._warm = self._warm_up()
+        self._warm_starts = METRICS.worker_starts_ok()
+        return self._warm
+
+    def _warm_up(self) -> Tuple[bool, str]:
         if not self.isolate:
             return True, "in-process scans (isolation off)"
+        from engine.workers import IsolationUnavailable
         work = Path(tempfile.mkdtemp(prefix="aegis_warmup_"))
         try:
             sample = work / "warmup.txt"
             sample.write_text("Aegis Sentinel readiness check\n", encoding="utf-8")
             result = self.scan(str(sample), "warmup.txt")
+        except IsolationUnavailable as e:
+            return False, f"warm-up scan: {e}"
         except Exception as e:  # the worker machinery itself is broken
             return False, f"warm-up scan raised {type(e).__name__}"
         finally:
@@ -147,6 +194,29 @@ class _ScanService:
         if failed:
             return False, f"warm-up scan failed: {failed.get('reason', 'unknown')}"
         return True, "isolated workers start"
+
+    def workers_check(self) -> Tuple[bool, str]:
+        """The live `workers` readiness check (PR-11): failing while the latest
+        worker start failed, and while a failed warm-up has not been followed by
+        a successful start."""
+        if not self.isolate:
+            return True, "in-process scans (isolation off)"
+        ok, detail = METRICS.worker_health()
+        if not ok:
+            return ok, detail
+        if not self._warm[0] and METRICS.worker_starts_ok() <= self._warm_starts:
+            return self._warm
+        return ok, detail
+
+
+def _scan_or_503(service: _ScanService, path: str, name: str) -> Dict:
+    """Fail closed (D-E): no isolated worker, no scan - 503 with a JSON error."""
+    try:
+        return service.scan(path, name)
+    except IsolationUnavailable as e:
+        METRICS.reject(ISOLATION_UNAVAILABLE)
+        raise HTTPException(status_code=503, detail=str(e),
+                            headers={"Retry-After": "30"}) from e
 
 
 class _Auth:
@@ -208,8 +278,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     service = _ScanService(config or CONFIG, isolate=isolate,
                            spares=int(_env_number("AEGIS_API_SPARE_WORKERS", concurrent)))
     atexit.register(service.close)
-    workers = service.warm_up()
-    start = readiness(service.scanner, workers)
+    start = readiness(service.scanner, service.warm_up())
     if start["ready"]:
         logger.info("Ready (%s profile).", start["profile"], extra={"event": "ready"})
     else:
@@ -217,6 +286,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                        extra={"event": "not_ready", "problems": start["problems"]})
     app = FastAPI(title="Aegis Sentinel API", version=ENGINE_VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.service = service                  # for operators' tooling and the tests
     limit = int(MAX_UPLOAD_MB * 1024 * 1024)
     slots = ScanSlots(concurrent)
     trust_proxy = os.getenv("AEGIS_API_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes")
@@ -250,7 +320,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
             if problem is not None and problem.status_code == 429:
                 raise problem
             detailed = problem is None
-        report = readiness(service.scanner, workers)
+        report = readiness(service.scanner, service.workers_check())
         body = report if detailed else {"ready": report["ready"]}
         return JSONResponse(body, status_code=200 if report["ready"] else 503)
 
@@ -296,7 +366,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                         raise HTTPException(status_code=413,
                                             detail=f"file larger than {MAX_UPLOAD_MB:g} MB")
                     out.write(chunk)
-            result = service.scan(str(target), name)
+            result = _scan_or_503(service, str(target), name)
             METRICS.record_result(result)
             return result
         finally:
