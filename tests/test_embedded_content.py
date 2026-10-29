@@ -93,13 +93,12 @@ def test_onenote_through_the_scanner(scanner, tmp_path):
 def test_chm_pages_are_scanned_and_shortcut_object_flagged(tmp_path, monkeypatch):
     page = (b'<html><object id=x classid="clsid:adb880a6-d8ff-11cf-9377-00aa003b7a11">'
             b'<param name="Command" value="ShortCut"></object></html>')
-
-    def fake_extract(tool, archive, out, timeout=120, runner=None):
-        (out / "index.htm").write_bytes(page)
-        (out / "#SYSTEM").write_bytes(b"internal")
-
     import detectors.macos_packages as mp
-    monkeypatch.setattr(mp, "sevenzip_extract", fake_extract)
+    monkeypatch.setattr(mp, "sevenzip_list", lambda tool, archive, *a, **k: [
+        mp.ListedItem("index.htm", len(page), False, False),
+        mp.ListedItem("#SYSTEM", 8, False, False)])
+    monkeypatch.setattr(mp, "sevenzip_read", lambda tool, archive, name, *a, **k:
+                        page if name == "index.htm" else b"internal")
     p = tmp_path / "help.chm"
     p.write_bytes(b"ITSF" + b"\x00" * 200)
     with EmbeddedContentAnalyzer(sevenzip=lambda: "7z").open(p) as r:
