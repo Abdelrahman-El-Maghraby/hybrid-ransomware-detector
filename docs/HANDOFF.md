@@ -1,85 +1,87 @@
 # Current task handoff
 
-- Status: active. **Stage 2 in progress**: the owner said "continue" for Stage 2
-  only. Stage 3 is not authorised. Done so far: baseline re-checked (unchanged
-  `af5e6d2`), parser sample, benchmarks, full gates, report sections 14-17.
-  Remaining: sections 18-23, reconcile section 10, final validation, PR.
+- Status: active. **Stage 2 complete.** The review PR is open. Waiting for the
+  owner's separate explicit approval of the Stage 3 implementation plan. Stage 3 is
+  not authorised.
 - Technical goal: evidence-based architecture, code quality, performance and
   readiness review plus development closure plan.
 - Sanitised brief: [tasks/project-review.md](tasks/project-review.md).
-- Stage and approval boundary: Stage 1 done. Stage 2 needs the owner's explicit
-  "continue". Stage 3 (implementation) needs separate explicit approval of the
-  implementation plan presented at the end of Stage 2.
-- Active agent: Claude (stopping at the Stage 1 gate). Previous agent: none for
-  this task.
-- Task branch: `review/project-review`. Base branch: `main`. PR: none (opened only
-  at the end of Stage 2).
-- Code baseline (reviewed commit): `af5e6d2` on `main`. No implementation commits
-  (review only).
-- Allowed files: `docs/PROJECT_REVIEW.md`, `docs/tasks/project-review.md`,
-  `docs/HANDOFF.md`.
+- Active agent: Claude (stopping at the Stage 3 approval gate). Previous agent:
+  none for this task.
+- Task branch: `review/project-review`. Base branch: `main`. PR: the review PR
+  (link in the chat summary; open, not merged).
+- Code baseline (reviewed and benchmarked commit): `af5e6d2`. No implementation
+  commits.
+- Allowed files (review stages): `docs/PROJECT_REVIEW.md`,
+  `docs/tasks/project-review.md`, `docs/HANDOFF.md`.
 
-## Completed (Stage 1)
+## Completed
 
-- Initial reading (section 2 of the report lists what was read in full and what by
-  headings).
-- `docs/PROJECT_REVIEW.md`, marked INCOMPLETE DRAFT: baseline, executive summary
-  (preliminary), scope and method, inspection inventory, development context,
-  block inventory B1-B16 with a Mermaid diagram, per-block design review and
-  patterns, threat-to-mitigation mapping, proposed threat-model additions
-  TMA-1 to TMA-4, platform / Python coverage, requested-capability status,
-  preliminary findings PR-01 to PR-15, suspected S-01 to S-04, performance
-  hypotheses H-01 to H-03, readiness cross-references, criteria and scales,
-  preliminary closure table, owner decisions D-A to D-E, pending list.
-- Main preliminary findings: PR-01 (High: unvalidated signed rule-pack version
-  used as a path, reproduced in a temporary folder), PR-02 (isolation fails open),
-  PR-03 (single-file scans not isolated), PR-04 (DMG through `7z x`), PR-05 (API
-  and fuzz tests skipped in the OS matrix).
+- Stage 1 and Stage 2 of `docs/PROJECT_REVIEW.md` (complete, no draft banner):
+  findings PR-01 to PR-17, S-01 to S-04 (S-02 closed), H-01 to H-04, refactoring
+  RF-1 to RF-9, benchmark (section 15), gap analysis, block checklists (section
+  13), sequence and integration checks (section 20), release checklist (section
+  21), top 10 (section 22), validation (section 23).
 
-## Checks run (Stage 1)
+## Checks run (local, macOS arm64, Python 3.14.2)
 
-- Local, macOS arm64, Python 3.14.2 (`.venv`), `LLM_PROVIDER=none`,
-  `-p no:cacheprovider`:
-  - Batch 1 (workers, worker limits, archives, RAR, encrypted containers, macOS
-    packages, closed limits, fuzz): 145 passed, 3 skipped (platform).
-  - Batch 2 (API auth, outputs/API, intel, cache integrity, cache keys, rule packs,
-    deployment, privilege separation, readiness, scan status, secret store, tools
-    path, HTTP, sharing, provenance, metrics): 175 passed.
-  - `ruff check .`: clean.
-- Throw-away reproduction of PR-01 outside the repository (not committed).
-- CI log of `tests` run 40741208642 (`af5e6d2`) read for skip reasons.
-- Not run: full test suite, mypy, bandit, pip-audit, Docker deployment check,
-  benchmarks, Markdown / Mermaid validation (all Stage 2).
-
-## Failures and uncertainties
-
-- No test failures. Suspected items S-01 to S-04 are unverified (report section 10).
-- Parsers other than archive extraction are not yet inspected (Stage 2 sample).
+- Full suite with coverage: 1011 passed, 13 skipped, 0 failed; coverage 91 %.
+- ruff clean; mypy no issues (63 files); bandit no medium / high; pip-audit on the
+  lock: no known vulnerabilities.
+- Benchmarks as in report section 15 (scripts and raw data outside the repo).
+- Not run: Docker deployment check, atheris, the GUI smoke test, Python 3.9 / 3.12,
+  Windows, Linux.
 
 ## Uncommitted or unrelated changes to preserve
 
-- None. The working tree was clean at task start, and no unrelated changes appeared.
+- None.
 
-## Remaining steps (Stage 2, only after "continue")
+## Last Dance — Final implementation follow-up
 
-1. Check whether `main` moved past `af5e6d2`; if so, record the new baseline and
-   reconcile file:line references.
-2. Stage 2 parser sample and the partly inspected blocks (report section 14).
-3. Refactoring and optimisation proposals.
-4. Benchmarks on this Mac: inspect `tools/profile_layers.py` and the scan entry
-   points first; measure H-01 to H-03; keep scripts and raw data outside the repo.
-5. Gap analysis and grades; roadmap; final closure checklists, sequence and
-   release checklist; top 10 actions.
-6. Verify S-01 to S-04 where safely possible.
-7. Validation (references, IDs, tables, Markdown / Mermaid, three-file diff),
-   relevant gates, remove the draft banner, push, open the PR, prepare the idle
-   handoff reset, present the Stage 3 plan and ask for approval.
+A reminder for the implementation task (Stage 3 of the brief, or any later one).
+Details live only in `docs/PROJECT_REVIEW.md`; follow the references.
+
+- **Confirmed issues to fix** (report section 10; order in section 22):
+  - PR-01 (High);
+  - PR-02, PR-03, PR-04, PR-05, PR-07, PR-17 (Medium);
+  - PR-06, PR-08, PR-09, PR-10, PR-11, PR-12, PR-13, PR-14, PR-16 (Low);
+  - PR-15 (observation);
+  - still to verify: S-01, S-03, S-04; H-03 unmeasured.
+- **Requested feature completion** (report section 9; tasks in section 13 B9 / B11
+  / B12; order in section 20 rows 10-14): F1 folder monitoring, F2 GUI
+  integration, F3 quarantine integration, F4 outbound e-mail alerts, F5 optional
+  cloud storage for logs and reports.
+- **Decisions the owner still has to answer** (report section 13):
+  - D-A: target release version and scope;
+  - D-B: is folder monitoring desktop only?
+  - D-C: the e-mail path in Docker (intel operation or a separate notifier);
+  - D-D: cloud provider / protocol and retention default;
+  - D-E: should the desktop keep a recorded in-process fallback when workers
+    cannot start?
+- **Remaining closure items:**
+  - block checklists, report section 13, statuses per block;
+  - project release closure checklist, report section 21: block closure,
+    capabilities, integration checks I-1 to I-7, platforms and runtimes,
+    documentation, ML dependency;
+  - tracked prerequisites M1 / X1, M2, O1, U1, X2, D5, and the legal review of
+    `docs/THIRD_PARTY.md`.
+- **Owner decisions on the threat model:** proposals TMA-1 to TMA-4 (report
+  section 7). `docs/THREAT_MODEL.md` was not changed.
+
+## Remaining steps
+
+1. Owner reviews the PR and answers D-A to D-E.
+2. Owner explicitly approves (or changes) the Stage 3 plan from the chat summary.
+3. Only then: start implementation on new branches from updated `main`, separate
+   from this review PR, following report section 20.
 
 ## Exact next action
 
-Wait for the owner's explicit "continue". Then start with step 1.
+Wait for the owner's explicit approval of the Stage 3 plan. Do not change
+application code before that.
 
 ## Last verified push
 
-- The previous checkpoint `dc0ef0a` was pushed; local and remote tips matched.
-  This checkpoint's push result is reported in chat.
+- Reported in chat after the push. The final commit on this branch resets this
+  file to the idle state required before merge, keeping the Last Dance reminder
+  as a reference.
