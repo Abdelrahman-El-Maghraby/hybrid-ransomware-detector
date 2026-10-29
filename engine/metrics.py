@@ -37,6 +37,7 @@ class Metrics:
             self.verdicts: Counter = Counter({v: 0 for v in VERDICTS})
             self.job_failures: Counter = Counter()    # background jobs that raised (by name)
             self.alerts: Counter = Counter()          # (channel, sent | failed | expired)
+            self.cloud_uploads: Counter = Counter()   # uploaded | failed | expired (spool)
             self.layer_errors: Counter = Counter()
             self.failures: Counter = Counter()        # timeout | worker_crash | error
             self.rejected: Counter = Counter()        # API: rate_limited | too_large | busy
@@ -69,6 +70,11 @@ class Metrics:
         with self._lock:
             self.alerts[(channel, outcome)] += 1
 
+    def cloud(self, outcome: str) -> None:
+        """A cloud spool item: uploaded, failed (retried later) or expired."""
+        with self._lock:
+            self.cloud_uploads[outcome] += 1
+
     def job_failed(self, name: str) -> None:
         """A scheduled background job raised (it is logged and runs again next time)."""
         with self._lock:
@@ -92,6 +98,7 @@ class Metrics:
                 "verdicts": dict(self.verdicts),
                 "scheduled_job_failures": dict(self.job_failures),
                 "alerts": {f"{c}_{o}": n for (c, o), n in sorted(self.alerts.items())},
+                "cloud_uploads": dict(self.cloud_uploads),
                 "layer_errors": dict(self.layer_errors),
                 "scan_failures": dict(self.failures),
                 "requests_rejected": dict(self.rejected),
@@ -117,6 +124,10 @@ class Metrics:
                 "# TYPE aegis_layer_errors_total counter"]
         out += [f'aegis_layer_errors_total{{layer="{k}"}} {n}'
                 for k, n in sorted(s["layer_errors"].items())]
+        out += ["# HELP aegis_cloud_uploads_total Cloud spool items by outcome.",
+                "# TYPE aegis_cloud_uploads_total counter"]
+        out += [f'aegis_cloud_uploads_total{{outcome="{k}"}} {n}'
+                for k, n in sorted(s["cloud_uploads"].items())]
         out += ["# HELP aegis_alerts_total Alert deliveries by channel and outcome.",
                 "# TYPE aegis_alerts_total counter"]
         out += [f'aegis_alerts_total{{channel="{c}",outcome="{o}"}} {n}'
