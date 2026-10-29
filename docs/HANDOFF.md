@@ -6,7 +6,7 @@
   B1: task PRs into integration/v4.8 only; owner merges; no tags/releases,
   force-push, detection changes, real samples or private data.
 - Branch: docs/v4.8-final-validation, from integration/v4.8 at 087b460.
-  PR not opened yet. Clean checkout at start; no unrelated local changes.
+  Draft PR #45 into integration/v4.8. Clean checkout at start; no unrelated local changes.
 - Reconciled: #43 merged at 3a35a6f; #44 merged at 087b460. Integration tree
   is identical to checksum PR head f4ff8c9. Previous local full suite: 1199
   passed, 7 skipped; all 12 checksum PR checks green. Commit identity verified.
@@ -15,10 +15,12 @@
   (no skips), one Starlette warning, 126.63 seconds; quarantine/key-backup
   suite 23 passed (no skips), 6.93 seconds. Docker CI 40926556459 passed;
   deployment job 123633511381 logs inspected (TLS scan, ready, isolation).
-  Benchmark now running; results pending. Previous full suite evidence remains
+  Benchmark complete: 29 fresh-process measurements; all required layers up,
+  full set 162 complete/1 partial, small set 161 complete, no failed/unscanned
+  files. Section 26 records all metrics, methodology and limitations. Previous full suite evidence remains
   in #43/#44, not relabelled as a new run.
-- Next: focused I-1 to I-7 run with GUI tests and local TLS receivers; inspect
-  integration-SHA Docker CI. Then run scratch benchmark in fresh processes,
+- Next: review report section 26, validate docs and restore handoff before
+  marking #45 ready on green CI. Benchmark used fresh processes,
   seed 20261029, 163 benign files, matching section 15 composition but new bytes.
   Keep raw results and scratch scripts outside Git; publish technical aggregate
   measurements and methodology only. Do not infer accuracy.
@@ -27,6 +29,5 @@
   file to integration content as last commit, wait for green CI and owner merge.
   #39 stays draft until the release closure evidence is reviewed.
 - Open prerequisites: M1/X1, reference-host M2, O1, U1, X2, legal review,
-  conditional D5, manual desktops/providers and atheris long runs. No new closure
-  claimed. Docker unavailable locally; use inspected CI evidence.
-- Last verified remote: integration/v4.8 at 087b460; task checkpoint not pushed yet.
+  conditional D5, manual desktops/providers and atheris long runs. No tracked prerequisite closure claimed. Docker unavailable locally; use inspected CI evidence.
+- Last verified remote: integration/v4.8 at 087b460; task checkpoint dd4e068 pushed; report checkpoint pending.
