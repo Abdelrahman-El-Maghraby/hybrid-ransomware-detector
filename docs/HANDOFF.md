@@ -1,6 +1,6 @@
 # Current task handoff
 
-- Status: **active, handed over** (Claude -> Codex). Claude has stopped.
+- Status: **active** (Codex). Claude has stopped.
 - Task: Stage 3 of the project review: implementation for release 4.8.0.
 - Brief:
   - the owner's Stage 3 authorisation and start-up prompt:
@@ -15,7 +15,7 @@
   tests, docs, commits, pushes, step branches and PRs. **No PR merges by the
   agent and nothing into `main`; no force-push, no auto-merge.** Optional (O)
   items need separate owner approval. The owner merges every PR.
-- Active agent: none until Codex takes over. Previous agent (Claude): stopped.
+- Active agent: Codex. Previous agent (Claude): stopped.
 
 ## Owner decisions (all final, 2026-10-29)
 
@@ -202,9 +202,14 @@ Still to do in step 12:
 
 ## Next action
 
-Take over: fetch, check out `docs/v4.8` (fast-forward to its remote tip), set
-the active agent to Codex in this file, commit and push that checkpoint, then
-continue step 12 with item 1 (`docs/OPERATIONS.md`).
+Continue step 12 with item 1 (`docs/OPERATIONS.md`).
+
+Takeover reconciliation: fetched and fast-forward checked; clean working tree,
+local and remote task tip `4a5faa5`; integration remains `c4906ac`, main
+`bd46fff`. PRs #39 and #43 remain open drafts with the expected bases.
+PR #39 has an outdated progress description; branch history is authoritative.
+No newer implementation or local changes found. Commit identity verified.
+Documentation-only checkpoint: application checks not run; diff reviewed.
 
 ## Last verified push
 
