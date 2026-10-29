@@ -53,7 +53,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.lock
           python -m pip install -e ".[dev]" --no-deps
-          python -m pip install pytest pytest-cov hypothesis qrcode httpx jsonschema
+          python -m pip install pytest pytest-cov hypothesis qrcode httpx jsonschema "boto3>=1.35"
       - name: Tests with coverage gate (fail under 85 %)
         env:
           LLM_PROVIDER: none

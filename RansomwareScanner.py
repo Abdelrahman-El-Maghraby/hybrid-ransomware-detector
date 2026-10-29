@@ -991,6 +991,13 @@ def _schedule_background_jobs(scanner, watcher, config) -> None:
     schedule.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
     # Canaries deployed or removed later (GUI or CLI) are picked up here.
     schedule.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    # optional cloud storage (core/cloud.py): spool cleaned at start and daily,
+    # uploads every 5 minutes; nothing is queued or uploaded while it is off
+    from core import cloud
+    _guarded("cloud_cleanup", lambda: cloud.run_uploads(config, cleanup=True))()
+    schedule.every(5).minutes.do(_guarded("cloud_upload", lambda: cloud.run_uploads(config)))
+    schedule.every(1).days.do(_guarded("cloud_cleanup",
+                                       lambda: cloud.run_uploads(config, cleanup=True)))
     # alerts a receiver did not take yet (core/outbox.py) are retried every minute
     from core.outbox import flush_pending
     schedule.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
@@ -1031,6 +1038,8 @@ def main():
     except ConfigError as e:
         print(f"❌ {e}")
         sys.exit(2)
+    from core.cloud import install_event_spool
+    install_event_spool(CONFIG)          # only with CLOUD_UPLOAD=true
     if _capabilities_command(args) or _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)

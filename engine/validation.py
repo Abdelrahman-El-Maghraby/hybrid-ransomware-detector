@@ -56,6 +56,8 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
     "alert_email_per_hour": ("ALERT_EMAIL_PER_HOUR", 1, 10_000),
     "alert_email_per_day": ("ALERT_EMAIL_PER_DAY", 1, 100_000),
     "outbox_max_age_hours": ("OUTBOX_MAX_AGE_HOURS", 1, 720),
+    "cloud_spool_days": ("CLOUD_SPOOL_DAYS", 1, 365),
+    "cloud_spool_max_mb": ("CLOUD_SPOOL_MAX_MB", 1, 1_048_576),
 }
 
 # key -> (environment variable, allowed values, case-insensitive)
@@ -209,6 +211,39 @@ def _email(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
                         "or SMTP_PASSWORD_FILE)")
 
 
+_BUCKET = r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+_PREFIX = r"^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*$"
+
+
+def _cloud(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """Optional cloud storage (core/cloud.py): desktop only, HTTPS, complete."""
+    import re
+    if not cfg.get("cloud_upload"):
+        return
+    production = str(cfg.get("profile") or "").strip().lower() == "production"
+    if cfg.get("intel_socket") or production:
+        errors.append("CLOUD_UPLOAD is a desktop feature; the Docker edition keeps its own "
+                      "log shipping (decision D-D2)")
+    endpoint = str(cfg.get("cloud_endpoint") or "")
+    if not endpoint.lower().startswith("https://"):
+        errors.append("CLOUD_UPLOAD needs CLOUD_ENDPOINT as an https:// URL (certificates "
+                      "are verified)")
+    if not re.match(_BUCKET, str(cfg.get("cloud_bucket") or "")):
+        errors.append("CLOUD_UPLOAD needs CLOUD_BUCKET (3-63 lowercase letters, digits, "
+                      "dots and hyphens)")
+    prefix = str(cfg.get("cloud_prefix") or "aegis")
+    if not re.match(_PREFIX, prefix) or any(part in (".", "..") for part in prefix.split("/")):
+        errors.append("CLOUD_PREFIX may hold letters, digits and !_.*'()- separated by /")
+    if not cfg.get("cloud_access_key_id") or not cfg.get("cloud_secret_access_key"):
+        errors.append("CLOUD_UPLOAD needs CLOUD_ACCESS_KEY_ID and CLOUD_SECRET_ACCESS_KEY "
+                      "(a secret: keyring, environment or _FILE)")
+    bundle = str(cfg.get("cloud_ca_bundle") or "")
+    if bundle and not Path(bundle).is_file():
+        errors.append(f"CLOUD_CA_BUNDLE={bundle} does not exist")
+    if cfg.get("cloud_upload_full"):
+        warnings.append("CLOUD_UPLOAD_FULL is on: uploads carry paths and file names")
+
+
 def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     rules = str(cfg.get("yara_rules_dir") or "")
     if rules and not Path(rules).is_dir():
@@ -314,5 +349,5 @@ def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _paths,
-                             _conflicts, _profile, _intel)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _cloud,
+                             _paths, _conflicts, _profile, _intel)

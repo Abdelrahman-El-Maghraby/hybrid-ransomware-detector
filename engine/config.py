@@ -202,6 +202,22 @@ CONFIG = {
     # The alert outbox (core/outbox.py): pending alerts, retried until delivered
     "outbox_dir": _getenv("OUTBOX_DIR", str(APP_DIR / "outbox")),
     "outbox_max_age_hours": _env_float("OUTBOX_MAX_AGE_HOURS", 24),
+    # Optional cloud storage of reports and logs (core/cloud.py): off by default,
+    # desktop only, a redacted upload view to one S3-compatible bucket over HTTPS.
+    "cloud_upload": _env_bool("CLOUD_UPLOAD", False),
+    "cloud_endpoint": _getenv("CLOUD_ENDPOINT", ""),
+    "cloud_region": _getenv("CLOUD_REGION", "us-east-1"),
+    "cloud_bucket": _getenv("CLOUD_BUCKET", ""),
+    "cloud_prefix": _getenv("CLOUD_PREFIX", "aegis"),
+    "cloud_access_key_id": _getenv("CLOUD_ACCESS_KEY_ID", ""),
+    "cloud_secret_access_key": _getenv("CLOUD_SECRET_ACCESS_KEY", ""),
+    "cloud_pseudonym_key": _getenv("CLOUD_PSEUDONYM_KEY", ""),
+    "cloud_ca_bundle": _getenv("CLOUD_CA_BUNDLE", ""),
+    "cloud_conditional_writes": _env_bool("CLOUD_CONDITIONAL_WRITES", True),
+    "cloud_upload_full": _env_bool("CLOUD_UPLOAD_FULL", False),
+    "cloud_spool_dir": _getenv("CLOUD_SPOOL_DIR", str(APP_DIR / "cloud_spool")),
+    "cloud_spool_days": _env_float("CLOUD_SPOOL_DAYS", 30),
+    "cloud_spool_max_mb": _env_float("CLOUD_SPOOL_MAX_MB", 1024),
     # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
     "rulepack_public_keys": [k for k in _getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
     "data_dir": str(DATA_DIR),
