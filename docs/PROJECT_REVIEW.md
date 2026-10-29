@@ -1148,3 +1148,144 @@ Medium isolation and CI gaps. It is **not** held there by missing features.
 - *Tested against a defined scope*: PR-05, PR-06, and the missing tests listed for
   B15. Coverage (91 %) is reported for `engine`, `detectors`, `core` and `api`
   only (PR-15) and is not proof of correctness.
+
+## 18. Overall assessment
+
+- **Quality for the current stage: good (B overall, several blocks A).** The
+  architecture has clear trust boundaries. Analysis has no network, intel is the
+  only egress, content is read-only, and the cache lives only in intel. These are
+  implemented, tested, and mostly exercised in this review (section 7). The test
+  suite is large and passed in full locally: 1011 passed, 13 skipped, 0 failed.
+  ruff, mypy, bandit and pip-audit are clean.
+- **Main risks today:**
+  - PR-01: a confirmed High defect, behind a trusted signature.
+  - Isolation that is not always applied (PR-02, PR-03).
+  - DMG unpacking that departs from the stated design (PR-04).
+  - CI that does not run the API or fuzz tests outside Linux / 3.12 (PR-05).
+- **Performance on this Mac:** ordinary documents take 1-90 ms each. A mixed
+  folder scan runs at about 25-29 files/s (4 MB/s) including about 1.1-1.4 s of
+  start-up. The dispatch loop is the main measured bottleneck: adding workers
+  lowers throughput (PR-17).
+- **Development completion of the target release: not supported by the
+  evidence.** Three of the five requested capabilities are absent (section 9),
+  the GUI integration is partial, and the confirmed findings are open. Remaining:
+  sections 19-21.
+- **Production deployment readiness: not supported by the evidence.** Remaining:
+  - new: PR-01, PR-02 (fail closed), PR-12, PR-13;
+  - tracked: M1 / X1, M2, O1, U1, X2, the legal review of `docs/THIRD_PARTY.md`,
+    and D5 if arm64 is claimed.
+
+  Completing this review does not complete development.
+
+## 19. Prioritised roadmap
+
+Two rankings, as the brief requires.
+
+**Confirmed defects, by current impact:** PR-01 (High) > PR-07 (Medium) > PR-09,
+PR-14, PR-10 (Low).
+
+**Production prerequisites, by risk of deploying without them:**
+1. PR-01. Needs only a key compromise or a publishing mistake.
+2. PR-02. Silent loss of isolation on the API.
+3. PR-12. Unverified artifacts at build time.
+4. PR-13. A release from an untested commit.
+5. Tracked: M1, O1, U1, X2, the legal review.
+
+**Phases** (each item references section 10 or 14; F = feature):
+
+| Phase | Items | Purpose |
+|---|---|---|
+| 1. Safety fixes | RF-6 (PR-01, PR-14), PR-09, PR-10 | close the High defect and the quick Low ones |
+| 2. Isolation and the dispatch loop | RF-1 (PR-02, PR-03), RF-2 (PR-17), PR-11 | every file isolated, efficient, observable; prerequisite for monitoring |
+| 3. Background reliability and delivery | RF-5 (PR-07, PR-08) | prerequisite for alerts and monitoring |
+| 4. Extraction and CI | RF-4 (PR-04, after S-01), PR-05, PR-06 (S-04) | design consistency; evidence on every supported runtime |
+| 5. Requested capabilities | F3 → F1 → F4 → F5 → F2 (section 13, B9 / B11 / B12) | target-release features, after decisions D-A to D-E |
+| 6. Release hardening and docs | PR-12, PR-13, threat-model updates TMA-1 to TMA-4 (owner), DATA_POLICY / OPERATIONS for the new features | production prerequisites |
+| 7. Later improvements | RF-3, RF-7, RF-8, RF-9, O-3, O-4, H-03, PR-16 | maintainability and optimisation |
+
+## 20. Dependency-ordered implementation sequence and integration checks
+
+Each shared change is listed once, with its owning block. "→" names the dependent
+blocks.
+
+| # | Change | Owner | → Dependents | Prerequisite |
+|---|---|---|---|---|
+| 1 | RF-6: version validation, path confinement, atomic `active.json` | B7 | B13 (content tool) | none |
+| 2 | PR-09, PR-10 | B1, B16 | none | none |
+| 3 | RF-1: isolation policy, single files isolated, `provenance.isolation` | B2 | B1, B10, B11, B12 | none |
+| 4 | RF-2: event-driven wait | B2 | B10, B12 | 3 (same module; sequence to avoid conflicts) |
+| 5 | PR-11: worker-start metrics, live readiness, spare refill | B10 | B13 | 3 |
+| 6 | RF-5 part 1: guarded scheduled jobs | B12 | B9 | none |
+| 7 | S-01 check, then RF-4: streamed DMG members | B6 | B16 (threat model) | none |
+| 8 | PR-05 / PR-06: matrix extras and lock (S-04) | B14 | B15 | none |
+| 9 | RF-5 part 2: alert outbox; canary alerts through it | B12 | B9, F4 | 6 |
+| 10 | F3: quarantine integration (monitored files, alert content, GUI key backup) | B9 | B11 | 3 |
+| 11 | F1: folder monitoring (desktop, D-B) | B12 (service) / B9 (watcher reuse) | B11 | 3, 4, 6, 9, D-B |
+| 12 | F4: e-mail alerts | B12 | B11, B13 (if Docker, D-C) | 9, D-C |
+| 13 | F5: optional cloud storage for logs and reports | B12 | B11, B13, B16 | D-D; the spool pattern from 9 |
+| 14 | F2: GUI views for 11-13 | B11 | none | 11-13 |
+| 15 | PR-12, PR-13 | B13, B14 | none | 8 |
+| 16 | Docs: DATA_POLICY, OPERATIONS, RUNBOOKS, README, CHANGELOG; threat-model proposals to the owner | B16 | none | 11-13 |
+| 17 | Cross-block integration checks I-1 to I-7 | all | none | 1-16 |
+
+**Cross-block integration checks** (some flows do not exist today; marked):
+
+| ID | Flow | Today | Verification |
+|---|---|---|---|
+| I-1 | Folder event → isolated scan → GUI result, report, outputs | **does not exist** | create, modify and rename files in a watched folder on Windows, macOS and Linux. Each file is scanned once after it settles, appears in the GUI and the report, and own folders are ignored |
+| I-2 | Hostile or slow file in a watched folder | does not exist | a hanging fake parser gives `scan_failed` after the timeout; the GUI and the watcher stay responsive (needs RF-1) |
+| I-3 | Quarantine and restore from a result (manual and automatic) | exists for scans (`aegis_gui/detail.py:468-518`, `engine/protection.py:53-67`) | the same from a monitoring result: the vault entry, audit lines, restore without overwrite |
+| I-4 | Alert delivery with failure and retry | webhook only, single attempt | a verdict ≥ threshold and a canary trip each yield webhook and e-mail alerts. A receiver that is down at first gets the alert later. No duplicates. No content, only metadata |
+| I-5 | Optional cloud delivery of logs and reports | **does not exist** | off by default. When on, reports and rotated logs upload. With the network down, the spool fills and drains later. A test asserts that no inspected file is ever uploaded |
+| I-6 | Docker API path | exists | after RF-1 / RF-2: `deploy/check-deployment.sh` passes, `/ready` turns 503 when workers cannot start, and results carry `provenance.isolation` |
+| I-7 | Rule-pack update → reload → provenance | exists (`tests/test_cache_keys.py:27`) | still passes with RF-6, and a traversal pack is refused |
+
+## 21. Project-level release closure checklist
+
+Status: ☐ open · ☑ met with evidence in this review · ◐ partly. Owner decisions
+remain open until answered.
+
+- **Block closure** (section 13): ☐ B2, B6, B7, B9, B10, B11, B12, B13, B14, B15,
+  B16 "requires specified work"; ☐ B3, B4, B5, B8 "insufficient evidence"
+  (review the uninspected parts); ◐ B1 (PR-09 open).
+- **Requested capabilities:** ☐ F1 folder monitoring · ◐ F2 GUI integration · ☑
+  F3 quarantine and restore exist (☐ their integration with F1 and F4) · ☐ F4
+  e-mail alerts · ☐ F5 cloud storage.
+- **Cross-block interfaces, errors, cancellation, cleanup, recovery:** ☐ I-1 to I-7;
+  ☐ isolation fail-closed (PR-02); ☐ background loop survives errors (PR-07);
+  ☑ temp cleanup after worker kill and scanner crash (tests run:
+  `tests/test_workers.py:46`, `tests/test_worker_limits.py:360`); ◐ cancellation
+  (folder-scan cancel tested at `tests/test_workers.py:66`; monitoring cancel does
+  not exist).
+- **Platforms and runtimes:** ◐ CI 3.9 / 3.12 on 3 OSes is green, but the API and
+  fuzz tests are skipped there (PR-05); ☐ the lock on each matrix runtime (PR-06,
+  S-04); ☐ the new capabilities on Windows, macOS and Linux (I-1); ☐ O1 clean
+  Linux host (tracked); ☐ D5 arm64 (tracked).
+- **Documentation and operational handover:** ☐ DATA_POLICY for e-mail and cloud
+  (what leaves, retention); ☐ OPERATIONS / RUNBOOKS for monitoring, alert-delivery
+  failures, cloud spool; ☐ threat model (TMA-1 to TMA-4, owner); ☐ PR-10.
+- **ML integration (separate contributor):** no model ships, and the image has no
+  scikit-learn. The requested capabilities need no ML change. ☐ When a model
+  ships, the contributor's validation (M1) and the image decision (RELEASE_READINESS
+  Phase 2 backlog) apply.
+- **Tracked prerequisites (existing IDs):** ☐ M1 / X1 · ☐ M2 · ☐ O1 · ☐ U1 · ☐ X2 ·
+  ☐ legal review of `docs/THIRD_PARTY.md` (no own ID) · ☐ D5 if arm64 is claimed.
+- **External decisions:** ☐ D-A, D-B, D-C, D-D, D-E (section 13).
+
+## 22. The 10 highest-value actions
+
+| # | IDs | Change | Why | Severity | Effort | Depends on | Risk | Timing | Acceptance |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | PR-01, PR-14 (RF-6) | validate the pack version; confine paths; atomic `active.json` | the only High; data loss with a trusted signature | High | S | none | refuses non-numeric versions | now | traversal packs refused; nothing outside `rulepacks/` changes; existing rule-pack tests pass |
+| 2 | PR-02, PR-03 (RF-1) | explicit isolation policy; isolate single files; record isolation | restores the threat model's stated isolation on every path; prerequisite for monitoring | Medium | M | none | provenance field added (schema minor); first-file latency on the desktop | current development | PR-02 and PR-03 acceptance |
+| 3 | PR-17 (RF-2) | event-driven worker wait | measured: 4 workers are 22 % slower than 1 today; +60 % in the experiment | Medium | S | 2 | timing logic | current development | identical results; 4-worker steady state ≥ 1-worker steady state on the section 15 set |
+| 4 | PR-07 (RF-5 part 1) | guard scheduled jobs | one error ends background scans and canary checks | Medium | S | none | none | current development | a job that raises is logged; the loop continues |
+| 5 | PR-05, PR-06, S-04 | API and fuzz extras in the matrix; lock-based jobs | evidence on the supported runtimes | Medium | S-M | none | longer CI | current development | 0 fastapi / hypothesis skips; the lock installs or an explicit exception is recorded |
+| 6 | PR-04, S-01 (RF-4) | stream DMG members | one extraction model; removes reliance on 7-Zip's path handling | Medium | M | S-01 check | slower DMG scans | current development | crafted link image leaves nothing outside the sandbox |
+| 7 | PR-08 (RF-5 part 2) | alert outbox; canary alerts to outputs | reliable delivery; base for e-mail alerts (F4) | Low (rises with F4) | M | 4 | outbox storage | before F4 | I-4 |
+| 8 | PR-11 | worker-start metrics, live readiness, spare refill | degraded isolation becomes visible | Low | S | 2 | none | before production | forced start failures make `/ready` 503; spares recover |
+| 9 | PR-12, PR-13 | hash-pinned installs; release gated on checks | supply-chain and release integrity | Low-Medium | M + S | 5 | per-platform hash handling | before production | builds fail on a hash mismatch; untested tags publish nothing |
+| 10 | PR-09, PR-10 | a failed result for raising scans; correct docstrings and doc path | complete reports; accurate docs | Low | XS | none | none | current development | a vanished file appears as `failed`; text matches code |
+
+The requested capabilities (F1-F5) are not in this list because they wait on
+decisions D-A to D-E. Their order once decided is in section 20 (rows 10-14).
