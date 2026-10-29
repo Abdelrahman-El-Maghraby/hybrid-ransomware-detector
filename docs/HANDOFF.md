@@ -1,38 +1,56 @@
 # Current task handoff
 
-- Status: active. Stage 3, release 4.8.0; Claude stopped, Codex active.
-- Brief: tasks/project-review.md and PROJECT_REVIEW sections 24-25.
-- Branch: `fix/cloud-put-checksum`, based on step 12 `docs/v4.8` at `b770763`.
-- Base for the requested separate PR: `integration/v4.8`; owner merged #43 at 3a35a6f; fetched and verified. The diff now contains
-  only the checksum fix, its tests/docs and this handoff.
-- Step 12 PR #43: merged by the owner at 3a35a6f. Final head b770763
-  has all 11 checks green: tests 40868054269, quality 40868054104, Docker
-  40868054126. The owner has been notified.
-  Tests 1197 passed / 7 skipped; ruff, mypy, bandit and three lock audits passed.
-  Previous head `ed3736c` had green tests, quality and Docker CI.
-- Owner explicitly authorised this follow-up: explicit SHA256 on every cloud
-  PUT, client-computed digest, retain response checksum validation, test omitted
-  response checksum, update DATA_POLICY and OPERATIONS.
-- Implementation: prepared in core/cloud.py, tests/test_cloud.py and the two docs.
-  Local cloud tests: 24 passed in 5.32 seconds, including HTTPS requests with
-  and without a returned checksum. Ruff, mypy and bandit passed. Diff reviewed.
-  Full suite: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib RUN_GUI_TESTS=1
-  .venv/bin/python -m pytest -q -rs`: 1199 passed, 7 skipped, one Starlette
-  deprecation warning in 272.21 seconds (macOS, Python 3.14.2). CI pending.
-  Implementation commit `4d113a6` pushed, local and origin tips verified equal.
-  Skips: Windows Restart Manager and Job Object; Linux ELF system binary and
-  /proc; non-macOS fallback; missing box-js and optional OpenCV cv2.
-  No skip rules changed. The original step-12 suite had these same seven skips.
-- No unrelated local changes. No secrets, samples or detection changes.
-- Remaining: validate and commit/push small checkpoints; open checksum PR into integration/v4.8, restore integration handoff as final
-  commit and mark ready only after CI passes. Owner merges; never auto-merge.
-- Then: final I-1 to I-7, regenerated section 15 benign benchmark and release
-  report on final integrated code, through a separate PR into integration/v4.8.
-  #39 stays draft. Production prerequisites and manual/atheris checks remain
-  as PROJECT_REVIEW section 25 records.
-- Exact next action: open the checksum PR into integration/v4.8.
-  Scratch benchmark generator prepared from repository builders, seed 20261029:
-  163 benign files / 24,681,977 bytes. No benchmark measurements run yet;
-  regenerate as a new baseline after final code is integrated.
-- Last verified push: fix/cloud-put-checksum at aec6d39, local and origin
-  tips equal. This documentation checkpoint is not yet pushed.
+- Status: idle.
+- Active task: none.
+- Active agent: none.
+- Pending steps: none.
+- Pending owner approval for an active task: none.
+
+Start a new authorised task on its task branch, then replace this idle state
+with its sanitised technical checkpoint. Follow [AI_WORKFLOW.md](AI_WORKFLOW.md)
+for the required checkpoint fields, public repository privacy rules, takeover
+procedure and reset to idle when the task PR is merged.
+
+Technical task state only: no business plans, pricing, customer names, personal
+data, VM details, API keys or private chat content. Update this file on the task
+branch only; never directly on main.
+
+## Last Dance — Final implementation follow-up
+
+Reference only, not an active task. The project review (PR #30, report
+[PROJECT_REVIEW.md](PROJECT_REVIEW.md), reviewed commit `af5e6d2`) is complete.
+Implementation needs the owner's explicit approval and is a new task on its own
+branches. Details live only in the report; follow the references.
+
+- **Confirmed issues to fix** (report section 10; priority order in section 22):
+  - PR-01 (High);
+  - PR-02, PR-03, PR-04, PR-05, PR-07, PR-17 (Medium);
+  - PR-06, PR-08, PR-09, PR-10, PR-11, PR-12, PR-13, PR-14, PR-16 (Low);
+  - PR-15 (observation);
+  - still to verify: S-01, S-03, S-04; H-03 unmeasured.
+- **Requested feature completion** (report section 9; tasks in section 13 B9 / B11
+  / B12; order in section 20 rows 10-14): F1 folder monitoring, F2 GUI
+  integration, F3 quarantine integration, F4 outbound e-mail alerts, F5 optional
+  cloud storage for logs and reports.
+- **Owner decisions:** D-A to D-E were answered on 2026-10-29 (report section 24.1):
+  4.8.0, monitoring desktop only, e-mail through one intel operation, optional
+  S3-compatible logs and reports, and fail closed everywhere. D-D1 to D-D3,
+  D-E1, D-F (B1), D-G and D-I were answered the same day (report section 24.9).
+  Still open: D-H, merging PR #30; its status is in report section 24.10.
+- **Revised Stage 3 plan** (proposed, **not approved**): report section 24.
+  - steps 1-12 and the release requirement / optional split: 24.2-24.3;
+  - branch and combined-testing workflow: 24.4;
+  - unreviewed areas and the validation still required: 24.5;
+  - TMA-1 to TMA-7: 24.6;
+  - PR #30 checks: 24.7 and 24.10;
+  - owner answers and the B1 workflow: 24.9;
+  - the Stage 3 startup prompt: `docs/tasks/project-review.md`, last section.
+- **Remaining closure items:**
+  - block checklists, report section 13;
+  - project release closure checklist, report section 21 (block closure,
+    capabilities, integration checks I-1 to I-7, platforms and runtimes,
+    documentation, ML dependency);
+  - tracked prerequisites M1 / X1, M2, O1, U1, X2, D5, and the legal review of
+    `docs/THIRD_PARTY.md`.
+- **Threat-model proposals for the owner:** TMA-1 to TMA-4 (report section 7),
+  and TMA-5 to TMA-7 for the new features (report section 24.6).
