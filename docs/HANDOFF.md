@@ -1,33 +1,56 @@
 # Current task handoff
 
-- Active task: Stage 3 final validation for 4.8.0; Codex active, Claude stopped.
-- Brief: tasks/project-review.md; PROJECT_REVIEW sections 15, 20, 24 and 25.
-- Authorised: final I-1 to I-7, regenerated benign benchmark and technical report.
-  B1: task PRs into integration/v4.8 only; owner merges; no tags/releases,
-  force-push, detection changes, real samples or private data.
-- Branch: docs/v4.8-final-validation, from integration/v4.8 at 087b460.
-  Draft PR #45 into integration/v4.8. Clean checkout at start; no unrelated local changes.
-- Reconciled: #43 merged at 3a35a6f; #44 merged at 087b460. Integration tree
-  is identical to checksum PR head f4ff8c9. Previous local full suite: 1199
-  passed, 7 skipped; all 12 checksum PR checks green. Commit identity verified.
-- Last implementation: 4d113a6 (explicit SHA256 request checksum).
-- Current checks on integration baseline: focused I-1 to I-7 suite 190 passed
-  (no skips), one Starlette warning, 126.63 seconds; quarantine/key-backup
-  suite 23 passed (no skips), 6.93 seconds. Docker CI 40926556459 passed;
-  deployment job 123633511381 logs inspected (TLS scan, ready, isolation).
-  Benchmark complete: 29 fresh-process measurements; all required layers up,
-  full set 162 complete/1 partial, small set 161 complete, no failed/unscanned
-  files. Section 26 records all metrics, methodology and limitations. Previous full suite evidence remains
-  in #43/#44, not relabelled as a new run.
-- Next: review report section 26, validate docs and restore handoff before
-  marking #45 ready on green CI. Benchmark used fresh processes,
-  seed 20261029, 163 benign files, matching section 15 composition but new bytes.
-  Keep raw results and scratch scripts outside Git; publish technical aggregate
-  measurements and methodology only. Do not infer accuracy.
-- Remaining: record actual outcomes, failures and limits; separate development
-  completion from production prerequisites; open final report PR, restore this
-  file to integration content as last commit, wait for green CI and owner merge.
-  #39 stays draft until the release closure evidence is reviewed.
-- Open prerequisites: M1/X1, reference-host M2, O1, U1, X2, legal review,
-  conditional D5, manual desktops/providers and atheris long runs. No tracked prerequisite closure claimed. Docker unavailable locally; use inspected CI evidence.
-- Last verified remote: integration/v4.8 at 087b460; task checkpoint dd4e068 pushed; report checkpoint pending.
+- Status: idle.
+- Active task: none.
+- Active agent: none.
+- Pending steps: none.
+- Pending owner approval for an active task: none.
+
+Start a new authorised task on its task branch, then replace this idle state
+with its sanitised technical checkpoint. Follow [AI_WORKFLOW.md](AI_WORKFLOW.md)
+for the required checkpoint fields, public repository privacy rules, takeover
+procedure and reset to idle when the task PR is merged.
+
+Technical task state only: no business plans, pricing, customer names, personal
+data, VM details, API keys or private chat content. Update this file on the task
+branch only; never directly on main.
+
+## Last Dance — Final implementation follow-up
+
+Reference only, not an active task. The project review (PR #30, report
+[PROJECT_REVIEW.md](PROJECT_REVIEW.md), reviewed commit `af5e6d2`) is complete.
+Implementation needs the owner's explicit approval and is a new task on its own
+branches. Details live only in the report; follow the references.
+
+- **Confirmed issues to fix** (report section 10; priority order in section 22):
+  - PR-01 (High);
+  - PR-02, PR-03, PR-04, PR-05, PR-07, PR-17 (Medium);
+  - PR-06, PR-08, PR-09, PR-10, PR-11, PR-12, PR-13, PR-14, PR-16 (Low);
+  - PR-15 (observation);
+  - still to verify: S-01, S-03, S-04; H-03 unmeasured.
+- **Requested feature completion** (report section 9; tasks in section 13 B9 / B11
+  / B12; order in section 20 rows 10-14): F1 folder monitoring, F2 GUI
+  integration, F3 quarantine integration, F4 outbound e-mail alerts, F5 optional
+  cloud storage for logs and reports.
+- **Owner decisions:** D-A to D-E were answered on 2026-10-29 (report section 24.1):
+  4.8.0, monitoring desktop only, e-mail through one intel operation, optional
+  S3-compatible logs and reports, and fail closed everywhere. D-D1 to D-D3,
+  D-E1, D-F (B1), D-G and D-I were answered the same day (report section 24.9).
+  Still open: D-H, merging PR #30; its status is in report section 24.10.
+- **Revised Stage 3 plan** (proposed, **not approved**): report section 24.
+  - steps 1-12 and the release requirement / optional split: 24.2-24.3;
+  - branch and combined-testing workflow: 24.4;
+  - unreviewed areas and the validation still required: 24.5;
+  - TMA-1 to TMA-7: 24.6;
+  - PR #30 checks: 24.7 and 24.10;
+  - owner answers and the B1 workflow: 24.9;
+  - the Stage 3 startup prompt: `docs/tasks/project-review.md`, last section.
+- **Remaining closure items:**
+  - block checklists, report section 13;
+  - project release closure checklist, report section 21 (block closure,
+    capabilities, integration checks I-1 to I-7, platforms and runtimes,
+    documentation, ML dependency);
+  - tracked prerequisites M1 / X1, M2, O1, U1, X2, D5, and the legal review of
+    `docs/THIRD_PARTY.md`.
+- **Threat-model proposals for the owner:** TMA-1 to TMA-4 (report section 7),
+  and TMA-5 to TMA-7 for the new features (report section 24.6).
