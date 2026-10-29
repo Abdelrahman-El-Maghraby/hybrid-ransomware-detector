@@ -130,6 +130,12 @@ class IntelClient:
     def vt_lookup(self, sha256: str) -> Dict:
         return self.call("POST", "/v1/virustotal/lookup", {"sha256": sha256})
 
+    def alert_email(self, fields: Dict) -> None:
+        """Hand an e-mail alert (core/mailer.EMAIL_FIELDS, metadata only) to the
+        intel service, which holds the SMTP settings; raises IntelError so the
+        outbox retries it."""
+        self.call("POST", "/v1/alert/email", dict(fields), timeout=60)
+
     def vt_upload(self, path: str) -> Dict:
         with open(path, "rb") as fh:
             data = fh.read()

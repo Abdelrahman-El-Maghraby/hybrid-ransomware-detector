@@ -52,6 +52,10 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
     "archive_max_members": ("", 1, 1_000_000),
     "archive_scan_members": ("", 0, 100_000),
     "max_nesting": ("", 0, 8),
+    "smtp_port": ("SMTP_PORT", 1, 65_535),
+    "alert_email_per_hour": ("ALERT_EMAIL_PER_HOUR", 1, 10_000),
+    "alert_email_per_day": ("ALERT_EMAIL_PER_DAY", 1, 100_000),
+    "outbox_max_age_hours": ("OUTBOX_MAX_AGE_HOURS", 1, 720),
 }
 
 # key -> (environment variable, allowed values, case-insensitive)
@@ -62,6 +66,8 @@ CHOICES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "webhook_min_verdict": ("WEBHOOK_MIN_VERDICT", VERDICTS),
     "auto_quarantine": ("AUTO_QUARANTINE", ("", "off", "medium", "high", "critical")),
     "canary_contain_mode": ("CANARY_CONTAIN_MODE", ("suspend", "terminate")),
+    "smtp_security": ("SMTP_SECURITY", ("tls", "starttls")),         # no plaintext option
+    "alert_email_min_verdict": ("ALERT_EMAIL_MIN_VERDICT", VERDICTS),
 }
 
 URLS = {"ollama_host": "OLLAMA_HOST", "webhook_url": "WEBHOOK_URL",
@@ -177,6 +183,32 @@ def _imap(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> Non
         warnings.append("IMAP_HOST is set without IMAP_PASSWORD (use an app password)")
 
 
+def _email(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """E-mail alerts (core/mailer.py): all of host, sender and recipients, or none."""
+    from core.mailer import recipients, valid_address, valid_host
+    host, sender, to = str(cfg.get("smtp_host") or ""), str(cfg.get("alert_email_from") or ""), \
+        recipients(cfg)
+    if not (host or sender or to):
+        return
+    if not host:
+        errors.append("ALERT_EMAIL_FROM / ALERT_EMAIL_TO are set but SMTP_HOST is not")
+    elif not valid_host(host):
+        errors.append(f"SMTP_HOST={host[:60]!r} must be a host name or an IP address "
+                      "(no scheme, port or path)")
+    if host and not sender:
+        errors.append("SMTP_HOST is set but ALERT_EMAIL_FROM is not")
+    elif sender and not valid_address(sender):
+        errors.append(f"ALERT_EMAIL_FROM={sender[:60]!r} is not an e-mail address")
+    if host and not to:
+        errors.append("SMTP_HOST is set but ALERT_EMAIL_TO (comma-separated recipients) is not")
+    bad = [a for a in to if not valid_address(a)]
+    if bad:
+        errors.append(f"ALERT_EMAIL_TO has {len(bad)} entr(y/ies) that are not e-mail addresses")
+    if cfg.get("smtp_user") and not cfg.get("smtp_password"):
+        warnings.append("SMTP_USER is set without SMTP_PASSWORD (store it with --set-secret "
+                        "or SMTP_PASSWORD_FILE)")
+
+
 def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     rules = str(cfg.get("yara_rules_dir") or "")
     if rules and not Path(rules).is_dir():
@@ -257,7 +289,10 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
 
 # Secrets and destinations that belong to the intel service, not to analysis.
 INTEL_OWNED = (("virustotal_api_key", "VIRUSTOTAL_API_KEY"), ("chatgpt_api_key", "OPENAI_API_KEY"),
-               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"))
+               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"),
+               ("smtp_host", "SMTP_HOST"), ("smtp_user", "SMTP_USER"),
+               ("smtp_password", "SMTP_PASSWORD"), ("alert_email_to", "ALERT_EMAIL_TO"),
+               ("alert_email_from", "ALERT_EMAIL_FROM"))
 
 
 def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
@@ -279,5 +314,5 @@ def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts,
-                             _profile, _intel)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _paths,
+                             _conflicts, _profile, _intel)

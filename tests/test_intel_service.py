@@ -187,7 +187,7 @@ def test_hash_lookup_reaches_only_virustotal(intel):
     assert r.status_code == 200 and r.json()["malicious_detections"] == 3
     assert vt.seen == [f"https://www.virustotal.com/api/v3/files/{SHA}"]
     assert service.destinations == {"virustotal": ["https://www.virustotal.com:443"], "llm": [],
-                                    "sandbox": ["http://cape.lab:8000"]}
+                                    "sandbox": ["http://cape.lab:8000"], "email": []}
 
 
 def test_upload_needs_the_intel_side_switch(intel):

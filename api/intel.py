@@ -13,11 +13,19 @@ It is not a proxy. It offers a fixed set of operations and never takes a URL:
     POST /v1/llm/analyze         {"content": "<at most MAX_LLM_CHARS characters>"}
     POST /v1/sandbox/submit      body = the file; X-Aegis-Extension: .docx (optional)
     POST /v1/sandbox/poll        {"task_id": <a task this service submitted>}
+    POST /v1/alert/email         exactly the fields of core/mailer.EMAIL_FIELDS
+                                 (metadata only); sent with this service's SMTP
+                                 settings to its configured recipients
 
 Every destination comes from this service's own configuration, and each service
 gets its own session that refuses any other origin, redirects included
 (core/http.py AllowlistSession): VirusTotal's API host, the configured LLM URL,
 the configured SANDBOX_URL. Secrets (API keys, the sandbox token) live only here.
+E-mail alerts go only to the configured SMTP_HOST:SMTP_PORT over TLS with
+certificate verification (core/mailer.py); the SMTP password, the sender and
+the recipients live only here, and the message is built from a fixed template.
+The operation has its own hourly and daily caps (ALERT_EMAIL_PER_HOUR /
+ALERT_EMAIL_PER_DAY) and ignores an alert id it has already sent.
 
 Every request needs `Authorization: Bearer <AEGIS_INTEL_TOKEN>` (at least 32
 characters, compared in constant time); the socket directory is open only to the
@@ -57,7 +65,8 @@ VIRUSTOTAL_ORIGIN = "https://www.virustotal.com"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 OPERATIONS = ("capabilities", "vt_lookup", "vt_upload", "llm_analyze", "sandbox_submit",
-              "sandbox_poll")
+              "sandbox_poll", "alert_email")
+MAX_SENT_IDS = 10_000                      # remembered e-mail alert ids (de-duplication)
 
 
 def _env_number(name: str, default: float) -> float:
@@ -138,6 +147,11 @@ class IntelService:
                                                             allowed_origins=self.destinations["sandbox"]))
         self._tasks: OrderedDict[int, str] = OrderedDict()     # task id -> sample sha256
         self._tasks_lock = threading.Lock()
+        from core.mailer import SmtpMailer, email_configured
+        self.mailer = SmtpMailer(config) if email_configured(config) else None
+        self.destinations["email"] = [self.mailer.destination] if self.mailer else []
+        self._sent_alerts: OrderedDict[str, bool] = OrderedDict()
+        self._sent_lock = threading.Lock()
 
     def capabilities(self, max_upload: int) -> Dict:
         sandbox = self.sandbox
@@ -149,6 +163,7 @@ class IntelService:
             "sandbox": {"enabled": sandbox is not None,
                         "server": self._sandbox_layer().split(":", 1)[1] if sandbox else "",
                         "options": sandbox.options if sandbox else ""},
+            "email": {"enabled": self.mailer is not None},
             "limits": {"max_upload_bytes": max_upload, "max_llm_chars": MAX_LLM_CHARS},
         }
 
@@ -215,6 +230,33 @@ class IntelService:
             self.cache.put(sha, self._sandbox_layer(), res.as_dict())
         return res.as_dict()
 
+    # ------------------------------------------------------------ e-mail alerts
+    def alert_email(self, fields: Dict) -> Dict:
+        """Send one validated alert (fields checked by _email_fields); an id
+        already sent is acknowledged without a second message."""
+        from core.mailer import MailError, RateLimited
+        if self.mailer is None:
+            raise HTTPException(status_code=403, detail="e-mail alerts are not configured")
+        alert_id = fields["alert_id"]
+        with self._sent_lock:
+            if alert_id in self._sent_alerts:
+                return {"sent": False, "duplicate": True}
+        try:
+            self.mailer.send(fields)
+        except RateLimited as e:
+            raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": "300"}) from e
+        except MailError as e:
+            logger.warning("Intel: e-mail alert %s not sent: %s", alert_id, e,
+                           extra={"event": "intel_email_failed"})
+            raise HTTPException(status_code=502, detail="the SMTP server did not take the message") from e
+        with self._sent_lock:
+            self._sent_alerts[alert_id] = True
+            while len(self._sent_alerts) > MAX_SENT_IDS:
+                self._sent_alerts.popitem(last=False)
+        logger.info("Intel: e-mail alert %s sent (%s, %s).", alert_id, fields["kind"],
+                    fields["verdict"], extra={"event": "intel_email_sent"})
+        return {"sent": True, "duplicate": False}
+
     def _sandbox_layer(self) -> str:
         """Cache key part: a report belongs to the CAPE server and options that made it."""
         box = self.sandbox
@@ -262,6 +304,14 @@ def _task_id(payload: Any) -> int:
     if task_id <= 0:
         raise HTTPException(status_code=422, detail="task_id must be positive")
     return task_id
+
+
+def _email_fields(payload: Any) -> Dict:
+    from core.mailer import validate_fields
+    try:
+        return validate_fields(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
 
 def _extension(value: str) -> str:
@@ -349,6 +399,12 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
     @app.post("/v1/sandbox/poll", dependencies=[Depends(guard("sandbox_poll"))])
     def sandbox_poll(payload: Any = Body(...)) -> Dict:
         return service.sandbox_poll(_task_id(payload))
+
+    @app.post("/v1/alert/email", dependencies=[Depends(guard("alert_email"))])
+    def alert_email(payload: Any = Body(...)) -> Dict:
+        if service.mailer is None:                  # before looking at the fields
+            raise HTTPException(status_code=403, detail="e-mail alerts are not configured")
+        return service.alert_email(_email_fields(payload))
 
     return app
 

@@ -991,6 +991,9 @@ def _schedule_background_jobs(scanner, watcher, config) -> None:
     schedule.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
     # Canaries deployed or removed later (GUI or CLI) are picked up here.
     schedule.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    # alerts a receiver did not take yet (core/outbox.py) are retried every minute
+    from core.outbox import flush_pending
+    schedule.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
     imap_minutes = int(config.get("imap_check_minutes", 0) or 0)
     if imap_minutes > 0 and config.get("imap_host"):
         logger.info("Mailbox %s checked every %d minute(s).", config["imap_folder"], imap_minutes)
