@@ -104,7 +104,7 @@ request (`.github/workflows/docker.yml`).
 | Containment | not in the image (`.dockerignore`), refused by the production profile | the server cannot suspend, kill or lock anything (decision D3) |
 | TLS | Caddy with your certificate, HSTS, admin API off | the API itself speaks plain HTTP on a socket only |
 | Client address | Caddy replaces `X-Forwarded-For`; the API uses its last entry | rate limits and the token lockout apply to the real client |
-| Images | base images pinned by digest; Python packages from `requirements.lock` | rebuilds are reproducible |
+| Images | base images pinned by digest; Python packages from `requirements-server.lock`, installed with `--require-hashes` (the SHA-256 of every file is pinned) | rebuilds are reproducible, and a substituted package stops the build |
 
 ### Rule-pack updates
 
