@@ -69,9 +69,8 @@
 - Draft PR **#39** `integration/v4.8` -> `main`: not for merge until step 12,
   the final checks and the release report are done.
 - Step 12 work in progress: branch **`docs/v4.8`** (from `c4906ac`), draft PR
-  into `integration/v4.8` (number in the PR list on GitHub; title "Step 12:
-  documentation and threat model for 4.8.0 (WIP)"). This file is its active
-  checkpoint; the last implementation commit is `9a24a13` (WIP docs).
+  **#43** into `integration/v4.8`. This file is its active checkpoint; the last
+  implementation commit is `9a24a13` (WIP docs).
 
 ## Step PRs
 
@@ -88,7 +87,7 @@
 | 9 `feat/cloud-reports` | F5 | #38 | merged | `fa8da7c` |
 | 10 `feat/gui-integration` | F2 | #42 | merged | `c4906ac` |
 | 11 `build/hash-pinned-lock` | PR-12 | #41 | merged | `fc5d2f8` |
-| 12 `docs/v4.8` | B16, TMA-1 to TMA-7 | draft | **in progress** (this branch) | - |
+| 12 `docs/v4.8` | B16, TMA-1 to TMA-7 | #43 (draft) | **in progress** (this branch) | - |
 
 Each step PR's description records its acceptance tests, the checks run and
 the CI run IDs.
