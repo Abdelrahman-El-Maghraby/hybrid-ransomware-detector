@@ -70,6 +70,12 @@ instead - with paths and file names, still never file content. It is recorded in
 every upload (`full_detail: true`), logged as a warning at start and flagged by the
 configuration check and the GUI.
 
+**Upload integrity:** every PUT selects SHA256 and sends the client-computed
+checksum. A conforming server verifies the received bytes even without a
+checksum in its reply; any returned checksum is also checked. This does not
+verify later storage integrity or make uploads tamper-evident. The configured
+S3-compatible endpoint must enforce request checksums.
+
 **Remote retention** is set on the bucket by its operator, not by the product: the
 recommended lifecycle rule deletes objects after 90 days (`docs/OPERATIONS.md`). The
 product never lists, reads or deletes remote objects, so it cannot check or enforce

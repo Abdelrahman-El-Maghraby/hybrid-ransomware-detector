@@ -392,7 +392,8 @@ class S3Uploader:
         key = self.object_key(kind, body)
         checksum = base64.b64encode(hashlib.sha256(body).digest()).decode()
         args: Dict[str, Any] = {"Bucket": self.bucket, "Key": key, "Body": body,
-                                "ContentType": "application/json", "ChecksumSHA256": checksum}
+                                "ContentType": "application/json", "ChecksumAlgorithm": "SHA256",
+                                "ChecksumSHA256": checksum}
         if self.conditional:
             args["IfNoneMatch"] = "*"                 # create-only where supported
         try:

@@ -180,6 +180,7 @@ def test_object_keys_are_unique_create_only_and_checksummed(tmp_path, app):
     assert re.fullmatch(pattern, k1)
     put = s3.puts[0]
     assert put["IfNoneMatch"] == "*" and put["Bucket"] == "aegis-reports"
+    assert put["ChecksumAlgorithm"] == "SHA256"
     assert put["ChecksumSHA256"] == base64.b64encode(hashlib.sha256(body).digest()).decode()
     plain = FakeS3()
     _uploader(dict(cfg, cloud_conditional_writes=False), plain).put("logs", body)
@@ -291,13 +292,22 @@ def _tls_files(tmp_path):
 class _S3Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"          # answers boto3's Expect: 100-continue
     seen: list = []
+    echo_checksum = True
 
     def do_PUT(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         _S3Handler.seen.append((self.path, dict(self.headers), body))
+        checksum = base64.b64encode(hashlib.sha256(body).digest()).decode()
+        if (self.headers.get("x-amz-checksum-sha256") != checksum
+                or self.headers.get("x-amz-sdk-checksum-algorithm") != "SHA256"):
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("ETag", '"' + hashlib.md5(body).hexdigest() + '"')  # nosec - S3 ETag
-        self.send_header("x-amz-checksum-sha256", self.headers.get("x-amz-checksum-sha256", ""))
+        if self.echo_checksum:
+            self.send_header("x-amz-checksum-sha256", checksum)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -327,7 +337,11 @@ def https_s3(tmp_path):
     server.shutdown()
 
 
-def test_a_real_create_only_put_over_verified_https(tmp_path, app, https_s3):
+@pytest.mark.parametrize("echo_checksum", [True, False])
+def test_a_real_create_only_put_over_verified_https(
+        tmp_path, app, https_s3, monkeypatch, echo_checksum):
+    # The receiver validates the bytes even when it omits the response checksum.
+    monkeypatch.setattr(_S3Handler, "echo_checksum", echo_checksum)
     endpoint, cert = https_s3
     cfg = _cloud_config(tmp_path, cloud_endpoint=endpoint, cloud_ca_bundle=str(cert))
     up = C.S3Uploader(cfg, "cd" * 16)
@@ -336,6 +350,7 @@ def test_a_real_create_only_put_over_verified_https(tmp_path, app, https_s3):
     headers = {k.lower(): v for k, v in headers.items()}
     assert path == f"/aegis-reports/{key}" and body == b'{"results": []}'
     assert headers["if-none-match"] == "*"
+    assert headers["x-amz-sdk-checksum-algorithm"] == "SHA256"
     assert headers["x-amz-checksum-sha256"] == base64.b64encode(hashlib.sha256(body).digest()).decode()
     assert "AKIDEXAMPLE" in headers["authorization"] and SECRET not in json.dumps(headers)
 
@@ -348,3 +363,19 @@ def test_an_endpoint_whose_certificate_does_not_verify_gets_nothing(tmp_path, ap
     assert _S3Handler.seen == []
     with pytest.raises(C.CloudError, match="https"):
         C.S3Uploader(_cloud_config(tmp_path, cloud_endpoint="http://localhost:1"), "cd" * 16)
+
+
+def test_no_response_checksum_drains_the_spool_after_server_validation(tmp_path, app):
+    cfg = _cloud_config(tmp_path)
+
+    class VerifyingS3(FakeS3):
+        def put_object(self, **kw):
+            assert kw["ChecksumAlgorithm"] == "SHA256"
+            assert kw["ChecksumSHA256"] == base64.b64encode(
+                hashlib.sha256(kw["Body"]).digest()).decode()
+            return super().put_object(**kw)
+
+    C.spool_report([{"verdict": "Clean"}], cfg)
+    s3 = VerifyingS3(echo=False)
+    assert C.run_uploads(cfg, uploader=_uploader(cfg, s3))["uploaded"] == 1
+    assert C.spool_for(cfg).status()["pending"] == 0

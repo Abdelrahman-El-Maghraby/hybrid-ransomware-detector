@@ -269,9 +269,13 @@ Keys contain the prefix, installation id, reports/logs, date, UTC time, a random
 128-bit id and a SHA-256 prefix. `CLOUD_CONDITIONAL_WRITES=true` sends
 `If-None-Match: *`; use an endpoint that supports it. If explicitly disabled for
 an incompatible endpoint, accidental collision remains unlikely but overwrite
-protection is lost. The client sends SHA-256 and rejects a mismatching returned
-checksum; an endpoint that omits the checksum supplies no independent read-back
-verification. Write-only permissions do not prevent forged uploads or deliberate
+protection is lost. Every PUT explicitly selects SHA256 and sends the client-computed Base64
+SHA-256 in `x-amz-checksum-sha256`, so a conforming server validates the received
+bytes even if its response omits the checksum. A returned checksum is still
+checked and a mismatch retains the item for retry. This is upload integrity,
+not independent read-back verification; the app does not read remote objects.
+An S3-compatible endpoint must enforce request checksums; verify that capability
+before enabling uploads. Write-only permissions do not prevent forged uploads or deliberate
 overwrite. Versioning preserves history; object lock protects retained versions.
 Reports and logs are only as trustworthy as their source host, and are not
 tamper-evident.
