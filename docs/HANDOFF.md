@@ -11,8 +11,12 @@
   is identical to checksum PR head f4ff8c9. Previous local full suite: 1199
   passed, 7 skipped; all 12 checksum PR checks green. Commit identity verified.
 - Last implementation: 4d113a6 (explicit SHA256 request checksum).
-- Current checks: not yet run on final integration baseline. Prior checks are
-  in #43/#44 and PROJECT_REVIEW section 25, not relabelled as new runs.
+- Current checks on integration baseline: focused I-1 to I-7 suite 190 passed
+  (no skips), one Starlette warning, 126.63 seconds; quarantine/key-backup
+  suite 23 passed (no skips), 6.93 seconds. Docker CI 40926556459 passed;
+  deployment job 123633511381 logs inspected (TLS scan, ready, isolation).
+  Benchmark now running; results pending. Previous full suite evidence remains
+  in #43/#44, not relabelled as a new run.
 - Next: focused I-1 to I-7 run with GUI tests and local TLS receivers; inspect
   integration-SHA Docker CI. Then run scratch benchmark in fresh processes,
   seed 20261029, 163 benign files, matching section 15 composition but new bytes.
