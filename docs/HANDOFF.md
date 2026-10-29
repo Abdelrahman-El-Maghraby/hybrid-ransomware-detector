@@ -32,13 +32,16 @@ branches. Details live only in the report; follow the references.
   / B12; order in section 20 rows 10-14): F1 folder monitoring, F2 GUI
   integration, F3 quarantine integration, F4 outbound e-mail alerts, F5 optional
   cloud storage for logs and reports.
-- **Decisions the owner still has to answer** (report section 13):
-  - D-A: target release version and scope;
-  - D-B: is folder monitoring desktop only?
-  - D-C: the e-mail path in Docker;
-  - D-D: cloud provider / protocol and retention default;
-  - D-E: should the desktop keep a recorded in-process fallback when workers
-    cannot start?
+- **Owner decisions:** D-A to D-E were answered on 2026-10-29 (report section 24.1):
+  4.8.0, monitoring desktop only, e-mail through one intel operation, optional
+  S3-compatible logs and reports, and fail closed everywhere. Still open: D-D1,
+  D-D2, D-D3, D-E1, D-F, D-G, D-H, D-I (report section 24.8).
+- **Revised Stage 3 plan** (proposed, **not approved**): report section 24.
+  - steps 1-12 and the release requirement / optional split: 24.2-24.3;
+  - branch and combined-testing workflow: 24.4;
+  - unreviewed areas and the validation still required: 24.5;
+  - TMA-1 to TMA-7: 24.6;
+  - PR #30 checks: 24.7.
 - **Remaining closure items:**
   - block checklists, report section 13;
   - project release closure checklist, report section 21 (block closure,
@@ -46,4 +49,5 @@ branches. Details live only in the report; follow the references.
     documentation, ML dependency);
   - tracked prerequisites M1 / X1, M2, O1, U1, X2, D5, and the legal review of
     `docs/THIRD_PARTY.md`.
-- **Threat-model proposals for the owner:** TMA-1 to TMA-4 (report section 7).
+- **Threat-model proposals for the owner:** TMA-1 to TMA-4 (report section 7),
+  and TMA-5 to TMA-7 for the new features (report section 24.6).

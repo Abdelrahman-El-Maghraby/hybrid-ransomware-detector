@@ -245,3 +245,30 @@ contributor; review ML integration boundaries only where relevant.
   limited to logs/reports, re-measure performance where relevant, update
   user-facing docs without secrets, and report development completion and
   production readiness separately.
+
+## Plan revision after Stage 2 (owner request, 2026-10-29)
+
+Authorises planning and documentation updates only. It does not approve Stage 3,
+application code changes or merging any PR. The three-file scope still applies.
+
+- Record the owner's answers:
+  - D-A: 4.8.0 covering steps 1-12, with release requirements kept apart from
+    optional improvements;
+  - D-B: folder monitoring desktop only;
+  - D-C: one narrowly scoped e-mail operation through intel for Docker;
+  - D-D: optional S3-compatible storage for logs and reports only, off by
+    default. The 30-day local spool retention is separate from cloud
+    retention. Explain the cleanup and propose a cloud retention policy;
+  - D-E: fail closed by default on the desktop and the API, with a clear error.
+- Clarify:
+  - how dependent branches build on each other and are tested together while
+    their PRs stay unmerged, without assuming merges or an integration branch
+    unless proposed explicitly;
+  - the areas not reviewed, and the inspection and validation required before
+    the release is declared complete;
+  - what TMA-1 to TMA-4 propose, and which the new features require;
+  - the actual results of the PR #30 checks.
+- Save the revised plan and the open decisions in the review documents. Keep the
+  "Last Dance" reference, and keep the historical findings and measurements
+  identifiable.
+- Result: report section 24.

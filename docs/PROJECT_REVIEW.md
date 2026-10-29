@@ -4,6 +4,11 @@ Status: **complete review (Stages 1 and 2)**. Remaining limitations are listed
 in section 2. Implementation (Stage 3) has not started and needs the owner's
 separate approval.
 
+**Plan revision (2026-10-29, after Stage 2):** the owner answered D-A to D-E.
+The revised Stage 3 plan, the PR #30 check results and the decisions still open
+are in section 24 (proposed, not approved). Sections 0-23 are kept as the Stage 1
+and Stage 2 record.
+
 Task brief: [tasks/project-review.md](tasks/project-review.md).
 
 ## 0. Review baseline
@@ -81,6 +86,7 @@ The main findings, in order of current impact (details in section 10):
 **Next steps:** section 22 lists the ten highest-value actions. Section 20 gives
 the dependency-ordered implementation sequence, and section 13 the block closure
 checklists. Owner decisions D-A to D-E (section 13) gate the feature work.
+*Plan revision:* D-A to D-E are answered, and the revised plan is in section 24.
 
 ## 2. Scope, methodology and limitations
 
@@ -146,6 +152,10 @@ was not used in Stage 1.
   were not reviewed line by line. Their status is "insufficient evidence" in
   section 13.
 - S-01, S-03, S-04 and H-03 remain unverified (section 10).
+- *Plan revision:* the CI runs on PR #30 tested the unchanged `af5e6d2` code.
+  They passed the Docker deployment check and the 3.9 / 3.12 matrix on three
+  OSes (section 24.7). This adds CI evidence. The local limitations above still
+  apply.
 - No Python 3.9 or 3.12 interpreter exists on this Mac, so the supported runtimes
   were not exercised locally.
 - "Fully inspected" means every file in the declared scope was read. It does not
@@ -190,6 +200,8 @@ so it was not sampled. `engine/validation.py`, `engine/report.py`,
   brief does not name a version. RELEASE_SCOPE §5 rules out on-access scanning for
   the Docker edition, so folder monitoring is assumed to be **desktop only** until
   the owner decides otherwise (section 9).
+- *Plan revision:* the owner set the target to **4.8.0**, with folder monitoring
+  desktop only (D-A, D-B; section 24.1).
 
 ## 5. Block inventory and architecture
 
@@ -988,7 +1000,11 @@ an assessment against these criteria, not a claim of perfection.
 
 ## 13. Development closure plan: block checklists
 
-**Target release (proposed scope assumption D-A, not settled).** The next
+*Plan revision:* D-A is settled as 4.8.0, and D-B to D-E are answered (section
+24.1). Under D-E the API **and** the desktop fail closed. This supersedes the
+desktop fallback recommended below.
+
+**Target release (proposed scope assumption D-A, not settled at Stage 2).** The next
 release after 4.7.0 contains:
 1. fixes for the confirmed findings marked "current development" or "before
    production" in section 10;
@@ -1214,7 +1230,8 @@ Effort uses the section 12 scale. "Evidence" separates **inspected** (I),
   - CHANGELOG.
 - *Status:* **requires specified work.**
 
-**Owner decisions needed (recorded, not settled).**
+**Owner decisions needed (Stage 2 record; answered on 2026-10-29, section 24.1;
+the points still open are in section 24.8).**
 - D-A: the target release's version and scope (section 4 assumption).
 - D-B: is folder monitoring desktop only?
 - D-C: the e-mail path in Docker: an intel operation or a separate notifier?
@@ -1247,6 +1264,10 @@ coverage. "Checks" are existing tests unless marked new.
 Not proposed: a typed configuration object (no demonstrated defect), replacing the
 mixins wholesale (RF-3 handles the one demonstrated coupling), or merging the
 password loops in `container_extractor.py` (format-specific errors; no defect).
+
+*Plan revision:* under D-E, RF-1 step 2 becomes "fail closed on every surface".
+The `"in_process"` option is kept only as the explicit opt-out of D-E1 (section
+24.3 step 2).
 
 ## 15. Performance benchmark (this Mac only)
 
@@ -1562,7 +1583,9 @@ remain open until answered.
   Phase 2 backlog) apply.
 - **Tracked prerequisites (existing IDs):** ☐ M1 / X1 · ☐ M2 · ☐ O1 · ☐ U1 · ☐ X2 ·
   ☐ legal review of `docs/THIRD_PARTY.md` (no own ID) · ☐ D5 if arm64 is claimed.
-- **External decisions:** ☐ D-A, D-B, D-C, D-D, D-E (section 13).
+- **External decisions:** ☐ D-A, D-B, D-C, D-D, D-E (section 13). *Plan
+  revision:* ☑ D-A to D-E answered (section 24.1). ☐ D-D1, D-D2, D-D3, D-E1, D-F,
+  D-G, D-H, D-I (section 24.8).
 
 ## 22. The 10 highest-value actions
 
@@ -1581,6 +1604,7 @@ remain open until answered.
 
 The requested capabilities (F1-F5) are not in this list because they wait on
 decisions D-A to D-E. Their order once decided is in section 20 (rows 10-14).
+*Plan revision:* they are now steps 7-10 of section 24.3.
 
 ## 23. Validation of this report
 
@@ -1597,3 +1621,334 @@ decisions D-A to D-E. Their order once decided is in section 20 (rows 10-14).
 | Repository gates (local, macOS arm64, Python 3.14.2) | `python -m pytest -q --cov` · `ruff check .` · `mypy` · `bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll` · `pip-audit -r requirements.lock --no-deps --disable-pip` | **1011 passed, 13 skipped, 0 failed** in 137.7 s (skips: 6 QR tests without a loadable zbar, the opt-in GUI test, Restart Manager, a system ELF binary, box-js, Job Object, `/proc`, a non-macOS libproc test); coverage TOTAL 91 % (11,002 statements, 990 missed) · ruff clean · mypy "no issues found in 63 source files" · bandit no medium / high · pip-audit "No known vulnerabilities found" |
 | Not run | `deploy/check-deployment.sh`, Docker, atheris, the GUI smoke test (needs a display; opt-in), Python 3.9 / 3.12, Windows, Linux | see section 2. CI evidence for those comes from run 40741208642 (section 8) |
 | Formatters / dependency changes | none run; nothing installed or upgraded; lock untouched | as required |
+| Plan revision: PR #30 CI | `gh pr checks 30`; `gh run view` logs of runs 40799002315, 40799002369 and 40799002399 | all 11 checks passed on `66e98d6` (section 24.7) |
+| Plan revision: new references | `.github/workflows/docker.yml:9-15`, `.github/workflows/quality.yml:68-70`, `engine/config.py:180`, `engine/validation.py:245-246`, `api/__init__.py:6`, `engine/workers.py:373-405` | checked by hand against `af5e6d2`. The reference script, re-run on the whole report: 242 references, 0 out of range; fences balanced; 0 inconsistent table rows |
+
+## 24. Stage 3 implementation plan (revised after the owner's decisions)
+
+**Status: proposed, not approved.** This is a planning revision, written on
+2026-10-29 after Stage 2 against the unchanged baseline `af5e6d2`. Stage 3 has not
+started, and no application code has changed. Sections 0-23 remain the Stage 1
+and Stage 2 record. Where a decision below changes an earlier recommendation, the
+earlier text carries a "Plan revision" note that points here. No finding ID,
+measurement or historical status was changed.
+
+### 24.1 Owner decisions recorded
+
+| ID | Stage 2 question (section 13) | Owner answer (2026-10-29) | Effect on the plan |
+|---|---|---|---|
+| D-A | Target release version and scope | **4.8.0**, covering steps 1-12 of 24.3, with release requirements kept apart from optional improvements | 24.2 classifies every item; 24.3 lists the steps |
+| D-B | Is folder monitoring desktop only? | **Yes, desktop only** for this release | F1 is part of the desktop app and its background service on Windows, macOS and Linux. The Docker edition and the REST API get no watcher, consistent with RELEASE_SCOPE §5 (no on-access scanning in Docker) |
+| D-C | The e-mail path in Docker | **One narrowly scoped e-mail operation on the intel service**, keeping intel as the only service with network access | Analysis never holds SMTP settings or credentials. The desktop sends directly (24.3 step 7) |
+| D-D | Cloud provider and retention default | **Optional S3-compatible storage for logs and reports only, off by default.** The 30-day local spool retention is separate from cloud retention. The cleanup behaviour is explained, and a cloud retention policy is proposed for approval | 24.3 step 9; open points D-D1 to D-D3 (24.8) |
+| D-E | Desktop in-process fallback when workers cannot start | **Fail closed by default on both the desktop and the API.** Show a clear error instead of scanning in the main process | **Supersedes the Stage 2 recommendation** (section 13 D-E and RF-1's `"in_process"` option for the desktop). Design in 24.3 step 2; open point D-E1 |
+
+### 24.2 4.8.0 release requirements versus optional improvements
+
+| Class | Meaning | Items |
+|---|---|---|
+| **R: release requirement** | Must be done before 4.8.0 development can be called complete | Steps 1-12 (24.3). Together they close every confirmed defect: PR-01 to PR-14 and PR-17. They also cover F1-F5, the verification of S-01, S-03 and S-04, the integration checks I-1 to I-7, the inspection and validation in 24.5, and green CI on every job with no fastapi or hypothesis skips. The regression corpus must be unchanged (C7), and weights and thresholds stay as they are |
+| **P: production prerequisite** | Needed, on top of R, before production readiness can be claimed | PR-01, PR-02, PR-12, PR-13 (also R). The tracked items M1 / X1, M2 (re-measured after step 3), O1, U1 (a 4.7.0 → 4.8.0 upgrade as well as 4.6.0), X2 and the legal review of `docs/THIRD_PARTY.md`; D5 if arm64 is claimed. `deploy/check-deployment.sh` must pass on the release commit, and the threat-model text approved under D-G must be added |
+| **O: optional improvement** | Not required for 4.8.0. Done only if approved separately, otherwise in a later release | RF-3, RF-7, RF-8, RF-9 (becomes R only if a REST endpoint is added); O-2, a desktop spare worker (recommended: it offsets the first-file delay that step 2 adds); O-3, O-4, H-03, PR-15 (observation), PR-16; py7zr `max_extract_size` (the S-02 follow-up); a Windows `_pid_alive` test; tidying the coverage-job annotation (24.7); client-side encryption of cloud uploads; F5 in Docker (unless D-D2 says otherwise) |
+
+### 24.3 Revised steps
+
+Each step is one branch and one focused PR. "Builds on" is the code each step
+needs before it can start. How the branches combine while their PRs stay unmerged
+is described in 24.4. The step numbers are not the same as the section 20 row
+numbers. Section 20's order still holds, grouped as shown here.
+
+| # | Branch | IDs | Change | Builds on | Class | Effort |
+|---|---|---|---|---|---|---|
+| 1 | `fix/rulepack-confinement` | PR-01, PR-14 (RF-6) | numeric version check in verify, rollback and build; resolved path confined to `rulepacks/`; atomic `active.json` and a logged read failure | main | R, P | S |
+| 2 | `fix/isolation-fail-closed` | PR-02, PR-03, PR-11 (RF-1) | fail closed everywhere (D-E, below); single files isolated; `provenance.isolation`; worker-start metrics, live `/ready`, spare refill | main | R, P | M |
+| 3 | `perf/worker-dispatch` | PR-17 (RF-2) | event-driven wait in place of the round-robin 50 ms poll; re-run the section 15 benchmark | 2 | R | S |
+| 4 | `fix/background-reliability` | PR-07, PR-09, PR-10 (RF-5 part 1) | guarded scheduled jobs with a failure counter; a `failed` result instead of a dropped file; corrected docstrings and doc path | main | R | S |
+| 5 | `fix/dmg-streaming` | S-01, then PR-04 (RF-4) | an S-01 test on a generated benign image; DMG members streamed one by one through the byte-limited writer | main | R | M |
+| 6 | `ci/matrix-coverage` | PR-05, PR-06, S-04, PR-13 | API and test extras in every matrix job; the lock tested where it ships, or an exception recorded; releases only from commits with passing checks | main | R, P | S-M |
+| 7 | `feat/alert-outbox-email` | PR-08 (RF-5 part 2), S-03, F4 | an alert outbox with retry; canary alerts routed to the outputs; e-mail alerts (D-C, below) | 4 | R | M-L |
+| 8 | `feat/folder-monitoring` | F1, F3 | desktop watched folders (D-B, below) and quarantine integration | 2, 3, 4, 7 | R | L |
+| 9 | `feat/cloud-reports` | F5 | optional S3-compatible upload of logs and reports (D-D, below) | 7 (reuses the outbox pattern) | R | L |
+| 10 | `feat/gui-integration` | F2 | monitoring view; alert and cloud settings with a test send; delivery and spool status; key export and import; the fail-closed error | 2, 7, 8, 9 | R | M-L |
+| 11 | `build/hash-pinned-lock` | PR-12 | lock regenerated with hashes, `--require-hashes` in the image and release builds (a dependency-file change) | 6 (and 9, if it adds the `[cloud]` extra) | R, P | M |
+| 12 | `docs/v4.8` | B16 | DATA_POLICY, OPERATIONS, RUNBOOKS, README, CHANGELOG; the threat-model text approved under D-G | 7-11 | R | M |
+
+The detailed acceptance criteria stay in section 10 (per finding), section 13 (per
+block) and section 20 (I-1 to I-7). The design points below are new or changed
+because of D-B to D-E.
+
+**Step 2: fail closed (D-E).**
+- No in-process fallback by default on any surface. After the existing three
+  failed worker starts, dispatching stops. Every target that was not scanned gets
+  one result with `scan_status: "failed"` and an `isolation_unavailable` reason,
+  using the existing failed-result path (`engine/workers.py:373-405`). Reports
+  therefore stay complete: one result per target, B1.
+- **CLI:** an error line that names the cause, and a non-zero exit.
+- **GUI:** an error message saying that isolated workers could not start and
+  that no file was scanned in the main process, with a retry action.
+- **API:** `/scan` answers 503 with a JSON error. `/ready` answers 503 from a live
+  check (PR-11).
+- Single-file scans go through a worker: `--scan-file`, the GUI's single file, and
+  a folder with one file (PR-03).
+- `provenance.isolation` records `worker`, or the explicit configured opt-out
+  (D-E1). This is an additive field, so `SCHEMA_VERSION` moves from 1.3 to 1.4
+  (`api/__init__.py:6`; C6).
+- `tests/test_workers.py:80`, which asserts today's fallback, is changed on
+  purpose.
+- Cost: the first file of a desktop scan takes about 1.1 s longer (section 15
+  start-up). O-2 is the optional mitigation.
+
+**Step 7: e-mail alerts (D-C).**
+- **Desktop:**
+  - SMTP over implicit TLS (465) or with STARTTLS required (587), with
+    certificate verification; no plaintext option;
+  - credentials from the secret store; recipients fixed in the settings.
+- **Docker: one new intel operation** (for example `POST /v1/alert/email`) with a
+  fixed schema:
+  - fields: alert id, kind (verdict or canary), verdict, risk band, SHA-256,
+    file name (truncated, control characters removed), time, scan id and reason
+    codes;
+  - no free text, recipients, attachments or file content from analysis;
+  - intel holds the host, port, credentials, sender and recipients, and builds
+    the message from a fixed template;
+  - intel accepts only the configured SMTP host and port. `AllowlistSession`
+    covers HTTP only (`core/http.py`), so the SMTP path needs its own check;
+  - TLS with verification, a per-operation rate limit and a daily cap, the
+    existing body cap, metadata-only logging, and de-duplication by alert id.
+- **Outbox:** one JSON file of metadata per alert, with backoff and a maximum age.
+  It lives in the app-data folder on the desktop and in `analysis-state` in Docker
+  (see TMA-1, 24.6).
+- **Tests and checks:** the pattern of `tests/test_intel_service.py:160-238`; the
+  deployment check extended with "intel refuses unknown fields" and "analysis
+  still has no route"; secret-leak tests for the SMTP credential (P1.4).
+
+**Step 8: folder monitoring (D-B).**
+- Reuses the watchdog-based mechanism of `core/canary_watch.py`.
+- Each file is scanned once, after it stops changing. De-duplication uses path,
+  size, mtime and SHA-256. The queue is bounded with back-pressure.
+- The app's own folders are excluded: reports, logs, quarantine, spool and outbox.
+  Links are never followed outside a watched root.
+- Scans run only in isolated workers. If workers cannot start, monitoring pauses
+  with a visible error (D-E) and does not fall back.
+- Results go to the GUI, the report and the outputs, and through automatic
+  quarantine according to the existing setting (F3).
+- I-1 and I-2 run on macOS here. On Windows and Linux they run in CI and in the
+  owner's manual check (24.5).
+
+**Step 9: cloud storage for logs and reports (D-D).**
+- **Content:** off by default. It uploads reports and rotated log files only,
+  never inspected files, vault contents, keys, the outbox or the cache. A test
+  asserts this (I-5).
+- **Transport:** S3-compatible PUT over HTTPS with certificate verification, to
+  the configured endpoint only. The content checksum is sent and the response is
+  checked. Credentials come from the secret store; write-only (PutObject)
+  credentials are recommended. The client library goes in an optional `[cloud]`
+  extra, which is a new dependency, hash-pinned in step 11.
+- **Object keys:** `<prefix>/<install-id>/<reports|logs>/<yyyy>/<mm>/<dd>/<name>`.
+- **Local spool: 30 days, separate from cloud retention.**
+  - **Where:** a spool folder in app data, owner-only permissions, holding copies
+    of the reports and logs. The original local reports and logs are never
+    deleted by the spool. They keep their existing local handling.
+  - **After a confirmed upload** (2xx and a matching checksum), the item is
+    removed from the spool at once.
+  - **On failure:** retries use exponential backoff with a capped interval. While
+    the network is down, the spool grows.
+  - **Cleanup:** runs at service start and then daily. It deletes items that were
+    queued more than 30 days ago and never uploaded. A size cap (proposed default
+    1 GiB) deletes the oldest items first. Each deletion is logged with the name,
+    age and reason, and counted in a metric. The GUI shows "N items expired
+    without upload".
+  - **Turning cloud off** stops queuing and uploading. Items already in the spool
+    stay until they expire or the user clears the spool. Nothing is deleted
+    remotely.
+- **Proposed cloud retention policy (D-D1, needs your approval):**
+  - Retention is enforced by the operator's bucket lifecycle rule, not by the
+    client. The client never lists or deletes remote objects, so its credentials
+    can be write-only.
+  - Recommended default: 90 days for both reports and logs. OPERATIONS documents
+    an example lifecycle rule for the prefix; the operator can change it.
+  - DATA_POLICY states what leaves the host (paths, file names, hashes, verdicts,
+    indicators), that the product cannot check or enforce remote retention, and
+    how to delete the data.
+  - Alternative, not recommended: the client deletes objects older than N days.
+    That needs list and delete permissions, so a leaked credential could wipe or
+    enumerate the bucket.
+
+### 24.4 Branch, PR and combined-testing workflow
+
+**Facts this relies on.**
+- `tests.yml` and `quality.yml` run on every `pull_request`, whatever its base.
+  On push they run only on `main` (`.github/workflows/tests.yml`,
+  `.github/workflows/quality.yml`, `on:`).
+- `docker.yml` runs on every `pull_request`, and on push to `main`,
+  `integration/**`, `fix/**` and `area/**` (`.github/workflows/docker.yml:9-15`).
+- So a PR whose base is another unmerged branch still gets the full CI on the
+  combined code.
+
+**Prerequisite (D-H).** The owner merges PR #30 first, so that Stage 3 branches
+contain the report. If it is not merged, Stage 3 reads the report from
+`origin/review/project-review` and does not assume the PR is merged.
+
+**Option A: stacked PRs into `main`. No integration branch, and no merges by
+Claude.**
+- **Independent steps** (1, 4, 5, 6) branch from updated `main`, with PR base
+  `main`.
+- **Dependent steps** branch from the parent's branch tip, with PR base set to
+  the parent branch. Each PR then shows only its own diff, and its CI tests the
+  combined code.
+- **A step with two parents.** Step 8 needs 3 and 7. Its branch starts from
+  step 7's branch, and step 3's branch is merged into it with a merge commit on
+  that feature branch. This combines unmerged branches. It is not a PR merge and
+  does not touch `main`, and it is included here explicitly so you can approve or
+  refuse it.
+- **A fix to a parent** is committed on the parent, then merged forward into each
+  child. There is no rebase and no force-push.
+- **Combined testing:** the last branch in the chain (step 12) contains every
+  step, so its PR's CI is the combined run. The full suite also runs locally at
+  each tip.
+- **After the owner merges a parent PR,** GitHub moves the child PRs to `main`
+  when the parent branch is deleted. Otherwise Claude changes the child PR's base
+  (`gh pr edit --base main`) and merges `main` into the child.
+- **Cost:** the owner must merge in order. The chain is deep, and it produces many
+  merge-forward commits.
+
+**Option B (recommended; the 4.7 workflow): `integration/v4.8`. It needs two
+explicit authorisations.**
+1. **Claude creates `integration/v4.8`** from updated `main`.
+2. **Each step branches from the tip of `integration/v4.8`,** with that branch as
+   the PR base. Step PRs reach it in dependency order, through one of:
+   - **B1:** the owner merges each step PR into `integration/v4.8`;
+   - **B2:** the owner authorises Claude to merge a step PR into
+     `integration/v4.8` only after all its checks pass, and only for PRs the
+     owner has approved by number or in a blanket rule.
+
+   Nothing is ever merged into `main` by Claude. The final PR,
+   `integration/v4.8` → `main`, is the owner's to merge.
+- **Combined testing:** a push to `integration/v4.8` runs `docker.yml`. The final
+  PR, `integration/v4.8` → `main`, is opened early as a draft, so `tests.yml` and
+  `quality.yml` run on every update of the integration branch as well.
+- **Handoff:** the active checkpoint lives in `docs/HANDOFF.md` on
+  `integration/v4.8`, through small direct checkpoint commits there (never on
+  `main`). Step PRs do not edit it, which avoids conflicts. It is reset to idle as
+  the last commit before the owner merges the final PR.
+
+Under either option, there is no force-push, no merge into `main`, and no
+auto-merge. Each step PR states its parent, its IDs and its checks.
+
+### 24.5 Areas not reviewed, and the inspection and validation required before 4.8.0 is declared complete
+
+None of these is an accuracy or detection-rate evaluation, which stays out of
+scope.
+
+| Area | Review status | Why it matters for 4.8.0 | Required before "complete" | When |
+|---|---|---|---|---|
+| B4 document layers (`file_integrity`, `macro_analysis`, `prompt_guard`, `relationship_scanner`, `yara_engine`, `fuzzy_hash`, `tlsh_py`) | inventory only | they parse hostile input; monitoring (F1) runs them on files nobody chose to scan | review bounds and error handling, starting with the most exposed parsers; no new High or Medium left open; atheris runs (below) | a review pass before step 8 |
+| B5 ELF (`elf_analysis.py`), `entropy.py` | inventory only (PE sampled) | hostile input | review bounds and error handling | with B4 |
+| ML layer (`ml_classifier.py`) | not reviewed | rule-engine mode only; the model belongs to the other contributor | check that it is correct and degrades cleanly when no model is present; no model work | with B4 |
+| Scoring (`registry.py`, `signals.py`, `scoring.py`) | not reviewed | the new `isolation_unavailable` failures are scored | correctness and consistency only; regression corpus unchanged; no weight or threshold change | step 2 |
+| `engine/validation.py` | not inspected | the F1, F4 and F5 settings are validated here; D-E1 changes it | read fully | before step 2 (D-E1) and step 7 |
+| `engine/secret_store.py` | inventory (tests run) | holds the SMTP and S3 credentials | read fully; extend the secret-leak tests | before step 7 |
+| `engine/report.py`, `engine/logs.py` | not reviewed | F5 uploads exactly what these write | read fully; decide what is uploaded and redacted (D-D3) | before step 9 |
+| `engine/provenance.py`, `engine/metrics.py`, `engine/capabilities.py` | inventory | step 2 adds `provenance.isolation` and worker metrics | read fully | step 2 |
+| `core/quarantine.py`, `core/canary.py`, `core/containment.py`, `core/response.py` | inventory or partly read | F3 and canary alerts | read fully; S-03 test | before steps 7 and 8 |
+| Most of `aegis_gui/` | sampled | F2 and the fail-closed error | read the pages that are touched; extend the GUI smoke test | step 10 |
+| `build.py`, `scanner.spec`, `deploy/*`, `tools/` | inventory | the `[cloud]` extra, the intel e-mail operation, hash-pinned installs | read what each step changes; extend `deploy/check-deployment.sh` for the intel operation | steps 7, 9, 11 |
+| `core/mailbox.py`, `core/cache.py`, `core/sandbox.py`, `core/allowlist.py`, `core/tools.py`, `engine/external.py`, `engine/text.py` | inventory | not touched by the plan | none required (O) | later |
+
+**Validation still required** (not possible locally on this Mac, or not yet
+existing):
+- The Docker deployment check on the final 4.8.0 commit, including the new
+  intel checks. It passed on PR #30 for the `af5e6d2` code (24.7).
+- Python 3.9 and 3.12 on all three OSes, with 0 fastapi or hypothesis skips
+  (step 6). The lock installing on 3.9 (S-04), or an exception recorded.
+- The GUI smoke test (CI, xvfb) and a manual GUI check on Windows and macOS
+  (owner).
+- Folder monitoring (I-1, I-2) on real Windows and Linux desktops (owner or a
+  VM), and on macOS here.
+- S-01, built from generated benign images only (step 5); S-03 (test).
+- atheris long runs on the changed and the B4 parsers (Linux CI or a VM). They
+  have never been run in this review.
+- E-mail against a local TLS test server, and S3 against a local S3-compatible
+  test server. A real provider check is for the owner, with their own account.
+- M2 re-measured on the reference host after step 3; U1 (4.7.0 → 4.8.0 and
+  4.6.0); O1.
+
+### 24.6 Threat-model proposals TMA-1 to TMA-4, and the new features
+
+`docs/THREAT_MODEL.md` is unchanged. The text is added only in step 12, and only
+as the owner approves (D-G).
+
+| ID | What it proposes | After the planned steps | Needed for the new features? |
+|---|---|---|---|
+| TMA-1 | Record that a compromised analysis worker can write the `analysis-state` volume (the local log file and reports), so it can delete or edit local log lines and reports. Docker's container log is out of reach | unchanged by steps 1-12 | **Required for F5** (both editions): uploaded logs and reports must not be described as tamper-evident, because a compromised worker can alter them before upload. On the desktop the workers run as the same user. **Required for F4 in Docker**: the outbox lives in `analysis-state`, so a compromised worker could suppress or forge queued alerts |
+| TMA-2 | A compromised signing key can do more than change content: through the version string it can delete or replace directories | step 1 fixes the defect | not feature-related. After step 1 the threat model records the version check and path confinement, and that the compromise impact is again limited to content |
+| TMA-3 | DMG unpacking relies on the host's 7-Zip for path and link safety | step 5 restores the stated design | not feature-related. It is needed as a residual risk only if step 5 is deferred |
+| TMA-4 | Isolation can silently fall back to the main process | step 2 (fail closed, D-E) | **Required for F1**: monitoring parses files automatically, so the threat model must state the fail-closed rule and the explicit opt-out (D-E1) |
+
+**New proposals that the features themselves need** (new IDs, for D-G):
+- **TMA-5, folder monitoring:**
+  - files an attacker can drop are parsed with no user action;
+  - event floods and resource exhaustion;
+  - escapes from watched roots through links or junctions;
+  - rename races;
+  - loops through the app's own output folders.
+
+  Mitigations: step 8.
+- **TMA-6, e-mail alerts:**
+  - a new egress (direct on the desktop, through intel in Docker);
+  - the SMTP credential;
+  - header injection through file names;
+  - alert metadata disclosed to mail providers;
+  - alert floods.
+
+  Mitigations: step 7.
+- **TMA-7, cloud storage:**
+  - data leaves the host (paths, names, hashes, verdicts);
+  - the scope of the credential;
+  - remote retention outside the product's control;
+  - tampering with the spool.
+
+  Mitigations: step 9 and D-D1 to D-D3.
+
+### 24.7 PR #30 checks
+
+All checks finished and passed on head `66e98d6` (`pull_request` event,
+2026-10-29 01:12-01:17 UTC). GitHub reports the PR as mergeable (`CLEAN`); it has
+no review yet. PR #30 changes documentation only, so the application code under
+test is `af5e6d2`'s, and these runs add CI evidence for the reviewed code.
+
+| Workflow (run) | Job | Result |
+|---|---|---|
+| tests (40799002315) | ubuntu 3.9 · ubuntu 3.12 | pass: 935 passed, 46 skipped (each) |
+| | macos 3.9 · macos 3.12 | pass: 933 passed, 48 skipped (each) |
+| | windows 3.9 · windows 3.12 | pass: 920 passed, 61 skipped (each) |
+| quality (40799002369) | lint-and-types | pass (ruff, mypy, bandit) |
+| | coverage | pass: 1020 passed, 5 skipped; TOTAL 11,009 statements, 913 missed, **92 %** (gate 85 %) |
+| | dependency-audit | pass |
+| | regression-corpus | pass: 19 passed |
+| docker (40799002399) | deployment | pass: `== deployment check passed`. Analysis had no route and every probe was blocked. Intel needed the token, refused unknown routes and validated input. Both services ran unprivileged with read-only content. One scan went through TLS. `/ready` returned true with every check ok |
+
+- **The skip counts per job are identical to run 40741208642** (section 8), so
+  PR-05 stands unchanged.
+- **The coverage figure differs from section 23** (92 % in CI, 91 % locally).
+  These are different environments: Linux / 3.12 with the lock and the GUI test,
+  against macOS / 3.14.
+- **Observation:** the coverage step marks its TOTAL line as an `::error`
+  annotation even when the job passes (`.github/workflows/quality.yml:68-70`). It
+  is cosmetic, has no ID, and is listed as optional (24.2).
+
+### 24.8 Decisions still open
+
+| ID | Question | Recommendation |
+|---|---|---|
+| D-D1 | Cloud retention policy | enforced by the operator's bucket lifecycle rule; recommended 90 days for reports and logs; the client is write-only and never deletes remotely (24.3 step 9) |
+| D-D2 | F5 in the Docker edition for 4.8.0? | **no; desktop only for 4.8.0.** Docker would need a second intel operation that accepts log and report content, which widens intel's input surface, and TMA-1 applies. Docker operators keep the existing log shipping |
+| D-D3 | Paths in uploaded reports | replace the user's home folder with `~` by default, with a setting to keep full paths. The e-mail body carries the file name only |
+| D-E1 | The existing `ISOLATE_SCANS=0` setting (`engine/config.py:180`) | keep it as an explicit opt-out for development, recorded in every result. **Refuse it at start-up under the production profile** (today it only warns: `engine/validation.py:245-246`) |
+| D-F | Branch workflow (24.4) | Option B, `integration/v4.8`. Authorise creating it, and choose B1 (you merge step PRs into it) or B2 (Claude merges green step PRs you approved into it, never into `main`) |
+| D-G | Threat-model text | approve TMA-1 to TMA-7 for step 12, with TMA-2 to TMA-4 worded as the fixed design after steps 1, 2 and 5 |
+| D-H | PR #30 | merge it before Stage 3 starts, so the step branches carry the report |
+| D-I | Contract and dependency changes inside the plan | confirm with the plan approval: schema 1.4 (additive `provenance.isolation`), a new intel operation, an optional `[cloud]` extra and its dependency, CI workflow changes (step 6), and the hash-pinned lock (step 11) |
+
+The owner's tracked prerequisites are unchanged: M1 / X1, M2, O1, U1, X2, the legal
+review, and D5 if arm64 is claimed.
