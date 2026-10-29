@@ -1,99 +1,56 @@
 # Current task handoff
 
-- Status: **active** (WIP checkpoint; not for merge in this form).
-- Task: Stage 3 of the project review: implementation for release 4.8.0.
-- Brief: [PROJECT_REVIEW.md](PROJECT_REVIEW.md) section 24 (steps 1-12 in 24.3,
-  refined by the owner answers in 24.1 and 24.9) and the startup prompt at the
-  end of [tasks/project-review.md](tasks/project-review.md).
-- Stage and approval boundary: Stage 3 authorised by the owner on 2026-10-29
-  for steps 1-12: code, tests, docs, commits, pushes, creating
-  `integration/v4.8` and opening step PRs. **No PR merges by the agent and
-  nothing into `main`.** Optional (O) items need separate approval.
-- Active agent: Claude. Previous agent: none active.
-- Workflow: B1 (24.9 D-F). This file holds the active checkpoint on the step
-  branch being worked on (now `feat/alert-outbox-email`, step 7); each step
-  PR's last commit restores it to the `integration/v4.8` content before the PR
-  is marked ready.
+- Status: idle.
+- Active task: none.
+- Active agent: none.
+- Pending steps: none.
+- Pending owner approval for an active task: none.
 
-## Baseline
+Start a new authorised task on its task branch, then replace this idle state
+with its sanitised technical checkpoint. Follow [AI_WORKFLOW.md](AI_WORKFLOW.md)
+for the required checkpoint fields, public repository privacy rules, takeover
+procedure and reset to idle when the task PR is merged.
 
-- PR #30 merged into `main` (`bd46fff`). Implementation baseline `origin/main`
-  = `bd46fff`; only `docs/` changed since the reviewed `af5e6d2`.
-- `integration/v4.8` created from `bd46fff` (did not exist) and pushed. No
-  step PR is merged into it yet, so the draft `integration/v4.8` -> `main` PR
-  cannot be opened (no commits between them).
+Technical task state only: no business plans, pricing, customer names, personal
+data, VM details, API keys or private chat content. Update this file on the task
+branch only; never directly on main.
 
-## Step PRs (all bases per B1)
+## Last Dance — Final implementation follow-up
 
-| Step | Branch | PR | Base | State |
-|---|---|---|---|---|
-| 1 | `fix/rulepack-confinement` | #31 | `integration/v4.8` | ready, CI green |
-| 2 | `fix/isolation-fail-closed` | #32 | `integration/v4.8` | ready, CI green |
-| 3 | `perf/worker-dispatch` | #36 | `fix/isolation-fail-closed` (#32) | ready, CI green; retarget after #32 merges |
-| 4 | `fix/background-reliability` | #33 | `integration/v4.8` | ready, CI green |
-| 5 | `fix/dmg-streaming` | #35 | `integration/v4.8` | ready, CI green |
-| 6 | `ci/matrix-coverage` | #34 | `integration/v4.8` | ready, CI green |
-| 7 | `feat/alert-outbox-email` | draft | `fix/background-reliability` (#33) | implemented; this checkpoint |
-| 8 | `feat/folder-monitoring` | - | - | waits: needs 2, 3, 4, 7 merged |
-| 9 | `feat/cloud-reports` | - | (stack on step 7) | next |
-| 10 | `feat/gui-integration` | - | - | waits: needs 2, 7, 8, 9 |
-| 11 | `build/hash-pinned-lock` | - | - | waits: needs 6 and 9 merged |
-| 12 | `docs/v4.8` | - | - | waits: needs 7-11 |
+Reference only, not an active task. The project review (PR #30, report
+[PROJECT_REVIEW.md](PROJECT_REVIEW.md), reviewed commit `af5e6d2`) is complete.
+Implementation needs the owner's explicit approval and is a new task on its own
+branches. Details live only in the report; follow the references.
 
-Trial merges (`git merge-tree`) of every pair of step branches above: clean.
-
-## Completed (last implementation commit per step)
-
-- 1 `40b690f` PR-01, PR-14. 2 `9d1062d` + `e8ee3d2` PR-02, PR-03, PR-11,
-  D-E, D-E1 (schema 1.4). 3 `aaf6415` PR-17. 4 `1e0801a` PR-07, PR-09,
-  PR-10. 5 `600d8bc` S-01, PR-04 (and CHM). 6 `056ab85` PR-05, PR-06, S-04,
-  PR-13. 7 `af8deda` PR-08, F4, S-03.
-- S-01: not reproduced with 7-Zip 26.05 (benign generated images); a link
-  entry made `7z x` refuse the whole image (nothing inspected). Fixed by
-  streaming.
-- S-03: not reproduced on CPython with the GIL (0 of 3,000 trials); no lock
-  (plan: lock if confirmed); regression test kept.
-- S-04: confirmed by CI: the lock does not install on Python 3.9 on any OS;
-  recorded as an exception (3.9 jobs test the latest releases).
-- PR-17 benchmark (this Mac, regenerated benign set): 644 files, 4 workers
-  146-154 -> 336-344 files/s; 1 worker unchanged (~200). On 161 files 4
-  workers stay below 1 worker (start-up dominates ~1 s of work).
-
-## Checks run (macOS, Python 3.14.2, `.venv`)
-
-- Each step's full suite on its own branch: 1 1049, 2 1036, 3 1040 (2+3),
-  4 1024, 5 1031, 7 1070 (4+7) passed; 8 skipped each. ruff, mypy, bandit
-  clean on every branch. pip-audit (lock, no resolution) clean (step 1).
-- CI: #31-#36 all checks green on their final heads (run IDs in each PR).
-
-## Limitations
-
-- No Python 3.9 / 3.12, Windows or Linux desktop here: CI only. No Docker
-  here: `deploy/check-deployment.sh` (extended in step 7) runs in CI.
-- E-mail tested with fakes and a local TLS server with an untrusted
-  certificate (refused); a real provider check is for the owner.
-
-## Uncommitted work
-
-- None in the main checkout. Scratch worktrees under the session scratchpad
-  hold only committed branches.
-
-## Remaining steps
-
-1. Open the step 7 PR (draft) with this checkpoint; CI.
-2. Step 9 (`feat/cloud-reports`, stacked on step 7): inspection done
-   (`engine/report.py`, `engine/logs.py` read): uploads are an allowlisted,
-   redacted view built from results and structured log events, never the
-   report or log files.
-3. After the owner merges step PRs: retarget #36 (after #32) and step 7's PR
-   (after #33); open the draft `integration/v4.8` -> `main` PR; then steps 8,
-   10, 11, 12 in order; finish with I-1 to I-7 and the release report.
-
-## Next action
-
-Push `feat/alert-outbox-email` and open its draft PR; then start step 9.
-
-## Last verified push
-
-- `perf/worker-dispatch` at `aaf6415` and `fix/isolation-fail-closed` at
-  `e722fa2`: pushed and verified.
+- **Confirmed issues to fix** (report section 10; priority order in section 22):
+  - PR-01 (High);
+  - PR-02, PR-03, PR-04, PR-05, PR-07, PR-17 (Medium);
+  - PR-06, PR-08, PR-09, PR-10, PR-11, PR-12, PR-13, PR-14, PR-16 (Low);
+  - PR-15 (observation);
+  - still to verify: S-01, S-03, S-04; H-03 unmeasured.
+- **Requested feature completion** (report section 9; tasks in section 13 B9 / B11
+  / B12; order in section 20 rows 10-14): F1 folder monitoring, F2 GUI
+  integration, F3 quarantine integration, F4 outbound e-mail alerts, F5 optional
+  cloud storage for logs and reports.
+- **Owner decisions:** D-A to D-E were answered on 2026-10-29 (report section 24.1):
+  4.8.0, monitoring desktop only, e-mail through one intel operation, optional
+  S3-compatible logs and reports, and fail closed everywhere. D-D1 to D-D3,
+  D-E1, D-F (B1), D-G and D-I were answered the same day (report section 24.9).
+  Still open: D-H, merging PR #30; its status is in report section 24.10.
+- **Revised Stage 3 plan** (proposed, **not approved**): report section 24.
+  - steps 1-12 and the release requirement / optional split: 24.2-24.3;
+  - branch and combined-testing workflow: 24.4;
+  - unreviewed areas and the validation still required: 24.5;
+  - TMA-1 to TMA-7: 24.6;
+  - PR #30 checks: 24.7 and 24.10;
+  - owner answers and the B1 workflow: 24.9;
+  - the Stage 3 startup prompt: `docs/tasks/project-review.md`, last section.
+- **Remaining closure items:**
+  - block checklists, report section 13;
+  - project release closure checklist, report section 21 (block closure,
+    capabilities, integration checks I-1 to I-7, platforms and runtimes,
+    documentation, ML dependency);
+  - tracked prerequisites M1 / X1, M2, O1, U1, X2, D5, and the legal review of
+    `docs/THIRD_PARTY.md`.
+- **Threat-model proposals for the owner:** TMA-1 to TMA-4 (report section 7),
+  and TMA-5 to TMA-7 for the new features (report section 24.6).
