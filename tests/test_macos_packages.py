@@ -198,3 +198,20 @@ def test_dmg_without_7zip_says_what_to_install(monkeypatch, tmp_path):
         assert res.members == []
         assert "7-Zip" in " ".join(res.missing_support)
         assert "install 7-Zip" in X._summary(res)
+
+
+@pytest.mark.parametrize("magic,start,end,base", [
+    (b"070707", 18, 24, 8), (b"070707", 59, 65, 8),
+    (b"070707", 65, 76, 8), (b"070701", 14, 22, 16),
+    (b"070701", 54, 62, 16), (b"070701", 94, 102, 16),
+    (b"070702", 14, 22, 16), (b"070702", 54, 62, 16),
+    (b"070702", 94, 102, 16),
+])
+@pytest.mark.parametrize("bad", [b"\x00", b"Z", b"-", b"+"])
+def test_cpio_invalid_numeric_fields_are_format_errors(magic, start, end, base, bad):
+    """Atheris found a NUL in an odc size; all used fields are unsigned digits."""
+    header_size = 76 if base == 8 else 110
+    data = bytearray(magic + b"0" * (header_size - 6))
+    data[start:end] = bad + b"0" * (end - start - 1)
+    with pytest.raises(mp.FormatError, match="numeric"):
+        list(mp.read_cpio(bytes(data)))
