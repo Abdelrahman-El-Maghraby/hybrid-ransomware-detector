@@ -15,11 +15,12 @@ what the code does about each, and what is left.
 | The user's documents | Sent to a cloud LLM or VirusTotal, they leave the organisation. |
 | Detection content | Rules, signatures, weights and the allowlist decide what is flagged. |
 | Alerts | Forged or suppressed alerts mislead the SOC. |
+| Uploaded reports and logs (optional) | They leave the host and sit in a bucket the operator controls. |
 
 ## Trust boundaries
 
 1. **Scanned files** (fully hostile): every byte, every name, every nested file.
-2. **External services** (semi-trusted): VirusTotal, the LLM, the CAPE sandbox, the webhook receiver.
+2. **External services** (semi-trusted): VirusTotal, the LLM, the CAPE sandbox, the webhook receiver, the SMTP server, the S3-compatible bucket.
 3. **Detection content** (trusted only when signed or written locally): rule packs, the allowlist, weight overrides.
 4. **Local user and configuration** (trusted): `.env`, the OS keyring, the GUI, CLI arguments.
 5. **API clients** (authenticated, otherwise untrusted): anyone who can reach the REST port.
@@ -34,9 +35,20 @@ what the code does about each, and what is left.
 *A crafted PDF loops forever in the parser; a ZIP declares a format version the
 library cannot handle; an archive nests 50 levels deep.*
 
-- Folder scans and API scans run each file in a **worker process** with a wall-clock
-  limit and (Linux) an address-space limit; a hung or dead worker is replaced and the
-  file is reported as `scan_failed` (Medium) (`engine/workers.py`).
+- Every scan runs each file in a **worker process** with a wall-clock limit and a
+  memory limit - folder scans, API uploads and, since 4.8, single files (`--scan-file`,
+  the GUI's single file, a one-file folder) and monitored files. A hung or dead
+  worker is replaced and the file is reported as `scan_failed` (Medium)
+  (`engine/workers.py`).
+- **Isolation fails closed (4.8).** When workers cannot start (three failed starts,
+  or a worker silent for 120 s at start-up), nothing is parsed in the scanning
+  process: every file left gets a `failed` result with the code
+  `isolation_unavailable`, the CLI exits with code 3, the GUI shows an error with a
+  retry, folder monitoring pauses, and the API answers 503 while `/ready` turns 503
+  from live worker-start counters. Each result records where it was parsed
+  (`provenance.isolation`: `worker`, `in_process` or `unavailable`). Turning
+  isolation off (`ISOLATE_SCANS=0`) is a development-only opt-out, recorded in every
+  result and refused at start-up under the production profile.
 - **Every pipeline layer runs in a guard**: a parser that raises costs only that
   layer's evidence and is recorded in `layer_errors` (`engine/scanner.py`).
 - Hard limits on archive depth, members, total and per-member size, compression
@@ -63,7 +75,12 @@ to the time limit.
 
 - Members are written under generated names inside a fresh temporary folder;
   traversal, absolute paths and links are reported (`archive_zip_slip`) and never
-  written. External tools (7-Zip, unrar) only stream one member to stdout.
+  written. External tools (7-Zip, unrar) only stream one member to stdout: RAR
+  members, and since 4.8 the files of macOS disk images (DMG) and CHM help files,
+  which are listed first and then read one at a time with
+  `7z e -so -spd -- <image> <name>` through the byte budget. 7-Zip never writes a
+  file (it runs in an empty folder), links and folders are never requested, and a
+  member it cannot read costs that member only.
 - Rule packs refuse any entry that is not a plain file under `rules/`.
 - API uploads are saved under a generated name; the client's file name is only used
   for its extension and for display.
@@ -106,7 +123,10 @@ covers part of this; without it, this is the largest gap.
 
 - Rule packs install only with an **Ed25519 signature** from a configured key, a
   manifest whose hashes match every file, a newer version, and rules that compile
-  (`core/rulepack.py`). Keys come from configuration, never from the pack. An older
+  (`core/rulepack.py`). The version, and a rollback's `rollback_of`, must be purely
+  numeric: they name the install folder, which must be a direct child of
+  `rulepacks/` (4.8; before, a signed pack could name a folder outside it). Keys
+  come from configuration, never from the pack. An older
   or the same pack is always refused (no replay of a pack with known gaps); a
   rollback is a signed pack with a newer version (`rollback_of`). Each install
   records its signing key: removing a compromised key from RULEPACK_PUBLIC_KEYS
@@ -165,8 +185,10 @@ the account.
 ### 6. Leak data to third parties
 - VirusTotal is queried **by hash**; uploads are opt-in. The LLM prefers a local
   Ollama model; cloud use is logged. The sandbox is the user's own server.
-- Webhooks send metadata only (verdict, hash, indicators), never content, and can
-  be HMAC-signed.
+- Webhooks and e-mail alerts send metadata only (verdict, hash, indicators), never
+  content; webhooks can be HMAC-signed (section 12).
+- Optional cloud storage uploads a redacted view of reports and logs, never files
+  (section 13).
 - Every result records what its scan sent outside (`provenance.shared`: hash, file
   or text, local or cloud), members included, and each share is logged
   (`external_share`), so a data-protection review can see exactly what left. The
@@ -198,10 +220,17 @@ that only the proxy can open.
 - AES-256-GCM per file with authenticated header, chunks and end marker
   (bit flips, reordering, truncation detected); originals deleted only after a
   verified decrypt; restore never overwrites; key backup is passphrase-encrypted.
+- Quarantine takes the SHA-256 of the scanned file and refuses a file whose content
+  changed since the scan (4.8): a file renamed into its place is never vaulted
+  instead of the one that was judged.
 
 ### 9. Supply chain
-- Pinned lock file; `pip-audit` in CI; release builds come from CI with
-  SHA-256 sums, a CycloneDX SBOM and keyless Sigstore signatures.
+- Hash-pinned lock files (4.8): every package the image and the release builds
+  install is pinned to a version and to the SHA-256 of its files, and installed with
+  `--require-hashes`, so a substituted file stops the build. `pip-audit` in CI on
+  every lock. Release builds come from CI with SHA-256 sums, a CycloneDX SBOM and
+  keyless Sigstore signatures, and only for a commit whose tests, quality and docker
+  workflows passed (the release `gate` job).
 
 *Residual:* binaries are not Authenticode-signed / notarised (needs paid certificates).
 
@@ -241,6 +270,113 @@ security boundary. In the Docker deployment the boundary is the container:
   operator's own destinations.
 - A kernel or container-runtime escape is outside what the application can stop;
   keep the host kernel and Docker patched.
+- **TMA-1 (accepted residual risk).** The compromised worker can write the
+  `analysis-state` volume: the local log file and reports, and the alert outbox
+  (4.8). So it can delete or edit local log lines and reports, and suppress or
+  forge queued e-mail alerts before they reach intel. Docker's own container log is
+  out of its reach, and so is everything intel holds. Uploaded reports and logs are
+  therefore not described as tamper-evident (section 13). On a desktop the workers
+  run as the same user, so the same holds there.
+
+### 11. Folder monitoring (desktop)
+*An attacker drops a file into a watched folder - a download, a share, an e-mail
+client's attachment folder - so it is parsed with no user action. Or floods the
+folder with events, plants a link out of it, swaps a file between scan and
+quarantine, or makes the monitor scan its own output in a loop.*
+
+Mitigated (TMA-5, `core/folder_watch.py`):
+- Monitored files are parsed only in isolated workers, like every scan (section 1);
+  when workers cannot start, monitoring pauses with a visible error and retries
+  later - it never parses in the main process.
+- Events only record a path; repeated events collapse into one entry, and the queue
+  is bounded (`WATCH_MAX_QUEUE`; overflow dropped, logged and counted). A file is
+  scanned once, after it stops changing; duplicates are skipped by path, size,
+  modification time and SHA-256.
+- Links are never followed, and a file whose real path is outside every watched
+  folder is ignored.
+- The app's own output is never scanned (app data with the logs, reports,
+  quarantine, keys, outbox, cloud spool, JSON Lines file, cache database, worker
+  temporary folders), nor are canaries, so there is no loop.
+- Quarantine refuses a file whose SHA-256 differs from the scanned one (section 8).
+- Desktop only: the Docker edition and the REST API have no watcher.
+
+*Accepted residual risk:* a watched folder that receives files continuously keeps
+the workers busy (up to `SCAN_TIMEOUT_SECONDS` per file) and drops events beyond the
+queue; dropped files are not scanned until they change again.
+
+### 12. E-mail alerts
+*A new egress; an SMTP credential to steal; header injection through a hostile
+file name; alert contents disclosed to the mail provider; alert floods.*
+
+Mitigated (TMA-6, `core/mailer.py`, `core/outbox.py`, `api/intel.py`):
+- A fixed set of metadata fields in a fixed template: alert id, kind, verdict, risk
+  band, SHA-256, file name, time, scan id, reason codes. No free text, no
+  recipients from the alert, no attachments, no content. File names are cleaned of
+  control and format characters (CR/LF, RTLO) and truncated, so they cannot inject
+  headers.
+- SMTP over implicit TLS or STARTTLS that must succeed, with certificate and host
+  name verification; no plaintext option. Only the configured host and port;
+  recipients and sender come from the configuration.
+- The password comes from the secret store and is never logged or put in an error.
+  In Docker, only intel holds the SMTP settings; analysis hands it the fields
+  through one operation (`POST /v1/alert/email`) that accepts exactly those fields
+  and needs the intel token; the production profile refuses SMTP settings on the
+  analysis side.
+- Hourly and daily caps; an alert id already sent is ignored.
+
+*Accepted residual risk:* the alert metadata (file name, hash, verdict) reaches the
+mail provider and the recipients' mailboxes. A compromised parser in Docker can use
+the operation to send forged alerts to the configured recipients, within the caps
+(TMA-1).
+
+### 13. Optional cloud storage of reports and logs
+*Data leaves the host; the upload credential leaks; remote retention is out of the
+product's control; the local spool is tampered with.*
+
+Mitigated (TMA-7, `core/cloud.py`; owner decisions D-D1 to D-D3):
+- Off by default; desktop only.
+- What is uploaded is an allowlisted view built field by field: no paths, folder or
+  file names, user or host names, and no free text; a file is a keyed pseudonym
+  (HMAC-SHA-256 with a per-installation key in the secret store, never uploaded).
+  Logs are uploaded as structured events, never the log files. Never uploaded:
+  inspected files, the vault, keys, the outbox, the cache. Full detail is an
+  explicit opt-in, recorded in every upload and warned.
+- HTTPS with certificate verification to the configured endpoint only; the SHA-256
+  checksum is sent; a returned checksum is checked (an omitted checksum is accepted); object keys are unique and written create-only where
+  the endpoint supports it. The client never lists, reads or deletes remote objects,
+  so the credential can be limited to creating objects under the installation's
+  prefix (`docs/OPERATIONS.md`).
+- The local spool is owner-only, removed after a confirmed upload, and expires after
+  30 days or beyond 1 GiB, each deletion logged and counted.
+
+*Accepted residual risks:*
+- What remains (hashes, sizes, types, verdicts, indicator and rule ids,
+  provenance, timestamps, installation id) leaves the host; anyone who already has a
+  file can match it to an uploaded hash.
+- Remote retention is the bucket's lifecycle rule, set by the operator; the product
+  cannot check or enforce it.
+- Unique keys stop the app from overwriting its own objects by accident; they do not
+  stop someone holding the credential from uploading forged objects, or, on an
+  endpoint without conditional writes, overwriting a key. Only bucket versioning or
+  object lock can prevent or reveal that.
+- An uploaded report or log is only as trustworthy as the host that produced it
+  (TMA-1): uploads are not tamper-evident.
+
+## Changes in 4.8: TMA-1 to TMA-7
+
+Owner decision D-G (`docs/PROJECT_REVIEW.md` section 24.9). Each entry is either a
+mitigated defect, with the commit that fixed it and its test, or an accepted
+residual risk.
+
+| ID | Subject | Status | Commit | Test |
+|---|---|---|---|---|
+| TMA-1 | A compromised worker can write `analysis-state` (local log, reports, alert outbox) | accepted residual risk (section 10) | - | - |
+| TMA-2 | A signed rule pack's version used as a path could delete or replace directories | mitigated defect (PR-01): numeric version, folder confined to `rulepacks/`; a compromised key again changes content only | `40b690f` | `tests/test_rulepack.py` (traversal, absolute, separator and drive versions; planted link) |
+| TMA-3 | DMG unpacking relied on the host 7-Zip's path and link handling | mitigated defect (PR-04): members streamed through `7z e -so` | `600d8bc` | `tests/test_dmg_streaming.py` (crafted link image, traversal names, budget, pipe only) |
+| TMA-4 | Isolation could silently fall back to the main process | mitigated defect (PR-02, PR-03): fail closed, single files isolated, `provenance.isolation`; opt-out development only | `9d1062d` | `tests/test_isolation_policy.py`, `tests/test_workers.py` |
+| TMA-5 | Folder monitoring: dropped files parsed without user action, floods, link escapes, rename races, loops | mitigated as listed in section 11; flood and drop limits accepted | `ecaca34` | `tests/test_folder_monitor.py` (I-1, I-2, I-3) |
+| TMA-6 | E-mail alerts: new egress, credential, header injection, disclosure, floods | mitigated as listed in section 12; disclosure to the mail provider and forged alerts from a compromised parser accepted | `af8deda` | `tests/test_alerts.py`, `deploy/isolation_check.py` |
+| TMA-7 | Cloud storage: data leaving, credential scope, remote retention, spool tampering | mitigated as listed in section 13; remaining metadata, operator-owned retention and non-tamper-evident uploads accepted | `0209d7b` | `tests/test_cloud.py` (marker-name test) |
 
 ## Summary of residual risk
 
@@ -256,3 +392,7 @@ security boundary. In the Docker deployment the boundary is the container:
 | Parser exploit forges the result of the file that exploited it | Low | Fresh worker per API upload; cached external answers live only in intel |
 | Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
 | Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |
+| A compromised parser edits local logs, reports or queued alerts (TMA-1) | Low | Ship logs off the host; treat uploads as host-attested only |
+| Monitored folder flooded: events dropped, files not scanned until they change (TMA-5) | Low | Watch specific folders; raise `WATCH_MAX_QUEUE` |
+| Alert metadata at the mail provider; forged alerts from a compromised parser (TMA-6) | Low | Choose the SMTP provider deliberately; caps; a separate mailbox |
+| Uploaded metadata, operator-owned retention, uploads not tamper-evident (TMA-7) | Low | Keep cloud off unless needed; bucket lifecycle 90 days, versioning or object lock; least-privilege credential |

@@ -48,7 +48,10 @@ class ProtectionMixin:
         extra = {}
         if result:
             extra = {k: result.get(k) for k in ("verdict", "risk_score", "sha256_hash")}
-        return self.quarantine_vault.quarantine(file_path, reason=reason, extra=extra)
+        # the file that was scanned, not one renamed into its place since (TMA-5)
+        expected = str((result or {}).get("sha256_hash") or "")
+        return self.quarantine_vault.quarantine(file_path, reason=reason, extra=extra,
+                                                expected_sha256=expected)
 
     def _maybe_auto_quarantine(self, result: Dict) -> None:
         threshold = VERDICT_RANK.get(str(self.config.get("auto_quarantine") or "").capitalize())
@@ -115,3 +118,6 @@ class ProtectionMixin:
             logger.error("Could not write canary alert file: %s", e)
         if notify:
             desktop_notify("Ransomware tripwire triggered", report.summary())
+        # PR-08: the alert outputs (webhook, e-mail) hear about it too, with retry
+        from core.outbox import canary_alert, queue_and_send
+        queue_and_send([canary_alert(report)], self.config)

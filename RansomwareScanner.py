@@ -81,6 +81,7 @@ from engine.config import (  # noqa: F401
     init_runtime,
     logger,
 )
+from engine.metrics import METRICS
 from engine.scanner import RansomwareScanner
 from engine.text import extract_suspicious_strings  # noqa: F401
 from engine.validation import ConfigError, check_config
@@ -891,17 +892,31 @@ def _mailbox_command(args, scanner) -> bool:
     return True
 
 
+EXIT_ISOLATION_UNAVAILABLE = 3
+
+
+def _isolation_error(count: int) -> None:
+    """The CLI side of failing closed (D-E): say why files were not scanned."""
+    print(f"❌ Isolated scan workers could not start: {count} file(s) were not scanned. "
+          "No file was scanned in the main process. See the log for the cause.",
+          file=sys.stderr)
+
+
 def _scan_or_schedule(args, scanner) -> None:
     """--scan-file, --scan-now and the scheduled background loop."""
-    # --scan-file: analyse exactly one file, print its verdict, and exit.
+    # --scan-file: analyse exactly one file (in an isolated worker), print its
+    # verdict, and exit.
     if args.scan_file:
         if not os.path.exists(args.scan_file):
             print(f"Error: file not found: {args.scan_file}")
             return
-        result = scanner.scan_file(args.scan_file)
+        result = scanner.scan_one(args.scan_file)
         print(scanner.generate_report([result]))
         from core.outputs import deliver
         deliver([result], CONFIG)
+        if scanner.last_not_scanned:
+            _isolation_error(scanner.last_not_scanned)
+            sys.exit(EXIT_ISOLATION_UNAVAILABLE)
         return
 
     if args.scan_now:
@@ -911,8 +926,13 @@ def _scan_or_schedule(args, scanner) -> None:
         print(report)
         print("=" * 56)
         print(f"\nDetailed reports saved to: {CONFIG['report_directory']}")
+        unscanned = scanner.last_not_scanned
+        if unscanned:
+            _isolation_error(unscanned)
         if not args.background:
             input("\nPress Enter to exit...")
+            if unscanned:
+                sys.exit(EXIT_ISOLATION_UNAVAILABLE)
 
     if args.background or not args.scan_now:
         if not os.path.exists(CONFIG['kaggle_database_path']):
@@ -922,39 +942,87 @@ def _scan_or_schedule(args, scanner) -> None:
             if not args.background:
                 input("\nPress Enter to continue anyway...")
 
-        logger.info(f"Scheduling scans every {CONFIG['scan_interval_hours']} hours.")
-        schedule.every(CONFIG['scan_interval_hours']).hours.do(scanner.run_scan)
-        # Always scheduled: with no canaries deployed the check is a no-op, and
-        # canaries deployed later (from the GUI or CLI) are picked up live.
-        minutes = max(1, int(CONFIG.get("canary_check_minutes", 5)))
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
-        if scanner.canaries.entries():
-            realtime = watcher.start()
-            logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
-                        "watched in real time" if realtime else
-                        ("no real-time watching (pip install watchdog)"
-                         if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
-                        minutes)
-        schedule.every(minutes).minutes.do(scanner.check_canaries)
-        # Canaries deployed or removed later (GUI or CLI) are picked up here.
-        schedule.every(minutes).minutes.do(watcher.refresh)
-        imap_minutes = int(CONFIG.get("imap_check_minutes", 0) or 0)
-        if imap_minutes > 0 and CONFIG.get("imap_host"):
-            logger.info("Mailbox %s checked every %d minute(s).", CONFIG["imap_folder"], imap_minutes)
-            schedule.every(imap_minutes).minutes.do(scanner.scan_mailbox_safely)
+        _schedule_background_jobs(scanner, watcher, CONFIG)
+        from core.folder_watch import monitor_from_config
+        monitor = monitor_from_config(scanner, CONFIG)      # WATCH_DIRS (desktop, F1)
+        if monitor is not None:
+            monitor.start()
 
         if not args.scan_now:
-            scanner.run_scan()
+            _guarded("scan", scanner.run_scan)()
 
         try:
-            while True:
-                schedule.run_pending()
-                time.sleep(30)
+            _run_background_loop()
         except KeyboardInterrupt:
             logger.info("Scanner stopped by user.")
         finally:
             watcher.stop()
+            if monitor is not None:
+                monitor.stop()
+
+
+def _guarded(name: str, job):
+    """A scheduled job that cannot end the background service (PR-07): an
+    exception is logged and counted, and the job runs again at its next time.
+    The schedule library itself does not catch anything."""
+    def run():
+        try:
+            return job()
+        except Exception as e:
+            METRICS.job_failed(name)
+            logger.error("Background job '%s' failed: %s: %s (it runs again on schedule).",
+                         name, type(e).__name__, e,
+                         extra={"event": "scheduled_job_failed", "job": name})
+            return None
+    run.__name__ = f"guarded_{name}"
+    return run
+
+
+def _schedule_background_jobs(scanner, watcher, config) -> None:
+    """Register the background service's jobs, each one guarded."""
+    logger.info(f"Scheduling scans every {config['scan_interval_hours']} hours.")
+    schedule.every(config['scan_interval_hours']).hours.do(_guarded("scan", scanner.run_scan))
+    # Always scheduled: with no canaries deployed the check is a no-op, and
+    # canaries deployed later (from the GUI or CLI) are picked up live.
+    minutes = max(1, int(config.get("canary_check_minutes", 5)))
+    if scanner.canaries.entries():
+        realtime = watcher.start()
+        logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
+                    "watched in real time" if realtime else
+                    ("no real-time watching (pip install watchdog)"
+                     if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
+                    minutes)
+    schedule.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
+    # Canaries deployed or removed later (GUI or CLI) are picked up here.
+    schedule.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    # optional cloud storage (core/cloud.py): spool cleaned at start and daily,
+    # uploads every 5 minutes; nothing is queued or uploaded while it is off
+    from core import cloud
+    _guarded("cloud_cleanup", lambda: cloud.run_uploads(config, cleanup=True))()
+    schedule.every(5).minutes.do(_guarded("cloud_upload", lambda: cloud.run_uploads(config)))
+    schedule.every(1).days.do(_guarded("cloud_cleanup",
+                                       lambda: cloud.run_uploads(config, cleanup=True)))
+    # alerts a receiver did not take yet (core/outbox.py) are retried every minute
+    from core.outbox import flush_pending
+    schedule.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
+    imap_minutes = int(config.get("imap_check_minutes", 0) or 0)
+    if imap_minutes > 0 and config.get("imap_host"):
+        logger.info("Mailbox %s checked every %d minute(s).", config["imap_folder"], imap_minutes)
+        schedule.every(imap_minutes).minutes.do(_guarded("mailbox", scanner.scan_mailbox_safely))
+
+
+def _run_background_loop(sleep=time.sleep, keep_going=lambda: True) -> None:
+    """Run due jobs every 30 s until interrupted. Jobs are guarded; anything
+    else that goes wrong in one pass is logged and the loop carries on."""
+    while keep_going():
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            logger.error("Background scheduler error: %s", e,
+                         extra={"event": "scheduled_job_failed", "job": "scheduler"})
+        sleep(30)
 
 
 def main():
@@ -976,6 +1044,8 @@ def main():
     except ConfigError as e:
         print(f"❌ {e}")
         sys.exit(2)
+    from core.cloud import install_event_spool
+    install_event_spool(CONFIG)          # only with CLOUD_UPLOAD=true
     if _capabilities_command(args) or _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)

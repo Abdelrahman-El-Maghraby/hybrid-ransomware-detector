@@ -27,7 +27,7 @@ x-hardening: &hardening
 services:
   intel:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.8.0}
     build: {context: ., target: server}
     command: ["python", "-m", "api.intel"]
     user: "10002:10002"
@@ -46,7 +46,18 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       SANDBOX_URL: ${SANDBOX_URL:-}
       SANDBOX_TOKEN_FILE: /run/secrets/sandbox_token
-    secrets: [intel_token, virustotal_api_key, openai_api_key, sandbox_token]
+      # e-mail alerts (4.8, core/mailer.py): only the intel service holds these;
+      # off unless SMTP_HOST, ALERT_EMAIL_FROM and ALERT_EMAIL_TO are set
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURITY: ${SMTP_SECURITY:-tls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_EMAIL_PER_HOUR: ${ALERT_EMAIL_PER_HOUR:-20}
+      ALERT_EMAIL_PER_DAY: ${ALERT_EMAIL_PER_DAY:-100}
+    secrets: [intel_token, virustotal_api_key, openai_api_key, sandbox_token, smtp_password]
     volumes:
       - intel-socket:/run/aegis/intel
       - intel-state:/var/lib/aegis-intel
@@ -63,7 +74,7 @@ services:
 
   analysis:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.8.0}
     build: {context: ., target: server}
     command: ["python", "-m", "api.server"]
     # docker stop: stop taking uploads, let the ones in progress finish (a scan may
@@ -85,6 +96,7 @@ services:
       AEGIS_INTEL_SOCKET: /run/aegis/intel/intel.sock
       AEGIS_INTEL_TOKEN_FILE: /run/secrets/intel_token
       LLM_PROVIDER: none                   # the intel service decides
+      ALERT_EMAIL_MIN_VERDICT: ${ALERT_EMAIL_MIN_VERDICT:-High}   # sent by intel, queued here
       SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-300}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
       TMPDIR: /tmp
@@ -113,7 +125,7 @@ services:
 
   proxy:
     <<: *hardening
-    image: aegis-sentinel-proxy:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel-proxy:${AEGIS_VERSION:-4.8.0}
     build: {context: ., target: proxy}
     user: "10003:10003"
     group_add: ["10020"]                  # may connect to the API socket
@@ -135,7 +147,7 @@ services:
   #   docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/PACK.zip
   content:
     <<: *hardening
-    image: aegis-sentinel:${AEGIS_VERSION:-4.7.0}
+    image: aegis-sentinel:${AEGIS_VERSION:-4.8.0}
     build: {context: ., target: server}
     profiles: [tools]
     restart: "no"
@@ -167,3 +179,4 @@ secrets:
   virustotal_api_key: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/virustotal_api_key"}
   openai_api_key: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/openai_api_key"}
   sandbox_token: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/sandbox_token"}
+  smtp_password: {file: "${AEGIS_SECRETS_DIR:-./deploy/secrets}/smtp_password"}

@@ -143,3 +143,82 @@ def test_first_run_check_shows_diagnostics_once(app, monkeypatch):
     assert len(shown) == 1                                  # never again
     page._copy_diagnostics()
     assert app.clipboard_get().startswith("Aegis Sentinel ")
+
+
+def test_monitoring_alerts_cloud_and_key_backup(app, tmp_path, monkeypatch):
+    """4.8 (F2): watch a folder and see its result on the dashboard; save e-mail
+    settings (password to the keyring only) and send a test e-mail; see the
+    delivery status; export and re-import the quarantine key."""
+    import aegis_gui.pages.outputs as outputs_mod
+    import core.mailer
+    from tests.helpers import make_pdf
+    env = tmp_path / ".env"
+    monkeypatch.setattr(outputs_mod, "ENV_FILE", env)
+    monkeypatch.setattr(RS, "CONFIG", dict(RS.CONFIG))   # saved settings must not leak out
+    ring = {}
+    monkeypatch.setattr("engine.secret_store.store", lambda n, v: ring.__setitem__(n, v))
+    sent = []
+    monkeypatch.setattr(core.mailer.SmtpMailer, "send", lambda self, f: sent.append(f))
+    cfg = app.scanner.config
+    for key, name in (("outbox_dir", "outbox"), ("cloud_spool_dir", "spool")):
+        monkeypatch.setitem(cfg, key, str(tmp_path / name))
+
+    # -- monitoring -----------------------------------------------------------------
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    app.show_page("monitoring")
+    page = app.pages["monitoring"]
+    monkeypatch.setattr(page, "ask_folder", lambda: str(watched))
+    page._add()
+    assert app.settings["watch_dirs"] == [str(watched)]
+    page._toggle()
+    assert app.monitor is not None and app.monitor.running
+    time.sleep(0.5)
+    (watched / "dropped.pdf").write_bytes(make_pdf("hello"))
+    dash = app.pages["dashboard"]
+    deadline = time.time() + 90
+    while time.time() < deadline and not any(
+            r["file_name"] == "dropped.pdf" for r in dash.row_results.values()):
+        _pump(app, 0.2)
+    found = [r for r in dash.row_results.values() if r["file_name"] == "dropped.pdf"]
+    assert found and found[0]["provenance"]["isolation"] == "worker"
+    page.refresh_status()
+    assert "Scanned: 1" in page.status_label.cget("text")
+    page._toggle()
+    assert app.monitor is None and app.settings["monitor_enabled"] is False
+
+    # -- e-mail settings and the test send --------------------------------------------
+    app.show_page("outputs")
+    out = app.pages["outputs"]
+    for name, value in (("SMTP_HOST", "smtp.example.org"), ("ALERT_EMAIL_FROM", "a@example.org"),
+                        ("ALERT_EMAIL_TO", "soc@example.org")):
+        out.entries[name].delete(0, "end")
+        out.entries[name].insert(0, value)
+    out.secret_entries["SMTP_PASSWORD"].insert(0, "pw-in-the-keyring-only")
+    out._save_email()
+    assert out.email_label.cget("text").startswith("Saved")
+    assert ring == {"SMTP_PASSWORD": "pw-in-the-keyring-only"}
+    assert "pw-in-the-keyring-only" not in env.read_text() and "SMTP_HOST" in env.read_text()
+    out._test_email()
+    deadline = time.time() + 10
+    while time.time() < deadline and not out.email_label.cget("text").startswith("Test"):
+        _pump(app, 0.1)
+    assert out.email_label.cget("text").startswith("Test e-mail sent") and len(sent) == 1
+    out.entries["CLOUD_ENDPOINT"].insert(0, "http://not-https.example.org")
+    out.cloud_var.set(True)
+    out._save_cloud()
+    assert out.cloud_label.cget("text").startswith("Not saved") and not cfg["cloud_upload"]
+    out.refresh_status()
+    assert out.status_label.cget("text").startswith("Alerts waiting: 0")
+
+    # -- quarantine key backup --------------------------------------------------------
+    app.show_page("protection")
+    prot = app.pages["protection"]
+    backup = tmp_path / "key.aegiskey"
+    monkeypatch.setattr(prot, "ask_save_path", lambda: str(backup))
+    monkeypatch.setattr(prot, "ask_open_path", lambda: str(backup))
+    monkeypatch.setattr(prot, "ask_secret", lambda title, prompt: "a long passphrase")
+    prot._export_key()
+    assert backup.exists() and prot.key_label.cget("text").startswith("Key backup written")
+    prot._import_key()
+    assert prot.key_label.cget("text").startswith("This key is already installed")

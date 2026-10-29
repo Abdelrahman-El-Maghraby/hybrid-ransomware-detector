@@ -32,7 +32,9 @@ SERVICE = "aegis-sentinel"
 # (environment variable, CONFIG key)
 SECRETS = (("OPENAI_API_KEY", "chatgpt_api_key"), ("VIRUSTOTAL_API_KEY", "virustotal_api_key"),
            ("SANDBOX_TOKEN", "sandbox_token"), ("WEBHOOK_SECRET", "webhook_secret"),
-           ("IMAP_PASSWORD", "imap_password"))
+           ("IMAP_PASSWORD", "imap_password"), ("SMTP_PASSWORD", "smtp_password"),
+           ("CLOUD_SECRET_ACCESS_KEY", "cloud_secret_access_key"),
+           ("CLOUD_PSEUDONYM_KEY", "cloud_pseudonym_key"))
 SECRET_NAMES = tuple(name for name, _ in SECRETS)
 
 # Names set in the process environment before any .env file was loaded into it.

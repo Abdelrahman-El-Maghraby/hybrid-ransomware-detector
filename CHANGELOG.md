@@ -6,6 +6,52 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.8.0] — pending release
+
+### Added
+
+- Desktop folder monitoring with settling, deduplication, bounded queues,
+  own-output exclusion, isolated scans and quarantine/restore integration.
+- Persistent webhook and e-mail alert outbox, retry and expiry; canary alerts;
+  verified TLS SMTP with hourly/daily caps. Docker uses one fixed-metadata intel
+  operation; desktop sends directly.
+- Optional desktop S3-compatible upload of redacted reports and structured log
+  events, local spool/retries/expiry and explicit full-detail opt-in.
+- GUI Monitoring and Alerts & cloud pages, delivery status and tests, quarantine
+  key export/import, and isolation failure/retry feedback.
+
+### Changed
+
+- Schema 1.4 adds `provenance.isolation`; result fields remain compatible.
+- Every scan uses isolated workers by default, including single files. Worker
+  dispatch waits for ready messages; API readiness reflects live startup failures.
+- Scheduled jobs survive individual failures; raising scans report failure.
+- Python 3.12 CI installs the shipped lock on all three OSes; Python 3.9 uses
+  latest compatible dependencies as the recorded S-04 exception. API and
+  Hypothesis extras are required. Release publication requires successful checks.
+
+### Security
+
+- Rule-pack versions and rollback versions are validated and install paths
+  confined; active metadata replacement is atomic.
+- DMG and CHM members are streamed from 7-Zip through extraction budgets.
+- Quarantine refuses files changed since scanning. Dependency locks carry hashes
+  and release/image installs require them.
+- No detection weights, thresholds or inspection coverage changed.
+
+### Upgrade notes
+
+- Create `deploy/secrets/smtp_password` before starting the new Compose file
+  (empty when mail is off). SMTP settings and credentials belong to intel.
+- Isolation startup failure returns API 503 and CLI exit 3; affected files are
+  unscanned. `ISOLATE_SCANS=0` is development only and refused in production.
+- Rule-pack versions must be numeric dotted components. Schema 1.4 is additive.
+- Cloud is off by default and desktop only. Configure the bucket's 90-day
+  lifecycle and restricted upload identity separately; local spool defaults to
+  30 days/1 GiB. Uploads are not tamper-evident. See `docs/OPERATIONS.md`.
+- Development validation and outstanding production prerequisites are recorded
+  in `docs/PROJECT_REVIEW.md`; this entry does not announce a tag or publication.
+
 ## [4.7.0] — 2026-10-28
 
 The on-prem production edition (`docs/RELEASE_SCOPE.md`). First published as the pre-release 4.7.0-rc1 the same day; 4.7.0 has the same changes with the final version number.

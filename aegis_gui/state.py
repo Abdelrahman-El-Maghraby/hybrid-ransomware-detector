@@ -18,6 +18,8 @@ class SettingsStore:
         "scan_interval_hours": None,
         "schedule_enabled": True,
         "diagnostics_seen": False,     # the first-run check has been shown
+        "watch_dirs": None,            # folder monitoring (seeded from WATCH_DIRS)
+        "monitor_enabled": False,      # monitoring was on when the app closed
     }
 
     def __init__(self):
@@ -36,6 +38,9 @@ class SettingsStore:
             self.data["file_extensions"] = list(RS.CONFIG["file_extensions"])
         if not self.data["scan_interval_hours"]:
             self.data["scan_interval_hours"] = int(RS.CONFIG["scan_interval_hours"])
+        if self.data["watch_dirs"] is None:
+            from core.folder_watch import split_dirs
+            self.data["watch_dirs"] = split_dirs(RS.CONFIG.get("watch_dirs"))
 
     def save(self) -> None:
         try:
@@ -102,9 +107,9 @@ class ScanController:
         try:
             def callback(done, total, path, res):
                 bus.put(("progress", done, total, path, res))
-            if mode == "file":
+            if mode == "file":                      # isolated like a folder scan (PR-03)
                 bus.put(("progress", 0, 1, target, None))
-                results = [scanner.scan_file(target)]
+                results = [scanner.scan_one(target)]
                 bus.put(("progress", 1, 1, target, results[0]))
             elif mode == "dir":
                 results = scanner.scan_directory(target, callback, self.cancel_event)
@@ -117,6 +122,8 @@ class ScanController:
                 impact = scanner.last_impact if mode != "file" else None
                 report_text = scanner.generate_report(results, impact=impact)
             bus.put(("scan_done", results, report_text, cancelled))
+            if getattr(scanner, "last_not_scanned", 0):     # fail closed (D-E)
+                bus.put(("isolation_unavailable", scanner.last_not_scanned, mode, target))
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").exception("Scan failed")
             bus.put(("scan_error", str(e)))

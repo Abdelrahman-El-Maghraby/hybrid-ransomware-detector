@@ -33,6 +33,10 @@ python tools/rulepack.py verify aegis-rules-2026.11.02.tar.gz --pub "$(cat ~/aeg
 
 Versions are compared numerically, part by part (`2026.11.10` is newer than
 `2026.11.9`); a scheme such as `YYYY.MM.DD[.N]` keeps them in date order.
+A version (and a rollback's `rollback_of`) must be purely numeric: one to six
+dot-separated groups of digits. It names the install folder, so `build`,
+`rollback`, `verify` and every install refuse anything else, even when the pack
+is validly signed.
 
 ## Rolling back a defective pack (signed rollback)
 

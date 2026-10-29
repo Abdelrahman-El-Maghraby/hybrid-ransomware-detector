@@ -22,6 +22,15 @@ Here each file is scanned in a worker process that
 A file that times out or kills its worker is reported with the `scan_failed`
 indicator (Medium): ordinary documents do not do that.
 
+Isolation fails closed (D-E). When workers cannot start (MAX_FAILED_STARTS
+starts end before the worker is ready), no further file is handed out, the
+files already in a worker finish, and every file not scanned gets one result
+with scan_status "failed" and the code `isolation_unavailable`. Nothing is ever
+parsed in the calling process instead. Those files were not opened, so they are
+not scored as "file broke the scanner". Each result records where it was parsed
+in `provenance.isolation`: "worker", "in_process" (only with the ISOLATE_SCANS=0
+development opt-out, refused under the production profile) or "unavailable".
+
 Workers also make folder scans parallel. The VirusTotal free quota is enforced
 per process, so with a VirusTotal key and pacing on, one worker is used.
 """
@@ -33,6 +42,7 @@ import ctypes
 import ctypes.util
 import logging
 import multiprocessing as mp
+import multiprocessing.connection
 import os
 import shutil
 import sys
@@ -41,7 +51,24 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from engine.metrics import METRICS
+
 logger = logging.getLogger("RansomwareScanner")
+
+ISOLATION_UNAVAILABLE = "isolation_unavailable"
+ISOLATION_TEXT = ("isolated scan workers could not start; the file was not scanned "
+                  "(nothing is parsed in the main process)")
+
+
+class IsolationUnavailable(RuntimeError):
+    """Isolated scan workers could not start, so the file was not scanned."""
+
+
+def isolation_unavailable(result: Dict) -> bool:
+    """True for the result of a file that was not scanned because no isolated
+    worker could start."""
+    failed = (result.get("scan_results") or {}).get("scan_failed") or {}
+    return isinstance(failed, dict) and failed.get("code") == ISOLATION_UNAVAILABLE
 
 _SCANNER = None
 _START_LOCK = threading.Lock()
@@ -234,7 +261,7 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None
         os.environ["TMPDIR"] = temp_dir          # helper programs (unar, 7z) too
     _limit_memory(memory_mb)
     logging.getLogger("RansomwareScanner").setLevel(logging.WARNING)
-    cfg = dict(config, isolate_scans=False, scan_workers=1)
+    cfg = dict(config, isolate_scans=False, scan_workers=1, _isolation="worker")
     factory = cfg.get("_scanner_factory")          # "module:callable"; used by the tests
     if factory:
         import importlib
@@ -349,10 +376,12 @@ class _Worker:
         with _START_LOCK, _main_not_reimported():
             self.proc.start()
         child.close()
+        self.created = time.monotonic()
         self.path: Optional[str] = None
         self.started = 0.0
         self.watched = 0.0
         self.ready = False
+        self.retired = False                 # killed and not replaced (workers cannot start)
 
     def kill(self) -> None:
         try:
@@ -370,8 +399,12 @@ class _Worker:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
-def failure_result(scanner, path: str, reason: str) -> Dict:
-    """A result for a file whose scan timed out or crashed the worker."""
+def failure_result(scanner, path: str, reason: str, code: str = "",
+                   isolation: str = "worker") -> Dict:
+    """A result for a file whose scan timed out or crashed the worker, or (code
+    ISOLATION_UNAVAILABLE, isolation "unavailable") that was never scanned because
+    no isolated worker could start. That file was not opened, so it gets no
+    `scan_failed` indicator: it is not evidence against the file."""
     import os as _os
     from datetime import datetime
 
@@ -380,10 +413,14 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         hashes = scanner.calculate_hashes(path)
     except Exception:
         hashes = {}
-    score = scanner.scoring.score({"scan_failed": reason})
+    unscanned = code == ISOLATION_UNAVAILABLE
+    score = scanner.scoring.score({} if unscanned else {"scan_failed": reason})
     from api import SCHEMA_VERSION
     from engine.completeness import failed, verdict_label
-    status, reasons = failed(path, reason)
+    status, reasons = failed(path, reason, "isolation" if unscanned else "worker")
+    failure: Dict[str, str] = {"reason": reason}
+    if code:
+        failure["code"] = code
     result = {
         "schema_version": SCHEMA_VERSION,
         "file_path": path, "file_name": _os.path.basename(path),
@@ -391,15 +428,15 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "engine_version": ENGINE_VERSION,
         "md5_hash": hashes.get("md5", ""), "sha256_hash": hashes.get("sha256", ""),
-        "scan_results": {"scan_failed": {"reason": reason}},
+        "scan_results": {"scan_failed": failure},
         "is_malicious": score.is_malicious, "severity_score": score.severity_score,
         "risk_score": score.risk_score, "verdict": score.verdict,
         "score_breakdown": score.as_dict(),
         "scan_status": status, "incomplete_reasons": reasons,
         "provenance": {**(getattr(scanner, "provenance", None) or {}), "layers_run": [],
                        "layers_unavailable": [], "layers_not_applicable": [],
-                       "layers_failed": ["worker"],
-                       "layers_skipped": []},
+                       "layers_failed": ["isolation" if unscanned else "worker"],
+                       "layers_skipped": [], "isolation": isolation},
     }
     result["verdict_label"] = verdict_label(result)
     return result
@@ -411,21 +448,54 @@ def start_worker(scanner, memory_mb: int) -> _Worker:
     return _Worker(mp.get_context("spawn"), dict(scanner.config), memory_mb)
 
 
+def wait_ready(w: _Worker, timeout: float) -> bool:
+    """Wait until a started worker reports ready (counted in METRICS either way).
+    False, with the worker killed, when it ends or stays silent instead."""
+    deadline = time.monotonic() + timeout
+    why = f"not ready after {timeout:g}s"
+    while True:
+        remaining = deadline - time.monotonic()
+        try:
+            if w.parent.poll(max(0.0, min(remaining, 0.5))):
+                kind, _ = w.parent.recv()
+                if kind == "ready":
+                    w.ready = True
+                    METRICS.worker_start(True, time.monotonic() - w.created)
+                    return True
+                why = f"unexpected first message {kind!r}"
+                break
+        except Exception:
+            why = f"the worker process ended (exit code {w.proc.exitcode})"
+            break
+        if not w.proc.is_alive() and not w.parent.poll(0):
+            why = f"the worker process ended (exit code {w.proc.exitcode})"
+            break
+        if remaining <= 0:
+            break
+    METRICS.worker_start(False, reason=why)
+    w.kill()
+    return False
+
+
 def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, memory_mb: int,
                   on_result: Callable[[int, str, Dict], None],
-                  cancel_event=None, spare: Optional[_Worker] = None) -> None:
+                  cancel_event=None, spare: Optional[_Worker] = None) -> int:
     """Scan `targets` in worker processes; call on_result(index, path, result) as files
     finish (index is the 1-based count of finished files). `spare` (start_worker)
-    joins the pool instead of one newly started worker."""
-    _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
-                  cancel_event, spare).run()
+    joins the pool instead of one newly started worker. Returns how many files were
+    not scanned because workers could not start (each still got a result)."""
+    scan = _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
+                         cancel_event, spare)
+    scan.run()
+    return scan.not_scanned
 
 
 class _IsolatedScan:
     """One folder scan over a pool of worker processes (see the module docstring)."""
 
     MAX_FAILED_STARTS = 3
-    POLL_SECONDS = 0.05
+    START_SECONDS = 120.0                    # a worker silent this long after start has failed
+    POLL_SECONDS = 0.05                      # longest wait for a message before limits are checked
     WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
@@ -442,38 +512,70 @@ class _IsolatedScan:
         self.config = dict(scanner.config)
         self.done = 0
         self.failed_starts = 0
+        self.broken = False                    # workers cannot start: hand out nothing more
+        self.not_scanned = 0
         self.rss = memory_watchdog(memory_mb)
         size = max(1, min(workers, len(targets)))
         self.pool: List[_Worker] = ([spare] if spare is not None else [])
-        self.pool += [_Worker(self.ctx, self.config, memory_mb)
-                      for _ in range(size - len(self.pool))]
+        while len(self.pool) < size and not self.broken:
+            w = self._start()
+            if w is not None:
+                self.pool.append(w)
 
     # ---------------------------------------------------------------- flow
     def run(self) -> None:
-        broken = False
         try:
-            while (self.pending and not self.cancelled()) or any(w.path for w in self.pool):
-                if not all(self._step(i) for i in range(len(self.pool))):
-                    broken = True
-                    break
+            while self._busy():
+                self._wait()
+                for i in range(len(self.pool)):
+                    self._step(i)
         finally:
             self._shutdown()
-        if broken and self.pending:
-            self._scan_in_process()
+        if self.pending and not self.cancelled():
+            self._not_scanned()
         if self.cancelled():
             logger.info("Scan cancelled by user after %d/%d files.", self.done, self.total)
+
+    def _wait(self) -> None:
+        """Sleep until any worker has a message (a result, "ready", or the EOF of
+        a dead worker), at most POLL_SECONDS, so time and memory limits are still
+        checked on that tick (PR-17). Before 4.8 each worker was polled in turn
+        for up to 50 ms, so dispatch slowed down as workers were added."""
+        if self._dispatchable():
+            return                             # an idle worker gets work at once
+        pipes = [w.parent for w in self.pool if not w.retired]
+        try:
+            if pipes:
+                multiprocessing.connection.wait(pipes, timeout=self.POLL_SECONDS)
+                return
+        except (OSError, ValueError):         # a pipe closed meanwhile: _step sees it
+            pass
+        time.sleep(self.POLL_SECONDS)
+
+    def _dispatchable(self) -> bool:
+        return (bool(self.pending) and not self.cancelled() and not self.broken
+                and any(w.ready and w.path is None and not w.retired for w in self.pool))
+
+    def _busy(self) -> bool:
+        if any(w.path for w in self.pool):     # files in a worker always finish
+            return True
+        return bool(self.pending) and not self.cancelled() and not self.broken
 
     def cancelled(self) -> bool:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _step(self, i: int) -> bool:
-        """Feed and poll worker i once. False when workers evidently cannot start."""
+        """Feed and poll worker i once. False when it is retired."""
         w = self.pool[i]
-        if w.ready and w.path is None and self.pending and not self.cancelled():
+        if w.retired:
+            return False
+        if (w.ready and w.path is None and self.pending and not self.cancelled()
+                and not self.broken):
             self._dispatch(w)
         kind, payload = self._receive(w)
         if kind == "ready":
             w.ready = True
+            METRICS.worker_start(True, time.monotonic() - w.created)
             return True
         if kind in ("ok", "error"):
             path, w.path = w.path, None
@@ -483,7 +585,8 @@ class _IsolatedScan:
                 else:
                     self._fail(path, payload or "scan error")
             return True
-        dead = kind == "dead" or not w.proc.is_alive()
+        dead = (kind == "dead" or not w.proc.is_alive()
+                or (not w.ready and time.monotonic() - w.created > self.START_SECONDS))
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
         over_memory = not (dead or overdue) and self._over_memory(w)
         if not (dead or overdue or over_memory):
@@ -502,8 +605,8 @@ class _IsolatedScan:
 
     def _over_memory(self, w: _Worker) -> int:
         """Resident bytes when a busy worker is over the limit, else 0 (watchdog)."""
-        if self.rss is None or w.path is None or w.proc.pid is None:
-            return 0
+        if self.rss is None or self.memory_mb <= 0 or w.path is None or w.proc.pid is None:
+            return 0                             # 0 MB = no limit
         now = time.monotonic()
         if now - w.watched < self.WATCH_SECONDS:
             return 0
@@ -521,7 +624,7 @@ class _IsolatedScan:
 
     def _receive(self, w: _Worker):
         try:
-            has = w.parent.poll(self.POLL_SECONDS)
+            has = w.parent.poll(0)              # _wait() already slept until a message
         except Exception:
             has = True                        # closed pipe: treat as a dead worker
         if not has:
@@ -539,15 +642,35 @@ class _IsolatedScan:
         logger.warning("Scan of %s failed: %s", path, reason)
         self._finish(path, failure_result(self.scanner, path, reason))
 
+    def _start(self) -> Optional[_Worker]:
+        try:
+            return _Worker(self.ctx, self.config, self.memory_mb)
+        except Exception as e:                # the process could not even be created
+            self._start_failed(f"{type(e).__name__}: {e}")
+            return None
+
+    def _start_failed(self, why: str) -> None:
+        self.failed_starts += 1
+        METRICS.worker_start(False, reason=why)
+        logger.warning("A scan worker did not start: %s", why)
+        if self.failed_starts >= self.MAX_FAILED_STARTS:
+            self.broken = True
+
     def _replace(self, i: int) -> bool:
+        """Kill worker i and start another. False (worker retired) once workers
+        evidently cannot start."""
         w = self.pool[i]
         if not w.ready:
-            self.failed_starts += 1
+            self._start_failed(f"the worker process ended before it was ready "
+                               f"(exit code {w.proc.exitcode})")
         w.kill()
-        if self.failed_starts >= self.MAX_FAILED_STARTS:
-            return False
-        self.pool[i] = _Worker(self.ctx, self.config, self.memory_mb)
-        return True
+        w.retired = True
+        while not self.broken:
+            new = self._start()
+            if new is not None:
+                self.pool[i] = new
+                return True
+        return False
 
     def _shutdown(self) -> None:
         for w in self.pool:
@@ -560,17 +683,19 @@ class _IsolatedScan:
                 w.kill()
             w.remove_temp()
 
-    def _scan_in_process(self) -> None:
-        # Worker processes cannot start here (e.g. an embedded interpreter without an
-        # importable __main__): finish without isolation instead of looping.
-        logger.warning("Worker processes cannot start; scanning the remaining %d file(s) "
-                       "in this process without isolation.", len(self.pending))
-        while self.pending and not self.cancelled():
-            path = self.pending.pop(0)
-            try:
-                self._finish(path, self.scanner.scan_file(path))
-            except Exception as e:
-                self._fail(path, f"{type(e).__name__}: {e}")
+    def _not_scanned(self) -> None:
+        """Fail closed: one isolation_unavailable result for every file left (e.g.
+        an embedded interpreter without an importable __main__, a process limit, a
+        broken image). Nothing is parsed in this process."""
+        paths, self.pending = self.pending, []
+        logger.error("Isolated scan workers could not start (%d failed start(s)): %d "
+                     "file(s) were not scanned. Nothing is scanned in the main process.",
+                     self.failed_starts, len(paths),
+                     extra={"event": ISOLATION_UNAVAILABLE, "files": len(paths)})
+        for path in paths:
+            self.not_scanned += 1
+            self._finish(path, failure_result(self.scanner, path, ISOLATION_TEXT,
+                                              ISOLATION_UNAVAILABLE, "unavailable"))
 
 
 def default_workers(config: Dict) -> int:

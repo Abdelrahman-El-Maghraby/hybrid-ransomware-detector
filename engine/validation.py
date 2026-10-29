@@ -52,6 +52,15 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
     "archive_max_members": ("", 1, 1_000_000),
     "archive_scan_members": ("", 0, 100_000),
     "max_nesting": ("", 0, 8),
+    "smtp_port": ("SMTP_PORT", 1, 65_535),
+    "alert_email_per_hour": ("ALERT_EMAIL_PER_HOUR", 1, 10_000),
+    "alert_email_per_day": ("ALERT_EMAIL_PER_DAY", 1, 100_000),
+    "outbox_max_age_hours": ("OUTBOX_MAX_AGE_HOURS", 1, 720),
+    "watch_settle_seconds": ("WATCH_SETTLE_SECONDS", 0.2, 3_600),
+    "watch_max_queue": ("WATCH_MAX_QUEUE", 1, 1_000_000),
+    "watch_retry_minutes": ("WATCH_RETRY_MINUTES", 0.1, 1_440),
+    "cloud_spool_days": ("CLOUD_SPOOL_DAYS", 1, 365),
+    "cloud_spool_max_mb": ("CLOUD_SPOOL_MAX_MB", 1, 1_048_576),
 }
 
 # key -> (environment variable, allowed values, case-insensitive)
@@ -62,6 +71,8 @@ CHOICES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "webhook_min_verdict": ("WEBHOOK_MIN_VERDICT", VERDICTS),
     "auto_quarantine": ("AUTO_QUARANTINE", ("", "off", "medium", "high", "critical")),
     "canary_contain_mode": ("CANARY_CONTAIN_MODE", ("suspend", "terminate")),
+    "smtp_security": ("SMTP_SECURITY", ("tls", "starttls")),         # no plaintext option
+    "alert_email_min_verdict": ("ALERT_EMAIL_MIN_VERDICT", VERDICTS),
 }
 
 URLS = {"ollama_host": "OLLAMA_HOST", "webhook_url": "WEBHOOK_URL",
@@ -177,6 +188,83 @@ def _imap(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> Non
         warnings.append("IMAP_HOST is set without IMAP_PASSWORD (use an app password)")
 
 
+def _email(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """E-mail alerts (core/mailer.py): all of host, sender and recipients, or none."""
+    from core.mailer import recipients, valid_address, valid_host
+    host, sender, to = str(cfg.get("smtp_host") or ""), str(cfg.get("alert_email_from") or ""), \
+        recipients(cfg)
+    if not (host or sender or to):
+        return
+    if not host:
+        errors.append("ALERT_EMAIL_FROM / ALERT_EMAIL_TO are set but SMTP_HOST is not")
+    elif not valid_host(host):
+        errors.append(f"SMTP_HOST={host[:60]!r} must be a host name or an IP address "
+                      "(no scheme, port or path)")
+    if host and not sender:
+        errors.append("SMTP_HOST is set but ALERT_EMAIL_FROM is not")
+    elif sender and not valid_address(sender):
+        errors.append(f"ALERT_EMAIL_FROM={sender[:60]!r} is not an e-mail address")
+    if host and not to:
+        errors.append("SMTP_HOST is set but ALERT_EMAIL_TO (comma-separated recipients) is not")
+    bad = [a for a in to if not valid_address(a)]
+    if bad:
+        errors.append(f"ALERT_EMAIL_TO has {len(bad)} entr(y/ies) that are not e-mail addresses")
+    if cfg.get("smtp_user") and not cfg.get("smtp_password"):
+        warnings.append("SMTP_USER is set without SMTP_PASSWORD (store it with --set-secret "
+                        "or SMTP_PASSWORD_FILE)")
+
+
+def _watch(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """Folder monitoring (core/folder_watch.py): desktop only (decision D-B)."""
+    from core.folder_watch import WATCHDOG_AVAILABLE, split_dirs
+    dirs = split_dirs(cfg.get("watch_dirs"))
+    if not dirs:
+        return
+    production = str(cfg.get("profile") or "").strip().lower() == "production"
+    if cfg.get("intel_socket") or production:
+        errors.append("WATCH_DIRS is a desktop feature; the Docker edition and the REST API "
+                      "have no folder monitoring (decision D-B)")
+    if not WATCHDOG_AVAILABLE:
+        warnings.append("WATCH_DIRS is set but 'watchdog' is not installed: no folder "
+                        "monitoring (pip install watchdog)")
+    for d in dirs:
+        if not os.path.isdir(d):
+            warnings.append(f"WATCH_DIRS: {d} is not a folder (not watched)")
+
+
+_BUCKET = r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+_PREFIX = r"^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*$"
+
+
+def _cloud(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """Optional cloud storage (core/cloud.py): desktop only, HTTPS, complete."""
+    import re
+    if not cfg.get("cloud_upload"):
+        return
+    production = str(cfg.get("profile") or "").strip().lower() == "production"
+    if cfg.get("intel_socket") or production:
+        errors.append("CLOUD_UPLOAD is a desktop feature; the Docker edition keeps its own "
+                      "log shipping (decision D-D2)")
+    endpoint = str(cfg.get("cloud_endpoint") or "")
+    if not endpoint.lower().startswith("https://"):
+        errors.append("CLOUD_UPLOAD needs CLOUD_ENDPOINT as an https:// URL (certificates "
+                      "are verified)")
+    if not re.match(_BUCKET, str(cfg.get("cloud_bucket") or "")):
+        errors.append("CLOUD_UPLOAD needs CLOUD_BUCKET (3-63 lowercase letters, digits, "
+                      "dots and hyphens)")
+    prefix = str(cfg.get("cloud_prefix") or "aegis")
+    if not re.match(_PREFIX, prefix) or any(part in (".", "..") for part in prefix.split("/")):
+        errors.append("CLOUD_PREFIX may hold letters, digits and !_.*'()- separated by /")
+    if not cfg.get("cloud_access_key_id") or not cfg.get("cloud_secret_access_key"):
+        errors.append("CLOUD_UPLOAD needs CLOUD_ACCESS_KEY_ID and CLOUD_SECRET_ACCESS_KEY "
+                      "(a secret: keyring, environment or _FILE)")
+    bundle = str(cfg.get("cloud_ca_bundle") or "")
+    if bundle and not Path(bundle).is_file():
+        errors.append(f"CLOUD_CA_BUNDLE={bundle} does not exist")
+    if cfg.get("cloud_upload_full"):
+        warnings.append("CLOUD_UPLOAD_FULL is on: uploads carry paths and file names")
+
+
 def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     rules = str(cfg.get("yara_rules_dir") or "")
     if rules and not Path(rules).is_dir():
@@ -204,9 +292,16 @@ def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -
     if cfg.get("virustotal_upload_unknown") and not cfg.get("virustotal_api_key"):
         warnings.append("VT_UPLOAD_UNKNOWN is on but VIRUSTOTAL_API_KEY is empty: nothing "
                         "will be uploaded")
-    if (cfg.get("isolate_scans") is False and int(cfg.get("worker_memory_mb") or 0) > 0
-            and int(cfg.get("scan_workers") or 0) > 1):
-        warnings.append("ISOLATE_SCANS is off: SCAN_WORKERS and WORKER_MEMORY_MB have no effect")
+    if cfg.get("isolate_scans") is False:
+        production = str(cfg.get("profile") or "").strip().lower() == "production"
+        if not production:                           # the profile check makes it an error
+            warnings.append("ISOLATE_SCANS is off (development only): files are parsed in the "
+                            "scanning process, without the time and memory limits, and a "
+                            "hostile file can hang or crash it; results record "
+                            "provenance.isolation=in_process")
+        if int(cfg.get("worker_memory_mb") or 0) > 0 and int(cfg.get("scan_workers") or 0) > 1:
+            warnings.append("ISOLATE_SCANS is off: SCAN_WORKERS and WORKER_MEMORY_MB have no "
+                            "effect")
     if (str(cfg.get("canary_contain_mode") or "").lower() == "terminate"
             and "stop_writers" not in str(cfg.get("canary_response") or "")):
         warnings.append("CANARY_CONTAIN_MODE is set but CANARY_RESPONSE does not include "
@@ -242,14 +337,18 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
     if str(cfg.get("canary_response") or "").strip():
         errors.append("CANARY_RESPONSE suspends, kills or locks on the host; containment is "
                       "part of the desktop builds only, outside the production profile")
-    if cfg.get("isolate_scans") is False:
-        warnings.append("ISOLATE_SCANS is off: a hostile file can hang or crash the service "
-                        "instead of being reported as a failed scan")
+    if cfg.get("isolate_scans") is False:            # D-E1: development only
+        errors.append("ISOLATE_SCANS=0 parses every file in the scanning process; it is a "
+                      "development opt-out and the production profile requires isolated "
+                      "workers")
 
 
 # Secrets and destinations that belong to the intel service, not to analysis.
 INTEL_OWNED = (("virustotal_api_key", "VIRUSTOTAL_API_KEY"), ("chatgpt_api_key", "OPENAI_API_KEY"),
-               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"))
+               ("sandbox_url", "SANDBOX_URL"), ("sandbox_token", "SANDBOX_TOKEN"),
+               ("smtp_host", "SMTP_HOST"), ("smtp_user", "SMTP_USER"),
+               ("smtp_password", "SMTP_PASSWORD"), ("alert_email_to", "ALERT_EMAIL_TO"),
+               ("alert_email_from", "ALERT_EMAIL_FROM"))
 
 
 def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
@@ -271,5 +370,5 @@ def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
-CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _paths, _conflicts,
-                             _profile, _intel)
+CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _watch, _cloud,
+                             _paths, _conflicts, _profile, _intel)
