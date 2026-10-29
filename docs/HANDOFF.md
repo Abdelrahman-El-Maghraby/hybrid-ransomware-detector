@@ -19,25 +19,25 @@
 
 - PR #30 merged into `main` (`bd46fff`). Implementation baseline `origin/main`
   = `bd46fff`; only `docs/` changed since the reviewed `af5e6d2`.
-- `integration/v4.8` created from `bd46fff` (did not exist) and pushed. No
-  step PR is merged into it yet, so the draft `integration/v4.8` -> `main` PR
-  cannot be opened (no commits between them).
+- `integration/v4.8` created from `bd46fff`; the owner merged #31-#35 into it
+  (tip `dc037b5`, merge commits). Draft `integration/v4.8` -> `main`: #39
+  (12 checks green on `dc037b5`).
 
 ## Step PRs (all bases per B1)
 
 | Step | Branch | PR | Base | State |
 |---|---|---|---|---|
-| 1 | `fix/rulepack-confinement` | #31 | `integration/v4.8` | ready, CI green |
-| 2 | `fix/isolation-fail-closed` | #32 | `integration/v4.8` | ready, CI green |
-| 3 | `perf/worker-dispatch` | #36 | `fix/isolation-fail-closed` (#32) | ready, CI green; retarget after #32 merges |
-| 4 | `fix/background-reliability` | #33 | `integration/v4.8` | ready, CI green |
-| 5 | `fix/dmg-streaming` | #35 | `integration/v4.8` | ready, CI green |
-| 6 | `ci/matrix-coverage` | #34 | `integration/v4.8` | ready, CI green |
-| 7 | `feat/alert-outbox-email` | #37 | `fix/background-reliability` (#33) | ready, CI green on `c8721b3`; retarget after #33 merges |
-| 8 | `feat/folder-monitoring` | - | - | waits: needs 2, 3, 4, 7 merged |
-| 9 | `feat/cloud-reports` | #38 (draft) | `feat/alert-outbox-email` (#37) | CI green; holds this checkpoint: restore this file, then mark ready |
-| 10 | `feat/gui-integration` | - | - | waits: needs 2, 7, 8, 9 |
-| 11 | `build/hash-pinned-lock` | - | - | waits: needs 6 and 9 merged |
+| 1 | `fix/rulepack-confinement` | #31 | `integration/v4.8` | merged |
+| 2 | `fix/isolation-fail-closed` | #32 | `integration/v4.8` | merged |
+| 3 | `perf/worker-dispatch` | #36 | `integration/v4.8` (retargeted) | ready; integration merged in (`663a67c`); CI green |
+| 4 | `fix/background-reliability` | #33 | `integration/v4.8` | merged |
+| 5 | `fix/dmg-streaming` | #35 | `integration/v4.8` | merged |
+| 6 | `ci/matrix-coverage` | #34 | `integration/v4.8` | merged |
+| 7 | `feat/alert-outbox-email` | #37 | `integration/v4.8` (retargeted) | ready; integration merged in (`288791c`); CI green |
+| 8 | `feat/folder-monitoring` | - | - | waits: needs 3 and 7 merged (2, 4 are) |
+| 9 | `feat/cloud-reports` | #38 (draft) | `feat/alert-outbox-email` (#37) | CI green; holds this checkpoint; retarget after #37 merges |
+| 10 | `feat/gui-integration` | - | - | waits: needs 7, 8, 9 |
+| 11 | `build/hash-pinned-lock` | - | - | waits: needs 9 merged (6 is) |
 | 12 | `docs/v4.8` | - | - | waits: needs 7-11 |
 
 Trial merges (`git merge-tree`) of every pair of step branches above: clean.
@@ -85,11 +85,9 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 
 ## Remaining steps
 
-1. Owner: review and merge #31-#35 into `integration/v4.8` (B1), then #36
-   and #37 after their parents, then step 9.
-2. Agent, after merges: retarget #36 (after #32), #37 (after #33), step 9
-   (after #37) to `integration/v4.8`, merging the integration branch into
-   them if needed; open the draft `integration/v4.8` -> `main` PR.
+1. Owner: review and merge #36 and #37 into `integration/v4.8`.
+2. Agent, after #37 merges: retarget #38 to `integration/v4.8`, merge the
+   integration branch into it, restore this file, mark it ready.
 3. Before step 8: the 24.5 review pass of the B4/B5 parsers and ML layer,
    and a full read of `core/quarantine.py`, `core/containment.py`,
    `core/response.py` (F3). Then step 8 (needs 2, 3, 4, 7 merged), step 10
@@ -98,7 +96,7 @@ Trial merges (`git merge-tree`) of every pair of step branches above: clean.
 
 ## Next action
 
-Wait for the owner's merges; then step 2 of the list above.
+Wait for the owner to merge #36 and #37; then step 2 of the list above.
 
 ## Last verified push
 
