@@ -389,7 +389,9 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         return results
 
     def _scan_in_order(self, targets: List[str], collect, cancel_event) -> None:
-        """Scan in this process, one file after the other."""
+        """Scan in this process, one file after the other. A file whose scan raises
+        (for example, it was deleted after the folder walk) gets a failed result,
+        as in an isolated scan, instead of being left out of the report (PR-09)."""
         done = 0
         for file_path in targets:
             if cancel_event is not None and cancel_event.is_set():
@@ -399,7 +401,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                 result = self.scan_file(file_path)
             except Exception as e:
                 logger.error("Error scanning file %s: %s", file_path, e)
-                continue
+                from engine.workers import failure_result
+                result = failure_result(self, file_path, f"{type(e).__name__}: {e}")
             done += 1
             collect(done, file_path, result)
 

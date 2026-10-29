@@ -9,7 +9,8 @@ Abuse protection for the REST API, as plain ASGI middleware (no extra package).
 * RateLimit - a token bucket per client IP address, applied BEFORE authentication:
   IP_RATE requests per minute with IP_BURST in hand; over that, 429 with
   Retry-After. /health is exempt. Behind a reverse proxy set
-  AEGIS_API_TRUST_PROXY=1 so the first X-Forwarded-For address is the client.
+  AEGIS_API_TRUST_PROXY=1 so the address that proxy saw (the LAST
+  X-Forwarded-For entry) is the client; see client_ip.
 * AuthGuard - failed bearer tokens are counted per IP address: THRESHOLD failures
   within WINDOW seconds lock that address out for LOCKOUT seconds (429 with
   Retry-After), checked before the token is compared. Rotating wrong tokens does

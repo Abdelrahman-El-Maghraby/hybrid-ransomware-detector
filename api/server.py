@@ -21,9 +21,11 @@ Security
     With AEGIS_API_SOCKET it listens on that Unix socket instead (the Docker
     deployment: the analysis container has no network interface at all).
   * Abuse limits (api/limits.py): uploads over AEGIS_API_MAX_UPLOAD_MB are
-    refused before they are parsed (413); each client (IP + token) gets
-    AEGIS_API_RATE_PER_MINUTE requests with AEGIS_API_BURST in hand (429);
-    at most AEGIS_API_MAX_CONCURRENT_SCANS scans run at once (503). Behind a
+    refused before they are parsed (413); every request is first limited per
+    IP address (AEGIS_API_IP_RATE_PER_MINUTE, AEGIS_API_IP_BURST), before the
+    token is checked; a request with a valid token is then limited per IP
+    address and token (AEGIS_API_RATE_PER_MINUTE, AEGIS_API_BURST) (429); at
+    most AEGIS_API_MAX_CONCURRENT_SCANS scans run at once (503). Behind a
     reverse proxy set AEGIS_API_TRUST_PROXY=1. TLS: see docs/DEPLOYMENT.md.
   * Uploads are size-limited, written to a private temporary folder with a
     generated name (the client's file name is only used for its extension and
