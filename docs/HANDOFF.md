@@ -202,7 +202,10 @@ Still to do in step 12:
 
 ## Next action
 
-Continue step 12 with item 1 (`docs/OPERATIONS.md`).
+Continue step 12 with README, CHANGELOG, version and implementation evidence.
+OPERATIONS and RUNBOOKS are drafted and diff-checked; application checks pending.
+Cloud checksum documentation now distinguishes absent response checksums from
+verified returned checksums; final acceptance review must retain this limitation.
 
 Takeover reconciliation: fetched and fast-forward checked; clean working tree,
 local and remote task tip `4a5faa5`; integration remains `c4906ac`, main
