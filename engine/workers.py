@@ -42,6 +42,7 @@ import ctypes
 import ctypes.util
 import logging
 import multiprocessing as mp
+import multiprocessing.connection
 import os
 import shutil
 import sys
@@ -494,7 +495,7 @@ class _IsolatedScan:
 
     MAX_FAILED_STARTS = 3
     START_SECONDS = 120.0                    # a worker silent this long after start has failed
-    POLL_SECONDS = 0.05
+    POLL_SECONDS = 0.05                      # longest wait for a message before limits are checked
     WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
@@ -525,6 +526,7 @@ class _IsolatedScan:
     def run(self) -> None:
         try:
             while self._busy():
+                self._wait()
                 for i in range(len(self.pool)):
                     self._step(i)
         finally:
@@ -533,6 +535,26 @@ class _IsolatedScan:
             self._not_scanned()
         if self.cancelled():
             logger.info("Scan cancelled by user after %d/%d files.", self.done, self.total)
+
+    def _wait(self) -> None:
+        """Sleep until any worker has a message (a result, "ready", or the EOF of
+        a dead worker), at most POLL_SECONDS, so time and memory limits are still
+        checked on that tick (PR-17). Before 4.8 each worker was polled in turn
+        for up to 50 ms, so dispatch slowed down as workers were added."""
+        if self._dispatchable():
+            return                             # an idle worker gets work at once
+        pipes = [w.parent for w in self.pool if not w.retired]
+        try:
+            if pipes:
+                multiprocessing.connection.wait(pipes, timeout=self.POLL_SECONDS)
+                return
+        except (OSError, ValueError):         # a pipe closed meanwhile: _step sees it
+            pass
+        time.sleep(self.POLL_SECONDS)
+
+    def _dispatchable(self) -> bool:
+        return (bool(self.pending) and not self.cancelled() and not self.broken
+                and any(w.ready and w.path is None and not w.retired for w in self.pool))
 
     def _busy(self) -> bool:
         if any(w.path for w in self.pool):     # files in a worker always finish
@@ -583,8 +605,8 @@ class _IsolatedScan:
 
     def _over_memory(self, w: _Worker) -> int:
         """Resident bytes when a busy worker is over the limit, else 0 (watchdog)."""
-        if self.rss is None or w.path is None or w.proc.pid is None:
-            return 0
+        if self.rss is None or self.memory_mb <= 0 or w.path is None or w.proc.pid is None:
+            return 0                             # 0 MB = no limit
         now = time.monotonic()
         if now - w.watched < self.WATCH_SECONDS:
             return 0
@@ -602,7 +624,7 @@ class _IsolatedScan:
 
     def _receive(self, w: _Worker):
         try:
-            has = w.parent.poll(self.POLL_SECONDS)
+            has = w.parent.poll(0)              # _wait() already slept until a message
         except Exception:
             has = True                        # closed pipe: treat as a dead worker
         if not has:
