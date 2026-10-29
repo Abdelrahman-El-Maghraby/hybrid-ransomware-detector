@@ -39,13 +39,19 @@
    and submit a task PR into integration only. Restore handoff to integration's
    idle content as the final commit before marking that task PR ready.
 
-Exact next action: inspect the fuzz harness/dependency/toolchain options and
-prepare the Linux fuzz validation with explicit target coverage. Do not rerun
+Prepared fuzz harness extension, B4 harness, benign seed generator and two
+one-hour Linux CI jobs. No application files or shipped locks changed.
+Local ruff and diff checks passed. Seed-driver replay passed all 53 parser and 48 B4 seeds; every entry point
+returned. It used a no-op instrumentation shim and is not Atheris evidence.
+Expected malformed-input parser error results were observed.
+
+Exact next action: finish seed replay, push the fuzz tooling and open a draft
+PR into integration/v4.8; inspect startup and long-run outcomes. Do not rerun
 successful integration tests or benchmarks solely for this documentation merge.
 
 No provider credentials, signing identity, reference workload or other desktops
 are available in this task. Real-sample evaluation is not authorised here and
 requires a separate explicit request and an isolated environment.
 
-Last verified push: previous validation branch `cd51cee` is merged via #45.
-This initial checkpoint has not yet been pushed; verify its remote tip after push.
+Last verified push: `3289662` on validation/v4.8-remaining matched origin.
+Fuzz tooling and this handoff update are not yet committed/pushed.
