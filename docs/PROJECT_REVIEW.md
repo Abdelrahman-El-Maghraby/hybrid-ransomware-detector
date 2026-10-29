@@ -2125,10 +2125,16 @@ been changed to imply closure without new evidence.
 - `.venv/bin/pip-audit --no-deps --disable-pip -r <lock> --progress-spinner off`
   for `requirements.lock`, `requirements-server.lock`, `requirements-build.lock`:
   no known vulnerabilities. Initial sandbox DNS denial was rerun outside it.
-- Full suite: pending completion. The first sandbox run was interrupted after
-  112 passes and a TLS listener bind permission failure; it is not a passing run.
+- Full suite: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib RUN_GUI_TESTS=1
+  .venv/bin/python -m pytest -q` on macOS / Python 3.14.2: **1197 passed,
+  7 skipped**, one Starlette deprecation warning, 269.09 seconds. The first
+  sandbox run was interrupted after 112 passes and a TLS listener bind permission
+  failure; the unrestricted rerun above passed.
+- CI on `ed3736c`: tests 40866252606, quality 40866252583, docker
+  40866252714 all completed successfully. Final documentation checkpoint checks
+  are visible on PR #43.
 - Documentation: `git diff --check` passed. Threat-model commit ids resolve to
-  the expected implementation commits. Application versions agree at 4.8.0.
+  the expected implementation commits. Application versions agree at 4.8.0. Relative Markdown link targets exist.
 
 Final I-1 to I-7 and the section 15 benchmark must be recorded on the integrated
 final code after the owner merges step 12 and the separately requested checksum

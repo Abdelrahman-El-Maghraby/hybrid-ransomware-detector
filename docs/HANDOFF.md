@@ -209,7 +209,8 @@ keep response validation, update DATA_POLICY/OPERATIONS. Final integrated checks
 and benchmark follow owner merges.
 OPERATIONS, RUNBOOKS, README, CHANGELOG, version 4.8.0 and report section 25
 are drafted. Ruff, mypy, bandit and all three lock audits passed. Full suite
-is running outside the sandbox after a local TLS bind denial; results pending.
+passed outside the sandbox: 1197 passed, 7 skipped in 269.09 seconds.
+Relative Markdown links and diff checks passed; CI pending.
 Cloud checksum documentation now distinguishes absent response checksums from
 verified returned checksums; final acceptance review must retain this limitation.
 
