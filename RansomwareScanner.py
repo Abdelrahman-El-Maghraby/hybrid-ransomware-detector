@@ -81,6 +81,7 @@ from engine.config import (  # noqa: F401
     init_runtime,
     logger,
 )
+from engine.metrics import METRICS
 from engine.scanner import RansomwareScanner
 from engine.text import extract_suspicious_strings  # noqa: F401
 from engine.validation import ConfigError, check_config
@@ -941,39 +942,71 @@ def _scan_or_schedule(args, scanner) -> None:
             if not args.background:
                 input("\nPress Enter to continue anyway...")
 
-        logger.info(f"Scheduling scans every {CONFIG['scan_interval_hours']} hours.")
-        schedule.every(CONFIG['scan_interval_hours']).hours.do(scanner.run_scan)
-        # Always scheduled: with no canaries deployed the check is a no-op, and
-        # canaries deployed later (from the GUI or CLI) are picked up live.
-        minutes = max(1, int(CONFIG.get("canary_check_minutes", 5)))
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
-        if scanner.canaries.entries():
-            realtime = watcher.start()
-            logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
-                        "watched in real time" if realtime else
-                        ("no real-time watching (pip install watchdog)"
-                         if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
-                        minutes)
-        schedule.every(minutes).minutes.do(scanner.check_canaries)
-        # Canaries deployed or removed later (GUI or CLI) are picked up here.
-        schedule.every(minutes).minutes.do(watcher.refresh)
-        imap_minutes = int(CONFIG.get("imap_check_minutes", 0) or 0)
-        if imap_minutes > 0 and CONFIG.get("imap_host"):
-            logger.info("Mailbox %s checked every %d minute(s).", CONFIG["imap_folder"], imap_minutes)
-            schedule.every(imap_minutes).minutes.do(scanner.scan_mailbox_safely)
+        _schedule_background_jobs(scanner, watcher, CONFIG)
 
         if not args.scan_now:
-            scanner.run_scan()
+            _guarded("scan", scanner.run_scan)()
 
         try:
-            while True:
-                schedule.run_pending()
-                time.sleep(30)
+            _run_background_loop()
         except KeyboardInterrupt:
             logger.info("Scanner stopped by user.")
         finally:
             watcher.stop()
+
+
+def _guarded(name: str, job):
+    """A scheduled job that cannot end the background service (PR-07): an
+    exception is logged and counted, and the job runs again at its next time.
+    The schedule library itself does not catch anything."""
+    def run():
+        try:
+            return job()
+        except Exception as e:
+            METRICS.job_failed(name)
+            logger.error("Background job '%s' failed: %s: %s (it runs again on schedule).",
+                         name, type(e).__name__, e,
+                         extra={"event": "scheduled_job_failed", "job": name})
+            return None
+    run.__name__ = f"guarded_{name}"
+    return run
+
+
+def _schedule_background_jobs(scanner, watcher, config) -> None:
+    """Register the background service's jobs, each one guarded."""
+    logger.info(f"Scheduling scans every {config['scan_interval_hours']} hours.")
+    schedule.every(config['scan_interval_hours']).hours.do(_guarded("scan", scanner.run_scan))
+    # Always scheduled: with no canaries deployed the check is a no-op, and
+    # canaries deployed later (from the GUI or CLI) are picked up live.
+    minutes = max(1, int(config.get("canary_check_minutes", 5)))
+    if scanner.canaries.entries():
+        realtime = watcher.start()
+        logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
+                    "watched in real time" if realtime else
+                    ("no real-time watching (pip install watchdog)"
+                     if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
+                    minutes)
+    schedule.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
+    # Canaries deployed or removed later (GUI or CLI) are picked up here.
+    schedule.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    imap_minutes = int(config.get("imap_check_minutes", 0) or 0)
+    if imap_minutes > 0 and config.get("imap_host"):
+        logger.info("Mailbox %s checked every %d minute(s).", config["imap_folder"], imap_minutes)
+        schedule.every(imap_minutes).minutes.do(_guarded("mailbox", scanner.scan_mailbox_safely))
+
+
+def _run_background_loop(sleep=time.sleep, keep_going=lambda: True) -> None:
+    """Run due jobs every 30 s until interrupted. Jobs are guarded; anything
+    else that goes wrong in one pass is logged and the loop carries on."""
+    while keep_going():
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            logger.error("Background scheduler error: %s", e,
+                         extra={"event": "scheduled_job_failed", "job": "scheduler"})
+        sleep(30)
 
 
 def main():

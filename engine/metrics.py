@@ -37,6 +37,7 @@ class Metrics:
             self.bytes = 0
             self.busy_seconds = 0.0
             self.verdicts: Counter = Counter({v: 0 for v in VERDICTS})
+            self.job_failures: Counter = Counter()    # background jobs that raised (by name)
             self.layer_errors: Counter = Counter()
             self.failures: Counter = Counter()        # timeout | worker_crash | error
             self.rejected: Counter = Counter()        # API: rate_limited | too_large | busy
@@ -69,6 +70,11 @@ class Metrics:
     def record_results(self, results: Iterable[Dict]) -> None:
         for r in results:
             self.record_result(r)
+
+    def job_failed(self, name: str) -> None:
+        """A scheduled background job raised (it is logged and runs again next time)."""
+        with self._lock:
+            self.job_failures[name] += 1
 
     def reject(self, reason: str) -> None:
         with self._lock:
@@ -115,6 +121,7 @@ class Metrics:
                 "average_scan_ms": round(1000 * self.busy_seconds / self.files, 1)
                 if self.files else 0.0,
                 "verdicts": dict(self.verdicts),
+                "scheduled_job_failures": dict(self.job_failures),
                 "layer_errors": dict(self.layer_errors),
                 "scan_failures": dict(self.failures),
                 "requests_rejected": dict(self.rejected),
@@ -142,6 +149,10 @@ class Metrics:
                 "# TYPE aegis_layer_errors_total counter"]
         out += [f'aegis_layer_errors_total{{layer="{k}"}} {n}'
                 for k, n in sorted(s["layer_errors"].items())]
+        out += ["# HELP aegis_scheduled_job_failures_total Background jobs that raised.",
+                "# TYPE aegis_scheduled_job_failures_total counter"]
+        out += [f'aegis_scheduled_job_failures_total{{job="{k}"}} {n}'
+                for k, n in sorted(s["scheduled_job_failures"].items())]
         out += ["# HELP aegis_scan_failures_total Files whose scan timed out or crashed.",
                 "# TYPE aegis_scan_failures_total counter"]
         out += [f'aegis_scan_failures_total{{kind="{k}"}} {n}'
