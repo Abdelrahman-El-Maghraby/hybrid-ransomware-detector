@@ -36,6 +36,7 @@ class Metrics:
             self.busy_seconds = 0.0
             self.verdicts: Counter = Counter({v: 0 for v in VERDICTS})
             self.job_failures: Counter = Counter()    # background jobs that raised (by name)
+            self.alerts: Counter = Counter()          # (channel, sent | failed | expired)
             self.layer_errors: Counter = Counter()
             self.failures: Counter = Counter()        # timeout | worker_crash | error
             self.rejected: Counter = Counter()        # API: rate_limited | too_large | busy
@@ -63,6 +64,11 @@ class Metrics:
         for r in results:
             self.record_result(r)
 
+    def alert(self, channel: str, outcome: str) -> None:
+        """An outbox delivery attempt: sent, failed (retried later) or expired."""
+        with self._lock:
+            self.alerts[(channel, outcome)] += 1
+
     def job_failed(self, name: str) -> None:
         """A scheduled background job raised (it is logged and runs again next time)."""
         with self._lock:
@@ -85,6 +91,7 @@ class Metrics:
                 if self.files else 0.0,
                 "verdicts": dict(self.verdicts),
                 "scheduled_job_failures": dict(self.job_failures),
+                "alerts": {f"{c}_{o}": n for (c, o), n in sorted(self.alerts.items())},
                 "layer_errors": dict(self.layer_errors),
                 "scan_failures": dict(self.failures),
                 "requests_rejected": dict(self.rejected),
@@ -110,6 +117,10 @@ class Metrics:
                 "# TYPE aegis_layer_errors_total counter"]
         out += [f'aegis_layer_errors_total{{layer="{k}"}} {n}'
                 for k, n in sorted(s["layer_errors"].items())]
+        out += ["# HELP aegis_alerts_total Alert deliveries by channel and outcome.",
+                "# TYPE aegis_alerts_total counter"]
+        out += [f'aegis_alerts_total{{channel="{c}",outcome="{o}"}} {n}'
+                for (c, o), n in sorted(self.alerts.items())]
         out += ["# HELP aegis_scheduled_job_failures_total Background jobs that raised.",
                 "# TYPE aegis_scheduled_job_failures_total counter"]
         out += [f'aegis_scheduled_job_failures_total{{job="{k}"}} {n}'

@@ -186,6 +186,22 @@ CONFIG = {
     "webhook_url": _getenv("WEBHOOK_URL", ""),
     "webhook_secret": _getenv("WEBHOOK_SECRET", ""),
     "webhook_min_verdict": _getenv("WEBHOOK_MIN_VERDICT", "High"),
+    # E-mail alerts (core/mailer.py): metadata only, SMTP with TLS; the password
+    # comes from the secret store (SMTP_PASSWORD). In Docker these belong to the
+    # intel service, which sends for the analysis service.
+    "smtp_host": _getenv("SMTP_HOST", ""),
+    "smtp_port": int(_env_float("SMTP_PORT", 465)),
+    "smtp_security": _getenv("SMTP_SECURITY", "tls").lower(),
+    "smtp_user": _getenv("SMTP_USER", ""),
+    "smtp_password": _getenv("SMTP_PASSWORD", ""),
+    "alert_email_from": _getenv("ALERT_EMAIL_FROM", ""),
+    "alert_email_to": _getenv("ALERT_EMAIL_TO", ""),
+    "alert_email_min_verdict": _getenv("ALERT_EMAIL_MIN_VERDICT", "High"),
+    "alert_email_per_hour": int(_env_float("ALERT_EMAIL_PER_HOUR", 20)),
+    "alert_email_per_day": int(_env_float("ALERT_EMAIL_PER_DAY", 100)),
+    # The alert outbox (core/outbox.py): pending alerts, retried until delivered
+    "outbox_dir": _getenv("OUTBOX_DIR", str(APP_DIR / "outbox")),
+    "outbox_max_age_hours": _env_float("OUTBOX_MAX_AGE_HOURS", 24),
     # Signed rule packs: base64 Ed25519 public keys allowed to sign them (comma-separated)
     "rulepack_public_keys": [k for k in _getenv("RULEPACK_PUBLIC_KEYS", "").split(",") if k.strip()],
     "data_dir": str(DATA_DIR),

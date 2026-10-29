@@ -151,6 +151,35 @@ class _ScanService:
         return True, "isolated workers start"
 
 
+class _Alerts:
+    """E-mail alerts for API results (F4, D-C): in Docker the intel service sends
+    them, so this side holds no SMTP setting. Queued in the outbox (retried every
+    minute), sent off the request thread. Webhooks stay a desktop/CLI output."""
+
+    def __init__(self, config: Dict):
+        from core.mailer import email_configured
+        self.config = dict(config, webhook_url="")
+        self.enabled = bool(self.config.get("intel_socket")) or email_configured(self.config)
+        if self.enabled:
+            threading.Thread(target=self._retry, name="aegis-alert-outbox", daemon=True).start()
+
+    def submit(self, result: Dict) -> None:
+        if not self.enabled:
+            return
+        from core.outbox import queue_and_send, verdict_alert
+        alert = verdict_alert(result)
+        threading.Thread(target=queue_and_send, args=([alert], self.config),
+                         name="aegis-alert", daemon=True).start()
+
+    def _retry(self) -> None:
+        import time
+
+        from core.outbox import flush_pending
+        while True:
+            time.sleep(60)
+            flush_pending(self.config)
+
+
 class _Auth:
     """Bearer-token check with the failed-attempt policy (api/limits.py): a locked
     address is refused before the compare, a wrong token counts against the
@@ -209,6 +238,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     concurrent = int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2))
     service = _ScanService(config or CONFIG, isolate=isolate,
                            spares=int(_env_number("AEGIS_API_SPARE_WORKERS", concurrent)))
+    alerts = _Alerts(config or CONFIG)
     atexit.register(service.close)
     workers = service.warm_up()
     start = readiness(service.scanner, workers)
@@ -300,6 +330,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                     out.write(chunk)
             result = service.scan(str(target), name)
             METRICS.record_result(result)
+            alerts.submit(result)
             return result
         finally:
             slots.release()

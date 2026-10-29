@@ -115,3 +115,6 @@ class ProtectionMixin:
             logger.error("Could not write canary alert file: %s", e)
         if notify:
             desktop_notify("Ransomware tripwire triggered", report.summary())
+        # PR-08: the alert outputs (webhook, e-mail) hear about it too, with retry
+        from core.outbox import canary_alert, queue_and_send
+        queue_and_send([canary_alert(report)], self.config)

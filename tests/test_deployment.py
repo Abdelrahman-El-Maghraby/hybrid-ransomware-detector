@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
 SERVICES = COMPOSE["services"]
 RUNNING = [name for name, s in SERVICES.items() if "tools" not in s.get("profiles", [])]
-EXTERNAL_SECRETS = {"virustotal_api_key", "openai_api_key", "sandbox_token"}
+EXTERNAL_SECRETS = {"virustotal_api_key", "openai_api_key", "sandbox_token",
+                    "smtp_password"}       # 4.8: e-mail alerts are sent by intel
 
 
 def test_the_three_services_exist():

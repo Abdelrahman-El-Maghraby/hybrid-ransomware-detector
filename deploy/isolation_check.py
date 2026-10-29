@@ -126,6 +126,23 @@ def analysis():
         check("intel validates input", False, "accepted")
     except IntelError as e:
         check("intel validates input", "HTTP 422" in str(e) or "HTTP 403" in str(e), str(e))
+    # the e-mail operation (4.8): fixed fields only; with no SMTP settings it is refused
+    alert = {"alert_id": "0" * 32, "kind": "verdict", "verdict": "High", "risk_band": "60-80",
+             "sha256": "", "file_name": "x.pdf", "time": "t", "scan_id": "",
+             "reason_codes": [], "to": "attacker@example.com"}
+    status, _ = unix_request(path, "POST", "/v1/alert/email", json.dumps(alert).encode(),
+                             {"Authorization": f"Bearer {token}",
+                              "Content-Type": "application/json"})
+    check("intel e-mail refuses unknown fields", status in (403, 422), f"HTTP {status}")
+    alert.pop("to")
+    status, _ = unix_request(path, "POST", "/v1/alert/email", json.dumps(alert).encode(),
+                             {"Content-Type": "application/json"})
+    check("intel e-mail needs the token", status == 401, f"HTTP {status}")
+    check("intel e-mail off without SMTP settings", caps.get("email") == {"enabled": False},
+          str(caps.get("email")))
+    check("no SMTP setting on the analysis side",
+          not any(os.environ.get(k) for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD",
+                                               "SMTP_PASSWORD_FILE", "ALERT_EMAIL_TO")))
 
     content = "/var/lib/aegis/RansomwareScanner/data"
     check("detection content read-only", "ro" in mount_options(content), content)

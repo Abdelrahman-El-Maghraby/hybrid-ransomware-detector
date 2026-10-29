@@ -6,6 +6,8 @@
   shared secret the body is signed (header X-Aegis-Signature: sha256=<hex HMAC>),
   so the receiver can reject forged alerts. Only metadata is sent - never file
   content.
+* Alerts (webhook, e-mail, canary trips) go through the persistent outbox
+  (core/outbox.py): a receiver that is down gets the alert later, once.
 """
 
 from __future__ import annotations
@@ -76,11 +78,29 @@ def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdic
     return sent
 
 
+def post_alert(payload: Dict, url: str, secret: str = "", session=None,
+               timeout: float = 10) -> None:
+    """POST one alert payload, signed when there is a secret; raises when it was
+    not accepted (2xx), so the outbox retries it."""
+    import requests
+    http = session or requests
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Aegis-Signature"] = sign(body, secret)
+    resp = http.post(url, data=body, headers=headers, timeout=timeout)
+    status = getattr(resp, "status_code", 0)
+    if not 200 <= status < 300:
+        raise RuntimeError(f"webhook answered HTTP {status}")
+
+
 def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None) -> None:
-    """Send results to every configured output (JSONL file, webhook)."""
+    """Send results to every configured output: the JSON Lines file, and an alert
+    per qualifying result through the outbox (webhook, e-mail)."""
     path = jsonl_path or config.get("jsonl_path")
     if path:
         write_jsonl(results, path)
-    if config.get("webhook_url"):
-        send_webhook(results, config["webhook_url"], config.get("webhook_secret", ""),
-                     config.get("webhook_min_verdict", "High"))
+    from .mailer import email_configured
+    from .outbox import queue_and_send, verdict_alert
+    if config.get("webhook_url") or email_configured(config) or config.get("intel_socket"):
+        queue_and_send([verdict_alert(r) for r in results], config)
