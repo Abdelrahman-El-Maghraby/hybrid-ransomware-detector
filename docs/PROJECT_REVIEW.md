@@ -2378,3 +2378,109 @@ is unchanged because no tracked prerequisite was closed by this pass.
 No agent merges, tags or releases. PR #39 remains draft while these release
 validation requirements remain unresolved; the final evidence PR being ready
 must not be mistaken for approval to publish or a claim of production readiness.
+
+## 27. Remaining validation after PR #45
+
+PR #45 was verified merged at `03089d5e16467d19edf2f718220cb5bab13af8ee`;
+its tree equals `cd51cee`. At takeover the working tree was clean and PR #39
+was open, draft, at that integration tip. The idle handoff was a completed-PR
+reset, not evidence that the remaining section 24.5 requirements had disappeared.
+Work continues on `validation/v4.8-remaining`, draft PR #46. No PR was merged by
+an agent. Sections 25-26 retain the completed evidence; their successful tests
+and benchmark were not repeated just for the documentation merge.
+
+### 27.1 Reconciled inspection and integration evidence
+
+- Integration tip `03089d5`: all six matrix jobs in tests **40932281409**, four
+  quality jobs in **40932281540**, and Docker **40932281388** passed. A separate
+  deployment run **40932271434** also passed. This checks actual post-merge CI;
+  it does not turn CI into manual owner acceptance.
+- [PR #40](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/pull/40)
+  already records the B4/B5/entropy/ML bounds/error-handling review and its
+  5,000-example Hypothesis pass (18 tests, 86 s). It reported no new High/Medium
+  finding and explicitly left Atheris unrun. That review was not restarted.
+- Local Docker CLI is installed, but the daemon socket is absent. No new local
+  deployment result is claimed. Atheris was absent from the local Python 3.14
+  environment; Linux CI supplies Python 3.12 and the hash-pinned fuzz tool.
+
+### 27.2 Atheris uncovered a CPIO error-contract defect
+
+The first long-run attempt, **40969502006**, parser job **123782398098**, failed
+with exit 77 after **104 inputs**. A mutation of the generated benign CPIO seed
+inserted NULs into an odc file-size field. `read_cpio` called `int(field, 8)`,
+which raised an uncaught `ValueError`; the direct parser/fuzz contract expects
+`FormatError` or `BudgetExceeded`. The failure artifact was retained by CI
+(`crash-019c81091380d838741ab1e991c0e0226a79ed2e`). No real sample was used.
+
+Impact is limited by the existing `_pkg_stream` catch in `container_extractor`:
+the stream is marked unreadable rather than crashing the whole scan. This is a
+confirmed direct-parser error-contract defect, not evidence of a scanner-wide
+crash or an accuracy result. The fix **`673acdc`** validates the consumed odc/newc
+numeric fields as unsigned octal/hexadecimal digits and raises `FormatError`
+for malformed values. Valid format parsing, detection weights, thresholds,
+inspection layers, result schema and shipped dependency locks are unchanged.
+
+Verification actually run on macOS / Python 3.14.2:
+
+- New regression cases before the fix: **36 failed**, 18 deselected, **1.96 s**.
+  They cover NUL, non-digit and signed values in all three consumed fields of
+  odc and both newc magic variants.
+- `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python -m pytest -q
+  tests/test_macos_packages.py tests/test_dmg_streaming.py tests/test_fuzz_parsers.py`:
+  **87 passed, no skips, 4.78 s** after the fix.
+- `.venv/bin/ruff check .`: passed; `.venv/bin/mypy`: passed (67 files);
+  `.venv/bin/bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll`:
+  passed. `git diff --check`: passed.
+
+The fixed-code campaigns are **pending**, run **40974246237** on `673acdc`.
+The first attempt's B4 job is also pending as of this checkpoint. Neither is
+called a pass until its completion and logs are inspected. The initial failed
+run remains failure evidence even if a later run succeeds.
+
+### 27.3 Fuzz scope and limits
+
+`fuzz/fuzz_parsers.py` adds generated DMG/PKG inputs to the existing parser
+entry points and CPIO. `fuzz/fuzz_b4.py` adds format-aware integrity, macro,
+hidden-content, relationships, bundled YARA, fuzzy-hash and Python TLSH targets.
+Each Linux job requests one hour with seed 20261030, maximum input 1 MiB,
+per-input timeout 90 s and process RSS limit 4 GiB. These are validation limits;
+product worker limits are unchanged. Expected malformed-input log messages are
+suppressed, but exceptions escape and fail the job. Required B4 libraries and
+compiled YARA rules are checked at startup.
+
+Before CI, a local seed-driver replay exercised **53 parser seeds and 48 B4
+seeds**, all targets returning, with instrumentation replaced by a no-op shim.
+That checks fixture/driver wiring only and is explicitly not Atheris evidence.
+Native libraries and 7-Zip are not sanitizer-instrumented. The OLE seeds are
+benign message containers, not valid VBA/P-code; no valid CHM seed is present.
+Entry-point counters do not prove full branch coverage. Logs/corpora/failure
+inputs are retained for 14 days by CI; they are not committed to the repository.
+
+Documentation-only follow-up commits do not restart these long campaigns.
+The workflow's change gate compares the PR update's before/after commits;
+manual dispatch runs them regardless. A skipped matrix is not new successful
+fuzz evidence. The report must name the actual tested code commit and run.
+
+### 27.4 Owner actions and draft boundary
+
+The actionable checklist is
+[tasks/v4.8-owner-validation.md](tasks/v4.8-owner-validation.md): desktop
+walkthroughs and failure/recovery observations; real SMTP and S3 request-checksum,
+retry, redaction, permission and lifecycle checks; the existing production IDs
+and a sanitised evidence return format.
+
+A scratch macOS GUI was launched with isolated configuration, outbound services
+off and no account credentials. The dashboard was visible, but native UI
+control did not reliably navigate the window and timed out when closing it;
+the process subsequently exited. **No manual GUI acceptance is claimed.** The
+visible label still says **4.4 beta**, matching the hardcoded
+`aegis_gui/common.py:APP_VERSION`; this existing presentation inconsistency is
+recorded for a separate follow-up, not silently changed in parser validation.
+
+Remaining owner development acceptance: Windows/macOS manual GUI, real
+Windows/Linux desktop monitoring, and real SMTP/S3 provider checks. The agent
+can finish CI/fuzz investigation and review sanitised returned evidence.
+Production prerequisites remain separately open: M1/X1, reference-host M2,
+clean Linux O1, actual-installation U1, X2, legal review, conditional D5 and
+verification on the eventual release commit. Use section 24.2's R/P distinction;
+no prerequisite is silently waived or declared complete. PR #39 remains draft.

@@ -7,7 +7,7 @@
 - Branch: `validation/v4.8-remaining`; base: `integration/v4.8`; draft PR #46.
 - Baseline: `03089d5e16467d19edf2f718220cb5bab13af8ee`, verified owner merge of
   PR #45. Its tree equals final validation head `cd51cee`; application baseline
-  remains `087b460`. CPIO numeric-field fix is now pending commit (see below).
+  was `087b460`; current application fix is `673acdc` (see below).
 - PR #39 verified open and draft at `03089d5`. Keep draft until required
   acceptance evidence is complete. Owner merges every PR; no tags or releases.
 - Working tree was clean at takeover. No unrelated changes to preserve.
@@ -18,8 +18,8 @@
 - Section 26 records I-1 to I-7: 190 focused tests plus 23 key/vault tests,
   all passed; same application tree full suite 1199 passed / 7 explained skips.
 - Integration CI and 29 benchmark measurements are recorded in section 26.
-- Fetched origin, verified PRs #45/#39 and commit identity. No application
-  tests rerun in this takeover.
+- Fetched origin, verified PRs #45/#39 and commit identity. Successful final checks were not repeated; new CPIO regression checks are
+  recorded below.
 - Docker CLI exists locally but its daemon socket does not exist; no local
   Docker deployment is available. Local Python is 3.14; Atheris is not
   installed. The existing fuzz harness omits several B4 layers, so simply
@@ -40,7 +40,8 @@
    idle content as the final commit before marking that task PR ready.
 
 Prepared fuzz harness extension, B4 harness, benign seed generator and two
-one-hour Linux CI jobs. No application files or shipped locks changed.
+one-hour Linux CI jobs. Initial tooling changed no application file; the later
+CPIO fix is recorded below. Shipped locks remain unchanged.
 Local ruff and diff checks passed. Seed-driver replay passed all 53 parser and 48 B4 seeds; every entry point
 returned. It used a no-op instrumentation shim and is not Atheris evidence.
 Expected malformed-input parser error results were observed.
@@ -68,15 +69,17 @@ Expected malformed-input parser error results were observed.
   visible, but native control did not reliably navigate; no manual GUI pass.
   GUI displays an existing stale "4.4 beta" label (aegis_gui/common.py), noted
   for follow-up, not silently fixed. Scratch process is no longer running.
-- Owner checklist drafted in docs/tasks/v4.8-owner-validation.md (uncommitted).
+- Owner checklist drafted in docs/tasks/v4.8-owner-validation.md; section 27
+  records the new evidence and limits. Both are pending this docs checkpoint.
 
-Exact next action: push the CPIO fix, inspect its new Linux Atheris run and CI,
-then finish/checkpoint owner instructions and report evidence. Do not rerun
+Exact next action: inspect corrected Atheris run 40974246237 on `673acdc`
+and full CI (tests 40974246248, quality 40974246238, Docker 40974246222).
+Investigate any remaining failure, then update section 27 with actual outcomes. Do not rerun
 successful integration tests or benchmarks solely for this documentation merge.
 
 No provider credentials, signing identity, reference workload or other desktops
 are available in this task. Real-sample evaluation is not authorised here and
 requires a separate explicit request and an isolated environment.
 
-Last verified push: `b2e8aea` on validation/v4.8-remaining matched origin.
-CPIO fix, workflow adjustment, checklist and this handoff are not yet pushed.
+Last verified push: `673acdc` on validation/v4.8-remaining matched origin.
+Owner checklist, section 27 and this handoff update are not yet pushed.
