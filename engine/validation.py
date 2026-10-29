@@ -271,9 +271,16 @@ def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -
     if cfg.get("virustotal_upload_unknown") and not cfg.get("virustotal_api_key"):
         warnings.append("VT_UPLOAD_UNKNOWN is on but VIRUSTOTAL_API_KEY is empty: nothing "
                         "will be uploaded")
-    if (cfg.get("isolate_scans") is False and int(cfg.get("worker_memory_mb") or 0) > 0
-            and int(cfg.get("scan_workers") or 0) > 1):
-        warnings.append("ISOLATE_SCANS is off: SCAN_WORKERS and WORKER_MEMORY_MB have no effect")
+    if cfg.get("isolate_scans") is False:
+        production = str(cfg.get("profile") or "").strip().lower() == "production"
+        if not production:                           # the profile check makes it an error
+            warnings.append("ISOLATE_SCANS is off (development only): files are parsed in the "
+                            "scanning process, without the time and memory limits, and a "
+                            "hostile file can hang or crash it; results record "
+                            "provenance.isolation=in_process")
+        if int(cfg.get("worker_memory_mb") or 0) > 0 and int(cfg.get("scan_workers") or 0) > 1:
+            warnings.append("ISOLATE_SCANS is off: SCAN_WORKERS and WORKER_MEMORY_MB have no "
+                            "effect")
     if (str(cfg.get("canary_contain_mode") or "").lower() == "terminate"
             and "stop_writers" not in str(cfg.get("canary_response") or "")):
         warnings.append("CANARY_CONTAIN_MODE is set but CANARY_RESPONSE does not include "
@@ -309,9 +316,10 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
     if str(cfg.get("canary_response") or "").strip():
         errors.append("CANARY_RESPONSE suspends, kills or locks on the host; containment is "
                       "part of the desktop builds only, outside the production profile")
-    if cfg.get("isolate_scans") is False:
-        warnings.append("ISOLATE_SCANS is off: a hostile file can hang or crash the service "
-                        "instead of being reported as a failed scan")
+    if cfg.get("isolate_scans") is False:            # D-E1: development only
+        errors.append("ISOLATE_SCANS=0 parses every file in the scanning process; it is a "
+                      "development opt-out and the production profile requires isolated "
+                      "workers")
 
 
 # Secrets and destinations that belong to the intel service, not to analysis.

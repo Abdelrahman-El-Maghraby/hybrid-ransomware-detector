@@ -162,7 +162,7 @@ def test_watchdog_stops_an_over_limit_worker(tmp_path, monkeypatch):
         return 10 ** 12 if p.exists() and p.read_text() == str(pid) else 1
     monkeypatch.setattr(W, "memory_watchdog", lambda mb: reader)
     cfg = _config(tmp_path, _scanner_factory="tests.worker_fakes:make", scan_timeout_seconds=60,
-                  scan_workers=1, worker_memory_mb=0)
+                  scan_workers=1, worker_memory_mb=1024)     # the reader's 1 byte is under it
     for n in ("slow.pdf", "ok.pdf"):
         (tmp_path / "scan" / n).write_bytes(make_pdf(n))
     t = time.monotonic()
@@ -301,21 +301,27 @@ def test_shutdown_kills_a_worker_that_does_not_stop():
     assert killed == [1]
 
 
-def test_in_process_fallback_records_a_crash(tmp_path):
+def test_files_left_when_workers_cannot_start_are_not_parsed(tmp_path):
+    """Fail closed (D-E): what is left gets isolation_unavailable results; the
+    scanner's own scan_file is never called."""
     import RansomwareScanner as RS
     scanner = RS.RansomwareScanner(_config(tmp_path))
-    p = tmp_path / "scan" / "a.pdf"
-    p.write_bytes(make_pdf("a"))
+    paths = []
+    for n in ("a.pdf", "b.pdf"):
+        p = tmp_path / "scan" / n
+        p.write_bytes(make_pdf(n))
+        paths.append(str(p))
 
-    def boom(path, *a, **k):
-        raise RuntimeError("parser bug")
-    scanner.scan_file = boom
+    def parsed(path, *a, **k):
+        raise AssertionError("parsed in the main process")
+    scanner.scan_file = parsed
     scan = _bare_scan(scanner)
-    scan.pending = [str(p)]
-    scan._scan_in_process()
-    path, result = scan.results[0]
-    assert result["scan_results"]["scan_failed"]["reason"] == "RuntimeError: parser bug"
-    assert result["sha256_hash"]
+    scan.pending, scan.failed_starts, scan.not_scanned = list(paths), 3, 0
+    scan._not_scanned()
+    assert [p for p, _ in scan.results] == paths and scan.not_scanned == 2 and not scan.pending
+    for _, r in scan.results:
+        assert W.isolation_unavailable(r) and r["provenance"]["isolation"] == "unavailable"
+        assert r["sha256_hash"] and r["verdict"] == "Clean" and r["scan_status"] == "failed"
 
 
 def test_failure_result_without_hashes(tmp_path):
@@ -375,3 +381,54 @@ def test_folders_of_a_dead_scanner_are_swept(tmp_path):
     assert not stale.exists() and mine.exists() and other.exists() and unrelated.exists()
     assert W._pid_alive(os.getpid()) and not W._pid_alive(dead.pid)
     assert W.sweep_stale_worker_dirs(str(tmp_path / "missing")) == 0
+
+
+# ------------------------------------------------- PR-17: event-driven dispatch
+def _wait_scan(pool, pending=()):
+    scan = _bare_scan()
+    scan.pool, scan.pending, scan.broken = pool, list(pending), False
+    return scan
+
+
+def test_wait_wakes_on_a_message_without_waiting_out_the_tick(monkeypatch):
+    import multiprocessing as mp
+    monkeypatch.setattr(W._IsolatedScan, "POLL_SECONDS", 5.0)
+    a, b = mp.Pipe()
+    quiet_a, _quiet_b = mp.Pipe()
+    busy = SimpleNamespace(parent=a, retired=False, ready=True, path="x.pdf")
+    other = SimpleNamespace(parent=quiet_a, retired=False, ready=True, path="y.pdf")
+    scan = _wait_scan([other, busy])
+    b.send(("ok", {}))
+    t = time.monotonic()
+    scan._wait()
+    assert time.monotonic() - t < 1.0          # before 4.8: up to 50 ms per worker, in turn
+
+
+def test_wait_sleeps_one_tick_when_nothing_happens(monkeypatch):
+    import multiprocessing as mp
+    monkeypatch.setattr(W._IsolatedScan, "POLL_SECONDS", 0.2)
+    a, _b = mp.Pipe()
+    scan = _wait_scan([SimpleNamespace(parent=a, retired=False, ready=True, path="x.pdf")])
+    t = time.monotonic()
+    scan._wait()
+    assert 0.15 <= time.monotonic() - t < 2.0   # then the time and memory limits are checked
+
+
+def test_wait_does_not_wait_when_an_idle_worker_can_take_a_file(monkeypatch):
+    monkeypatch.setattr(W._IsolatedScan, "POLL_SECONDS", 5.0)
+    idle = SimpleNamespace(parent=BrokenPipe(), retired=False, ready=True, path=None)
+    scan = _wait_scan([idle], pending=["next.pdf"])
+    t = time.monotonic()
+    scan._wait()
+    assert time.monotonic() - t < 1.0
+    scan.broken = True                          # failing closed: nothing is handed out
+    assert not scan._dispatchable()
+
+
+def test_wait_survives_a_closed_pipe(monkeypatch):
+    import multiprocessing as mp
+    monkeypatch.setattr(W._IsolatedScan, "POLL_SECONDS", 0.05)
+    a, _b = mp.Pipe()
+    a.close()
+    scan = _wait_scan([SimpleNamespace(parent=a, retired=False, ready=True, path="x.pdf")])
+    scan._wait()                                # no exception: _step sees the dead worker
