@@ -30,6 +30,8 @@ from aegis_gui.formatting import humanize_delta, mono_family
 from aegis_gui.pages.dashboard import DashboardPage
 from aegis_gui.pages.database import DatabasePage
 from aegis_gui.pages.logs import LogsPage
+from aegis_gui.pages.monitoring import MonitoringPage
+from aegis_gui.pages.outputs import OutputsPage
 from aegis_gui.pages.protection import ProtectionPage
 from aegis_gui.pages.reports import ReportsPage
 from aegis_gui.pages.scan import ScanPage
@@ -39,9 +41,11 @@ from aegis_gui.state import QueueLogHandler, ScanController, SettingsStore
 # --- Application ---------------------------------------------------------------------
 
 class App(ctk.CTk):
-    NAV = [("dashboard", "Dashboard"), ("scan", "Scan"), ("protection", "Protection"),
+    NAV = [("dashboard", "Dashboard"), ("scan", "Scan"), ("monitoring", "Monitoring"),
+           ("protection", "Protection"), ("outputs", "Alerts & cloud"),
            ("reports", "Reports"), ("database", "Database"), ("logs", "Logs"),
            ("settings", "Settings")]
+    DELIVERY_SECONDS = 60              # retry queued alerts, upload the cloud spool
 
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -90,6 +94,11 @@ class App(ctk.CTk):
         # Real-time tripwire watching (watchdog thread -> bus -> UI thread).
         self.canary_watcher = RS.CanaryWatcher(self.scanner.canaries,
                                                lambda: self.bus.put(("canary_event",)))
+        self.monitor = None              # core.folder_watch.FolderMonitor (F1)
+        self._delivery_ticks = 0
+        self._cleaned_spool_at = None
+        from core.cloud import install_event_spool
+        install_event_spool(self.scanner.config)       # only with CLOUD_UPLOAD=true
 
         log_handler = QueueLogHandler(self.log_queue)
         logging.getLogger("RansomwareScanner").addHandler(log_handler)
@@ -109,7 +118,9 @@ class App(ctk.CTk):
         self.pages = {
             "dashboard": DashboardPage(self),
             "scan": ScanPage(self),
+            "monitoring": MonitoringPage(self),
             "protection": ProtectionPage(self),
+            "outputs": OutputsPage(self),
             "reports": ReportsPage(self),
             "database": DatabasePage(self),
             "logs": LogsPage(self),
@@ -125,6 +136,8 @@ class App(ctk.CTk):
         self.after(120, self._poll)
         self.after(1000, self._tick)
         self.after(4000, self._canary_tick)
+        if self.settings["monitor_enabled"] and self.settings["watch_dirs"]:
+            self.start_monitor()
         self.gui_log.info(f"GUI started (v{APP_VERSION}) on {platform.system()}")
 
     # -- construction helpers ---------------------------------------------------------
@@ -311,6 +324,13 @@ class App(ctk.CTk):
                                               text_color=RED_SOFT)
         elif kind == "isolation_unavailable":
             self._on_isolation_unavailable(*event[1:])
+        elif kind == "monitor_results":
+            for result in event[1]:
+                dashboard.add_result(result)
+            if self.current_page == "monitoring":
+                self.pages["monitoring"].refresh_status()
+        elif kind == "output_test":
+            self.pages["outputs"].show_test_result(event[1], event[2])
         elif kind == "autostart_done":
             self.pages["settings"].autostart_finished(event[1], event[2])
         elif kind == "canary_report":
@@ -402,7 +422,68 @@ class App(ctk.CTk):
             self.start_scan(mode="all")
         if self.current_page == "dashboard":
             self.pages["dashboard"].refresh_meta()
+        if self.current_page == "monitoring":
+            self.pages["monitoring"].refresh_status()
+        self._delivery_ticks += 1
+        if self._delivery_ticks >= self.DELIVERY_SECONDS:
+            self._delivery_ticks = 0
+            self.run_deliveries()
         self.after(1000, self._tick)
+
+    # -- monitoring, alerts and cloud (F1, F4, F5) ------------------------------------------
+    def start_monitor(self):
+        """Start (or restart) folder monitoring; an error sentence, or None."""
+        from core.folder_watch import FolderMonitor
+        self.stop_monitor()
+        folders = list(self.settings["watch_dirs"])
+        if not folders:
+            return "Add a folder to watch first."
+        cfg = self.scanner.config
+        monitor = FolderMonitor(self.scanner, folders, float(cfg.get("watch_settle_seconds") or 2),
+                                int(cfg.get("watch_max_queue") or 1000),
+                                float(cfg.get("watch_retry_minutes") or 5),
+                                on_results=lambda rs: self.bus.put(("monitor_results", rs)))
+        if not monitor.start():
+            return ("Monitoring could not start: install 'watchdog' (pip install watchdog) "
+                    "and check that the folders exist.")
+        self.monitor = monitor
+        self.settings["monitor_enabled"] = True
+        return None
+
+    def stop_monitor(self, remember: bool = True):
+        if self.monitor is not None:
+            self.monitor.stop()
+            self.monitor = None
+            if remember:
+                self.settings["monitor_enabled"] = False
+
+    def config_changed(self):
+        """Settings saved on the Alerts & cloud page: use them from now on."""
+        from core import cloud, outbox
+        outbox._MAILERS.clear()
+        cloud._UPLOADER.clear()
+        cloud.install_event_spool(self.scanner.config)
+        RS.CONFIG.update({k: v for k, v in self.scanner.config.items() if k in RS.CONFIG})
+
+    def run_deliveries(self):
+        """Retry queued alerts and upload the cloud spool, off the UI thread."""
+        import threading
+
+        from core import cloud
+        from core.outbox import flush_pending
+        cfg = self.scanner.config
+        cleanup = (self._cleaned_spool_at is None
+                   or (datetime.now() - self._cleaned_spool_at).total_seconds() > 86_400)
+        if cleanup:
+            self._cleaned_spool_at = datetime.now()
+
+        def work():
+            flush_pending(cfg)
+            try:
+                cloud.run_uploads(cfg, cleanup=cleanup)
+            except Exception as e:                       # logged; retried next minute
+                logging.getLogger("RansomwareScanner.GUI").warning("Cloud upload: %s", e)
+        threading.Thread(target=work, name="aegis-deliveries", daemon=True).start()
 
     def _refresh_protection(self):
         enabled = self.settings["schedule_enabled"]
@@ -455,6 +536,8 @@ class App(ctk.CTk):
         watcher = getattr(self, "canary_watcher", None)
         if watcher is not None:
             watcher.stop()
+        if getattr(self, "monitor", None) is not None:
+            self.stop_monitor(remember=False)      # starts again with the app next time
         super().destroy()
 
 

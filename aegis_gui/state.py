@@ -18,6 +18,8 @@ class SettingsStore:
         "scan_interval_hours": None,
         "schedule_enabled": True,
         "diagnostics_seen": False,     # the first-run check has been shown
+        "watch_dirs": None,            # folder monitoring (seeded from WATCH_DIRS)
+        "monitor_enabled": False,      # monitoring was on when the app closed
     }
 
     def __init__(self):
@@ -36,6 +38,9 @@ class SettingsStore:
             self.data["file_extensions"] = list(RS.CONFIG["file_extensions"])
         if not self.data["scan_interval_hours"]:
             self.data["scan_interval_hours"] = int(RS.CONFIG["scan_interval_hours"])
+        if self.data["watch_dirs"] is None:
+            from core.folder_watch import split_dirs
+            self.data["watch_dirs"] = split_dirs(RS.CONFIG.get("watch_dirs"))
 
     def save(self) -> None:
         try:
