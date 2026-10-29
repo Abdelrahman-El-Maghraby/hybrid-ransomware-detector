@@ -14,7 +14,13 @@
 - Implementation: prepared in core/cloud.py, tests/test_cloud.py and the two docs.
   Local cloud tests: 24 passed in 5.32 seconds, including HTTPS requests with
   and without a returned checksum. Ruff, mypy and bandit passed. Diff reviewed.
-  Full suite and CI pending; checksum checkpoint not yet pushed.
+  Full suite: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib RUN_GUI_TESTS=1
+  .venv/bin/python -m pytest -q -rs`: 1199 passed, 7 skipped, one Starlette
+  deprecation warning in 272.21 seconds (macOS, Python 3.14.2). CI pending.
+  Implementation commit `4d113a6` pushed, local and origin tips verified equal.
+  Skips: Windows Restart Manager and Job Object; Linux ELF system binary and
+  /proc; non-macOS fallback; missing box-js and optional OpenCV cv2.
+  No skip rules changed. The original step-12 suite had these same seven skips.
 - No unrelated local changes. No secrets, samples or detection changes.
 - Remaining: validate and commit/push small checkpoints; wait for #43 merge,
   open checksum PR into integration/v4.8, restore integration handoff as final
@@ -23,5 +29,10 @@
   report on final integrated code, through a separate PR into integration/v4.8.
   #39 stays draft. Production prerequisites and manual/atheris checks remain
   as PROJECT_REVIEW section 25 records.
-- Exact next action: run cloud tests and quality checks, inspect #43 final CI.
-- Last verified push: docs/v4.8 at b770763, local and origin tips equal.
+- Exact next action: inspect #43 final CI and mark ready once green; owner
+  merges #43, then fetch and open the checksum PR into integration/v4.8.
+  Scratch benchmark generator prepared from repository builders, seed 20261029:
+  163 benign files / 24,681,977 bytes. No benchmark measurements run yet;
+  regenerate as a new baseline after final code is integrated.
+- Last verified push: fix/cloud-put-checksum at 4d113a6, local and origin
+  tips equal. This documentation checkpoint is not yet pushed.
