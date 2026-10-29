@@ -222,3 +222,300 @@ flowchart LR
 
 The Mermaid source was not checked with a renderer in Stage 1 (validation is
 Stage 2).
+
+## 6. Clean code and design review
+
+Conclusions apply only to the files inspected (section 3). Blocks with inventory
+only are marked; their review is Stage 2. A large file, a mixin or global state is
+not counted as a problem unless the code shows a practical effect.
+
+### Per block
+
+**B1 Engine core and pipeline** (inspected)
+- *Working well.* Each layer is a small class with one `run()` and a visible order
+  (`engine/layers.py:130-144`, `:467-492`). Every layer runs inside a guard that
+  turns an exception into `layer_errors` (`engine/staging.py:88-104`). Heavy layers
+  run on copies of the context and are merged back in pipeline order
+  (`engine/staging.py:131-150`). The completeness rules are documented together with
+  their precedence (`engine/completeness.py:1-29`).
+- *Coupling.* The facade combines five mixins (`engine/scanner.py:70-71`). They
+  depend on attributes declared only as class annotations
+  (`engine/staging.py:27-31`, `engine/protection.py:25-31`). The practical effect
+  shows in `api/intel.py:91-101`: to reuse the VirusTotal code, the intel service
+  builds a stand-in "scanner" by setting `config`, `cache`, `intel`, `http`,
+  `http_timeout` and `vt_limiter` by hand. If `ExternalLookupsMixin` starts using a
+  new attribute, intel fails at run time. mypy would not catch it, because
+  `check_untyped_defs = false` (`pyproject.toml:122`).
+- *Error handling.* `ScanContext.start` runs before any layer guard
+  (`engine/staging.py:46`; `engine/layers.py:107-123`). If `os.path.getsize` or a
+  format sniffer raises, the whole `scan_file` call raises. The in-process path then
+  drops that file (PR-09).
+- *Duplication.* The top-level result is built in two places: `ScanContext.start`
+  (`engine/layers.py:109-118`) and `failure_result` (`engine/workers.py:373-405`). A
+  new top-level field has to be added to both. Whether every schema field is in
+  both was not checked in Stage 1 (Stage 2: compare against
+  `api/scan_result.schema.json`; `tests/test_outputs_and_api.py:36` checks failure
+  results against the schema).
+- *Readability.* `ScanContext.data()` sits between dataclass fields
+  (`engine/layers.py:80-95`). It works, but the fields read as if they ended before
+  it. Low impact.
+- *Naming.* Legacy names are kept on purpose for compatibility (`chatgpt_analysis`,
+  `engine/layers.py:393`; `kaggle_db_path`; `severity_score`). Keep them while the
+  result schema stays additive-only (C6).
+
+**B2 Worker isolation** (inspected)
+- *Working well.* The per-OS memory limits are cleanly separated
+  (`engine/workers.py:50-65`, `:122-145`, `:177-215`). Each worker has its own temp
+  folder, which the parent removes (`:227-234`, `:346`, `:357-370`), and folders left
+  by a dead scanner are swept (`:315-336`).
+- *Design weakness.* The fallback to unisolated scanning is implicit and silent
+  (PR-02). The scan loop polls each worker in turn with a 50 ms blocking poll
+  (`:428`, `:469-474`, `:522-528`). Whether this adds dispatch latency with several
+  workers is the hypothesis H-01, to be measured in Stage 2.
+- *Module globals* (`_SCANNER`, `_JOB_HANDLE`, `_SWEPT`, `:46`, `:103`, `:289`) are
+  per process and read correctly in their context. No change is suggested.
+
+**B3 Configuration and secrets** (partly inspected)
+- `CONFIG` is a global dict (`engine/config.py:139`), but the engine receives it by
+  injection (`engine/scanner.py:77-79`). That is testable, and a typed config is not
+  justified today (RELEASE_READINESS A7: "Typed config: no fix needed it").
+- *Duplicated fallback defaults.* Code outside `engine/config.py` repeats defaults,
+  for example `scan_timeout_seconds` 300 (`engine/scanner.py:375`,
+  `api/server.py:122`) and `worker_memory_mb` 2048 (`engine/scanner.py:376`,
+  `api/server.py:92`). Some copies disagree: `http_timeout` is 30 in
+  `engine/scanner.py:230` and 60 in `core/mailbox.py:72`, and `openai_model` is
+  `"gpt-4"` in `detectors/llm_backends.py:275` but `"openai"` in
+  `aegis_gui/pages/dashboard.py:274`. These fallbacks apply only when a key is
+  missing (tests, tools, partial configurations), because `CONFIG` always sets them
+  (`engine/config.py:158`, `:209`). Low impact. Fix them when that code is next
+  changed.
+- `api/server.py:67` reads `AEGIS_API_MAX_UPLOAD_MB` at import time. That goes
+  against the "no side effects on import" convention in `engine/config.py:5-10` and
+  makes the limit a module constant. Low impact.
+
+**B4 Document layers, B5 Executable layers**: inventory only. Review pending (Stage 2 sample).
+
+**B6 Containers and delivery** (`container_extractor.py` inspected)
+- *Working well.* Every format goes through shared admission, naming and budget
+  helpers (`detectors/container_extractor.py:489-506`, `:538-544`, `:572-588`). The
+  sandbox lives only inside a context manager (`:410-429`). The large module is
+  organised by format with explanatory docstrings, so its size alone is not a
+  problem.
+- *Inconsistency.* DMG unpacking is the only path that lets an external tool write
+  a directory tree (PR-04). 7z members are size-checked only after `py7zr` has
+  extracted them (`:705-739`; suspected S-02).
+- *Duplication.* The password-candidate loops appear three times, for ZIP
+  (`:619-637`), 7z (`:669-676`, `:706-718`) and RAR (`:752-760`, `:792-825`), each with
+  format-specific errors. Merging them is optional. Only do it when one of them
+  changes.
+- *Complexity.* `_walk_7z` is at 19 with the project's own limit of 19
+  (`pyproject.toml:107-108`; measured with ruff in this review).
+
+**B7 Detection content and scoring** (`core/rulepack.py` inspected; scoring pending)
+- *Working well.* Verification is complete and ordered: signature, then members,
+  then manifest hashes (`core/rulepack.py:156-209`). Monotonic versions, signed
+  rollback and signer tracking are small and readable (`:212-279`).
+- *Defects.* The signed `version` is used as a path (PR-01). `active.json` is
+  written non-atomically, and a damaged one silently falls back to the bundled
+  rules (PR-14).
+
+**B8 Intelligence and external services** (`api/intel.py`, `core/http.py` inspected)
+- *Working well.* There is a fixed set of operations with exact input validation
+  (`api/intel.py:235-270`). Each service has its own allowlisted session, enforced
+  in `send()`, so redirects are covered too (`core/http.py:57-72`). Only intel keeps
+  a cache, and only from real replies (`api/intel.py:112-119`, `:173-216`).
+- *Coupling.* The `_VirusTotal` stand-in (see B1).
+
+**B9 Host protection** (`canary_watch.py`, `engine/protection.py` inspected; the rest inventory)
+- *Working well.* Debounced, change-only events (`core/canary_watch.py:43-58`,
+  `:133-158`). Alerts are de-duplicated by finding signature
+  (`engine/protection.py:85-88`).
+- *Gap relevant to the requested alerting.* Canary alerts go only to a file and a
+  desktop notification. They never reach the webhook or JSON Lines outputs (PR-08).
+
+**B10 REST API** (inspected)
+- *Working well.* Middleware order and responsibilities are clear (body limit,
+  per-IP limit, then authentication with lockout, then the per-client quota;
+  `api/server.py:220-234`). There is a fresh worker for each upload and spare
+  workers ready in advance (`:73-130`).
+- *Complexity.* `create_app` is at the cap of 19. Its endpoint closures share
+  `service`, `auth` and `slots`. That is readable today, but each new endpoint adds
+  to it (refactoring proposal pending in Stage 2).
+- *Weaknesses.* The readiness worker check is frozen at start-up (PR-11). Module
+  docstrings are stale (PR-10).
+
+**B11 GUI** (sampled)
+- The single-file scan runs in the GUI process without limits
+  (`aegis_gui/state.py:107`; PR-03). The vault list and restore exist on the
+  Protection page (`aegis_gui/pages/protection.py:84-123`), and quarantine undo
+  exists in the result window (`aegis_gui/detail.py:468-518`). The rest of the GUI is
+  reviewed in Stage 2.
+
+**B12 CLI, background service and outputs** (partly inspected)
+- `RansomwareScanner.py` (999 lines) mixes autostart for three OSes
+  (`:116-321`), the argument parser (`:533-622`), command handlers (`:625-892`) and
+  the scheduler loop (`:894-957`). `_protection_command` reaches complexity 18.
+  The practical effects are PR-07, a loop with no exception guard, and a single-file
+  path that does not use workers (PR-03).
+- `core/outputs.py` is small and correct for one attempt per alert. It has no retry
+  or outbox (PR-08).
+
+**B13 Docker deployment** (inspected): the hardening matches DEPLOYMENT §0 and is
+checked by `tests/test_deployment.py:17-110`. Gaps: no hash pinning (PR-12); the
+analysis service can write its own log volume (proposed threat-model addition
+TMA-1).
+
+**B14 Release and CI** (inspected): PR-05, PR-06, PR-13. Coverage is measured
+over `engine`, `detectors`, `core` and `api` only (`pyproject.toml:77-79`). The
+reported 91 % therefore leaves out `aegis_gui/`, `tools/` and `RansomwareScanner.py`
+(observation PR-15).
+
+**B15 Tests**: the suite is broad and named after behaviours. The isolation
+fallback is asserted as intended behaviour (`tests/test_workers.py:80`), so fixing
+PR-02 means changing a test on purpose. No test covers: the rule-pack version
+format, DMG traversal or links, an exception in the background loop, or isolation
+of single-file scans.
+
+**B16 Documentation**: thorough and consistent with the code in most places
+checked. Exceptions: PR-04 (threat model §2), PR-10 (stale docstrings, a local
+file path in a public doc).
+
+### Design patterns in use
+
+| Pattern | Implementation | Fit | Misuse / note |
+|---|---|---|---|
+| Pipeline | `engine/layers.py:130-144`, `:467-492`; runner `engine/staging.py:34-86` | Good: independent, ordered, testable layers | none found |
+| Template Method | `engine/containers.py:51-89` hooks, `:92-139` shared loop; four handlers `:142-311` | Good: one recursion, budget and worst-member rule for four container kinds | none found |
+| Facade | `RansomwareScanner`, `engine/scanner.py:70-106` | Good single entry point for CLI, GUI and API | wide, because the mixins add every capability to it |
+| Mixins | `engine/scanner.py:70-71` | They split a large class into files | the stand-in in `api/intel.py:91-101` shows implicit coupling (see B1) |
+| Bulkhead (process isolation) | `engine/workers.py:339-371`, `:424-573` | Good, with per-OS limits | silent fail-open (PR-02); not used for single files (PR-03) |
+| Token bucket / rate limiter | `api/limits.py:108-137`, `AuthGuard` `:159-200`, `core/http.py:99-122` | Good, bounded tables (`max_clients`) | none found |
+| Allowlist proxy (egress guard) | `core/http.py:57-72` | Good: covers redirects | none found |
+| Context-managed sandbox | `detectors/container_extractor.py:410-429` | Good: removal guaranteed in-process | a killed worker relies on B2's folder removal (present) |
+| Registry, Strategy, Null Object | documented in `docs/ARCHITECTURE.md` §8 | not inspected in Stage 1 | Stage 2 |
+
+**Where a pattern would really simplify** (proposals, detailed in Stage 2):
+1. A small `VirusTotalClient` service that both the scanner and intel inject,
+   instead of the hand-built `_VirusTotal` mixin host (`api/intel.py:91-101`). It
+   removes the implicit attribute contract and lets intel use a typed object.
+2. An explicit isolation policy for `scan_isolated` (fail closed, or fall back
+   in-process with the fallback recorded in the result) instead of a hidden
+   fallback (`engine/workers.py:461-462`). This addresses PR-02 without new layers.
+3. Reuse the existing bounded writer (`_stream_into`) for DMG members, as RAR
+   already does, instead of a separate extract-then-walk path (PR-04).
+
+No other new abstractions are recommended.
+
+## 7. Threat-to-mitigation mapping
+
+Legend: **Doc** = stated in `docs/THREAT_MODEL.md`. **Impl** = found in the code.
+**Test** = an automated test exists. **Run** = executed in this review (local,
+macOS, Python 3.14). Two local batches, both with `LLM_PROVIDER=none` and
+`-p no:cacheprovider`:
+- Batch 1: workers, worker limits, archives, RAR, encrypted containers, macOS
+  packages, closed limits, fuzz. **145 passed, 3 skipped** (Job Object, `/proc`,
+  "libproc exists on macOS").
+- Batch 2: API auth, outputs and API, intel, cache integrity, cache keys, rule
+  packs, deployment, privilege separation, readiness, scan status, secret store,
+  tools path, HTTP, sharing, provenance, metrics. **175 passed**.
+
+| Area / TM ref | Mitigation | Impl (file:line) | Test (file:line) | Run | Gap |
+|---|---|---|---|---|---|
+| Parsers §1 | Each layer guarded; an error becomes `layer_errors` | `engine/staging.py:88-104` | `tests/test_fuzz_parsers.py:199`, `:216` | yes, passed | `ScanContext.start` is outside the guard (PR-09). Parser internals not yet inspected (Stage 2). In CI the fuzz suite runs only on Linux / 3.12 (PR-05) |
+| Parsers §1 | Fuzzing of every parser | `tests/test_fuzz_parsers.py:117-216`; `fuzz/fuzz_parsers.py` | same | hypothesis suite yes; atheris no | atheris long runs not executed |
+| Parsers §10 | Container boundary for a parser exploit | `docker-compose.yml:64-112` | `tests/test_deployment.py:22-62` (compose content); `deploy/isolation_check.py` (live) | compose tests yes; live check no | live isolation not exercised here (CI `docker.yml` runs it) |
+| Archives §2 | Generated member names in a fresh sandbox | `detectors/container_extractor.py:410-429`, `:538-544` | `tests/test_container_extractor.py:25` | yes, passed | none |
+| Archives §2 | Traversal, absolute paths and links refused and reported | `:333-342`, `:489-506`; pkg `:914-916` | `tests/test_container_extractor.py:50`, `:59`; `tests/test_rar.py:76`; `tests/test_macos_packages.py:111` | yes, passed | DMG: no traversal or link test (PR-04, S-01) |
+| Archives §2 | External tools only stream one member to stdout | RAR: `:795-798` through rarfile | `tests/test_rar.py:61-125` | yes, passed | **Not true for DMG**: `7z x -o<dir>` (`detectors/macos_packages.py:331-337`, used at `container_extractor.py:1008-1014`) (PR-04) |
+| Archives §2 | 7z: private folder, only resolved plain files moved | `:705-739` | `tests/test_archive_formats.py:109-149` | yes, passed | size checked after extraction (S-02) |
+| Archives §2 | Unpack budget (bytes, members, depth, ratio) | ZIP `:572-588`, ISO `:379-389`, `:869-882`, limits `:525-536`, depth `:436-439` | `tests/test_container_extractor.py:68`, `:74`, `:94`; `tests/test_rar.py:87`; `tests/test_archive_formats.py:141`, `:182`, `:189` | yes, passed | DMG and 7z checked after the write (PR-04, S-02) |
+| Archives §2 | Killed worker's temp folder removed | `engine/workers.py:227-234`, `:357-370`, `:315-336` | `tests/test_workers.py:46`; `tests/test_worker_limits.py:360` | yes, passed | none |
+| Isolation §1 | Wall-clock limit, scan_failed result | `engine/workers.py:486-500`, `:373-405` | `tests/test_workers.py:32` | yes, passed | none |
+| Isolation §1 | Memory: RLIMIT_AS (Linux) | `:59-63` | `tests/test_worker_limits.py:32` | yes (setter only, macOS) | real enforcement only in Linux CI |
+| Isolation §1 | Memory: Job Object (Windows) | `:122-145` | `tests/test_worker_limits.py:67-93` | partly (`:93` skipped here) | real cap only in Windows CI (`:93` ran there: not in the Windows skip list of run 40741208642) |
+| Isolation §1 | Memory: watchdog (macOS) | `:177-215`, `:503-512` | `tests/test_workers.py:58`; `tests/test_worker_limits.py:121-176` | yes, passed | 0.25 s residual (documented) |
+| Isolation §1, §10 | Folder and API scans in a worker; fresh worker per upload | `engine/scanner.py:372-376`; `api/server.py:114-127` | `tests/test_outputs_and_api.py:139`; `tests/test_readiness.py:152` | yes, passed | **fails open** after 3 failed starts (PR-02, asserted by `tests/test_workers.py:80`); single files not isolated (PR-03) |
+| Intel §10 | Analysis has no network | `docker-compose.yml:74` | `tests/test_deployment.py:41`, `:62` | yes (static) | live check not run here |
+| Intel §10 | Secrets only in intel; production refuses them on the analysis side | `docker-compose.yml:49` vs `:91` | `tests/test_intel_service.py:336` | yes, passed | none |
+| Intel §10 | Fixed operations, exact inputs | `api/intel.py:235-270`, `:321-351` | `tests/test_intel_service.py:160`, `:169` | yes, passed | none |
+| Intel §10 | Destinations from intel's configuration, redirects refused | `core/http.py:46-72`; `api/intel.py:122-138` | `tests/test_intel_service.py:27`, `:57`, `:184`, `:238` | yes, passed | none |
+| Intel §10 | Token (≥ 32 characters) and per-operation rate limit; body cap | `api/intel.py:276-303`, `:286` | `tests/test_intel_service.py:149`, `:224`, `:232` | yes, passed | the worker holds the token (tracked: Phase 2 backlog [A5]) |
+| Intel §10 | Cache only in intel, keyed by what intel derives | `engine/scanner.py:233-239`; `api/intel.py:112-119`, `:173-216` | `tests/test_cache_integrity.py:24-109` | yes, passed | none |
+| API §7 | Bearer token, constant-time compare, ≥ 16 characters, docs off | `api/server.py:165-168`, `:205-206`, `:218-219` | `tests/test_outputs_and_api.py:101`, `:110`; `tests/test_api_auth.py:158` | yes, passed | none |
+| API §7 | Per-IP limit before authentication | `api/limits.py:203-218`; `api/server.py:225-227` | `tests/test_api_auth.py:131` | yes, passed | none |
+| API §7 | Lockout per IP, checked before the compare | `api/limits.py:159-200`; `api/server.py:175-194` | `tests/test_api_auth.py:25-126` | yes, passed | none |
+| API §7 | Last X-Forwarded-For entry behind a trusted proxy | `api/limits.py:140-149` | `tests/test_api_auth.py:58`, `:63` | yes, passed | docstring says "first" (PR-10) |
+| API §7 | Upload refused before parsing; streaming count | `api/limits.py:59-105`; `api/server.py:286-298` | `tests/test_outputs_and_api.py:132` | yes, passed | none |
+| API §7 | `/ready` is not a token oracle | `api/server.py:241-255` | `tests/test_api_auth.py:149` | yes, passed | the workers check is frozen at start-up (PR-11) |
+| Rule packs §5 | Ed25519 signature from a configured key | `core/rulepack.py:156-179` | `tests/test_rulepack.py:65` | yes, passed | none |
+| Rule packs §5 | Manifest lists exactly the files; plain files under `rules/` | `:181-208` | `tests/test_rulepack.py:65`, `:107` | yes, passed | none |
+| Rule packs §5 | Only newer versions; no replay; signed rollback | `:244-251`, `:123-135` | `tests/test_rulepack.py:113`, `:127` | yes, passed | **the version string is not validated and becomes a path** (PR-01, reproduced) |
+| Rule packs §5 | Signer recorded; distrusted key's pack not used | `:212-231`, `:273-278` | `tests/test_rulepack.py:146`, `:167` | yes, passed | non-atomic `active.json`, silent fallback (PR-14) |
+| Rule packs §5 | Rules compile before activation | `:260-270` | `tests/test_rulepack.py:176` | yes, passed | none |
+| Rule packs §5 | Read-only content in analysis; reload on change | `docker-compose.yml:97`; `engine/scanner.py:130-170` | `tests/test_deployment.py:53`; `tests/test_cache_keys.py:27` | yes, passed | none |
+
+### Proposed threat-model additions (for the owner; `docs/THREAT_MODEL.md` not changed)
+
+| ID | Proposed addition | Evidence |
+|---|---|---|
+| TMA-1 | A compromised analysis worker can write the `analysis-state` volume, which holds the local log file and reports. It can therefore delete or edit local log lines. Docker's own container log is outside its reach. §10 "Little to change" lists only the read-only root and content. | `docker-compose.yml:92-93`; DEPLOYMENT §0 "Operations" (the log file is in `analysis-state`) |
+| TMA-2 | A pack signed by a compromised key can do more than change detection content: through the unvalidated version string it can delete or replace directories that the installing user can write. §5 and `docs/RULE_PACKS.md` describe the compromise impact as content only. | PR-01 |
+| TMA-3 | DMG unpacking depends on the host's 7-Zip for path and link safety. | PR-04 |
+| TMA-4 | Isolation can silently fall back to the main process. §1 and §10 state that every folder and API scan is isolated. | PR-02, PR-03 |
+
+These do not widen the attacker's capabilities. The attacker is still a hostile
+file, or the owner of a compromised signing key, as §5 already assumes.
+
+## 8. Platform and Python-version coverage
+
+**Configured versus local runtime.**
+
+| Where | Python | OS | Dependencies |
+|---|---|---|---|
+| `tests.yml` matrix (`.github/workflows/tests.yml:17-21`) | 3.9, 3.12 | ubuntu, windows, macos (latest) | `requirements.txt` and `requirements-ml.txt`, unpinned, installed one by one, a failure only warns (`:41-50`) |
+| `quality.yml` lint, types, coverage, regression | 3.12 | ubuntu only | `requirements.lock` (`quality.yml:32`, `:54`, `:109`) |
+| `release.yml` builds | 3.12 | ubuntu, windows, macos | `requirements.lock`, one by one, a failure only warns; `build.py` decides (`release.yml:45-50`) |
+| Docker image | 3.12 (`Dockerfile:7`) | Debian trixie, amd64 in release | `-c requirements.lock` (`Dockerfile:19-21`) |
+| mypy target | `python_version = "3.11"` (`pyproject.toml:117`) | n/a | type checks do not target 3.9 or 3.12 |
+| This Mac | 3.14.2 | macOS 27.0.1, arm64 | `.venv` (lock not installable on 3.14: B3, tracked) |
+
+`requirements.lock` says it was "resolved for Python 3.13 on Linux"
+(`requirements.lock:1-3`). Whether the lock installs on Python 3.9 has not been
+established (suspected S-04). The 3.9 jobs test unpinned, current packages, not
+the shipped set.
+
+**What CI actually exercises** (log of `tests` run 40741208642 on `af5e6d2`):
+
+| Job | Passed | Skipped | Skipped because fastapi is missing | hypothesis (whole fuzz file) | jsonschema / qrcode | GUI (opt-in) | other (platform / tool) |
+|---|---|---|---|---|---|---|---|
+| ubuntu 3.9 | 935 | 46 | 36 | 1 | 2 / 2 | 1 | 4 |
+| ubuntu 3.12 | 935 | 46 | 36 | 1 | 2 / 2 | 1 | 4 |
+| macos 3.9 | 933 | 48 | 36 | 1 | 2 / 2 | 1 | 6 |
+| macos 3.12 | 933 | 48 | 36 | 1 | 2 / 2 | 1 | 6 |
+| windows 3.9 | 920 | 61 | 33 | 1 | 2 / 2 | 1 | 22 |
+| windows 3.12 | 920 | 61 | 33 | 1 | 2 / 2 | 1 | 22 |
+
+The skipped fastapi tests include the API authentication and lockout tests, the
+intel service, cache integrity, HTTP readiness and metrics. **These, and the
+hypothesis fuzz suite, run only in the Linux / Python 3.12 coverage job, against
+the lock.** The GUI smoke test runs only there too, under xvfb (`quality.yml:57-71`;
+verified by the owner from JUnit in RELEASE_READINESS P3.A9).
+
+**Platform-specific code paths (from code; the CI evidence is the skip list above).**
+
+| Path | Code | Exercised by CI | Gap |
+|---|---|---|---|
+| Linux RLIMIT_AS | `engine/workers.py:59-63` | ubuntu jobs | none |
+| Windows Job Object | `engine/workers.py:122-145` | windows jobs (`test_worker_limits.py:93` not skipped there) | none |
+| macOS memory watchdog | `engine/workers.py:177-215` | macos jobs; locally | none |
+| Windows `_pid_alive` | `engine/workers.py:294-305` | not established (no dedicated test found in Stage 1) | verify in Stage 2 |
+| Restart Manager containment | `core/containment.py` | windows (`tests/test_containment.py:228`) | Stage 2 |
+| POSIX containment, lsof, `/proc`, signals, modes | `core/containment.py` | ubuntu and macos; skipped on Windows (5 tests) | n/a on Windows |
+| Windows toast | `core/canary.py:341-369` | unit test with a fake runner (RELEASE_READINESS P3.A9) | a real toast on Windows was not verified (already recorded there) |
+| Autostart per OS | `RansomwareScanner.py:116-321` | tests reference it (`tests/test_pipeline.py`, `tests/test_scanner_integration.py`, `tests/test_v41_integration.py`); depth not checked | not covered by coverage measurement (PR-15) |
+| Intel over a Unix socket | `core/intel_client.py:39-68` | skipped on Windows (`tests/test_intel_service.py:285`, `:306`, `:349`); the no-`AF_UNIX` path is tested at `:452` | n/a on Windows for the Docker edition |
+| Emulation | `detectors/emulation.py` | POSIX fake tool only; box-js absent on every runner | the real tool is never run (opt-in feature) |
+
+**Compatibility observations.** No supported-version compatibility defect was found
+in Stage 1. The 320 targeted tests passed on 3.14 locally, but 3.14 is not
+supported, so this says nothing about 3.9 or 3.12.
