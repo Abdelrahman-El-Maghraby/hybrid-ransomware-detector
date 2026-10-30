@@ -2378,3 +2378,202 @@ is unchanged because no tracked prerequisite was closed by this pass.
 No agent merges, tags or releases. PR #39 remains draft while these release
 validation requirements remain unresolved; the final evidence PR being ready
 must not be mistaken for approval to publish or a claim of production readiness.
+
+## 27. Remaining validation after PR #45
+
+PR #45 was verified merged at `03089d5e16467d19edf2f718220cb5bab13af8ee`;
+its tree equals `cd51cee`. At takeover the working tree was clean and PR #39
+was open, draft, at that integration tip. The idle handoff was a completed-PR
+reset, not evidence that the remaining section 24.5 requirements had disappeared.
+Work continues on `validation/v4.8-remaining`, draft PR #46. No PR was merged by
+an agent. Sections 25-26 retain the completed evidence; their successful tests
+and benchmark were not repeated just for the documentation merge.
+
+### 27.1 Reconciled inspection and integration evidence
+
+- Integration tip `03089d5`: all six matrix jobs in tests **40932281409**, four
+  quality jobs in **40932281540**, and Docker **40932281388** passed. A separate
+  deployment run **40932271434** also passed. This checks actual post-merge CI;
+  it does not turn CI into manual owner acceptance.
+- [PR #40](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/pull/40)
+  already records the B4/B5/entropy/ML bounds/error-handling review and its
+  5,000-example Hypothesis pass (18 tests, 86 s). It reported no new High/Medium
+  finding and explicitly left Atheris unrun. That review was not restarted.
+- Local Docker CLI is installed, but the daemon socket is absent. No new local
+  deployment result is claimed. Atheris was absent from the local Python 3.14
+  environment; Linux CI supplies Python 3.12 and the hash-pinned fuzz tool.
+
+### 27.2 Atheris uncovered a CPIO error-contract defect
+
+The first long-run attempt, **40969502006**, parser job **123782398098**, failed
+with exit 77 after **104 inputs**. A mutation of the generated benign CPIO seed
+inserted NULs into an odc file-size field. `read_cpio` called `int(field, 8)`,
+which raised an uncaught `ValueError`; the direct parser/fuzz contract expects
+`FormatError` or `BudgetExceeded`. The failure artifact was retained by CI
+(`crash-019c81091380d838741ab1e991c0e0226a79ed2e`). No real sample was used.
+
+Impact is limited by the existing `_pkg_stream` catch in `container_extractor`:
+the stream is marked unreadable rather than crashing the whole scan. This is a
+confirmed direct-parser error-contract defect, not evidence of a scanner-wide
+crash or an accuracy result. The fix **`673acdc`** validates the consumed odc/newc
+numeric fields as unsigned octal/hexadecimal digits and raises `FormatError`
+for malformed values. Valid format parsing, detection weights, thresholds,
+inspection layers, result schema and shipped dependency locks are unchanged.
+
+Verification actually run on macOS / Python 3.14.2:
+
+- New regression cases before the fix: **36 failed**, 18 deselected, **1.96 s**.
+  They cover NUL, non-digit and signed values in all three consumed fields of
+  odc and both newc magic variants.
+- `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python -m pytest -q
+  tests/test_macos_packages.py tests/test_dmg_streaming.py tests/test_fuzz_parsers.py`:
+  **87 passed, no skips, 4.78 s** after the fix.
+- `.venv/bin/ruff check .`: passed; `.venv/bin/mypy`: passed (67 files);
+  `.venv/bin/bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll`:
+  passed. `git diff --check`: passed.
+
+The fixed-code campaigns in **40974246237** on `673acdc` both subsequently
+**failed at the RSS limit**, as did the first attempt's B4 job. See 27.5 for
+inspected outcomes and the restricted follow-up boundary. No campaign completed
+its requested hour; none is passing evidence. The CPIO regression fix does not
+close the separate memory failures.
+
+### 27.3 Fuzz scope and limits
+
+`fuzz/fuzz_parsers.py` adds generated DMG/PKG inputs to the existing parser
+entry points and CPIO. `fuzz/fuzz_b4.py` adds format-aware integrity, macro,
+hidden-content, relationships, bundled YARA, fuzzy-hash and Python TLSH targets.
+Each Linux job requests one hour with seed 20261030, maximum input 1 MiB,
+per-input timeout 90 s and process RSS limit 4 GiB. These are validation limits;
+product worker limits are unchanged. Expected malformed-input log messages are
+suppressed, but exceptions escape and fail the job. Required B4 libraries and
+compiled YARA rules are checked at startup.
+
+Before CI, a local seed-driver replay exercised **53 parser seeds and 48 B4
+seeds**, all targets returning, with instrumentation replaced by a no-op shim.
+That checks fixture/driver wiring only and is explicitly not Atheris evidence.
+Native libraries and 7-Zip are not sanitizer-instrumented. The OLE seeds are
+benign message containers, not valid VBA/P-code; no valid CHM seed is present.
+Entry-point counters do not prove full branch coverage. Logs/corpora/failure
+inputs are retained for 14 days by CI; they are not committed to the repository.
+
+Documentation-only follow-up commits do not restart these long campaigns.
+The workflow's change gate compares the PR update's before/after commits;
+manual dispatch runs them regardless. A skipped matrix is not new successful
+fuzz evidence. The report must name the actual tested code commit and run.
+
+### 27.4 Owner actions and draft boundary
+
+The actionable checklist is
+[tasks/v4.8-owner-validation.md](tasks/v4.8-owner-validation.md): desktop
+walkthroughs and failure/recovery observations; real SMTP and S3 request-checksum,
+retry, redaction, permission and lifecycle checks; the existing production IDs
+and a sanitised evidence return format.
+
+A scratch macOS GUI was launched with isolated configuration, outbound services
+off and no account credentials. The dashboard was visible, but native UI
+control did not reliably navigate the window and timed out when closing it;
+the process subsequently exited. **No manual GUI acceptance is claimed.** The
+visible label still says **4.4 beta**, matching the hardcoded
+`aegis_gui/common.py:APP_VERSION`; this existing presentation inconsistency is
+recorded for a separate follow-up, not silently changed in parser validation.
+
+Remaining owner development acceptance: Windows/macOS manual GUI, real
+Windows/Linux desktop monitoring, and real SMTP/S3 provider checks. The agent
+can finish CI/fuzz investigation and review sanitised returned evidence.
+Production prerequisites remain separately open: M1/X1, reference-host M2,
+clean Linux O1, actual-installation U1, X2, legal review, conditional D5 and
+verification on the eventual release commit. Use section 24.2's R/P distinction;
+no prerequisite is silently waived or declared complete. PR #39 remains draft.
+
+
+### 27.5 Resource-limit failures: unresolved; no artifact replay
+
+Checkpoint **`b55c60e3c809f6a123257a0f504e27c2fd3b259e`** was verified against
+both local HEAD and the live remote branch, with a clean working tree. Its
+handoff's pending-run statements were reconciled against completed job logs:
+
+| Campaign / code | Run / job | Actual outcome |
+|---|---|---|
+| B4 / `b2e8aea` | 40969502006 / 123782397665 | exit 71, out-of-memory; 13,639 inputs; peak RSS 4,314 in libFuzzer's reported MB units; artifact `oom-07598bbb032f9faaaeef08f618a35502df0699e3` |
+| B4 / `673acdc` | 40974246237 / 123798293969 | exit 71, out-of-memory; 2,500 inputs; peak RSS 4,261; artifact `oom-50152c60b007e96f0a4afdbe5ab0051325ceaadf` |
+| General parsers / `673acdc` | 40974246237 / 123798293941 | exit 71, out-of-memory; 36,433 inputs; peak RSS 4,628 (failure line: 4,627); artifact `oom-fb07a247962bea213437824a4f5f5d8bc270a725` |
+
+The configured threshold stayed **4096 MB** in all attempts. The general-parser
+run progressed beyond the CPIO failure but did not complete long validation.
+The generated artifacts remain in GitHub's 14-day CI artifact retention; no OOM
+artifact was downloaded or executed in this follow-up. The owner explicitly
+prohibited artifact execution, spike reproduction, increasing limits, disabling
+checks or calling B4 passed. Those restrictions also preclude restarting the
+same unmodified fuzz campaign. Existing completed failure evidence is preserved.
+
+**Attribution supported by source and logs:**
+
+- `fuzz/fuzz_b4.py:TestOneInput` writes one selected input and directly invokes
+  its parser callable in the same Python process as Atheris. The general harness
+  does likewise. Neither calls `scan_isolated`, `start_worker` or `_worker_main`.
+- `-rss_limit_mb=4096` is a libFuzzer process RSS check, not the application's
+  worker memory policy. Its aggregate includes interpreter, imported libraries,
+  instrumentation/corpus bookkeeping, parser/native-library allocations and any
+  retained objects. A `tee` process receives logs separately. The reported RSS
+  is not a sum of application scan workers, because none were launched by these
+  harnesses. Some archive targets can launch external extraction utilities;
+  these logs do not account for their aggregate memory.
+- Counters have a fixed number of entries and input files are reused. That does
+  not establish the size of other retained allocations or exclude a harness
+  contribution. The final OOM logs have no allocation traceback or per-target
+  memory attribution. The failing target and precise cause are **unestablished**;
+  the last completed-target line is not evidence of the target active at failure.
+- A 1 MiB input cap bounds supplied bytes, not decompression, parsed object graphs
+  or dependency allocations. Macro analysis delegates to `VBA_Parser` and closes
+  successfully constructed parser objects in `finally`. PDF hidden-content
+  analysis calls `PdfReader`/content decoding; page count limits are not byte or
+  heap limits. OOXML hidden-content/relationship paths check declared member
+  sizes. These are concrete distinctions, not identification of an OOM cause.
+- In the product, `ScanContext.data` bounds the shared byte buffer at 64 MiB and
+  the fuzzy layer uses `fuzzy_max_bytes`; neither is a global cap on all parser
+  allocations. `_worker_main` applies `_limit_memory` before scanner creation:
+  Linux RLIMIT_AS, Windows Job Object, or the parent-side macOS physical-footprint
+  watchdog. Defaults are 2048 MB and 300 seconds. The watchdog polls at 0.25 s;
+  an instantaneous allocation bound is not promised. Limit setup can report
+  failure; inspecting configured values alone does not prove OS enforcement.
+- The worker loop reports an escaping `MemoryError`; the parent turns dead,
+  timed-out or over-limit workers into failed results and replaces them. Layer
+  guards also record ordinary exceptions. These paths were not exercised by the
+  failing direct fuzz harness, so the OOM result neither proves nor disproves
+  product worker containment on that input.
+
+**Permitted bounded tests actually run:** seven existing tests, no large
+allocation, with injected exceptions, mocked OS limit calls/RSS values and a
+benign fake slow worker. Command:
+
+```sh
+.venv/bin/python -m pytest -q -rs tests/test_worker_limits.py::test_no_limit_and_platform_choice tests/test_worker_limits.py::test_rlimit_is_set_without_limiting_the_test_run tests/test_worker_limits.py::test_macos_reader_counts_compressed_memory tests/test_worker_limits.py::test_watchdog_only_on_macos tests/test_worker_limits.py::test_over_memory_is_throttled tests/test_worker_limits.py::test_worker_loop_reports_each_outcome tests/test_worker_limits.py::test_watchdog_stops_an_over_limit_worker
+```
+
+**7 passed, no skips, 4.77 s** on macOS / Python 3.14.2. This verifies the selected
+routing, error reporting and simulated over-limit replacement; it is not a
+memory-stress test, Linux enforcement measurement, artifact replay or fuzz pass.
+No new resource-handling implementation change is justified by the available
+attribution evidence, so no speculative parser cap, limit adjustment or
+inspection reduction was introduced. The independently reproduced CPIO fix is
+unchanged.
+
+**CI snapshot on `b55c60e`:** tests 40974592287: all six matrix jobs passed; quality 40974592282: all four jobs passed; Docker
+40974592263: passed. The change gate in 40974592278 passed and its Atheris job
+was **skipped** because this checkpoint changed only documentation. That skip
+predates the restricted follow-up and does not override the failed campaigns
+above. Ordinary CI success cannot close the unresolved long-fuzz requirement.
+
+**Exact remaining work:** inspect final ordinary CI statuses; continue static
+source/configuration review or small benign, bounded regression checks where
+there is a concrete hypothesis. Do not replay OOM artifacts or rerun campaigns
+likely to reproduce the spike under the current restriction. Attribution needs
+additional non-executing evidence or a separately approved investigation plan;
+no particular library, parser or harness defect has been established. Any fix
+must preserve detection settings and inspection coverage and have a small
+benign regression case before claiming closure. After a justified repair, long
+validation would still need permission within the then-current constraints and
+actual successful evidence. Owner desktop/provider acceptance and the separate
+production checklist remain as in 27.4. PRs #46 and #39 stay draft; #46 is not
+ready to merge. Keep an active, resumable handoff rather than resetting it idle.

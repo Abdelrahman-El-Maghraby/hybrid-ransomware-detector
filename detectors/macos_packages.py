@@ -151,6 +151,16 @@ class CpioEntry:
         return self.is_file and bool(self.mode & 0o111)
 
 
+def _cpio_int(field: bytes, base: int) -> int:
+    # int() also accepts signs/whitespace, which are not valid unsigned CPIO
+    # fields and could move the parser backwards. Keep malformed headers within
+    # the parser's FormatError contract, including the NUL found by Atheris.
+    digits = b"01234567" if base == 8 else b"0123456789abcdefABCDEF"
+    if not field or any(byte not in digits for byte in field):
+        raise FormatError("invalid cpio numeric field")
+    return int(field, base)
+
+
 def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
     """Entries of an odc ('070707', what pkgbuild writes) or newc cpio archive."""
     pos, n = 0, 0
@@ -160,9 +170,9 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
             if pos + 76 > len(data):
                 raise FormatError("truncated cpio header")
             h = data[pos:pos + 76]
-            mode = int(h[18:24], 8)
-            namesize = int(h[59:65], 8)
-            filesize = int(h[65:76], 8)
+            mode = _cpio_int(h[18:24], 8)
+            namesize = _cpio_int(h[59:65], 8)
+            filesize = _cpio_int(h[65:76], 8)
             name_start = pos + 76
             data_start = name_start + namesize
             nxt = data_start + filesize
@@ -170,9 +180,9 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
             if pos + 110 > len(data):
                 raise FormatError("truncated cpio header")
             h = data[pos:pos + 110]
-            mode = int(h[14:22], 16)
-            filesize = int(h[54:62], 16)
-            namesize = int(h[94:102], 16)
+            mode = _cpio_int(h[14:22], 16)
+            filesize = _cpio_int(h[54:62], 16)
+            namesize = _cpio_int(h[94:102], 16)
             name_start = pos + 110
             data_start = (name_start + namesize + 3) & ~3
             nxt = (data_start + filesize + 3) & ~3
