@@ -2432,10 +2432,11 @@ Verification actually run on macOS / Python 3.14.2:
   `.venv/bin/bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll`:
   passed. `git diff --check`: passed.
 
-The fixed-code campaigns are **pending**, run **40974246237** on `673acdc`.
-The first attempt's B4 job is also pending as of this checkpoint. Neither is
-called a pass until its completion and logs are inspected. The initial failed
-run remains failure evidence even if a later run succeeds.
+The fixed-code campaigns in **40974246237** on `673acdc` both subsequently
+**failed at the RSS limit**, as did the first attempt's B4 job. See 27.5 for
+inspected outcomes and the restricted follow-up boundary. No campaign completed
+its requested hour; none is passing evidence. The CPIO regression fix does not
+close the separate memory failures.
 
 ### 27.3 Fuzz scope and limits
 
@@ -2484,3 +2485,95 @@ Production prerequisites remain separately open: M1/X1, reference-host M2,
 clean Linux O1, actual-installation U1, X2, legal review, conditional D5 and
 verification on the eventual release commit. Use section 24.2's R/P distinction;
 no prerequisite is silently waived or declared complete. PR #39 remains draft.
+
+
+### 27.5 Resource-limit failures: unresolved; no artifact replay
+
+Checkpoint **`b55c60e3c809f6a123257a0f504e27c2fd3b259e`** was verified against
+both local HEAD and the live remote branch, with a clean working tree. Its
+handoff's pending-run statements were reconciled against completed job logs:
+
+| Campaign / code | Run / job | Actual outcome |
+|---|---|---|
+| B4 / `b2e8aea` | 40969502006 / 123782397665 | exit 71, out-of-memory; 13,639 inputs; peak RSS 4,314 in libFuzzer's reported MB units; artifact `oom-07598bbb032f9faaaeef08f618a35502df0699e3` |
+| B4 / `673acdc` | 40974246237 / 123798293969 | exit 71, out-of-memory; 2,500 inputs; peak RSS 4,261; artifact `oom-50152c60b007e96f0a4afdbe5ab0051325ceaadf` |
+| General parsers / `673acdc` | 40974246237 / 123798293941 | exit 71, out-of-memory; 36,433 inputs; peak RSS 4,628 (failure line: 4,627); artifact `oom-fb07a247962bea213437824a4f5f5d8bc270a725` |
+
+The configured threshold stayed **4096 MB** in all attempts. The general-parser
+run progressed beyond the CPIO failure but did not complete long validation.
+The generated artifacts remain in GitHub's 14-day CI artifact retention; no OOM
+artifact was downloaded or executed in this follow-up. The owner explicitly
+prohibited artifact execution, spike reproduction, increasing limits, disabling
+checks or calling B4 passed. Those restrictions also preclude restarting the
+same unmodified fuzz campaign. Existing completed failure evidence is preserved.
+
+**Attribution supported by source and logs:**
+
+- `fuzz/fuzz_b4.py:TestOneInput` writes one selected input and directly invokes
+  its parser callable in the same Python process as Atheris. The general harness
+  does likewise. Neither calls `scan_isolated`, `start_worker` or `_worker_main`.
+- `-rss_limit_mb=4096` is a libFuzzer process RSS check, not the application's
+  worker memory policy. Its aggregate includes interpreter, imported libraries,
+  instrumentation/corpus bookkeeping, parser/native-library allocations and any
+  retained objects. A `tee` process receives logs separately. The reported RSS
+  is not a sum of application scan workers, because none were launched by these
+  harnesses. Some archive targets can launch external extraction utilities;
+  these logs do not account for their aggregate memory.
+- Counters have a fixed number of entries and input files are reused. That does
+  not establish the size of other retained allocations or exclude a harness
+  contribution. The final OOM logs have no allocation traceback or per-target
+  memory attribution. The failing target and precise cause are **unestablished**;
+  the last completed-target line is not evidence of the target active at failure.
+- A 1 MiB input cap bounds supplied bytes, not decompression, parsed object graphs
+  or dependency allocations. Macro analysis delegates to `VBA_Parser` and closes
+  successfully constructed parser objects in `finally`. PDF hidden-content
+  analysis calls `PdfReader`/content decoding; page count limits are not byte or
+  heap limits. OOXML hidden-content/relationship paths check declared member
+  sizes. These are concrete distinctions, not identification of an OOM cause.
+- In the product, `ScanContext.data` bounds the shared byte buffer at 64 MiB and
+  the fuzzy layer uses `fuzzy_max_bytes`; neither is a global cap on all parser
+  allocations. `_worker_main` applies `_limit_memory` before scanner creation:
+  Linux RLIMIT_AS, Windows Job Object, or the parent-side macOS physical-footprint
+  watchdog. Defaults are 2048 MB and 300 seconds. The watchdog polls at 0.25 s;
+  an instantaneous allocation bound is not promised. Limit setup can report
+  failure; inspecting configured values alone does not prove OS enforcement.
+- The worker loop reports an escaping `MemoryError`; the parent turns dead,
+  timed-out or over-limit workers into failed results and replaces them. Layer
+  guards also record ordinary exceptions. These paths were not exercised by the
+  failing direct fuzz harness, so the OOM result neither proves nor disproves
+  product worker containment on that input.
+
+**Permitted bounded tests actually run:** seven existing tests, no large
+allocation, with injected exceptions, mocked OS limit calls/RSS values and a
+benign fake slow worker. Command:
+
+```sh
+.venv/bin/python -m pytest -q -rs tests/test_worker_limits.py::test_no_limit_and_platform_choice tests/test_worker_limits.py::test_rlimit_is_set_without_limiting_the_test_run tests/test_worker_limits.py::test_macos_reader_counts_compressed_memory tests/test_worker_limits.py::test_watchdog_only_on_macos tests/test_worker_limits.py::test_over_memory_is_throttled tests/test_worker_limits.py::test_worker_loop_reports_each_outcome tests/test_worker_limits.py::test_watchdog_stops_an_over_limit_worker
+```
+
+**7 passed, no skips, 4.77 s** on macOS / Python 3.14.2. This verifies the selected
+routing, error reporting and simulated over-limit replacement; it is not a
+memory-stress test, Linux enforcement measurement, artifact replay or fuzz pass.
+No new resource-handling implementation change is justified by the available
+attribution evidence, so no speculative parser cap, limit adjustment or
+inspection reduction was introduced. The independently reproduced CPIO fix is
+unchanged.
+
+**CI snapshot on `b55c60e`:** tests 40974592287: all six matrix jobs passed; quality 40974592282: all four jobs passed; Docker
+40974592263: passed. The change gate in 40974592278 passed and its Atheris job
+was **skipped** because this checkpoint changed only documentation. That skip
+predates the restricted follow-up and does not override the failed campaigns
+above. Ordinary CI success cannot close the unresolved long-fuzz requirement.
+
+**Exact remaining work:** inspect final ordinary CI statuses; continue static
+source/configuration review or small benign, bounded regression checks where
+there is a concrete hypothesis. Do not replay OOM artifacts or rerun campaigns
+likely to reproduce the spike under the current restriction. Attribution needs
+additional non-executing evidence or a separately approved investigation plan;
+no particular library, parser or harness defect has been established. Any fix
+must preserve detection settings and inspection coverage and have a small
+benign regression case before claiming closure. After a justified repair, long
+validation would still need permission within the then-current constraints and
+actual successful evidence. Owner desktop/provider acceptance and the separate
+production checklist remain as in 27.4. PRs #46 and #39 stay draft; #46 is not
+ready to merge. Keep an active, resumable handoff rather than resetting it idle.
