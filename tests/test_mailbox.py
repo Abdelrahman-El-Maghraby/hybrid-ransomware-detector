@@ -133,3 +133,64 @@ def test_settings_from_config_need_host_and_user(tmp_path):
     s = ImapSettings.from_config({"imap_host": "h", "imap_user": "u", "imap_password": "s3cret-app-pw",
                                   "imap_max_mb": 2, "imap_folder": "Junk"})
     assert s.max_bytes == 2 * 1024 * 1024 and s.folder == "Junk" and "s3cret" not in repr(s)
+
+
+def test_messages_not_scanned_for_lack_of_workers_are_retried(setup, monkeypatch):
+    """M8: when no isolated worker could start, last_uid still advanced past the
+    messages, so they were never scanned; the run also looked successful."""
+    from engine.workers import ISOLATION_UNAVAILABLE, failure_result
+    scanner, settings, tmp_path = setup
+    msgs = _messages(tmp_path)
+    real = scanner._scan_targets
+    unavailable = {"on": True}
+
+    def scan_targets(paths, *a, **kw):
+        if not unavailable["on"]:
+            scanner.last_not_scanned = 0
+            return real(paths, *a, **kw)
+        scanner.last_not_scanned = len(paths)
+        return [failure_result(scanner, p, "isolated scan workers could not start",
+                               code=ISOLATION_UNAVAILABLE, isolation="unavailable")
+                for p in paths]
+
+    monkeypatch.setattr(scanner, "_scan_targets", scan_targets)
+    run = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert run.not_scanned == 2 and len(run.results) == 2
+    assert not (tmp_path / "imap_state.json").exists()          # nothing marked as seen
+    unavailable["on"] = False
+    again = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert again.not_scanned == 0
+    assert sorted(r["mailbox"]["uid"] for r in again.results) == [101, 102]
+    state = json.loads((tmp_path / "imap_state.json").read_text())
+    assert state[settings.key]["last_uid"] == 102
+
+
+def test_last_uid_stops_before_the_first_unscanned_message(setup, monkeypatch):
+    from engine.workers import ISOLATION_UNAVAILABLE, failure_result
+    scanner, settings, tmp_path = setup
+    msgs = _messages(tmp_path)
+    msgs[103] = msgs[101]
+    real = scanner._scan_targets
+
+    def scan_targets(paths, *a, **kw):                  # the worker pool broke after one
+        first = real(paths[:1], *a, **kw)
+        scanner.last_not_scanned = len(paths) - 1
+        return first + [failure_result(scanner, p, "isolated scan workers could not start",
+                                       code=ISOLATION_UNAVAILABLE, isolation="unavailable")
+                        for p in paths[1:]]
+
+    monkeypatch.setattr(scanner, "_scan_targets", scan_targets)
+    run = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert run.not_scanned == 2
+    state = json.loads((tmp_path / "imap_state.json").read_text())
+    assert state[settings.key]["last_uid"] == 101
+
+
+def test_cli_imap_pass_exits_3_when_messages_were_not_scanned(monkeypatch, capsys):
+    from core.mailbox import MailboxRun
+    run = MailboxRun(results=[{}], new_messages=1, not_scanned=1)
+    scanner = type("S", (), {"scan_mailbox": lambda self: ("report", run)})()
+    with pytest.raises(SystemExit) as info:
+        RS._mailbox_command(type("A", (), {"scan_imap": True})(), scanner)
+    assert info.value.code == RS.EXIT_ISOLATION_UNAVAILABLE
+    assert "not scanned" in capsys.readouterr().err

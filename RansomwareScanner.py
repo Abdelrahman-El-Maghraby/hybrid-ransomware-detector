@@ -889,6 +889,11 @@ def _mailbox_command(args, scanner) -> bool:
               f"(UIDs {', '.join(map(str, run.skipped_too_large[:10]))}).")
     if run.more_waiting:
         print("⚠️  More new messages are waiting; run --scan-imap again.")
+    if run.not_scanned:
+        _isolation_error(run.not_scanned)
+        print("   They were not marked as seen and are fetched again on the next run.",
+              file=sys.stderr)
+        sys.exit(EXIT_ISOLATION_UNAVAILABLE)
     return True
 
 
@@ -900,6 +905,19 @@ def _isolation_error(count: int) -> None:
     print(f"❌ Isolated scan workers could not start: {count} file(s) were not scanned. "
           "No file was scanned in the main process. See the log for the cause.",
           file=sys.stderr)
+
+
+def _pause(prompt: str) -> None:
+    """Wait for Enter in an interactive terminal. Without one (cron, a service
+    manager, a SIEM job) or when input is closed, carry on at once, so the exit
+    code still says whether every file was scanned. Ctrl-C still interrupts."""
+    stdin = sys.stdin
+    if stdin is None or not stdin.isatty():
+        return
+    try:
+        input(prompt)
+    except EOFError:
+        print()
 
 
 def _scan_or_schedule(args, scanner) -> None:
@@ -930,7 +948,7 @@ def _scan_or_schedule(args, scanner) -> None:
         if unscanned:
             _isolation_error(unscanned)
         if not args.background:
-            input("\nPress Enter to exit...")
+            _pause("\nPress Enter to exit...")
             if unscanned:
                 sys.exit(EXIT_ISOLATION_UNAVAILABLE)
 
@@ -940,7 +958,7 @@ def _scan_or_schedule(args, scanner) -> None:
             print("   Import one with the --import-database option, e.g.:")
             print(f"   python {Path(__file__).name} --import-database /path/to/your/dataset.csv")
             if not args.background:
-                input("\nPress Enter to continue anyway...")
+                _pause("\nPress Enter to continue anyway...")
 
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))

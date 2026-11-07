@@ -10,7 +10,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 dest="${1:?usage: deploy/backup.sh BACKUP_DIR}"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
-image="aegis-sentinel:${AEGIS_VERSION:-4.7.0}"
+# the version docker compose uses: the environment, else AEGIS_VERSION in .env
+if [ -z "${AEGIS_VERSION:-}" ] && [ -f .env ]; then
+  AEGIS_VERSION="$(sed -n 's/^AEGIS_VERSION=["'"'"']\{0,1\}\([^"'"'"']*\)["'"'"']\{0,1\}$/\1/p' .env | tail -n 1)"
+fi
+image="aegis-sentinel:${AEGIS_VERSION:-4.8.0}"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "image $image not found: set AEGIS_VERSION to the deployed version" >&2
+  exit 1
+fi
 mkdir -p "$dest/volumes"
 dest="$(cd "$dest" && pwd)"
 

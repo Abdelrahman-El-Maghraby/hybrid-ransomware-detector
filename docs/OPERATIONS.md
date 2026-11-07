@@ -211,8 +211,11 @@ is lost.
 the CLI commands in section 6. Keep the encrypted backup apart from the vault;
 verify recovery before removing the old installation.
 
-**Cloud:** install the optional dependency with `pip install ".[cloud]"` when
-running from source. In **Alerts & cloud**, set an HTTPS endpoint, region,
+**Cloud:** install the optional dependency with `pip install -e ".[cloud]"` when
+running from source. Use the editable (`-e`) form: a regular `pip install .`
+copies the code into the environment without the `rules/` folder and the sample
+fuzzy signatures, so YARA would run with no rules unless `YARA_RULES_DIR` points
+at them. In **Alerts & cloud**, set an HTTPS endpoint, region,
 bucket, prefix, access key id and secret key, then save and use **Test upload**.
 Uploads are off by default (`CLOUD_UPLOAD=false`). Leave `CLOUD_UPLOAD_FULL=false`
 for an allowlisted, pseudonymised report and structured log events; raw rotated

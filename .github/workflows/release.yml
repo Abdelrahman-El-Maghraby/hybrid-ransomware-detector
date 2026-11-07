@@ -52,6 +52,22 @@ jobs:
             fi
           done
           test -z "$missing"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Tag matches the package and engine versions
+        # A tag v4.8.0 or v4.8.0-rc1 must ship pyproject version 4.8.0 and
+        # ENGINE_VERSION 4.8.0 (what the image tag, reports and the GUI show).
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          base="${tag%%-*}"
+          engine="$(sed -n 's/^ENGINE_VERSION = "\(.*\)"$/\1/p' engine/config.py)"
+          package="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)"
+          echo "tag $GITHUB_REF_NAME, pyproject.toml $package, engine/config.py $engine"
+          if [ "$engine" != "$base" ] || [ "$package" != "$base" ]; then
+            echo "::error title=release gate::tag $GITHUB_REF_NAME does not match pyproject.toml ($package) and ENGINE_VERSION ($engine)"
+            exit 1
+          fi
 
   build:
     needs: gate

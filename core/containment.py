@@ -525,10 +525,17 @@ def unlock_folders(state_file: Path, system: str = "",
         else:
             problems.append(f"{d}: {(done.stderr or '').strip()[:200]}")
     if not problems:
-        try:
-            state_file.unlink()
-        except OSError:
-            pass
+        # Drop only what the folder lock recorded: the list of processes the
+        # tripwire suspended must survive, or --resume-pid refuses them.
+        state.pop("posix_modes", None)
+        state.pop("windows_denied", None)
+        if state:
+            _save_state(state_file, state)
+        else:
+            try:
+                state_file.unlink()
+            except OSError:
+                pass
     return restored, problems
 
 

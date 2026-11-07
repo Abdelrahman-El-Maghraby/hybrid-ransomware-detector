@@ -51,6 +51,7 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(40))' > deploy/secrets/i
 : > deploy/secrets/virustotal_api_key      # empty = off (decision D4: off by default)
 : > deploy/secrets/openai_api_key
 : > deploy/secrets/sandbox_token
+: > deploy/secrets/smtp_password           # empty = no e-mail alerts; docker compose needs the file
 chmod 0644 deploy/secrets/*                # the 0700 folder keeps other host users out
 
 # 2. TLS: your certificate and key (PEM) for the name clients use
@@ -152,6 +153,7 @@ Secrets on a server come from the environment. Either set `NAME=value` in that
 protected file, or point `NAME_FILE` at a file only the service can read (for
 example a Docker secret under `/run/secrets/`): `OPENAI_API_KEY`,
 `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`,
+`SMTP_PASSWORD`, `CLOUD_SECRET_ACCESS_KEY`, `CLOUD_PSEUDONYM_KEY`,
 `AEGIS_API_TOKEN`, `AEGIS_INTEL_TOKEN`. A server
 has no OS keyring, so nothing is migrated there and the start-up log line
 `Secrets -> NAME:source` shows where each one came from (never its value).

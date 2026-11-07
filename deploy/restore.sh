@@ -7,7 +7,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 src="$(cd "${1:?usage: deploy/restore.sh BACKUP_DIR}" && pwd)"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
-image="aegis-sentinel:${AEGIS_VERSION:-4.7.0}"
+# the version docker compose uses: the environment, else AEGIS_VERSION in .env
+if [ -z "${AEGIS_VERSION:-}" ] && [ -f .env ]; then
+  AEGIS_VERSION="$(sed -n 's/^AEGIS_VERSION=["'"'"']\{0,1\}\([^"'"'"']*\)["'"'"']\{0,1\}$/\1/p' .env | tail -n 1)"
+fi
+image="aegis-sentinel:${AEGIS_VERSION:-4.8.0}"
+# checked before anything is stopped or replaced
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "image $image not found: load or build it, or set AEGIS_VERSION" >&2
+  exit 1
+fi
 
 if [ -f "$src/config.tar.gz" ]; then
   unpacked="$(mktemp -d)"

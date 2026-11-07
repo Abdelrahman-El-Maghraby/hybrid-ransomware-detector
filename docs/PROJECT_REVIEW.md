@@ -2603,22 +2603,22 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | H4 | High | V | `.rels` part over 2 MiB skipped silently; result stays checked/clean, hiding remote-template/external links. RTF read capped at 8 MiB without a truncation flag | `detectors/relationship_scanner.py:136-138` | Owner decision (`scan_status`) |
 | M1 | Med | V | E-mail alerts dropped permanently while the intel service is unreachable | `core/outbox.py` `senders_for` | Fixed (stage 2) |
 | M2 | Med | V | Concurrent outbox flushes duplicate alerts or reset delivered ones to pending (lock per instance) | `core/outbox.py`, `api/server.py` | Fixed (stage 2) |
-| M3 | Med | V | `--unlock-folders` deletes the whole containment state, losing the suspended-PID list | `core/containment.py` `unlock_folders` | Open (stage 3) |
+| M3 | Med | V | `--unlock-folders` deletes the whole containment state, losing the suspended-PID list | `core/containment.py` `unlock_folders` | Fixed (stage 3) |
 | M4 | Med | V | `/scan` parses and spools up to 50 MB before the token/lockout check | `api/server.py` | Owner decision |
-| M5 | Med | V | `.env.example` VT placeholder is treated as a real key (hash lookups, 4/min throttle, every result partial, migrated to keyring) | `.env.example:30` | Open (stage 3) |
+| M5 | Med | V | `.env.example` VT placeholder is treated as a real key (hash lookups, 4/min throttle, every result partial, migrated to keyring) | `.env.example:30`, `engine/secret_store.py` | Fixed (stage 3) |
 | M6 | Med | V | Log events raised in isolated workers (`external_share`, `scan_completed`, `layer_error`) never reach the log | `engine/workers.py` | Fixed (stage 2) |
-| M7 | Med | V | `--scan-now` without a terminal crashes on `input()` (EOFError, exit 1) instead of exit 3 | `RansomwareScanner.py` | Open (stage 3) |
-| M8 | Med | V | IMAP advances `last_uid` when workers cannot start; messages never scanned, exit 0 | `core/mailbox.py` | Open (stage 3) |
+| M7 | Med | V | `--scan-now` without a terminal crashes on `input()` (EOFError, exit 1) instead of exit 3 | `RansomwareScanner.py` | Fixed (stage 3) |
+| M8 | Med | V | IMAP advances `last_uid` when workers cannot start; messages never scanned, exit 0 | `core/mailbox.py`, `RansomwareScanner.py` | Fixed (stage 3) |
 | M9 | Med | V | Reports written without `encoding=`: non-ASCII names crash on cp1252 Windows and block `deliver()` | `engine/report.py` | Fixed (stage 1) |
 | M10 | Med | V | Report names have one-second resolution; a same-second report overwrote the previous one | `engine/report.py` | Fixed (stage 1) |
 | M11 | Med | V | Cloud log upload feeds on its own `cloud_uploaded` events | `core/cloud.py` | Fixed (stage 2) |
 | M12 | Med | V | Member name `.<RTLO>.` sanitised to `..` (the sandbox); the write failed and later members (e.g. an `.exe`) were never examined. Same class in embedded-content extraction (`..`) | `detectors/container_extractor.py` `_target`; `detectors/embedded_content.py` `_add` | Fixed (stage 1) |
 | M13 | Med | V | Any prompt_guard parse error (e.g. OOXML `x="1in"`) drops all hidden-content findings with no error flag | `detectors/prompt_guard.py` | Owner decision (`scan_status`) |
-| M14 | Med | V | `deploy/backup.sh`/`restore.sh` default to the 4.7.0 image; restore stops the stack before failing | `deploy/` | Open (stage 3) |
-| M15 | Med | V | Wheel/non-editable install ships no `rules/` or sample signatures; YARA silently off. OPERATIONS.md recommends that install | `pyproject.toml`, `docs/OPERATIONS.md` | Open (stage 3, docs) |
-| M16 | Med | V | Release workflow changed since v4.7.0 but never run; no check that tag, `pyproject` version and `ENGINE_VERSION` agree | `.github/workflows/release.yml` | Open (stage 3) |
+| M14 | Med | V | `deploy/backup.sh`/`restore.sh` default to the 4.7.0 image; restore stops the stack before failing | `deploy/` | Fixed (stage 3) |
+| M15 | Med | V | Wheel/non-editable install ships no `rules/` or sample signatures; YARA silently off. OPERATIONS.md recommends that install | `pyproject.toml`, `docs/OPERATIONS.md` | Docs fixed (stage 3); packaging open |
+| M16 | Med | V | Release workflow changed since v4.7.0 but never run; no check that tag, `pyproject` version and `ENGINE_VERSION` agree | `.github/workflows/release.yml` | Check added (stage 3); unrun until a tag |
 | H-04+ | Med | V | (tracked H-04) web-content regexes quadratic; `visible_text` 7 s at 128 KB with up to 2 MiB passed | `detectors/web_content.py` | Owner decision |
-| L-GUI | Low | V | GUI header shows `v4.4 beta` (engine 4.8.0) | `aegis_gui/common.py:43` | Open (stage 3) |
+| L-GUI | Low | V | GUI header shows `v4.4 beta` (engine 4.8.0) | `aegis_gui/common.py:43` | Fixed (stage 3) |
 | L-E1 | Low | V | Heavy-layer parallel merge overwrites `layer_errors` (metrics undercount) | `engine/staging.py` | Open |
 | L-E2 | Low | V | NaN passes settings validation; NaN/inf crash some settings at import; fractional MB truncates to 0 (no limit) | `engine/config.py`, `engine/validation.py` | Open |
 | L-E3 | Low | V | Migrating a multi-line secret leaves part in `.env` | `engine/secret_store.py` | Open |
@@ -2631,16 +2631,16 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | L-C3 | Low | V | Report "layers used" always lists LLM and VirusTotal | `engine/report.py` | Open |
 | L-C4 | Low | V | `tools/evaluate.py` and `calibrate_weights.py` submit to the sandbox when configured | `tools/` | Open |
 | L-A1 | Low | V | API archive member names expose the server temp path | `api/server.py` | Open |
-| L-A2 | Low | V | `backup.sh` has no `umask 077` | `deploy/backup.sh` | Open (stage 3) |
+| L-A2 | Low | V | `backup.sh` has no `umask 077` | `deploy/backup.sh` | Open (low; needs owner OK) |
 | L-A3 | Low | S | Containment state and quarantine key not written atomically / fsynced | `core/containment.py`, `core/quarantine.py` | Open |
 | L-D1 | Low | V | XAR TOC offset/length unvalidated (ValueError, `read(-1)`, large preallocation) | `detectors/macos_packages.py` | Open |
 | L-D2 | Low | V | `bounded_decompress` ignores `.eof`; CPIO without trailer accepted | `detectors/macos_packages.py` | Open |
 | L-D3 | Low | V | Emulation reads the whole file before its size check | `detectors/emulation.py` | Open |
-| L-B1 | Low | V | README alternative test-install command fails in hash mode; "no compiler needed" false (python-tlsh sdist) | `README.md` | Open (stage 3) |
-| L-B2 | Low | V | DEPLOYMENT.md installs the desktop lock on a server; secrets list incomplete | `docs/DEPLOYMENT.md` | Open (stage 3) |
+| L-B1 | Low | V | README alternative test-install command fails in hash mode; "no compiler needed" false (python-tlsh sdist) | `README.md` | Fixed (stage 3) |
+| L-B2 | Low | V | DEPLOYMENT.md installs the desktop lock on a server; secrets list incomplete | `docs/DEPLOYMENT.md` | Secrets fixed (stage 3); lock choice open |
 | L-B3 | Low | V | `test_smoke.py` uses the real HOME | `test_smoke.py` | Open |
 | L-B4 | Low | V | `.dockerignore` misses caches and local data folders | `.dockerignore` | Open |
-| L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Open (stage 3) |
+| L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Fixed (stage 3) |
 | I-x | Info | V/S | Cache purge only at startup; IMAP fetch failures labelled `skipped_too_large`; intel JSON parsed before auth; dead `send_webhook`; evaluate counts errors as Clean; no scikit-learn version check on pickles (S) | various | Open |
 | I-T1 | Info | V | Test isolation: `tools/evaluate.py` `_init_worker` calls `logging.disable(CRITICAL)` and `tests/test_evaluation_tools.py` runs it in-process, so later tests run with logging off unless they use `caplog.set_level` (found when a new stage 2 test failed only in the full run) | `tools/evaluate.py:77`, `tests/test_evaluation_tools.py` | Open |
 | OOM-H | Info | S | §27.5 hypotheses from reading only: XAR TOC accepts up to 128 MiB XML before member limits; pypdf caches decoded streams. Not executed; restricted | `detectors/macos_packages.py`, PDF path | Restricted |
@@ -2697,10 +2697,59 @@ versus README, no tracked build artifacts, no Tk calls from worker threads.
 - **M11.** The cloud event spool ignores the upload pipeline's own events
   (`cloud_uploaded`, `cloud_upload_retry`, `cloud_spool_expired`,
   `cloud_spool_error`); they stay in the local log.
-- Evidence: 22 new regression tests (H3 6, M1 2, M2 2, M6 4, M11 1, plus guards);
+- Evidence: 15 new tests (H3 6, M1 2, M2 2, M6 4, M11 1), regression cases and guards;
   each targeted fix's tests fail on the old code. Full suite on the stage 2 code:
   1,270 passed, 13 skipped, 1 failed: the new H3 log assertion, which failed
   only in suite order because of I-T1. Fixed by using `caplog.set_level` (which
   lifts `logging.disable`); the same applied to one M6 test; both re-run after
   `test_evaluation_tools.py` and pass. ruff, mypy (68 files), bandit clean.
+- No detection weight, threshold, inspection coverage or result-schema change.
+
+### 28.4 Stage 3: CLI and operations (M3, M5, M7, M8, M14, M15 docs, M16, GUI label, docs)
+
+- **M3.** `unlock_folders` removes only `posix_modes` and `windows_denied`; the
+  `suspended` record stays, and the file is deleted only when nothing else is
+  left, so `--resume-pid` still works after `--unlock-folders`.
+- **M5.** `.env.example` leaves `VIRUSTOTAL_API_KEY` blank. A value of the
+  template form `your-...-here` from the environment, the keyring or `.env` is
+  ignored with a warning (never its value) and is not moved to the keyring, so
+  installations that copied the old example get VirusTotal off. A placeholder
+  already in a keyring is ignored too; it stays there until replaced.
+- **M7.** Interactive pauses (`Press Enter ...`) only happen on a terminal and
+  tolerate closed input, so `--scan-now` from cron or a SIEM job reaches exit 3
+  when files were not scanned (exit 0 otherwise, as before).
+- **M8.** IMAP marks messages as seen only up to the first one that was not
+  scanned for lack of a worker; the rest are fetched again. `MailboxRun` gains
+  `not_scanned` (an internal type, not the result schema); `--scan-imap` exits 3
+  and the event `mailbox_not_scanned` is logged.
+- **M14.** `deploy/backup.sh` and `restore.sh` take `AEGIS_VERSION` from the
+  environment, then `.env` (as docker compose does), then 4.8.0, and stop
+  before doing anything (restore: before `docker compose down`) when the image
+  is not present. Exercised in the scratchpad with a stand-in `docker` command;
+  not run against a real Docker deployment.
+- **M15 (docs).** OPERATIONS.md uses `pip install -e ".[cloud]"` and explains
+  that a non-editable install has no `rules/` or sample signatures. Shipping
+  them as package data is a packaging change left open.
+- **M16.** The release gate checks out the tagged commit and fails when the tag
+  (without `v` and any `-suffix`) differs from `pyproject.toml` or
+  `ENGINE_VERSION`; the shell logic was checked locally for `v4.8.0`,
+  `v4.8.0-rc1` and `v4.7.0`. The workflow itself only runs on a tag push and
+  has not run. A test checks that pyproject, engine, docker-compose and the
+  deploy-script defaults agree.
+- **GUI label** shows `ENGINE_VERSION`.
+- Evidence: 26 new tests (23 in `tests/test_operations_fixes.py`, 3 in
+  `tests/test_mailbox.py`); 14 of them fail on the old code, the rest guard
+  unchanged behaviour (real keys kept, terminal prompt kept, script syntax).
+  Full suite: 1,290 passed, 13 skipped (environment-dependent, as in the
+  baseline). Two small refinements after that run (Ctrl-C still interrupts the
+  terminal pause; one warning per placeholder secret) were re-tested with the
+  CLI, secret-store and configuration tests. ruff, mypy (68 files), bandit clean.
+- **Docs.** README: 4.8 in the table of contents, the `python-tlsh` compiler
+  requirement (it has no binary wheel: `pip download --only-binary=:all:
+  python-tlsh==4.5.0` finds none), the hash-mode test install, the CI bandit
+  command, the test count, the sample report labelled as 4.6.0 output, and the
+  shipped Windows toasts removed from the roadmap. DEPLOYMENT.md: the
+  `smtp_password` secret file that docker compose requires and the complete
+  list of secret names. RELEASE_READINESS B3 marked fixed (marker added in
+  `d64add6`).
 - No detection weight, threshold, inspection coverage or result-schema change.

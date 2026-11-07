@@ -31,7 +31,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("RansomwareScanner.mailbox")
 
@@ -82,6 +82,7 @@ class MailboxRun:
     skipped_too_large: List[int] = field(default_factory=list)
     new_messages: int = 0
     more_waiting: bool = False         # more new messages than max_messages
+    not_scanned: int = 0               # no isolated worker could start; retried next run
 
 
 def _default_connect(s: ImapSettings):
@@ -157,6 +158,8 @@ class MailboxScanner:
                 paths.append(str(path))
                 labels[str(path)] = (uid, f"imap://{s.user}@{s.host}/{s.folder};UID={uid}")
 
+            from engine.workers import isolation_unavailable
+            unscanned: Set[int] = set()
             if paths:
                 for result in self.scanner._scan_targets(paths):
                     uid, label = labels.get(result.get("file_path", ""), (0, ""))
@@ -165,9 +168,23 @@ class MailboxScanner:
                         result["file_name"] = f"{s.folder} UID {uid}"
                         result["mailbox"] = {"host": s.host, "user": s.user,
                                              "folder": s.folder, "uid": uid}
+                        if isolation_unavailable(result):
+                            unscanned.add(uid)
                     out.results.append(result)
-            if uids:
-                state[s.key] = {"uidvalidity": validity, "last_uid": max(uids)}
+            out.not_scanned = len(unscanned)
+            # Mark as seen only the messages up to the first one that was not
+            # scanned (fail closed): the rest are fetched again on the next run.
+            seen = last_uid
+            for uid in uids:
+                if uid in unscanned:
+                    break
+                seen = uid
+            if unscanned:
+                logger.error("Mailbox: %d message(s) were not scanned because no isolated "
+                             "worker could start; they will be fetched again.", len(unscanned),
+                             extra={"event": "mailbox_not_scanned", "files": len(unscanned)})
+            if seen > last_uid:
+                state[s.key] = {"uidvalidity": validity, "last_uid": seen}
                 self._save_state(state)
             return out
         finally:

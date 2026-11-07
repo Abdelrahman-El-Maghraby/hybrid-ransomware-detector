@@ -21,6 +21,7 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 
 ## 📖 Table of Contents
 
+- [🆕 What's new in 4.8](#-whats-new-in-48)
 - [🆕 What's new in 4.7](#-whats-new-in-47)
 - [🆕 What's new in 4.6](#-whats-new-in-46)
 - [🆕 What's new in 4.5](#-whats-new-in-45)
@@ -390,7 +391,7 @@ While walking folders, file *names* are checked for ransom notes (`HOW_TO_DECRYP
 
 ## 📦 Requirements
 
-**Python:** 3.9+ (see `requirements.txt`; every dependency ships x86_64 and ARM64 wheels or is pure Python, so installation needs no compiler; `python-tlsh` is skipped on Windows, where a built-in port computes the same digests).
+**Python:** 3.9+ (see `requirements.txt`). Every dependency ships x86_64 and ARM64 wheels or is pure Python, except `python-tlsh`, which is published only as source: on macOS and Linux installing it needs a C compiler (Xcode Command Line Tools, or `build-essential` and the Python headers). It is skipped on Windows, where a built-in port computes the same digests.
 
 **Detection-layer libraries (optional, recommended):** `python-tlsh` + `ppdeep` (fuzzy hashing; on Windows, where python-tlsh has no wheels, a built-in TLSH port gives the same digests), `oletools` (macros), `yara-python` (YARA), `defusedxml` (hidden-content and external-link layers for Office files), `cryptography` (quarantine vault). If any are absent, that layer or feature is skipped.
 
@@ -593,7 +594,7 @@ python RansomwareScanner.py --version
 
 Scan directories, file types and the scan interval come from `.env` and the defaults in `engine/config.py` (or the GUI's Scan page). All paths are derived from the user's home directory via `pathlib`, so they adapt to the host OS.
 
-### Example report (excerpt)
+### Example report (excerpt, recorded with 4.6.0)
 
 ```
 Ransomware Scan Report
@@ -706,11 +707,12 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 ## 🧪 Testing
 
 ```bash
-pip install -e ".[dev]"          # or: pip install -r requirements.lock pytest hypothesis qrcode
-python -m pytest                 # ~860 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
+pip install -e ".[dev]"          # or, hash-checked: pip install --require-hashes -r requirements.lock
+                                 #   then: pip install -e . --no-deps && pip install pytest hypothesis qrcode
+python -m pytest                 # about 1,300 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
 python -m pytest --cov           # coverage report; CI fails under 85 %
 ruff check . && mypy             # lint (incl. complexity < 20, lazy logging) and types, also in CI
-bandit -r engine detectors core api -ll   # security linter, also in CI
+bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll   # security linter, as in CI
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)
@@ -872,7 +874,6 @@ Delivered in v4.6.0: Windows PE analysis, process containment and folder locking
 
 - **Microsoft Graph mailbox scanning** for Exchange Online tenants that disable IMAP.
 - **A curated, labelled training corpus** and published ML evaluation numbers.
-- **Windows toast notifications** for canary alerts (macOS and Linux are supported today).
 - **Richer detection content:** a broader YARA rule set and a curated starter fuzzy-signature database.
 
 ---

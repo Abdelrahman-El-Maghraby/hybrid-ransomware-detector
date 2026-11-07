@@ -40,6 +40,15 @@ SECRET_NAMES = tuple(name for name, _ in SECRETS)
 # Names set in the process environment before any .env file was loaded into it.
 PROCESS_ENV: Set[str] = set(os.environ)
 
+# Template values such as "your-virustotal-api-key-here" (older .env.example
+# files): never a real key. Treated as unset, so copying the example does not
+# switch an external service on, and never moved to the keyring.
+_PLACEHOLDER = re.compile(r"^your[-_][a-z0-9_-]*[-_]here$", re.I)
+
+
+def is_placeholder(value: Optional[str]) -> bool:
+    return bool(value) and bool(_PLACEHOLDER.match(str(value).strip()))
+
 
 class SecretStoreError(RuntimeError):
     """A secret could not be stored; the message never contains the value."""
@@ -108,14 +117,17 @@ def apply(config: MutableMapping[str, Any], backend: Optional[Any] = None) -> Di
     sources: Dict[str, str] = {}
     for name, key in SECRETS:
         env = from_environment(name)
-        if env:
-            config[key], sources[name] = env, "environment"
-            continue
-        stored = load(name, kr) if kr is not None else None
-        if stored:
-            config[key], sources[name] = stored, "keyring"
-        else:
-            sources[name] = ".env" if config.get(key) else "unset"
+        stored = None if env else (load(name, kr) if kr is not None else None)
+        candidates = [(env, "environment"), (stored, "keyring"), (config.get(key), ".env")]
+        placeholder_from = next((src for v, src in candidates if is_placeholder(v)), "")
+        if placeholder_from:
+            logger.warning("%s from the %s is the example placeholder, not a key: it is "
+                           "ignored.", name, placeholder_from)
+        value, source = next(((v, src) for v, src in candidates
+                              if v and not is_placeholder(v)), ("", "unset"))
+        if source != ".env":
+            config[key] = value
+        sources[name] = source
     return sources
 
 
@@ -132,7 +144,8 @@ _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 def migrate_env_file(env_file: Path, values: Mapping[str, Optional[str]],
                      backend: Optional[Any] = None) -> Migration:
     """Move the secrets in `env_file` (parsed as `values`) to the keyring."""
-    found = {n: v for n, v in values.items() if n in SECRET_NAMES and v}
+    found = {n: v for n, v in values.items()
+             if n in SECRET_NAMES and v and not is_placeholder(v)}
     result = Migration()
     if not found:
         return result
