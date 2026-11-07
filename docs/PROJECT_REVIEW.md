@@ -2599,19 +2599,19 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 |---|---|---|---|---|---|
 | H1 | High | V | FIFO, socket or link to a device in a scanned folder hung the main process (walk admitted it; after the worker timeout, `failure_result` hashed it in the parent). Same hang in the folder monitor's duplicate check and canary hashing | `engine/scanner.py` `_collect_target_files`, `calculate_hashes`; `engine/workers.py` `failure_result`; `core/folder_watch.py`; `core/canary.py` | Fixed (stage 1) |
 | H2 | High | V | Polynomial backtracking in mail HTML regexes (links ≈ cubic: 5.2 KB → 2.1 s; display domain, script/style and tag stripping quadratic). ~20 KB reached the worker timeout | `detectors/mail_analyzer.py` `_judge_body` | Fixed (stage 1) |
-| H3 | High | V | GUI scans never call `core.outputs.deliver()`: no webhook/e-mail/JSONL for manual or scheduled GUI scans | `aegis_gui/state.py` `ScanController._work` | Open (stage 2) |
+| H3 | High | V | GUI scans never call `core.outputs.deliver()`: no webhook/e-mail/JSONL for manual or scheduled GUI scans | `aegis_gui/state.py` `ScanController._work` | Fixed (stage 2) |
 | H4 | High | V | `.rels` part over 2 MiB skipped silently; result stays checked/clean, hiding remote-template/external links. RTF read capped at 8 MiB without a truncation flag | `detectors/relationship_scanner.py:136-138` | Owner decision (`scan_status`) |
-| M1 | Med | V | E-mail alerts dropped permanently while the intel service is unreachable | `core/outbox.py` `senders_for` | Open (stage 2) |
-| M2 | Med | V | Concurrent outbox flushes duplicate alerts or reset delivered ones to pending (lock per instance) | `core/outbox.py`, `api/server.py` | Open (stage 2) |
+| M1 | Med | V | E-mail alerts dropped permanently while the intel service is unreachable | `core/outbox.py` `senders_for` | Fixed (stage 2) |
+| M2 | Med | V | Concurrent outbox flushes duplicate alerts or reset delivered ones to pending (lock per instance) | `core/outbox.py`, `api/server.py` | Fixed (stage 2) |
 | M3 | Med | V | `--unlock-folders` deletes the whole containment state, losing the suspended-PID list | `core/containment.py` `unlock_folders` | Open (stage 3) |
 | M4 | Med | V | `/scan` parses and spools up to 50 MB before the token/lockout check | `api/server.py` | Owner decision |
 | M5 | Med | V | `.env.example` VT placeholder is treated as a real key (hash lookups, 4/min throttle, every result partial, migrated to keyring) | `.env.example:30` | Open (stage 3) |
-| M6 | Med | V | Log events raised in isolated workers (`external_share`, `scan_completed`, `layer_error`) never reach the log | `engine/workers.py` | Open (stage 2) |
+| M6 | Med | V | Log events raised in isolated workers (`external_share`, `scan_completed`, `layer_error`) never reach the log | `engine/workers.py` | Fixed (stage 2) |
 | M7 | Med | V | `--scan-now` without a terminal crashes on `input()` (EOFError, exit 1) instead of exit 3 | `RansomwareScanner.py` | Open (stage 3) |
 | M8 | Med | V | IMAP advances `last_uid` when workers cannot start; messages never scanned, exit 0 | `core/mailbox.py` | Open (stage 3) |
 | M9 | Med | V | Reports written without `encoding=`: non-ASCII names crash on cp1252 Windows and block `deliver()` | `engine/report.py` | Fixed (stage 1) |
 | M10 | Med | V | Report names have one-second resolution; a same-second report overwrote the previous one | `engine/report.py` | Fixed (stage 1) |
-| M11 | Med | V | Cloud log upload feeds on its own `cloud_uploaded` events | `core/cloud.py` | Open (stage 2) |
+| M11 | Med | V | Cloud log upload feeds on its own `cloud_uploaded` events | `core/cloud.py` | Fixed (stage 2) |
 | M12 | Med | V | Member name `.<RTLO>.` sanitised to `..` (the sandbox); the write failed and later members (e.g. an `.exe`) were never examined. Same class in embedded-content extraction (`..`) | `detectors/container_extractor.py` `_target`; `detectors/embedded_content.py` `_add` | Fixed (stage 1) |
 | M13 | Med | V | Any prompt_guard parse error (e.g. OOXML `x="1in"`) drops all hidden-content findings with no error flag | `detectors/prompt_guard.py` | Owner decision (`scan_status`) |
 | M14 | Med | V | `deploy/backup.sh`/`restore.sh` default to the 4.7.0 image; restore stops the stack before failing | `deploy/` | Open (stage 3) |
@@ -2642,6 +2642,7 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | L-B4 | Low | V | `.dockerignore` misses caches and local data folders | `.dockerignore` | Open |
 | L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Open (stage 3) |
 | I-x | Info | V/S | Cache purge only at startup; IMAP fetch failures labelled `skipped_too_large`; intel JSON parsed before auth; dead `send_webhook`; evaluate counts errors as Clean; no scikit-learn version check on pickles (S) | various | Open |
+| I-T1 | Info | V | Test isolation: `tools/evaluate.py` `_init_worker` calls `logging.disable(CRITICAL)` and `tests/test_evaluation_tools.py` runs it in-process, so later tests run with logging off unless they use `caplog.set_level` (found when a new stage 2 test failed only in the full run) | `tools/evaluate.py:77`, `tests/test_evaluation_tools.py` | Open |
 | OOM-H | Info | S | §27.5 hypotheses from reading only: XAR TOC accepts up to 128 MiB XML before member limits; pypdf caches decoded streams. Not executed; restricted | `detectors/macos_packages.py`, PDF path | Restricted |
 
 Checked and sound: API token comparison, X-Forwarded-For handling, outbox and
@@ -2669,4 +2670,37 @@ versus README, no tracked build artifacts, no Tk calls from worker threads.
 - **M9/M10.** Reports are written as UTF-8. The JSON report is created with
   exclusive creation; a name already taken gets `_2`, `_3`, ...; the first
   report keeps the historical name and the text report shares the stem.
+- No detection weight, threshold, inspection coverage or result-schema change.
+
+### 28.3 Stage 2: alerts and delivery (H3, M1, M2, M6, M11)
+
+- **H3.** `ScanController` calls `core.outputs.deliver()` for every GUI scan
+  (file, folder, all folders, scheduled), after the controller is marked idle.
+  Results are delivered even when the report cannot be written, and for a
+  cancelled scan (what was found is still reported). A delivery error is
+  logged and does not turn the scan into an error.
+- **M1.** With the intel service unreachable, e-mail alerts are queued with a
+  sender that raises `IntelError`, so they are retried with the normal backoff
+  and sent once the service answers. When the service answers that e-mail is
+  off, nothing is queued for e-mail (unchanged). An alert queued during an
+  outage on a deployment whose intel service has e-mail off waits and expires
+  after `OUTBOX_MAX_AGE_HOURS` with the usual expiry log line.
+- **M2.** A flush holds a per-folder lock shared by all threads of the process
+  and a lock file (`.flush.lock`, mode 0600; `flock` on POSIX, `msvcrt.locking`
+  on Windows) shared with other processes. A flush that cannot get it within
+  30 s returns with the alerts left to the running flush. Enqueueing uses a
+  separate short lock, so a slow receiver does not block scans.
+- **M6.** Records logged while a worker scans a file are sent to the parent as a
+  `("log", [...])` message before the result (at most 200 per file, plus a
+  count of dropped ones) and re-emitted through the parent's handlers at the
+  parent's level. Building the scanner in a worker stays quiet as before.
+- **M11.** The cloud event spool ignores the upload pipeline's own events
+  (`cloud_uploaded`, `cloud_upload_retry`, `cloud_spool_expired`,
+  `cloud_spool_error`); they stay in the local log.
+- Evidence: 22 new regression tests (H3 6, M1 2, M2 2, M6 4, M11 1, plus guards);
+  each targeted fix's tests fail on the old code. Full suite on the stage 2 code:
+  1,270 passed, 13 skipped, 1 failed: the new H3 log assertion, which failed
+  only in suite order because of I-T1. Fixed by using `caplog.set_level` (which
+  lifts `logging.disable`); the same applied to one M6 test; both re-run after
+  `test_evaluation_tools.py` and pass. ruff, mypy (68 files), bandit clean.
 - No detection weight, threshold, inspection coverage or result-schema change.

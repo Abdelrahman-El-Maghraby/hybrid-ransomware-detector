@@ -544,3 +544,103 @@ def test_smtp_password_comes_from_the_secret_store(monkeypatch, tmp_path):
     config = {}
     sources = secret_store.apply(config, backend=None)
     assert config["smtp_password"] == PASSWORD and sources["SMTP_PASSWORD"] == "environment"
+
+
+# ------------------------------------------------------------------ review stage 2
+def test_e_mail_alerts_are_queued_while_the_intel_service_is_unreachable(tmp_path, monkeypatch):
+    """M1: with the intel service down, e-mail read as "not configured", so the
+    alert was never queued for e-mail and was lost for good."""
+    sent = []
+    state = {"up": False}
+
+    def service(name):
+        if not state["up"]:
+            return {"enabled": False, "unreachable": True}
+        return {"enabled": name == "email"}
+
+    fake = SimpleNamespace(service=service, alert_email=sent.append)
+    monkeypatch.setattr("core.intel_client.client_from_config", lambda cfg: fake)
+    monkeypatch.setattr(OB, "FIRST_RETRY_SECONDS", 0.0)
+    cfg = _config(tmp_path, intel_socket="/run/aegis/intel/intel.sock",
+                  outbox_dir=str(tmp_path / "outbox"), alert_email_min_verdict="High")
+    counts = OB.queue_and_send([OB.verdict_alert(_result("Critical"))], cfg)
+    assert counts["retry"] == 1 and not sent
+    status = OB.outbox_for(cfg).status()
+    assert status["pending"] == 1 and "unreachable" in status["channels"]["email"]["last_error"]
+    state["up"] = True
+    assert OB.flush_pending(cfg)["sent"] == 1
+    assert len(sent) == 1 and validate_fields(sent[0])
+    assert OB.outbox_for(cfg).status()["pending"] == 0
+
+
+def test_an_intel_service_without_e_mail_still_queues_nothing(tmp_path, monkeypatch):
+    fake = SimpleNamespace(service=lambda name: {"enabled": False}, alert_email=None)
+    monkeypatch.setattr("core.intel_client.client_from_config", lambda cfg: fake)
+    cfg = _config(tmp_path, intel_socket="/x.sock", outbox_dir=str(tmp_path / "outbox"))
+    assert OB.senders_for(cfg)["email"] is None
+    OB.queue_and_send([OB.verdict_alert(_result("Critical"))], cfg)
+    assert OB.outbox_for(cfg).status()["pending"] == 0
+
+
+class SlowReceiver:
+    def __init__(self, seconds=0.3):
+        self.seconds, self.got = seconds, []
+        self._lock = threading.Lock()
+
+    def __call__(self, payload):
+        time.sleep(self.seconds)
+        with self._lock:
+            self.got.append(payload)
+
+
+def test_concurrent_flushes_deliver_an_alert_once(tmp_path, clock):
+    """M2: each queue_and_send() builds its own Outbox with its own lock, so two
+    flushes (an API alert thread and the retry loop, the GUI and the service)
+    both sent the same pending alert."""
+    hook = SlowReceiver()
+    first = _box(tmp_path, clock)
+    assert first.enqueue(OB.verdict_alert(_result()), ["webhook"])
+    boxes = [first, _box(tmp_path, clock), _box(tmp_path, clock)]
+    barrier = threading.Barrier(len(boxes))
+    results = []
+
+    def run(box):
+        barrier.wait()
+        results.append(box.flush({"webhook": hook, "email": None}))
+
+    threads = [threading.Thread(target=run, args=(b,)) for b in boxes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert len(hook.got) == 1
+    assert sum(r["sent"] for r in results) == 1
+    assert not list(first.pending.glob("*.json"))             # not written back as pending
+    assert (first.sent / hook.got[0]["alert_id"]).exists()
+
+
+def test_a_flush_in_another_process_is_waited_for_not_duplicated(tmp_path, clock):
+    import subprocess
+    import sys
+    box = OB.Outbox(str(tmp_path / "outbox"), 24, clock=lambda: clock[0], flush_wait=0.3)
+    assert box.enqueue(OB.verdict_alert(_result()), ["webhook"])
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, os\n"
+         "from core.outbox import _try_lock_file\n"
+         "fh = open(sys.argv[1], 'a+b')\n"
+         "assert _try_lock_file(fh)\n"
+         "print('locked', flush=True)\n"
+         "sys.stdin.read()\n",
+         str(box.root / ".flush.lock")],
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        hook = Receiver(up=True)
+        assert box.flush({"webhook": hook}) == {"sent": 0, "retry": 0, "expired": 0, "waiting": 1}
+        assert not hook.got
+    finally:
+        holder.stdin.close()
+        holder.wait(10)
+    assert box.flush({"webhook": hook})["sent"] == 1 and len(hook.got) == 1

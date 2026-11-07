@@ -104,6 +104,7 @@ class ScanController:
 
     def _work(self, scanner, mode, target):
         bus = self.bus
+        delivered = None
         try:
             def callback(done, total, path, res):
                 bus.put(("progress", done, total, path, res))
@@ -115,6 +116,7 @@ class ScanController:
                 results = scanner.scan_directory(target, callback, self.cancel_event)
             else:
                 results = scanner.scan_all_directories(callback, self.cancel_event)
+            delivered = results                      # alerts go out even if the report fails
 
             cancelled = self.cancel_event.is_set()
             report_text = None
@@ -128,4 +130,19 @@ class ScanController:
             logging.getLogger("RansomwareScanner.GUI").exception("Scan failed")
             bus.put(("scan_error", str(e)))
         finally:
-            self.running = False
+            self.running = False                  # a new scan may start while alerts go out
+        if delivered:
+            self._deliver(scanner, delivered)
+
+    @staticmethod
+    def _deliver(scanner, results) -> None:
+        """The configured outputs (JSON Lines, webhook and e-mail alerts through
+        the outbox), as the CLI, the background service and folder monitoring do
+        after a scan. Also for a cancelled scan: what was found is still reported.
+        A delivery problem is logged; it does not turn the scan into an error."""
+        try:
+            from core.outputs import deliver
+            deliver(results, scanner.config)
+        except Exception:
+            logging.getLogger("RansomwareScanner.GUI").exception(
+                "Delivering scan results to the configured outputs failed")

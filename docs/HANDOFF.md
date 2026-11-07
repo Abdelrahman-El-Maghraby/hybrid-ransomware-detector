@@ -29,9 +29,9 @@
 ## Progress
 
 - Stage 0 (audit): done; register in PROJECT_REVIEW 28.1.
-- Stage 1 (H1, H2, M9, M10, M12): implemented with regression tests; see 28.2
-  for evidence. Commit hash is recorded in the commit log of this branch.
-- Stage 2 (H3, M1, M2, M6, M11): next.
+- Stage 1 (H1, H2, M9, M10, M12): committed locally as `eb62c0b`; see 28.2.
+  Full suite 1,256 passed / 13 skipped; ruff, mypy, bandit clean.
+- Stage 2 (H3, M1, M2, M6, M11): implemented with regression tests; see 28.3.
 - Stage 3 (M3, M5, M7, M8, M14, M15 docs, M16 version check, GUI label, docs):
   after stage 2.
 
@@ -45,7 +45,7 @@
 
 ## Exact next action
 
-Implement stage 2 on `review/production-hardening`, run pytest, ruff, mypy and
-the CI bandit command, commit locally, then update sections 28 and this file.
+Commit stage 2 after its full-suite run, then implement stage 3 on
+`review/production-hardening` with the same checks, and update 28 and this file.
 Before stopping, record what is committed, uncommitted and unverified here.
 Nothing on this branch has been pushed.

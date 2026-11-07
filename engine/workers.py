@@ -49,7 +49,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from engine.metrics import METRICS
 
@@ -251,10 +251,78 @@ def linux_rss_reader(pid: int) -> Optional[int]:
         return None
 
 
-def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None:
+LOG_RECORDS_PER_FILE = 200
+
+
+def _plain(value: Any, depth: int = 0) -> bool:
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return True
+    if depth < 4 and isinstance(value, (list, tuple)):
+        return all(_plain(v, depth + 1) for v in value)
+    if depth < 4 and isinstance(value, dict):
+        return all(isinstance(k, str) and _plain(v, depth + 1) for k, v in value.items())
+    return False
+
+
+class _WorkerLogBuffer(logging.Handler):
+    """Collects the records a worker logs while it scans one file. They are sent
+    to the parent with the result and re-emitted there through its handlers
+    (log file, GUI log, cloud event spool), so events such as scan_completed,
+    external_share and layer_error are not lost in the worker process."""
+
+    def __init__(self, limit: int = LOG_RECORDS_PER_FILE):
+        super().__init__()
+        self.limit, self.dropped = limit, 0
+        self.records: List[Dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if len(self.records) >= self.limit:
+            self.dropped += 1
+            return
+        try:
+            data = dict(record.__dict__)
+            data["msg"], data["args"] = record.getMessage(), None
+            if record.exc_info and not record.exc_text:
+                data["exc_text"] = logging.Formatter().formatException(record.exc_info)
+            data["exc_info"] = None
+            self.records.append({k: v if _plain(v) else repr(v) for k, v in data.items()})
+        except Exception:
+            self.dropped += 1
+
+    def take(self) -> List[Dict[str, Any]]:
+        out, self.records = self.records, []
+        if self.dropped:
+            out.append(logging.makeLogRecord({
+                "name": "RansomwareScanner", "levelno": logging.WARNING,
+                "levelname": "WARNING", "args": None,
+                "msg": f"{self.dropped} log record(s) from a scan worker were dropped "
+                       f"(limit {self.limit} per file)."}).__dict__)
+            self.dropped = 0
+        return out
+
+
+def replay_worker_logs(records: Any) -> None:
+    """Re-emit a worker's records in this process, under its logger levels."""
+    if not isinstance(records, list):
+        return
+    for data in records:
+        try:
+            record = logging.makeLogRecord(data)
+            target = logging.getLogger(record.name)
+            if target.isEnabledFor(record.levelno):
+                target.handle(record)
+        except Exception:
+            continue
+
+
+def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
+                 log_level: int = logging.WARNING) -> None:
     """Worker loop: build one scanner, then scan paths sent over the pipe. Every
     temporary file goes under `temp_dir`, which the parent removes when this
-    worker is killed (a killed worker never runs its own clean-up)."""
+    worker is killed (a killed worker never runs its own clean-up). Records
+    logged while a file is scanned go to the parent as a ("log", [...]) message
+    before the result; building the scanner stays quiet (WARNING, stderr) as
+    each worker would otherwise repeat the start-up lines."""
     global _SCANNER
     if temp_dir:
         tempfile.tempdir = temp_dir
@@ -270,7 +338,21 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None
     else:
         from engine.scanner import RansomwareScanner
         _SCANNER = RansomwareScanner(cfg)
-    conn.send(("ready", None))
+    buffer = _WorkerLogBuffer()
+    scan_logger = logging.getLogger("RansomwareScanner")
+    propagate = scan_logger.propagate
+    scan_logger.addHandler(buffer)
+    scan_logger.propagate = False
+    scan_logger.setLevel(log_level)
+    try:
+        conn.send(("ready", None))
+        _serve(_SCANNER, conn, buffer)
+    finally:                                 # matters only when run in-process (tests)
+        scan_logger.removeHandler(buffer)
+        scan_logger.propagate = propagate
+
+
+def _serve(scanner: Any, conn, buffer: _WorkerLogBuffer) -> None:
     while True:
         try:
             path = conn.recv()
@@ -279,13 +361,20 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None
         if path is None:
             return
         try:
-            conn.send(("ok", _SCANNER.scan_file(path)))
+            reply: Tuple[str, Any] = ("ok", scanner.scan_file(path))
         except MemoryError:
-            conn.send(("error", "MemoryError: the file needed more memory than the worker limit"))
+            reply = ("error", "MemoryError: the file needed more memory than the worker limit")
         except RecursionError:
-            conn.send(("error", "RecursionError: a parser recursed too deeply"))
+            reply = ("error", "RecursionError: a parser recursed too deeply")
         except Exception as e:              # the engine should not raise; record it if it does
-            conn.send(("error", f"{type(e).__name__}: {e}"))
+            reply = ("error", f"{type(e).__name__}: {e}")
+        records = buffer.take()
+        if records:
+            try:
+                conn.send(("log", records))
+            except Exception:
+                pass                         # never lose the result over its log lines
+        conn.send(reply)
 
 
 @contextlib.contextmanager
@@ -371,7 +460,9 @@ class _Worker:
             sweep_stale_worker_dirs()
         self.parent, child = ctx.Pipe()
         self.temp_dir = tempfile.mkdtemp(prefix=f"{WORKER_TEMP_PREFIX}{os.getpid()}_")
-        self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child, self.temp_dir),
+        level = logging.getLogger("RansomwareScanner").getEffectiveLevel()
+        self.proc = ctx.Process(target=_worker_main,
+                                args=(config, memory_mb, child, self.temp_dir, level),
                                 daemon=True)
         with _START_LOCK, _main_not_reimported():
             self.proc.start()
@@ -573,6 +664,9 @@ class _IsolatedScan:
                 and not self.broken):
             self._dispatch(w)
         kind, payload = self._receive(w)
+        if kind == "log":
+            replay_worker_logs(payload)
+            return True
         if kind == "ready":
             w.ready = True
             METRICS.worker_start(True, time.monotonic() - w.created)

@@ -379,3 +379,25 @@ def test_no_response_checksum_drains_the_spool_after_server_validation(tmp_path,
     s3 = VerifyingS3(echo=False)
     assert C.run_uploads(cfg, uploader=_uploader(cfg, s3))["uploaded"] == 1
     assert C.spool_for(cfg).status()["pending"] == 0
+
+
+def test_uploading_logs_does_not_cause_the_next_upload(tmp_path, app, caplog):
+    """M11: each upload logged cloud_uploaded, which the event spool collected,
+    so every cycle uploaded a new logs document about the previous upload."""
+    caplog.set_level(logging.INFO, logger="RansomwareScanner")
+    cfg = _cloud_config(tmp_path)
+    spool = C.install_event_spool(cfg)
+    try:
+        logging.getLogger("RansomwareScanner").info(
+            "Scan completed.", extra={"event": "scan_completed", "verdict": "Clean"})
+        s3 = FakeS3()
+        up = _uploader(cfg, s3)
+        assert C.run_uploads(cfg, uploader=up)["uploaded"] == 1
+        assert any(getattr(r, "event", "") == "cloud_uploaded" for r in caplog.records)
+        for _ in range(3):
+            assert C.run_uploads(cfg, uploader=up)["uploaded"] == 0
+        assert len(s3.puts) == 1
+        events = json.loads(s3.puts[0]["Body"])["events"]
+        assert [e["event"] for e in events] == ["scan_completed"]
+    finally:
+        logging.getLogger("RansomwareScanner").removeHandler(spool)

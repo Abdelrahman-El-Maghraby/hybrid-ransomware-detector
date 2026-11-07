@@ -441,6 +441,13 @@ def spool_report(results: List[Dict[str, Any]], config: Mapping[str, Any]) -> No
                      extra={"event": "cloud_spool_error"})
 
 
+# Events about the upload pipeline itself. They stay in the local log but are
+# not collected for upload: each upload logs cloud_uploaded, so collecting it
+# made every upload cause the next one (about 1,440 log uploads a day).
+UPLOAD_PIPELINE_EVENTS = frozenset({"cloud_uploaded", "cloud_upload_retry",
+                                    "cloud_spool_expired", "cloud_spool_error"})
+
+
 class EventSpool(logging.Handler):
     """Collects structured log events (redact_event) for upload as one logs
     document at a time; the message text is never kept."""
@@ -453,6 +460,8 @@ class EventSpool(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         if record.name.startswith("botocore") or record.name.startswith("urllib3"):
+            return
+        if getattr(record, "event", None) in UPLOAD_PIPELINE_EVENTS:
             return
         event = redact_event(record)
         if event is None:

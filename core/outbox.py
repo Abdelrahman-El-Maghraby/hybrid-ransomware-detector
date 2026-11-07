@@ -20,11 +20,12 @@ import hashlib
 import json
 import logging
 import os
+import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import IO, Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from .mailer import RateLimited, clean_text
 
@@ -34,6 +35,7 @@ CHANNELS = ("webhook", "email")
 RANK = {"Clean": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 FIRST_RETRY_SECONDS = 30.0
 MAX_RETRY_SECONDS = 3_600.0
+FLUSH_WAIT_SECONDS = 30.0          # how long a flush waits for another one to finish
 Sender = Callable[[Dict[str, Any]], None]
 
 
@@ -99,18 +101,111 @@ def canary_alert(report: Any) -> Dict[str, Any]:
             "webhook": webhook, "email": email}
 
 
+# ------------------------------------------------------------------ flush lock
+# Every queue_and_send() builds its own Outbox, and the GUI, the background
+# service, the CLI and the API's alert threads can flush the same folder at the
+# same time. Two flushes reading one pending alert both sent it, and the slower
+# one could write it back as pending after the other had delivered it. A flush
+# therefore holds a lock shared by every thread (per folder) and every process
+# (a lock file in the folder).
+_FOLDER_LOCKS: Dict[tuple, threading.Lock] = {}
+_FOLDER_LOCKS_GUARD = threading.Lock()
+
+
+def _folder_lock(folder: Path, purpose: str) -> threading.Lock:
+    """One lock per folder and purpose for the whole process: "enqueue" (short)
+    or "flush" (held while alerts are sent)."""
+    key = (os.path.normcase(os.path.abspath(str(folder))), purpose)
+    with _FOLDER_LOCKS_GUARD:
+        return _FOLDER_LOCKS.setdefault(key, threading.Lock())
+
+
+def _try_lock_file(fh: IO[bytes]) -> bool:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _unlock_file(fh: IO[bytes]) -> None:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+class _FlushLock:
+    """Held for one flush: `acquired` is False when another flush kept the lock
+    for longer than `wait` seconds (its alerts are being delivered anyway)."""
+
+    def __init__(self, folder: Path, wait: float):
+        self.folder, self.wait = folder, wait
+        self.acquired = False
+        self._thread_lock = _folder_lock(folder, "flush")
+        self._fh: Optional[IO[bytes]] = None
+
+    def __enter__(self) -> _FlushLock:
+        deadline = time.monotonic() + self.wait
+        if not self._thread_lock.acquire(timeout=max(0.0, self.wait)):
+            return self
+        try:
+            fd = os.open(str(self.folder / ".flush.lock"),
+                         os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+            self._fh = os.fdopen(fd, "r+b")
+            while not _try_lock_file(self._fh):
+                if time.monotonic() >= deadline:
+                    self._fh.close()
+                    self._fh = None
+                    self._thread_lock.release()
+                    return self
+                time.sleep(0.05)
+        except BaseException:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+            self._thread_lock.release()
+            raise
+        self.acquired = True
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if not self.acquired:
+            return
+        assert self._fh is not None
+        _unlock_file(self._fh)
+        self._fh.close()
+        self._fh = None
+        self.acquired = False
+        self._thread_lock.release()
+
+
 # ------------------------------------------------------------------ the outbox
 class Outbox:
     """Pending alerts on disk; `flush` delivers what is due."""
 
     def __init__(self, folder: str, max_age_hours: float = 24,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time,
+                 flush_wait: float = FLUSH_WAIT_SECONDS):
         self.root = Path(folder)
         self.pending = self.root / "pending"
         self.sent = self.root / "sent"
         self.max_age = float(max_age_hours) * 3600
+        self.flush_wait = float(flush_wait)
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = _folder_lock(self.root, "enqueue")
 
     def _ensure(self) -> None:
         for d in (self.root, self.pending, self.sent):
@@ -154,8 +249,13 @@ class Outbox:
         """Try every due channel of every pending alert once. Returns counts:
         sent, retry (failed, will be retried), expired, waiting."""
         counts = {"sent": 0, "retry": 0, "expired": 0, "waiting": 0}
-        with self._lock:
-            if not self.pending.is_dir():
+        if not self.pending.is_dir():
+            return counts
+        with _FlushLock(self.root, self.flush_wait) as lock:
+            if not lock.acquired:
+                logger.info("Alert outbox: another delivery run is still busy; pending "
+                            "alerts are left to it.", extra={"event": "alert_flush_busy"})
+                counts["waiting"] = sum(1 for _ in self.pending.glob("*.json"))
                 return counts
             self._prune_sent()
             for path in sorted(self.pending.glob("*.json")):
@@ -269,6 +369,11 @@ def outbox_for(config: Mapping[str, Any]) -> Outbox:
 _MAILERS: Dict[tuple, Any] = {}
 
 
+def _intel_unreachable(fields: Dict[str, Any]) -> None:
+    from .intel_client import IntelError
+    raise IntelError("the intel service is unreachable; the e-mail alert stays queued")
+
+
 def senders_for(config: Mapping[str, Any]) -> Dict[str, Optional[Sender]]:
     """The delivery functions under `config`: the signed webhook, and e-mail
     either directly (desktop) or through the intel service (Docker)."""
@@ -280,8 +385,13 @@ def senders_for(config: Mapping[str, Any]) -> Dict[str, Optional[Sender]]:
     if config.get("intel_socket"):
         from .intel_client import client_from_config
         client = client_from_config(dict(config))
-        if client is not None and client.service("email").get("enabled"):
+        email = client.service("email") if client is not None else {}
+        if client is not None and email.get("enabled"):
             out["email"] = client.alert_email
+        elif email.get("unreachable"):
+            # Unknown while the intel service is down: queue the e-mail alert
+            # anyway, so it is retried with backoff instead of being lost.
+            out["email"] = _intel_unreachable
     else:
         from .mailer import SmtpMailer, email_configured
         if email_configured(config):
