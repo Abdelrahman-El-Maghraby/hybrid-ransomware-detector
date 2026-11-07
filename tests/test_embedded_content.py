@@ -3,6 +3,7 @@
 Every sample is built here and is inert: the "embedded scripts" only echo text,
 the "add-in" is a bare MZ/PE header with an export name, and nothing is run."""
 
+import os
 import struct
 
 import pytest
@@ -162,3 +163,15 @@ def test_mail_password_opens_an_encrypted_document_and_its_content_is_scanned(sc
     ind = _indicators(r)
     assert any("mail_archive_password_in_body" in i for i in ind)
     assert any("embedded_member:" in i for i in ind)          # decrypted content was scored
+
+
+@pytest.mark.parametrize("name", ["..", ".", ""])
+def test_embedded_member_named_dots_is_written_inside_the_sandbox(tmp_path, name):
+    """M12 (same class): a member called '..' was written to the sandbox folder
+    itself, which raised and ended the analysis."""
+    res = ec.EmbeddedResult()
+    EmbeddedContentAnalyzer()._add(res, tmp_path, True, name, b"MZ payload")
+    EmbeddedContentAnalyzer()._add(res, tmp_path, True, "next.exe", b"MZ next")
+    assert [m.name for m in res.members] == ["member", "next.exe"]
+    assert all(os.path.isfile(m.path) for m in res.members)
+    assert all(os.path.dirname(os.path.dirname(m.path)) == str(tmp_path) for m in res.members)

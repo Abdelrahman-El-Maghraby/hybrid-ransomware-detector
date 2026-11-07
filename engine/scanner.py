@@ -56,6 +56,7 @@ from .config import (
     ENGINE_VERSION,
 )
 from .external import ExternalLookupsMixin
+from .fsutil import is_regular_file, open_regular
 from .layers import Layer, default_pipeline
 from .metrics import METRICS
 from .protection import ProtectionMixin
@@ -290,7 +291,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         md5_hash = hashlib.md5(usedforsecurity=False)
         sha256_hash = hashlib.sha256()
         try:
-            with open(file_path, "rb") as f:
+            # Only regular files: a FIFO would block open() and a device such as
+            # /dev/zero never ends. This also runs in the main process (failure_result).
+            f = open_regular(file_path)
+            if f is None:
+                logger.warning("Not hashing %s: not a regular file", file_path)
+                return {"md5": "", "sha256": ""}
+            with f:
                 for chunk in iter(lambda: f.read(64 * 1024), b""):
                     md5_hash.update(chunk)
                     sha256_hash.update(chunk)
@@ -337,6 +344,12 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                     if filename.startswith("~$") or not filename.lower().endswith(exts):
                         continue
                     if os.path.normcase(os.path.abspath(full_path)) in canary_paths:
+                        continue
+                    if not is_regular_file(full_path):
+                        # A FIFO, socket or device (or a link to one) has no file
+                        # content to scan, and reading it can block forever.
+                        logger.warning("Skipping %s: not a regular file", full_path,
+                                       extra={"event": "skipped_special_file"})
                         continue
                     targets.append(full_path)
         except Exception as e:

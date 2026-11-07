@@ -542,7 +542,11 @@ class ContainerExtractor:
         base = PurePosixPath(name.replace("\\", "/")).name or "member"
         target_dir = sandbox / f"m{len(res.members):04d}"
         target_dir.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:] or "member"
+        safe = re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:]
+        if not safe.strip(". "):
+            # "", ".", ".." (e.g. ".<RTLO>.") or only dots and spaces would name the
+            # member folder or the sandbox itself; Windows also drops trailing dots.
+            safe = "member"
         return target_dir / safe
 
     def _new_member(self, name: str, size: int, csize: int, encrypted: bool, shown: str,

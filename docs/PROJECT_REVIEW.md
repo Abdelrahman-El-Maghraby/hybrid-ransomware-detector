@@ -2577,3 +2577,96 @@ validation would still need permission within the then-current constraints and
 actual successful evidence. Owner desktop/provider acceptance and the separate
 production checklist remain as in 27.4. PRs #46 and #39 stay draft; #46 is not
 ready to merge. Keep an active, resumable handoff rather than resetting it idle.
+
+## 28. Production-engineering review of 4.8 (branch `review/production-hardening`)
+
+Read-only review of `3e5a3f2` (PR #46 head) across setup, packaging, CLI/GUI,
+engine, detectors, API, configuration, persistence, quarantine, alerts, ML,
+performance, CI and documentation. Only small benign inputs were used; no
+malware, real samples, fuzz campaigns or OOM-artifact replay. Fixes are made in
+stages on a local branch cut from `3e5a3f2`; nothing is pushed or merged
+without the owner. Baseline at `3e5a3f2` (macOS arm64, Python 3.14.2): pytest
+1,227 passed / 13 skipped; ruff, mypy (67 files) and the CI bandit gate clean.
+
+Status key: **V** verified by reproduction or an unambiguous code path,
+**S** suspected. *Fixed (stage n)*, *Open*, or *Owner decision* (changes
+`scan_status` or another agreed behaviour, so it waits for the owner).
+Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
+
+### 28.1 Findings register
+
+| ID | Sev | V/S | Problem | Location | Status |
+|---|---|---|---|---|---|
+| H1 | High | V | FIFO, socket or link to a device in a scanned folder hung the main process (walk admitted it; after the worker timeout, `failure_result` hashed it in the parent). Same hang in the folder monitor's duplicate check and canary hashing | `engine/scanner.py` `_collect_target_files`, `calculate_hashes`; `engine/workers.py` `failure_result`; `core/folder_watch.py`; `core/canary.py` | Fixed (stage 1) |
+| H2 | High | V | Polynomial backtracking in mail HTML regexes (links ≈ cubic: 5.2 KB → 2.1 s; display domain, script/style and tag stripping quadratic). ~20 KB reached the worker timeout | `detectors/mail_analyzer.py` `_judge_body` | Fixed (stage 1) |
+| H3 | High | V | GUI scans never call `core.outputs.deliver()`: no webhook/e-mail/JSONL for manual or scheduled GUI scans | `aegis_gui/state.py` `ScanController._work` | Open (stage 2) |
+| H4 | High | V | `.rels` part over 2 MiB skipped silently; result stays checked/clean, hiding remote-template/external links. RTF read capped at 8 MiB without a truncation flag | `detectors/relationship_scanner.py:136-138` | Owner decision (`scan_status`) |
+| M1 | Med | V | E-mail alerts dropped permanently while the intel service is unreachable | `core/outbox.py` `senders_for` | Open (stage 2) |
+| M2 | Med | V | Concurrent outbox flushes duplicate alerts or reset delivered ones to pending (lock per instance) | `core/outbox.py`, `api/server.py` | Open (stage 2) |
+| M3 | Med | V | `--unlock-folders` deletes the whole containment state, losing the suspended-PID list | `core/containment.py` `unlock_folders` | Open (stage 3) |
+| M4 | Med | V | `/scan` parses and spools up to 50 MB before the token/lockout check | `api/server.py` | Owner decision |
+| M5 | Med | V | `.env.example` VT placeholder is treated as a real key (hash lookups, 4/min throttle, every result partial, migrated to keyring) | `.env.example:30` | Open (stage 3) |
+| M6 | Med | V | Log events raised in isolated workers (`external_share`, `scan_completed`, `layer_error`) never reach the log | `engine/workers.py` | Open (stage 2) |
+| M7 | Med | V | `--scan-now` without a terminal crashes on `input()` (EOFError, exit 1) instead of exit 3 | `RansomwareScanner.py` | Open (stage 3) |
+| M8 | Med | V | IMAP advances `last_uid` when workers cannot start; messages never scanned, exit 0 | `core/mailbox.py` | Open (stage 3) |
+| M9 | Med | V | Reports written without `encoding=`: non-ASCII names crash on cp1252 Windows and block `deliver()` | `engine/report.py` | Fixed (stage 1) |
+| M10 | Med | V | Report names have one-second resolution; a same-second report overwrote the previous one | `engine/report.py` | Fixed (stage 1) |
+| M11 | Med | V | Cloud log upload feeds on its own `cloud_uploaded` events | `core/cloud.py` | Open (stage 2) |
+| M12 | Med | V | Member name `.<RTLO>.` sanitised to `..` (the sandbox); the write failed and later members (e.g. an `.exe`) were never examined. Same class in embedded-content extraction (`..`) | `detectors/container_extractor.py` `_target`; `detectors/embedded_content.py` `_add` | Fixed (stage 1) |
+| M13 | Med | V | Any prompt_guard parse error (e.g. OOXML `x="1in"`) drops all hidden-content findings with no error flag | `detectors/prompt_guard.py` | Owner decision (`scan_status`) |
+| M14 | Med | V | `deploy/backup.sh`/`restore.sh` default to the 4.7.0 image; restore stops the stack before failing | `deploy/` | Open (stage 3) |
+| M15 | Med | V | Wheel/non-editable install ships no `rules/` or sample signatures; YARA silently off. OPERATIONS.md recommends that install | `pyproject.toml`, `docs/OPERATIONS.md` | Open (stage 3, docs) |
+| M16 | Med | V | Release workflow changed since v4.7.0 but never run; no check that tag, `pyproject` version and `ENGINE_VERSION` agree | `.github/workflows/release.yml` | Open (stage 3) |
+| H-04+ | Med | V | (tracked H-04) web-content regexes quadratic; `visible_text` 7 s at 128 KB with up to 2 MiB passed | `detectors/web_content.py` | Owner decision |
+| L-GUI | Low | V | GUI header shows `v4.4 beta` (engine 4.8.0) | `aegis_gui/common.py:43` | Open (stage 3) |
+| L-E1 | Low | V | Heavy-layer parallel merge overwrites `layer_errors` (metrics undercount) | `engine/staging.py` | Open |
+| L-E2 | Low | V | NaN passes settings validation; NaN/inf crash some settings at import; fractional MB truncates to 0 (no limit) | `engine/config.py`, `engine/validation.py` | Open |
+| L-E3 | Low | V | Migrating a multi-line secret leaves part in `.env` | `engine/secret_store.py` | Open |
+| L-E4 | Low | V/S | `.docx` text extraction bypasses its own size bounds (memory impact suspected) | `engine/text.py` | Open |
+| L-E5 | Low | S | Helper processes (OCR, 7z) may survive a killed worker; OCR has no timeout | `engine/workers.py`, OCR path | Open |
+| L-E6 | Low | S | Windows `_pid_alive` treats access-denied as dead; Job Object docstring misleading | `engine/workers.py` | Open |
+| L-E7 | Low | S | Concurrent scans share `scanner.last_not_scanned` | `engine/scanner.py` | Open |
+| L-C1 | Low | V | `--import-database` overwrites the CSV before validating; reports success on a bad header | `RansomwareScanner.py` | Open |
+| L-C2 | Low | V | Missing file exits 0; exit 2 has three meanings | `RansomwareScanner.py` | Open |
+| L-C3 | Low | V | Report "layers used" always lists LLM and VirusTotal | `engine/report.py` | Open |
+| L-C4 | Low | V | `tools/evaluate.py` and `calibrate_weights.py` submit to the sandbox when configured | `tools/` | Open |
+| L-A1 | Low | V | API archive member names expose the server temp path | `api/server.py` | Open |
+| L-A2 | Low | V | `backup.sh` has no `umask 077` | `deploy/backup.sh` | Open (stage 3) |
+| L-A3 | Low | S | Containment state and quarantine key not written atomically / fsynced | `core/containment.py`, `core/quarantine.py` | Open |
+| L-D1 | Low | V | XAR TOC offset/length unvalidated (ValueError, `read(-1)`, large preallocation) | `detectors/macos_packages.py` | Open |
+| L-D2 | Low | V | `bounded_decompress` ignores `.eof`; CPIO without trailer accepted | `detectors/macos_packages.py` | Open |
+| L-D3 | Low | V | Emulation reads the whole file before its size check | `detectors/emulation.py` | Open |
+| L-B1 | Low | V | README alternative test-install command fails in hash mode; "no compiler needed" false (python-tlsh sdist) | `README.md` | Open (stage 3) |
+| L-B2 | Low | V | DEPLOYMENT.md installs the desktop lock on a server; secrets list incomplete | `docs/DEPLOYMENT.md` | Open (stage 3) |
+| L-B3 | Low | V | `test_smoke.py` uses the real HOME | `test_smoke.py` | Open |
+| L-B4 | Low | V | `.dockerignore` misses caches and local data folders | `.dockerignore` | Open |
+| L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Open (stage 3) |
+| I-x | Info | V/S | Cache purge only at startup; IMAP fetch failures labelled `skipped_too_large`; intel JSON parsed before auth; dead `send_webhook`; evaluate counts errors as Clean; no scikit-learn version check on pickles (S) | various | Open |
+| OOM-H | Info | S | §27.5 hypotheses from reading only: XAR TOC accepts up to 128 MiB XML before member limits; pypdf caches decoded streams. Not executed; restricted | `detectors/macos_packages.py`, PDF path | Restricted |
+
+Checked and sound: API token comparison, X-Forwarded-For handling, outbox and
+canary atomic writes, quarantine crypto, rule-pack confinement and atomic
+`active.json`, defusedxml use, 7z subprocess arguments, Markdown links, CLI flags
+versus README, no tracked build artifacts, no Tk calls from worker threads.
+
+### 28.2 Stage 1: scan reliability (H1, H2, M9, M10, M12)
+
+- **H1.** New `engine/fsutil.py`: `is_regular_file()` (stat, follows links) and
+  `open_regular()` (opens with `O_NONBLOCK`, checks the descriptor with `fstat`,
+  returns None for non-regular files). The directory walk skips non-regular
+  targets with a `skipped_special_file` warning; `calculate_hashes`, the folder
+  monitor (`note`, `_new_content`) and canary hashing use them. A canary replaced
+  by a FIFO is now a `modified` finding ("not a regular file"). Symlinks to
+  regular files are still scanned, as before.
+- **H2.** The four mail-body patterns are replaced by linear helpers in
+  `detectors/mail_analyzer.py` that return the same results: `_anchors`,
+  `_first_domain`, `_strip_script_style`, `_strip_tags`. A seeded comparison of
+  300,000 random token strings (including Unicode case variants) against the
+  original patterns found no difference; 4 MB of each hostile shape now takes
+  at most 0.6 s.
+- **M12.** Sanitised member names that are empty or only dots/spaces become
+  `member` (container extractor) and only dots become `member` (embedded content).
+- **M9/M10.** Reports are written as UTF-8. The JSON report is created with
+  exclusive creation; a name already taken gets `_2`, `_3`, ...; the first
+  report keeps the historical name and the text report shares the stem.
+- No detection weight, threshold, inspection coverage or result-schema change.

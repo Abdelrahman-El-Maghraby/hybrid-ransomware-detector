@@ -226,7 +226,9 @@ class EmbeddedContentAnalyzer:
         if len(data) > MAX_MEMBER_BYTES:
             res.skipped.append(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
             return
-        safe = re.sub(r"[^\w.\-]", "_", Path(name).name)[:80] or "member"
+        safe = re.sub(r"[^\w.\-]", "_", Path(name).name)[:80]
+        if not safe.strip("."):                  # "", "." or ".." would name a folder
+            safe = "member"
         member = EmbeddedMember(safe, len(data), kind or Path(safe).suffix.lstrip(".") or "data")
         if extract:
             target = sandbox / f"m{len(res.members)}" / safe

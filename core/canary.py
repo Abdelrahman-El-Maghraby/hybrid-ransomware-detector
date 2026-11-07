@@ -43,6 +43,7 @@ from detectors.file_integrity import (
     detect_format,
     looks_encrypted,
 )
+from engine.fsutil import open_regular
 
 logger = logging.getLogger("RansomwareScanner.canary")
 
@@ -65,7 +66,10 @@ def _norm(path: PathLike) -> str:
 
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as fh:
+    fh = open_regular(str(path))       # a canary swapped for a FIFO must not hang the check
+    if fh is None:
+        raise OSError("not a regular file")
+    with fh:
         for chunk in iter(lambda: fh.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()

@@ -41,11 +41,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import stat
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+
+from engine.fsutil import open_regular
 
 logger = logging.getLogger("RansomwareScanner.monitor")
 
@@ -250,6 +253,10 @@ class FolderMonitor:
             st = os.stat(real)
         except OSError:
             return
+        if not stat.S_ISREG(st.st_mode):
+            with self._lock:                     # FIFO, socket or device: nothing to scan
+                self.counts["ignored"] += 1
+            return
         now = self._clock()
         with self._lock:
             entry = self._pending.get(real)
@@ -299,9 +306,12 @@ class FolderMonitor:
     def _new_content(self, real: str) -> bool:
         """False when the file's SHA-256 equals the last scanned one for this path."""
         try:
-            st = os.stat(real)
-            h = hashlib.sha256()
-            with open(real, "rb") as fh:            # hashing reads bytes; it parses nothing
+            fh = open_regular(real)                 # never blocks on a FIFO or device
+            if fh is None:
+                return False
+            with fh:                                # hashing reads bytes; it parses nothing
+                st = os.fstat(fh.fileno())
+                h = hashlib.sha256()
                 for chunk in iter(lambda: fh.read(1024 * 1024), b""):
                     h.update(chunk)
         except OSError:

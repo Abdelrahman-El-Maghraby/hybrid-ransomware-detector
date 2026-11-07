@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, TextIO, Tuple
 
 from detectors import FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE
 from detectors.qr_scanner import QR_AVAILABLE
@@ -41,10 +41,10 @@ class ReportMixin:
 
         # Create a timestamp for the report file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_file = os.path.join(self.report_dir, f"ransomware_scan_{timestamp}.json")
+        report_file, f = _new_report_file(self.report_dir, f"ransomware_scan_{timestamp}")
 
         # Write detailed JSON report (full evidence trail, unchanged shape)
-        with open(report_file, 'w') as f:
+        with f:
             json.dump(results, f, indent=4)
 
         total_files = len(results)
@@ -121,9 +121,9 @@ LLM posture:            {self._llm_posture_label()}
         report_text += f"\nDetailed JSON report saved to: {report_file}\n"
 
         # Also save the text report
-        text_report_file = os.path.join(self.report_dir, f"ransomware_scan_{timestamp}.txt")
-        with open(text_report_file, 'w') as f:
-            f.write(report_text)
+        text_report_file = report_file[:-len(".json")] + ".txt"
+        with open(text_report_file, "w", encoding="utf-8") as tf:
+            tf.write(report_text)
 
         # optional cloud storage: the redacted upload view, queued (core/cloud.py)
         from core.cloud import spool_report
@@ -221,6 +221,20 @@ LLM posture:            {self._llm_posture_label()}
 # and one entry in FINDING_SECTIONS; the order there is the order in reports.
 # --------------------------------------------------------------------------
 Lines = List[str]
+
+
+def _new_report_file(report_dir: str, stem: str) -> Tuple[str, TextIO]:
+    """Create `<stem>.json` (or `<stem>_2.json`, `_3`, ... when that name is
+    taken) and return its path and open UTF-8 handle. Exclusive creation means
+    two reports finished in the same second, by this or another process, never
+    overwrite each other; the first report keeps the historical name."""
+    n = 1
+    while True:
+        path = os.path.join(report_dir, f"{stem}.json" if n == 1 else f"{stem}_{n}.json")
+        try:
+            return path, open(path, "x", encoding="utf-8")
+        except FileExistsError:
+            n += 1
 
 
 def _provenance_lines(results: List[Dict], fallback: Dict) -> str:

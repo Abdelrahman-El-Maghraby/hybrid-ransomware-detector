@@ -119,6 +119,17 @@ def test_lure_names_and_executables(tmp_path):
                                                "lure.zip!/readme.txt"}
 
 
+@pytest.mark.parametrize("name", [".\u202e.", "\u202e.", "..\u202e", ". .", "\u202e"])
+def test_member_named_only_dots_does_not_stop_the_walk(tmp_path, name):
+    """M12: '.<RTLO>.' sanitised to '..', the sandbox folder itself; the write
+    failed and the members after it (here an executable) were never seen."""
+    arc = _zip(tmp_path / "dots.zip", [(name, b"hello"), ("evil.exe", b"MZ" + b"\0" * 100)])
+    with X.open(arc) as res:
+        assert res.unreadable_members == 0
+        assert [m.extracted for m in res.members] == [True, True]
+        assert res.executable_members == ["dots.zip!/evil.exe"]
+
+
 def test_password_protected_archive_opened_with_common_password(tmp_path):
     arc = make_zipcrypto_zip(tmp_path / "invoice.zip", "invoice.docm", b"secret doc", "infected")
     with X.open(arc) as res:
