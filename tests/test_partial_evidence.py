@@ -277,3 +277,126 @@ def test_results_still_match_the_published_schema(partial_result, tmp_path):
     jsonschema.validate(json.loads(json.dumps(r)), schema)
     broken = _scanner(tmp_path).scan_file(str(_docx_with_broken_footer(tmp_path, "b2.docx")))
     jsonschema.validate(json.loads(json.dumps(broken)), schema)
+
+
+# ------------------------------------------------------------------ H4-b: oversized XML parts
+# An XML part over the hidden-content size limit (20 MiB) was only listed as
+# oversized_xml_part(...) in hidden_reasons while the scan read "complete", so
+# hidden text could sit in a padded part. It is now named in
+# scan_results.prompt_guard.not_checked and the scan is partial.
+XML_LIMIT = 20 * 1024 * 1024
+FOOTER = ("<w:ftr xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
+          "<w:p><w:r><w:t>Page footer</w:t></w:r></w:p></w:ftr>")
+
+
+def _docx_with_oversized_footer(tmp_path, name="bigfooter.docx", hidden=False):
+    base = make_docx(tmp_path / f"base-{name}")
+    replace = {"word/footer1.xml": FOOTER.encode("utf-8") + b" " * (XML_LIMIT + 4096)}
+    if hidden:
+        with zipfile.ZipFile(base) as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        run = f"<w:r><w:rPr><w:vanish/></w:rPr><w:t>{INJECTION}</w:t></w:r>"
+        replace["word/document.xml"] = body.replace(
+            "</w:body>", f"<w:p>{run}</w:p></w:body>", 1).encode("utf-8")
+    return rewrite_zip(base, _in_scan(tmp_path, name), replace)
+
+
+def test_an_oversized_document_part_is_named_and_findings_kept(tmp_path):
+    p = _docx_with_oversized_footer(tmp_path, hidden=True)
+    with zipfile.ZipFile(p) as z:
+        assert z.getinfo("word/footer1.xml").compress_size < 256 * 1024     # tiny on disk
+    res = GUARD.inspect_hidden_content(p)
+    assert res.found and INJECTION in res.snippets
+    assert res.reasons == ["hidden_attribute", "oversized_xml_part(word/footer1.xml)"]
+    assert res.not_checked == ("1 XML part(s) over 20 MiB not checked for hidden content: "
+                               "word/footer1.xml")
+    assert GUARD.analyze("", "", res).as_dict()["not_checked"] == res.not_checked
+
+
+def test_oversized_slides_and_workbooks_are_named(tmp_path, monkeypatch):
+    monkeypatch.setattr(PG, "_MAX_XML_BYTES", 4096)             # small parts, same code path
+    deck = make_pptx(tmp_path / "d.pptx", [
+        {"shapes": [{"text": INJECTION, "hidden": True}]},
+        {"shapes": [{"text": "x" * 5000}]}])
+    res = GUARD.inspect_hidden_content(deck)
+    assert res.reasons[0] == "hidden_shape" and "ppt/slides/slide2.xml" in res.not_checked
+    from tests.test_office_hidden import make_xlsx
+    book = make_xlsx(tmp_path / "b.xlsx", [{"name": "S" + "x" * 30, "cells": {"A1": ("hi", 0)}}
+                                           for _ in range(150)])        # workbook.xml > 4 KiB
+    res = GUARD.inspect_hidden_content(book)
+    assert not res.found and "xl/workbook.xml" in res.not_checked   # nothing could be checked
+
+
+def test_documents_within_the_limit_carry_no_not_checked_key(tmp_path):
+    out = GUARD.analyze("", "", GUARD.inspect_hidden_content(make_docx(tmp_path / "a.docx")))
+    assert "not_checked" not in out.as_dict()
+
+
+def test_scan_with_an_oversized_part_is_partial_with_the_same_score(tmp_path):
+    s = _scanner(tmp_path)
+    padded = s.scan_file(str(_docx_with_oversized_footer(tmp_path, hidden=True)))
+    small = s.scan_file(str(rewrite_zip(
+        _docx_with_oversized_footer(tmp_path, "tmp.docx", hidden=True),
+        _in_scan(tmp_path, "smallfooter.docx"), {"word/footer1.xml": FOOTER.encode("utf-8")})))
+    assert small["scan_status"] == "complete" and not _gaps(small, "prompt-guard")
+    assert padded["scan_status"] == "partial"
+    [gap] = _gaps(padded, "prompt-guard")
+    assert gap["status"] == "partial" and gap["reason"].startswith("1 XML part(s) over 20 MiB")
+    assert padded["scan_results"]["prompt_guard"]["not_checked"] == gap["reason"]
+    assert padded["scan_results"]["prompt_guard"]["hidden_text_found"]
+    assert (padded["risk_score"], padded["verdict"]) == (small["risk_score"], small["verdict"])
+
+
+@pytest.fixture
+def oversized_clean(tmp_path):
+    s = _scanner(tmp_path)
+    return s, s.scan_file(str(_docx_with_oversized_footer(tmp_path)))
+
+
+def test_oversized_part_in_the_reports(oversized_clean):
+    s, r = oversized_clean
+    assert not r["is_malicious"] and r["scan_status"] == "partial"
+    text = s.generate_report([r])
+    assert "NOT FULLY INSPECTED (1)" in text
+    assert f"Verdict:  {r['verdict']} (partial scan)" in text
+    assert "[prompt-guard] 1 XML part(s) over 20 MiB not checked for hidden content" in text
+    saved = json.loads(next(Path(s.report_dir).glob("ransomware_scan_*.json")).read_text(
+        encoding="utf-8"))
+    assert saved[0]["scan_status"] == "partial"
+    assert saved[0]["scan_results"]["prompt_guard"]["not_checked"]
+    assert saved[0]["verdict_label"].endswith("(partial scan)")
+
+
+def test_a_flagged_file_shows_the_gap_under_its_finding(tmp_path):
+    s = _scanner(tmp_path)
+    r = s.scan_file(str(_docx_with_oversized_footer(tmp_path, hidden=True)))
+    assert r["is_malicious"]
+    text = s.generate_report([r])
+    assert "  Scan:     partial - 1 gap(s) in the evidence" in text
+    assert "[prompt-guard] 1 XML part(s) over 20 MiB not checked" in text
+
+
+def test_oversized_part_in_the_cli_output(oversized_clean, capsys):
+    s, r = oversized_clean
+    RS._scan_or_schedule(SimpleNamespace(scan_file=r["file_path"], scan_now=False,
+                                         background=False), s)
+    out = capsys.readouterr().out
+    assert "NOT FULLY INSPECTED (1)" in out and "(partial scan)" in out
+    assert "not checked for hidden content: word/footer1.xml" in out
+
+
+def test_oversized_part_in_the_gui_labels(oversized_clean):
+    _, r = oversized_clean
+    assert verdict_text(r) == f"{r['verdict']} (partial scan)"
+    assert first_gap(r) == ("not fully inspected: 1 XML part(s) over 20 MiB not checked for "
+                            "hidden content: word/footer1.xml")
+    assert gap_rows(r) == [("prompt-guard", r["incomplete_reasons"][0]["reason"], "")]
+
+
+def test_oversized_part_result_matches_the_schema(oversized_clean):
+    jsonschema = pytest.importorskip("jsonschema")
+    _, r = oversized_clean
+    schema = json.loads((Path(PG.__file__).resolve().parent.parent / "api"
+                         / "scan_result.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(json.loads(json.dumps(r)), schema)
+    assert alert_payload(r)["scan_status"] == "partial"

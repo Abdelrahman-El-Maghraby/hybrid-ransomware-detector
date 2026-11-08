@@ -2642,7 +2642,7 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | L-B4 | Low | V | `.dockerignore` misses caches and local data folders | `.dockerignore` | Open |
 | L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Fixed (stage 3) |
 | I-x | Info | V/S | Cache purge only at startup; IMAP fetch failures labelled `skipped_too_large`; intel JSON parsed before auth; dead `send_webhook`; evaluate counts errors as Clean; no scikit-learn version check on pickles (S) | various | Open |
-| H4-b | Med | V | Same class as H4 in the hidden-content check: a document/header/slide/sheet XML part over its size limit is only listed as `oversized_xml_part(...)` in `hidden_reasons`; the scan stays complete. Found while implementing H4/M13; not changed without owner approval | `detectors/prompt_guard.py` (`_MAX_XML_BYTES`, `_read_xml`, `_inspect_docx`) | Open (needs owner OK) |
+| H4-b | Med | V | Same class as H4 in the hidden-content check: a document/header/slide/sheet XML part over its size limit is only listed as `oversized_xml_part(...)` in `hidden_reasons`; the scan stays complete. Found while implementing H4/M13; not changed without owner approval | `detectors/prompt_guard.py` (`_MAX_XML_BYTES`, `_read_xml`, `_inspect_docx`) | Fixed (stage 5, owner-approved) |
 | I-T1 | Info | V | Test isolation: `tools/evaluate.py` `_init_worker` calls `logging.disable(CRITICAL)` and `tests/test_evaluation_tools.py` runs it in-process, so later tests run with logging off unless they use `caplog.set_level` (found when a new stage 2 test failed only in the full run) | `tools/evaluate.py:77`, `tests/test_evaluation_tools.py` | Deferred by owner |
 | OOM-H | Info | S | §27.5 hypotheses from reading only: XAR TOC accepts up to 128 MiB XML before member limits; pypdf caches decoded streams. Not executed; restricted | `detectors/macos_packages.py`, PDF path | Restricted |
 
@@ -2794,3 +2794,29 @@ H-04, the low items, I-T1 and the M15 packaging change.
   and JSON Lines. The tests turn the QR layer off: on a machine without a QR
   decoder every Office scan is already partial for that reason.
 - New open item H4-b (above), not changed.
+
+### 28.6 Stage 5: owner-approved H4-b (oversized hidden-content XML parts)
+
+The owner approved H4-b on 2026-11-08; the other deferred items stay pending.
+
+- The 20 MiB limit per XML part is unchanged. A part over it is still listed
+  as `oversized_xml_part(<name>)` in `hidden_reasons` (as before) and is now
+  also named in a new optional key `scan_results.prompt_guard.not_checked`
+  ("N XML part(s) over 20 MiB not checked for hidden content: <names>").
+  Findings from the parts that were read are kept. `engine/completeness.py`
+  adds a `partial` gap on the `prompt-guard` layer with that text. This covers
+  Word document/header/footer/note parts, slides, `presentation.xml`, and
+  workbook parts; when `xl/workbook.xml` itself is over the limit the workbook
+  cannot be checked at all and is reported partial (before: an empty, complete
+  result).
+- Compatibility: result schema 1.4 unchanged (the key sits inside the
+  free-form per-layer `scan_results`; tests validate against
+  `api/scan_result.schema.json`). Score and verdict unchanged (a test compares
+  a padded and an unpadded copy of the same document). Affected files now read
+  "<verdict> (partial scan)" in the report, CLI, GUI and `verdict_label`.
+- Evidence: 9 new tests in `tests/test_partial_evidence.py`; 8 fail on the
+  previous code, 1 guards normal documents (no new key). They cover the
+  inspector (Word at the real 20 MiB limit; slides and workbooks with a lowered
+  limit), a full scan, the text report (both the "NOT FULLY INSPECTED" section
+  and the gap line under a flagged file), the JSON report, `--scan-file`
+  output, the GUI labels, the alert payload and schema validation.

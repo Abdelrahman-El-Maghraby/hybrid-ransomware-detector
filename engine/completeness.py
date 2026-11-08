@@ -205,6 +205,10 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
         # as above, only for content that really is a PDF / Office file
         out.append(reason(PARTIAL, ctx.display, "prompt-guard",
                           f"hidden-content check incomplete: {guard_error}"))
+    guard_skipped = (sr.get("prompt_guard") or {}).get("not_checked")
+    if guard_skipped:
+        # parts the hidden-content check could not read (over its size limit)
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard", str(guard_skipped)))
     if (sr.get("mail") or {}).get("error"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"message not analysed: {sr['mail']['error']}"))

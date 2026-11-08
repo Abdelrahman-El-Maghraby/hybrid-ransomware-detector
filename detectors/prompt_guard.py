@@ -116,6 +116,7 @@ class HiddenTextResult:
     reasons: List[str] = field(default_factory=list)
     snippets: List[str] = field(default_factory=list)
     error: str = ""          # inspection stopped early: what was found so far is kept
+    not_checked: str = ""    # parts over the size limit were skipped (scan_status partial)
 
 
 @dataclass
@@ -128,6 +129,7 @@ class PromptGuardResult:
     injection_indicators: List[str] = field(default_factory=list)
     detail: str = ""
     error: str = ""          # hidden-content inspection stopped early (scan_status partial)
+    not_checked: str = ""    # oversized XML parts were not read (scan_status partial)
 
     def as_dict(self) -> Dict:
         return {
@@ -139,6 +141,7 @@ class PromptGuardResult:
             "injection_indicators": self.injection_indicators,
             "detail": self.detail,
             **({"error": self.error} if self.error else {}),
+            **({"not_checked": self.not_checked} if self.not_checked else {}),
         }
 
 
@@ -182,7 +185,7 @@ class PromptGuard:
                                      i.filename)]
             for info in parts:
                 if info.file_size > _MAX_XML_BYTES:
-                    found.note(f"oversized_xml_part({info.filename})")
+                    found.skip_part(info.filename)
                     continue
                 root = _DET.fromstring(zf.read(info))
                 for run in root.iter(f"{_W}r"):
@@ -405,6 +408,7 @@ class PromptGuard:
             detail=("; ".join(parts) if parts else
                     "No hidden content or prompt-injection attempts found."),
             error=hidden.error,
+            not_checked=hidden.not_checked,
         )
 
 
@@ -415,6 +419,7 @@ class _Findings:
     def __init__(self):
         self.reasons: List[str] = []
         self.snippets: List[str] = []
+        self.skipped: List[str] = []          # XML parts over _MAX_XML_BYTES, not read
 
     def add(self, reason: str, text: str) -> None:
         text = (text or "").strip()
@@ -437,15 +442,33 @@ class _Findings:
             self.snippets.append(text[:200])
 
     def note(self, reason: str) -> None:
-        """A reason without text (an oversized part that was not read)."""
+        """A reason without text."""
         if reason not in self.reasons:
             self.reasons.append(reason)
 
+    def skip_part(self, name: str) -> None:
+        """An XML part over the size limit that was not read: listed as before in
+        the reasons, and named in not_checked, which makes the scan partial."""
+        self.note(f"oversized_xml_part({name})")
+        if name not in self.skipped:
+            self.skipped.append(name)
+
     def clear(self) -> None:
-        self.reasons, self.snippets = [], []
+        """Drop what was found; a part that could not be read is still reported
+        (an oversized workbook.xml is why the workbook could not be checked)."""
+        self.reasons = [f"oversized_xml_part({n})" for n in self.skipped]
+        self.snippets = []
 
     def result(self) -> HiddenTextResult:
-        return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets)
+        not_checked = ""
+        if self.skipped:
+            shown = ", ".join(self.skipped[:3]) + (f" and {len(self.skipped) - 3} more"
+                                                   if len(self.skipped) > 3 else "")
+            not_checked = (f"{len(self.skipped)} XML part(s) over "
+                           f"{_MAX_XML_BYTES // (1024 * 1024)} MiB not checked for hidden "
+                           f"content: {shown}")
+        return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets,
+                                not_checked=not_checked)
 
 
 def _coordinate(value) -> Optional[int]:
@@ -505,7 +528,7 @@ def _read_xml(zf: zipfile.ZipFile, name: str, found: _Findings):
     except KeyError:
         return None
     if info.file_size > _MAX_XML_BYTES:
-        found.note(f"oversized_xml_part({name})")
+        found.skip_part(name)
         return None
     return _DET.fromstring(zf.read(info))
 

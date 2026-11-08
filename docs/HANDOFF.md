@@ -36,10 +36,12 @@
   and re-run in suite order).
 - Stage 3 (M3, M5, M7, M8, M14, M15 docs, M16, GUI label, docs): committed
   locally as `3e2eed2`; see 28.4. Full suite 1,290 passed / 13 skipped.
-- Stage 4 (owner-approved H4, M13 (a)+(b)): committed locally as the next
-  commit after `3e2eed2`; see 28.5.
+- Stage 4 (owner-approved H4, M13 (a)+(b)): committed locally as `b1ce30f`;
+  see 28.5. Full suite on that commit 1,309 passed / 13 skipped.
+- Stage 5 (owner-approved H4-b): committed locally as the next commit after
+  `b1ce30f`; see 28.6.
 - Deferred by the owner (not started): M4, H-04, the low items, I-T1 and the
-  M15 packaging change. New open item H4-b needs an owner decision.
+  M15 packaging change.
 
 ## Unresolved items carried forward
 
@@ -51,7 +53,7 @@
 
 ## Exact next action
 
-Owner review of the four local commits on `review/production-hardening`.
+Owner review of the five local commits on `review/production-hardening`.
 Nothing on this branch has been pushed; the owner decides whether and where to
 push. Unverified here: the release-gate step (runs only on a tag), the deploy
 scripts against real Docker, Windows behaviour of the outbox lock
