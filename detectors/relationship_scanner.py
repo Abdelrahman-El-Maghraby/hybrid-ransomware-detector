@@ -87,6 +87,7 @@ class RelationshipResult:
     findings: List[RelationshipFinding] = field(default_factory=list)
     detail: str = ""
     error: str = ""             # the document could not be parsed: not "nothing found"
+    not_checked: str = ""       # parts over the size limits were skipped: not "nothing found"
 
     @property
     def kinds(self) -> List[str]:
@@ -96,7 +97,8 @@ class RelationshipResult:
         return {"available": self.available, "checked": self.checked,
                 "suspicious": bool(self.findings), "kinds": self.kinds,
                 "findings": [f.as_dict() for f in self.findings[:25]],
-                "detail": self.detail, **({"error": self.error} if self.error else {})}
+                "detail": self.detail, **({"error": self.error} if self.error else {}),
+                **({"not_checked": self.not_checked} if self.not_checked else {})}
 
 
 def defang(url: str) -> str:
@@ -129,12 +131,14 @@ class RelationshipScanner:
         if not zipfile.is_zipfile(path):
             return RelationshipResult(checked=False, detail="Not a ZIP-based Office file.")
         findings: List[RelationshipFinding] = []
+        skipped: List[str] = []
         with zipfile.ZipFile(path) as zf:
             for info in zf.infolist():
                 if not info.filename.lower().endswith(".rels"):
                     continue
                 if info.file_size > _MAX_RELS_BYTES:
                     logger.debug("Skipping oversized rels part %s", info.filename)
+                    skipped.append(info.filename)
                     continue
                 root = _DET.fromstring(zf.read(info))
                 for rel in root.iter():
@@ -145,7 +149,15 @@ class RelationshipScanner:
                                              (rel.get("TargetMode") or "").strip())
                     if finding is not None:
                         findings.append(finding)
-        return self._result(findings)
+        result = self._result(findings)
+        if skipped:
+            # The links in a skipped part are unknown: say so (scan_status partial)
+            # instead of reporting "no external relationships".
+            shown = ", ".join(skipped[:3]) + (f" and {len(skipped) - 3} more"
+                                              if len(skipped) > 3 else "")
+            result.not_checked = (f"{len(skipped)} relationship part(s) over "
+                                  f"{_MAX_RELS_BYTES // (1024 * 1024)} MiB not checked: {shown}")
+        return result
 
     @staticmethod
     def _classify(part: str, rel_type: str, target: str,
@@ -182,7 +194,9 @@ class RelationshipScanner:
 
     def _scan_rtf(self, path: Path) -> RelationshipResult:
         with path.open("rb") as fh:
-            data = fh.read(_MAX_RTF_BYTES)
+            data = fh.read(_MAX_RTF_BYTES + 1)
+        truncated = len(data) > _MAX_RTF_BYTES
+        data = data[:_MAX_RTF_BYTES]
         findings: List[RelationshipFinding] = []
         for m in _RTF_TEMPLATE.finditer(data):
             target = m.group(1).decode("latin-1", errors="replace").strip()
@@ -197,7 +211,11 @@ class RelationshipScanner:
             findings.append(RelationshipFinding(
                 "rtf_ole_autoupdate", "rtf", "(embedded OLE object set to auto-update)",
                 "objupdate"))
-        return self._result(findings)
+        result = self._result(findings)
+        if truncated:
+            result.not_checked = (f"RTF content after the first "
+                                  f"{_MAX_RTF_BYTES // (1024 * 1024)} MiB not checked")
+        return result
 
     @staticmethod
     def _result(findings: List[RelationshipFinding]) -> RelationshipResult:

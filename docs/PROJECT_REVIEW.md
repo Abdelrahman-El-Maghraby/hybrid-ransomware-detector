@@ -2600,11 +2600,11 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | H1 | High | V | FIFO, socket or link to a device in a scanned folder hung the main process (walk admitted it; after the worker timeout, `failure_result` hashed it in the parent). Same hang in the folder monitor's duplicate check and canary hashing | `engine/scanner.py` `_collect_target_files`, `calculate_hashes`; `engine/workers.py` `failure_result`; `core/folder_watch.py`; `core/canary.py` | Fixed (stage 1) |
 | H2 | High | V | Polynomial backtracking in mail HTML regexes (links ≈ cubic: 5.2 KB → 2.1 s; display domain, script/style and tag stripping quadratic). ~20 KB reached the worker timeout | `detectors/mail_analyzer.py` `_judge_body` | Fixed (stage 1) |
 | H3 | High | V | GUI scans never call `core.outputs.deliver()`: no webhook/e-mail/JSONL for manual or scheduled GUI scans | `aegis_gui/state.py` `ScanController._work` | Fixed (stage 2) |
-| H4 | High | V | `.rels` part over 2 MiB skipped silently; result stays checked/clean, hiding remote-template/external links. RTF read capped at 8 MiB without a truncation flag | `detectors/relationship_scanner.py:136-138` | Owner decision (`scan_status`) |
+| H4 | High | V | `.rels` part over 2 MiB skipped silently; result stays checked/clean, hiding remote-template/external links. RTF read capped at 8 MiB without a truncation flag | `detectors/relationship_scanner.py:136-138` | Fixed (stage 4, owner-approved) |
 | M1 | Med | V | E-mail alerts dropped permanently while the intel service is unreachable | `core/outbox.py` `senders_for` | Fixed (stage 2) |
 | M2 | Med | V | Concurrent outbox flushes duplicate alerts or reset delivered ones to pending (lock per instance) | `core/outbox.py`, `api/server.py` | Fixed (stage 2) |
 | M3 | Med | V | `--unlock-folders` deletes the whole containment state, losing the suspended-PID list | `core/containment.py` `unlock_folders` | Fixed (stage 3) |
-| M4 | Med | V | `/scan` parses and spools up to 50 MB before the token/lockout check | `api/server.py` | Owner decision |
+| M4 | Med | V | `/scan` parses and spools up to 50 MB before the token/lockout check | `api/server.py` | Deferred by owner |
 | M5 | Med | V | `.env.example` VT placeholder is treated as a real key (hash lookups, 4/min throttle, every result partial, migrated to keyring) | `.env.example:30`, `engine/secret_store.py` | Fixed (stage 3) |
 | M6 | Med | V | Log events raised in isolated workers (`external_share`, `scan_completed`, `layer_error`) never reach the log | `engine/workers.py` | Fixed (stage 2) |
 | M7 | Med | V | `--scan-now` without a terminal crashes on `input()` (EOFError, exit 1) instead of exit 3 | `RansomwareScanner.py` | Fixed (stage 3) |
@@ -2613,11 +2613,11 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | M10 | Med | V | Report names have one-second resolution; a same-second report overwrote the previous one | `engine/report.py` | Fixed (stage 1) |
 | M11 | Med | V | Cloud log upload feeds on its own `cloud_uploaded` events | `core/cloud.py` | Fixed (stage 2) |
 | M12 | Med | V | Member name `.<RTLO>.` sanitised to `..` (the sandbox); the write failed and later members (e.g. an `.exe`) were never examined. Same class in embedded-content extraction (`..`) | `detectors/container_extractor.py` `_target`; `detectors/embedded_content.py` `_add` | Fixed (stage 1) |
-| M13 | Med | V | Any prompt_guard parse error (e.g. OOXML `x="1in"`) drops all hidden-content findings with no error flag | `detectors/prompt_guard.py` | Owner decision (`scan_status`) |
+| M13 | Med | V | Any prompt_guard parse error (e.g. OOXML `x="1in"`) drops all hidden-content findings with no error flag | `detectors/prompt_guard.py` | Fixed (stage 4, owner-approved (a)+(b)) |
 | M14 | Med | V | `deploy/backup.sh`/`restore.sh` default to the 4.7.0 image; restore stops the stack before failing | `deploy/` | Fixed (stage 3) |
-| M15 | Med | V | Wheel/non-editable install ships no `rules/` or sample signatures; YARA silently off. OPERATIONS.md recommends that install | `pyproject.toml`, `docs/OPERATIONS.md` | Docs fixed (stage 3); packaging open |
+| M15 | Med | V | Wheel/non-editable install ships no `rules/` or sample signatures; YARA silently off. OPERATIONS.md recommends that install | `pyproject.toml`, `docs/OPERATIONS.md` | Docs fixed (stage 3); packaging deferred by owner |
 | M16 | Med | V | Release workflow changed since v4.7.0 but never run; no check that tag, `pyproject` version and `ENGINE_VERSION` agree | `.github/workflows/release.yml` | Check added (stage 3); unrun until a tag |
-| H-04+ | Med | V | (tracked H-04) web-content regexes quadratic; `visible_text` 7 s at 128 KB with up to 2 MiB passed | `detectors/web_content.py` | Owner decision |
+| H-04+ | Med | V | (tracked H-04) web-content regexes quadratic; `visible_text` 7 s at 128 KB with up to 2 MiB passed | `detectors/web_content.py` | Deferred by owner |
 | L-GUI | Low | V | GUI header shows `v4.4 beta` (engine 4.8.0) | `aegis_gui/common.py:43` | Fixed (stage 3) |
 | L-E1 | Low | V | Heavy-layer parallel merge overwrites `layer_errors` (metrics undercount) | `engine/staging.py` | Open |
 | L-E2 | Low | V | NaN passes settings validation; NaN/inf crash some settings at import; fractional MB truncates to 0 (no limit) | `engine/config.py`, `engine/validation.py` | Open |
@@ -2642,7 +2642,8 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 | L-B4 | Low | V | `.dockerignore` misses caches and local data folders | `.dockerignore` | Open |
 | L-B5 | Low | V | Stale docs: README TOC lacks 4.8, roadmap lists shipped toasts, old sample report/test counts; B3 likely fixed but open | `README.md`, `docs/RELEASE_READINESS.md` | Fixed (stage 3) |
 | I-x | Info | V/S | Cache purge only at startup; IMAP fetch failures labelled `skipped_too_large`; intel JSON parsed before auth; dead `send_webhook`; evaluate counts errors as Clean; no scikit-learn version check on pickles (S) | various | Open |
-| I-T1 | Info | V | Test isolation: `tools/evaluate.py` `_init_worker` calls `logging.disable(CRITICAL)` and `tests/test_evaluation_tools.py` runs it in-process, so later tests run with logging off unless they use `caplog.set_level` (found when a new stage 2 test failed only in the full run) | `tools/evaluate.py:77`, `tests/test_evaluation_tools.py` | Open |
+| H4-b | Med | V | Same class as H4 in the hidden-content check: a document/header/slide/sheet XML part over its size limit is only listed as `oversized_xml_part(...)` in `hidden_reasons`; the scan stays complete. Found while implementing H4/M13; not changed without owner approval | `detectors/prompt_guard.py` (`_MAX_XML_BYTES`, `_read_xml`, `_inspect_docx`) | Open (needs owner OK) |
+| I-T1 | Info | V | Test isolation: `tools/evaluate.py` `_init_worker` calls `logging.disable(CRITICAL)` and `tests/test_evaluation_tools.py` runs it in-process, so later tests run with logging off unless they use `caplog.set_level` (found when a new stage 2 test failed only in the full run) | `tools/evaluate.py:77`, `tests/test_evaluation_tools.py` | Deferred by owner |
 | OOM-H | Info | S | §27.5 hypotheses from reading only: XAR TOC accepts up to 128 MiB XML before member limits; pypdf caches decoded streams. Not executed; restricted | `detectors/macos_packages.py`, PDF path | Restricted |
 
 Checked and sound: API token comparison, X-Forwarded-For handling, outbox and
@@ -2753,3 +2754,43 @@ versus README, no tracked build artifacts, no Tk calls from worker threads.
   list of secret names. RELEASE_READINESS B3 marked fixed (marker added in
   `d64add6`).
 - No detection weight, threshold, inspection coverage or result-schema change.
+
+### 28.5 Stage 4: owner-approved `scan_status` changes (H4, M13 (a) and (b))
+
+The owner approved H4 and both parts of M13 on 2026-11-08 and deferred M4,
+H-04, the low items, I-T1 and the M15 packaging change.
+
+- **H4.** The size limits are unchanged (2 MiB per `.rels` part, 8 MiB of RTF).
+  A skipped part, or RTF content past the limit, is named in a new optional key
+  `scan_results.relationships.not_checked`; findings from the parts that were
+  read are kept. `engine/completeness.py` turns the key into a `partial` gap on
+  the `relationships` layer with that text.
+- **M13 (a).** Shape coordinates and the slide size are read with `_coordinate()`:
+  a value that is not a plain integer (e.g. `"1in"`) is unknown, and only that
+  shape's off-slide check (or, for the slide size, the off-slide check of the
+  deck) is skipped, as for a missing value. Other checks are unaffected.
+- **M13 (b).** All hidden-content inspectors write into one `_Findings`
+  collector. An exception keeps what was collected (PDF pages found so far
+  included) and sets `error`; `PromptGuardResult.as_dict()` adds `error` only
+  when set. The completeness check adds a `partial` gap
+  ("hidden-content check incomplete: ...") only when the content really is a
+  PDF, ZIP (OOXML) or OLE file, the same rule as for text extraction, so a
+  program named `.pdf` is not reported as partial.
+- **Compatibility.** Result schema 1.4 unchanged: `scan_status` values and
+  `incomplete_reasons` entries keep their shape, and the two new keys sit
+  inside the free-form per-layer `scan_results` (validated against
+  `api/scan_result.schema.json` in the tests). Score and verdict do not depend
+  on completeness; files with the hidden-content error now keep the findings
+  made before it, which can raise their score (the intended detection). Files
+  newly reported partial: Office files with a `.rels` part over 2 MiB, RTF over
+  8 MiB, and real documents whose hidden-content check raises. They read
+  "<verdict> (partial scan)" in the report, CLI, GUI and `verdict_label`, and
+  carry `scan_status: partial` in JSON reports, JSON Lines and alert payloads.
+- **Evidence.** 19 new tests in `tests/test_partial_evidence.py`; 15 fail on
+  the old code, 4 guard unchanged behaviour (no new keys on normal files, a
+  program named `.pdf` stays complete, schema validation). They cover the
+  detectors, a full scan, the isolated worker, the text and JSON reports, CLI
+  output, GUI labels (`verdict_text`, `first_gap`, `gap_rows`), alert payloads
+  and JSON Lines. The tests turn the QR layer off: on a machine without a QR
+  decoder every Office scan is already partial for that reason.
+- New open item H4-b (above), not changed.

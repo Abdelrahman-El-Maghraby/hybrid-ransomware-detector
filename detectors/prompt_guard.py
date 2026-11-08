@@ -115,6 +115,7 @@ class HiddenTextResult:
     found: bool = False
     reasons: List[str] = field(default_factory=list)
     snippets: List[str] = field(default_factory=list)
+    error: str = ""          # inspection stopped early: what was found so far is kept
 
 
 @dataclass
@@ -126,6 +127,7 @@ class PromptGuardResult:
     injection_status: str = "none"          # none | suspicious | confirmed
     injection_indicators: List[str] = field(default_factory=list)
     detail: str = ""
+    error: str = ""          # hidden-content inspection stopped early (scan_status partial)
 
     def as_dict(self) -> Dict:
         return {
@@ -136,6 +138,7 @@ class PromptGuardResult:
             "injection_status": self.injection_status,
             "injection_indicators": self.injection_indicators,
             "detail": self.detail,
+            **({"error": self.error} if self.error else {}),
         }
 
 
@@ -146,33 +149,40 @@ class PromptGuard:
     def inspect_hidden_content(self, file_path: PathLike) -> HiddenTextResult:
         path = Path(file_path)
         ext = path.suffix.lower()
-        try:
-            if ext in _DOCX_EXTS:
-                return self._inspect_docx(path)
-            if ext == ".pdf":
-                return self._inspect_pdf(path)
-            if ext in _XLSX_EXTS:
-                return self._inspect_xlsx(path)
-            if ext in _PPTX_EXTS:
-                return self._inspect_pptx(path)
-            if ext in _XLS_EXTS:
-                return self._inspect_xls(path)
-        except Exception as e:  # a malformed file must never break a scan
-            logger.debug("Hidden-content inspection failed for %s: %s", path, e)
-        return HiddenTextResult()
-
-    def _inspect_docx(self, path: Path) -> HiddenTextResult:
-        if not DEFUSEDXML_AVAILABLE or not zipfile.is_zipfile(path):
+        if ext in _DOCX_EXTS:
+            inspect = self._inspect_docx
+        elif ext == ".pdf":
+            inspect = self._inspect_pdf
+        elif ext in _XLSX_EXTS:
+            inspect = self._inspect_xlsx
+        elif ext in _PPTX_EXTS:
+            inspect = self._inspect_pptx
+        elif ext in _XLS_EXTS:
+            inspect = self._inspect_xls
+        else:
             return HiddenTextResult()
-        reasons: List[str] = []
-        snippets: List[str] = []
+        found = _Findings()
+        try:
+            inspect(path, found)
+        except Exception as e:  # a malformed file must never break a scan
+            # Keep what was found before the error, and say the inspection
+            # stopped (scan_status partial) instead of reporting "nothing hidden".
+            logger.debug("Hidden-content inspection failed for %s: %s", path, e)
+            result = found.result()
+            result.error = f"{type(e).__name__}: {e}"[:200]
+            return result
+        return found.result()
+
+    def _inspect_docx(self, path: Path, found: _Findings) -> None:
+        if not DEFUSEDXML_AVAILABLE or not zipfile.is_zipfile(path):
+            return
         with zipfile.ZipFile(path) as zf:
             parts = [i for i in zf.infolist()
                      if re.fullmatch(r"word/(document|header\d*|footer\d*|footnotes|endnotes)\.xml",
                                      i.filename)]
             for info in parts:
                 if info.file_size > _MAX_XML_BYTES:
-                    reasons.append(f"oversized_xml_part({info.filename})")
+                    found.note(f"oversized_xml_part({info.filename})")
                     continue
                 root = _DET.fromstring(zf.read(info))
                 for run in root.iter(f"{_W}r"):
@@ -181,10 +191,7 @@ class PromptGuard:
                         continue
                     text = "".join(t.text or "" for t in run.iter(f"{_W}t")).strip()
                     if text:
-                        reasons.extend(why)
-                        if len(snippets) < _MAX_SNIPPETS:
-                            snippets.append(text[:200])
-        return HiddenTextResult(bool(snippets), sorted(set(reasons)), snippets)
+                        found.add_all(why, text)
 
     @staticmethod
     def _hidden_run_reasons(run) -> List[str]:
@@ -211,10 +218,9 @@ class PromptGuard:
         return why
 
     # ---------------------------------------------------------------- Excel
-    def _inspect_xlsx(self, path: Path) -> HiddenTextResult:
+    def _inspect_xlsx(self, path: Path, found: _Findings) -> None:
         if not DEFUSEDXML_AVAILABLE or not zipfile.is_zipfile(path):
-            return HiddenTextResult()
-        found = _Findings()
+            return
         with zipfile.ZipFile(path) as zf:
             names = set(zf.namelist())
             def xml(n, zf=zf):
@@ -224,7 +230,8 @@ class PromptGuard:
             book = xml("xl/workbook.xml")
             rels = xml("xl/_rels/workbook.xml.rels")
             if book is None or rels is None:
-                return HiddenTextResult()
+                found.clear()                   # not a workbook: nothing to report
+                return
             targets = {r.get("Id"): r.get("Target", "") for r in rels.iter(f"{_PKG_REL}Relationship")}
             budget = [_MAX_CELLS]
             for sheet in book.iter(f"{_S}sheet"):
@@ -253,32 +260,29 @@ class PromptGuard:
                         found.add("hidden_columns", text)
                     for why in styles.get(cell.get("s") or "0", ()):
                         found.add(why, text)
-        return found.result()
 
     # ----------------------------------------------------------- legacy Excel
-    def _inspect_xls(self, path: Path) -> HiddenTextResult:
+    def _inspect_xls(self, path: Path, found: _Findings) -> None:
         """Hidden and "very hidden" sheets in a binary (BIFF8) workbook. A very
         hidden sheet cannot be shown from Excel's menus - the classic place for
         Excel 4.0 (XLM) macro droppers."""
-        found = _Findings()
         for name, state in _xls_sheet_states(path):
             if state == 2:
                 found.add("very_hidden_sheet", f"[{name}]")
             elif state == 1:
                 found.add("hidden_sheet", f"[{name}]")
-        return found.result()
 
     # ----------------------------------------------------------- PowerPoint
-    def _inspect_pptx(self, path: Path) -> HiddenTextResult:
+    def _inspect_pptx(self, path: Path, found: _Findings) -> None:
         if not DEFUSEDXML_AVAILABLE or not zipfile.is_zipfile(path):
-            return HiddenTextResult()
-        found = _Findings()
+            return
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
             pres = _read_xml(zf, "ppt/presentation.xml", found) if "ppt/presentation.xml" in names else None
             size = pres.find(f"{_P}sldSz") if pres is not None else None
-            slide_w = int(size.get("cx", 0)) if size is not None else 0
-            slide_h = int(size.get("cy", 0)) if size is not None else 0
+            # An unreadable slide size disables the off-slide check, as a missing one does.
+            slide_w = (_coordinate(size.get("cx", 0)) or 0) if size is not None else 0
+            slide_h = (_coordinate(size.get("cy", 0)) or 0) if size is not None else 0
             slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
                             key=_slide_number)
             for part in slides:
@@ -295,7 +299,6 @@ class PromptGuard:
                     continue
                 for shape in tree:
                     self._pptx_shape(shape, slide_w, slide_h, found, top_level=True)
-        return found.result()
 
     def _pptx_shape(self, shape, slide_w: int, slide_h: int, found: _Findings,
                     top_level: bool) -> None:
@@ -317,25 +320,39 @@ class PromptGuard:
         if top_level and xfrm is not None and slide_w and slide_h:
             off, ext = xfrm.find(f"{_A}off"), xfrm.find(f"{_A}ext")
             if off is not None and ext is not None:
-                x, y = int(off.get("x", 0)), int(off.get("y", 0))
-                cx, cy = int(ext.get("cx", 0)), int(ext.get("cy", 0))
-                if x >= slide_w or y >= slide_h or x + cx <= 0 or y + cy <= 0:
-                    found.add("text_outside_slide", text)
+                box = [_coordinate(v) for v in (off.get("x", 0), off.get("y", 0),
+                                                ext.get("cx", 0), ext.get("cy", 0))]
+                # A coordinate that is not a plain EMU integer (strict OOXML also
+                # allows "1in", "2.5cm") is unknown: only this position check is skipped.
+                if None not in box:
+                    x, y, cx, cy = (int(v or 0) for v in box)
+                    if x >= slide_w or y >= slide_h or x + cx <= 0 or y + cy <= 0:
+                        found.add("text_outside_slide", text)
         for run in shape.iter(f"{_A}r"):
             rpr = run.find(f"{_A}rPr")
             sz = rpr.get("sz") if rpr is not None else None
             if sz and sz.isdigit() and int(sz) <= 200:          # hundredths of a point
                 found.add("microscopic_font", "".join(t.text or "" for t in run.iter(f"{_A}t")))
 
-    def _inspect_pdf(self, path: Path) -> HiddenTextResult:
+    def _inspect_pdf(self, path: Path, found: _Findings) -> None:
         try:
             from pypdf import PdfReader
         except ImportError:  # pragma: no cover
             try:
                 from PyPDF2 import PdfReader  # type: ignore[no-redef]
             except ImportError:
-                return HiddenTextResult()
+                return
         pages: List[int] = []
+        try:
+            self._pdf_invisible_pages(PdfReader, path, pages)
+        finally:                 # pages found before an error are still reported
+            if pages:
+                shown = ", ".join(map(str, pages[:8]))
+                found.add("pdf_invisible_text_render_mode",
+                          f"Invisible text (render mode 3) on page(s) {shown}")
+
+    @staticmethod
+    def _pdf_invisible_pages(PdfReader, path: Path, pages: List[int]) -> None:
         with path.open("rb") as fh:
             reader = PdfReader(fh, strict=False)
             for number, page in enumerate(reader.pages[:_MAX_PDF_PAGES], start=1):
@@ -347,11 +364,6 @@ class PromptGuard:
                 # if text is actually shown afterwards (Tj / TJ / ' / ").
                 if re.search(rb"(?<![\d.])3\s+Tr\b", data) and re.search(rb"\bT[jJ]\b|['\"]\s", data):
                     pages.append(number)
-        if not pages:
-            return HiddenTextResult()
-        shown = ", ".join(map(str, pages[:8]))
-        return HiddenTextResult(True, ["pdf_invisible_text_render_mode"],
-                                [f"Invisible text (render mode 3) on page(s) {shown}"])
 
     # ------------------------------------------------------- classification
     def analyze(self, visible_text: str = "", embedded_strings: str = "",
@@ -392,6 +404,7 @@ class PromptGuard:
             injection_indicators=indicators,
             detail=("; ".join(parts) if parts else
                     "No hidden content or prompt-injection attempts found."),
+            error=hidden.error,
         )
 
 
@@ -412,8 +425,33 @@ class _Findings:
         if len(self.snippets) < _MAX_SNIPPETS:
             self.snippets.append(text[:200])
 
+    def add_all(self, reasons: List[str], text: str) -> None:
+        """Several reasons for one piece of hidden text (one snippet)."""
+        text = (text or "").strip()
+        if not text:
+            return
+        for reason in reasons:
+            if reason not in self.reasons:
+                self.reasons.append(reason)
+        if len(self.snippets) < _MAX_SNIPPETS:
+            self.snippets.append(text[:200])
+
+    def note(self, reason: str) -> None:
+        """A reason without text (an oversized part that was not read)."""
+        if reason not in self.reasons:
+            self.reasons.append(reason)
+
+    def clear(self) -> None:
+        self.reasons, self.snippets = [], []
+
     def result(self) -> HiddenTextResult:
         return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets)
+
+
+def _coordinate(value) -> Optional[int]:
+    """An OOXML coordinate in EMU, or None when it is not a plain integer."""
+    text = str(value).strip()
+    return int(text) if re.fullmatch(r"[+-]?\d{1,18}", text) else None
 
 
 _CELL_REF = re.compile(r"([A-Z]*)(\d*)")
@@ -467,7 +505,7 @@ def _read_xml(zf: zipfile.ZipFile, name: str, found: _Findings):
     except KeyError:
         return None
     if info.file_size > _MAX_XML_BYTES:
-        found.reasons.append(f"oversized_xml_part({name})")
+        found.note(f"oversized_xml_part({name})")
         return None
     return _DET.fromstring(zf.read(info))
 

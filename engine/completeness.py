@@ -119,6 +119,8 @@ def _layer_gaps(scanner: RansomwareScanner, ctx: ScanContext, out: List[Reason])
         if isinstance(entry, dict) and entry.get("error"):
             out.append(reason(PARTIAL, ctx.display, layer, f"{layer} could not analyse the file: "
                                                           f"{entry['error']}"))
+        if isinstance(entry, dict) and entry.get("not_checked"):
+            out.append(reason(PARTIAL, ctx.display, layer, str(entry["not_checked"])))
     for layer, key in _EXTERNAL_RESULTS:
         entry = sr.get(key)
         if not isinstance(entry, dict):
@@ -197,6 +199,12 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
         # the PDF parser, but it is analysed as what it is
         out.append(reason(PARTIAL, ctx.display, "prompt-guard",
                           f"document text not read: {sr['text_extraction']['error']}"))
+    guard_error = (sr.get("prompt_guard") or {}).get("error")
+    if guard_error and fmt in ("pdf", "zip", "ole"):
+        # the hidden-content check stopped part-way (its findings so far are kept);
+        # as above, only for content that really is a PDF / Office file
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          f"hidden-content check incomplete: {guard_error}"))
     if (sr.get("mail") or {}).get("error"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"message not analysed: {sr['mail']['error']}"))

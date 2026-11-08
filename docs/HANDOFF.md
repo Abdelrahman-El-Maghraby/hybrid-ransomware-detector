@@ -35,11 +35,11 @@
   Full suite 1,270 passed / 13 skipped / 1 failed (new test hit I-T1; fixed
   and re-run in suite order).
 - Stage 3 (M3, M5, M7, M8, M14, M15 docs, M16, GUI label, docs): committed
-  locally as the next commit after `3be37a2`; see 28.4.
-- Waiting for the owner: H4 and M13 (would change `scan_status` to partial for
-  the affected files; the M13 coordinate fix also restores lost findings), M4,
-  H-04, the low items (including L-A2 `umask`), I-T1 and the packaging part of
-  M15. Nothing of these has been started.
+  locally as `3e2eed2`; see 28.4. Full suite 1,290 passed / 13 skipped.
+- Stage 4 (owner-approved H4, M13 (a)+(b)): committed locally as the next
+  commit after `3e2eed2`; see 28.5.
+- Deferred by the owner (not started): M4, H-04, the low items, I-T1 and the
+  M15 packaging change. New open item H4-b needs an owner decision.
 
 ## Unresolved items carried forward
 
@@ -51,8 +51,8 @@
 
 ## Exact next action
 
-Wait for the owner's decision on H4/M13 and the other items above. Nothing on
-this branch has been pushed; the owner decides whether and where to push.
-Unverified here: the release-gate step (runs only on a tag), the deploy scripts
-against real Docker, Windows behaviour of the outbox lock (`msvcrt.locking`)
-and of the UTF-8 report fix beyond the simulated cp1252 test.
+Owner review of the four local commits on `review/production-hardening`.
+Nothing on this branch has been pushed; the owner decides whether and where to
+push. Unverified here: the release-gate step (runs only on a tag), the deploy
+scripts against real Docker, Windows behaviour of the outbox lock
+(`msvcrt.locking`) and of the UTF-8 report fix beyond the simulated cp1252 test.
