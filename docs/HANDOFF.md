@@ -1,7 +1,8 @@
 # Current task handoff
 
 - Status: production-engineering review and staged fixes; not ready for merge.
-- Active agent: Claude; Codex stopped (owner confirmed 2026-11-08). One editing agent.
+- Active agent: Codex; Claude's Arena session was stopped on 2026-11-09 at
+  the owner's request. One editing agent.
 - Branch: `review/production-hardening`, **local only**, cut from `3e5a3f2`
   (head of `validation/v4.8-remaining`, draft PR
   [#46](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/pull/46)).
@@ -40,6 +41,13 @@
   see 28.5. Full suite on that commit 1,309 passed / 13 skipped.
 - Stage 5 (owner-approved H4-b): committed locally as the next commit after
   `b1ce30f`; see 28.6.
+- Codex takeover (2026-11-09): the two interrupted Arena runs remain as
+  untracked `.arena/` data; neither produced a completed review. No application
+  files were changed during the takeover. A focused local check of the five
+  production-hardening commits ran 157 tests across partial evidence, alerts,
+  operations, worker logs, special files, mail, reports, GUI delivery and cloud:
+  157 passed. Ruff passed on the application packages and CLI. One test emitted
+  a Starlette TestClient deprecation warning; there were no test failures.
 - Deferred by the owner (not started): M4, H-04, the low items, I-T1 and the
   M15 packaging change.
 
@@ -53,8 +61,10 @@
 
 ## Exact next action
 
-Owner review of the five local commits on `review/production-hardening`.
-Nothing on this branch has been pushed; the owner decides whether and where to
-push. Unverified here: the release-gate step (runs only on a tag), the deploy
+Continue the focused review of the five local production-hardening commits;
+check any findings against the code and existing tests before changing files.
+The deferred items remain gated by owner decisions. Nothing on this branch has
+been pushed; the owner decides whether and where to push. Unverified here: the
+release-gate step (runs only on a tag), the deploy
 scripts against real Docker, Windows behaviour of the outbox lock
 (`msvcrt.locking`) and of the UTF-8 report fix beyond the simulated cp1252 test.
