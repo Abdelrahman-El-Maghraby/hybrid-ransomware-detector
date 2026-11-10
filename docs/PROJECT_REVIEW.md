@@ -3123,3 +3123,889 @@ claims (L-B6); a packaged-build smoke test per target; the arm64 image (D5).
   Windows statement are static assessments. The H2 equivalence claim was not re-tested.
 - The project is not production ready: real-sample evaluation (M1/X1), CI on this
   branch, the owner checks in the handoff and the items above are open.
+
+## 30. Validation of the section 29 review (Claude, 2026-11-10)
+
+Validation and evidence only. No application code, test, CI, configuration,
+dependency or lock-file change was made and no finding was fixed. Only this
+section and `docs/HANDOFF.md` were edited. Nothing was pushed, so **no CI result
+exists for the current HEAD**: every CI result quoted below is historical. No
+malware, real sample, OOM artifact, fuzz campaign or memory-spike test was run.
+The project is **not** production ready.
+
+Headline results:
+
+- The safe local selection passes in the configuration the last CI matrix used
+  on Linux and macOS (no QR decoder): 1,296 passed, 0 failed.
+- With a QR decoder present, one test added by the hardening work fails
+  (**L-B7**, new). The same condition holds in the CI coverage job and on the
+  Windows CI jobs, so CI on this branch is expected to fail there.
+- The dependency audit gate fails today on unchanged lock files: the pinned
+  `pypdf 6.21.2` has seven published advisories (**M21**, new).
+- Every section 29 finding that can be checked on this host was reproduced.
+  L-E8 is reproduced only with a different trigger from the one the review
+  states. M20 stays SUSPECTED.
+- 21 collected tests, the GUI smoke module, the coverage gate, the Docker check,
+  the desktop build, the release workflow and the Atheris campaigns were **not
+  run** here; 30.11 says where each must run.
+
+### 30.1 Baseline
+
+| Item | State |
+|---|---|
+| Branch and HEAD | `review/production-hardening` at `bfc58ff`. Last implementation commit `33fd895`; `git diff 33fd895..bfc58ff` touches only `docs/HANDOFF.md` and `docs/PROJECT_REVIEW.md` |
+| Working tree | clean except the untracked `.arena/` folder, which was not staged, moved, deleted or modified |
+| Remote | no upstream; `git ls-remote` shows no `review/production-hardening` on origin. 76 commits ahead of `origin/main` (`bd46fff`). Base `3e5a3f2` = `origin/validation/v4.8-remaining` (draft PR #46) |
+| Concurrent changes | none seen. HEAD, `git status --porcelain --ignored` and a size and modification-time listing of every file outside `.git`, `.venv` and `.arena` were identical before the first check and after each group |
+| Host | macOS 27.2.1 (Darwin 27.2.0), arm64 (Apple Silicon), 8 GiB RAM, 8 CPUs |
+| Python and tools | CPython 3.14.2 in the project `.venv`; pytest 9.1.1, hypothesis 6.170.12, ruff 0.17.3, mypy 2.4.0, bandit 1.9.4, pip-audit 2.10.1. All were already installed; nothing was installed anywhere. Atheris is not installed (its pin is a Linux, CPython 3.12 wheel) |
+| Dependency set | **not the lock.** Of the 83 pins in `requirements.lock`, 71 are installed at the pinned version, 6 at another version (`pypdf` 6.21.3 for 6.21.2, `fastapi` 0.162.0 for 0.158.0, `starlette` 1.10.0 for 1.9.0, `certifi`, `narwhals`, `pycparser`) and 6 are not installed (markers for other platforms or Python versions). OpenCV, box-js and the Tesseract program are not installed |
+
+### 30.2 Isolation used for every local check
+
+- **Validation folder.** A new folder outside the repository (`$VAL`, mode 0700)
+  held the redirected home, the temporary folder, tool caches and all logs.
+- **Clean environment.** Every command ran through `env -i` with only:
+  `HOME` and `USERPROFILE` = `$VAL/home`; `TMPDIR`, `TMP` and `TEMP` = `$VAL/t`;
+  `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` under `$VAL/home`;
+  `PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`; `LANG` and `LC_ALL` =
+  `en_US.UTF-8`; `PYTHONDONTWRITEBYTECODE=1`; `PYTHONIOENCODING=utf-8`;
+  `LLM_PROVIDER=none`; an empty `VIRUSTOTAL_API_KEY`;
+  `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`;
+  `HYPOTHESIS_STORAGE_DIRECTORY=$VAL/hyp`. The shell had none of the
+  application's settings and the repository root has no `.env` file.
+- **Application paths.** `engine/config.py` builds the data, report, log,
+  quarantine and keystore paths from `Path.home()`, so the `HOME` redirect moves
+  all of them into `$VAL/home`. Tests that start the CLI set their own temporary
+  `HOME` as well.
+- **Kernel sandbox** (`sandbox-exec`, around every command): file writes denied
+  under `/Users` (the real home, including the repository) and under
+  `/private/tmp` except `$VAL`; outbound network denied except loopback. `/bin/ps`
+  runs outside the sandbox because a sandboxed process may not start a setuid
+  program (read-only process listing; the containment tests call it). A probe
+  confirmed it: writes to the repository, the real home and `/tmp` were refused,
+  a write to `$VAL` worked, a connection to `192.0.2.1` was refused and a
+  loopback connection worked.
+- **Watchdog** (outside the sandbox): a wall-time limit and a poll of the
+  resident size of the whole process tree every 0.2 s; the process group is
+  killed past either limit. Limits: fuzz runs 60 s and 1,024 MB; finding checks
+  120 s and 1,024 MB; the test suite 1,500 s and 4,096 MB (it starts several
+  scan workers, so 1 GB would stop a healthy run).
+- **No repository writes.** pytest ran with `-p no:cacheprovider` and without
+  coverage; ruff with `--no-cache`; mypy with `--cache-dir $VAL/mypy`. Active
+  pytest plugins: hypothesis (storage redirected; it does write a constants
+  cache), pytest-cov (inactive without `--cov`), anyio and platformdirs.
+- **Static audit before running** (per test file: home paths, absolute paths,
+  network calls, subprocesses, signals, permission changes, deletes):
+
+  | Area | What the tests do | Decision |
+  |---|---|---|
+  | Home folder | `tests/conftest.py` and each CLI subprocess set a temporary `HOME` | run |
+  | Network | loopback listeners on `127.0.0.1:0`, the in-process `TestClient`, and fakes for requests, SMTP, IMAP and S3. No external host | run; the network deny never triggered |
+  | Signals | `tests/test_containment.py` stops and resumes only child processes it starts, found through `lsof` and `ps` by their open files inside the test folder; other signal tests use recorders | run |
+  | Permissions and deletes | only inside `tmp_path` | run |
+  | OS registration | `launchctl` is stubbed (`tests/test_v41_integration.py`); `networksetup`, `nmcli` and PowerShell calls are recorded, never run (`tests/test_response.py`) | run |
+  | Hardcoded `/tmp` (fixture) | the `intel_socket` fixture in `tests/test_intel_service.py` creates `/tmp/ai*` for a short Unix-socket path | **NOT RUN** (3 tests): cannot be redirected |
+  | Hardcoded `/tmp` (attack strings) | `/tmp/aegis_s01_abs.txt` (`tests/test_dmg_streaming.py`) and `/tmp/victim` (`tests/test_rulepack.py`) name a target that is written only if a defence fails | run under the kernel write-deny. Both tests also assert on content inside the test folder, so a refused write could not turn a failure into a pass. Both passed |
+  | Device file | `tests/test_special_files.py` links to `/dev/zero` to prove it is refused; each call has a 10 s deadline | run |
+  | Documentation | `tests/test_background_reliability.py` reads `docs/*.md` except this file | run; repeated after the handoff edit |
+
+- **Artifacts.** Everything stayed inside `$VAL`: about 62 MB of pytest and test
+  home folders, two `fuzzseeds_*` folders (the Hypothesis file builds its seeds
+  when it is imported), the Hypothesis constants cache, a pip-audit cache, an
+  exported copy of the tree with a built wheel, JUnit files and logs. Nothing was
+  staged. The real `~/RansomwareScanner` folder kept the same recursive size and
+  modification-time digest; no application-named entry appeared in the real
+  temporary folder or in `/tmp`; no process was left running.
+
+### 30.3 Inventory and where each item can run
+
+Classes: **Mac** = safe on this host under 30.2; **CI** = an existing workflow
+already runs it; **VM** = isolated VM only. `tests/` holds 88 test files and
+1,330 collected items (`testpaths = ["tests"]`). There are no custom pytest
+markers: selection is by `skipif` on platform or missing tools and by the
+environment variables `RUN_GUI_TESTS`, `FUZZ_EXAMPLES` and `FUZZ_RANDOM`.
+
+| # | Suite or gate | Class | This session |
+|---|---|---|---|
+| 1 | `tests/` main selection (1,308 items) | Mac; CI (`tests.yml`: 3 OS x Python 3.9 and 3.12; `quality.yml` coverage job) | run twice (30.4) |
+| 2 | `tests/test_fuzz_parsers.py::test_cpio` (Hypothesis, random bytes only) | Mac; CI | run (30.6) |
+| 3 | The other 17 tests of `tests/test_fuzz_parsers.py` (11 Hypothesis tests of 40 derandomised examples, 5 full-scanner tests and 1 regression case, all on the campaign seeds) | CI (every `tests.yml` job). Long form `FUZZ_RANDOM=1 FUZZ_EXAMPLES=5000`: VM | NOT RUN: their seeds are the seeds of the failed Atheris campaigns (30.6) |
+| 4 | `tests/test_workers.py::test_memory_limit_stops_runaway_allocation` | CI (every `tests.yml` job) | NOT RUN: its fake worker writes 64 MiB blocks (up to 16 GiB) until the watchdog stops it above 1,024 MB. A deliberate memory spike above this session's 1 GB ceiling on an 8 GiB host |
+| 5 | Three `intel_socket` tests in `tests/test_intel_service.py` | CI (Linux and macOS; skipped on Windows) | NOT RUN: hardcoded `/tmp` (30.2) |
+| 6 | `tests/test_gui_smoke.py` (opt-in, `RUN_GUI_TESTS=1`) | CI (`quality.yml` coverage job under xvfb) | NOT RUN: it opens real windows and needs a display; macOS has no virtual display to redirect it to |
+| 7 | `test_smoke.py` (script outside `testpaths`) | Mac with `HOME` redirected; CI (every `tests.yml` job) | run (30.4) |
+| 8 | Regression corpus (`tests/test_regression_corpus.py`, `tests/test_registry.py`; 19 tests) | Mac (part of item 1); CI (`quality.yml`) | run: 19 passed in both runs |
+| 9 | Coverage gate (`pytest --cov`, fail under 85 %) | CI (`quality.yml`) | NOT RUN: this session writes no coverage output |
+| 10 | ruff, mypy, bandit | Mac; CI (`quality.yml` lint-and-types) | run (30.5) |
+| 11 | pip-audit on the three lock files | Mac with outbound HTTPS; CI (`quality.yml` dependency-audit) | run as an extra (30.5) |
+| 12 | Atheris harnesses `fuzz/fuzz_parsers.py`, `fuzz/fuzz_b4.py` with `fuzz/seed_corpus.py` | CI (`fuzz.yml`), restricted by 27.5; any investigation: VM | harness wiring exercised with synthetic inputs only (30.6); campaigns NOT RUN |
+| 13 | Wheel build | Mac, from an exported copy outside the repository | run (30.8, M15) |
+| 14 | Desktop build `build.py` (PyInstaller) with its packaged smoke test | CI (`release.yml` build job: tag or manual dispatch) | NOT RUN: it writes `build/` and `dist/` and is not a required check here |
+| 15 | Deployment check `deploy/check-deployment.sh` with `deploy/isolation_check.py` | CI (`docker.yml`) | NOT RUN: no Docker daemon is running on this host |
+| 16 | Release workflow `release.yml` (gate, builds, image, SBOM, signing, publish) | CI: tag or manual dispatch only | NOT RUN. The tag check of the gate was exercised with stand-in tag names (30.8, M16) |
+| 17 | Real-sample evaluation and calibration (`tools/evaluate.py`, `tools/calibrate_weights.py`) | VM | NOT RUN |
+| 18 | Other tools (`tools/rulepack.py`, `build_fuzzy_db.py`, `mbox_to_eml.py`, `profile_layers.py`, `splits.py`) | Mac: unit tests in `tests/` on synthetic input | run as part of item 1 |
+
+Not gates: Dependabot (configuration only) and a `debug-order` workflow that
+GitHub still lists from another branch (one run, 2026-10-22); its file is not in
+this tree.
+
+Commands for the VM-only items (not run; no VM was set up). They assume a
+disposable Linux x86_64 environment with Python 3.12 and the repository at the
+commit under test:
+
+```sh
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install pytest hypothesis
+# (a) real-sample evaluation (M1/X1): samples stay in the VM, only metadata leaves it
+python tools/evaluate.py --malicious <malicious-dir> --benign <benign-dir> \
+  --labels <labels.csv> --split test --out <out-dir> --jobs 2 --timeout 180
+# (b) long property run
+FUZZ_RANDOM=1 FUZZ_EXAMPLES=5000 python -m pytest tests/test_fuzz_parsers.py
+# (c) coverage-guided campaigns: restricted by 27.5, owner approval first
+python -m pip install --require-hashes -r fuzz/requirements-linux.txt
+python fuzz/seed_corpus.py parsers /tmp/aegis-fuzz-parsers
+python fuzz/fuzz_parsers.py -max_total_time=3600 -timeout=90 -rss_limit_mb=4096 \
+  -max_len=1048576 -seed=20261030 -print_final_stats=1 /tmp/aegis-fuzz-parsers
+python fuzz/seed_corpus.py b4 /tmp/aegis-fuzz-b4
+python fuzz/fuzz_b4.py -max_total_time=3600 -timeout=90 -rss_limit_mb=4096 \
+  -max_len=1048576 -seed=20261030 -print_final_stats=1 /tmp/aegis-fuzz-b4
+# (d) memory-limit behaviour where the address-space limit is enforced
+python -m pytest -q tests/test_workers.py::test_memory_limit_stops_runaway_allocation \
+  tests/test_worker_limits.py
+```
+
+### 30.4 Pytest results
+
+Run A, from the repository root, inside the isolation of 30.2:
+
+```sh
+env DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib \
+  .venv/bin/python -m pytest -p no:cacheprovider -q -rfEs --tb=short \
+  -o faulthandler_timeout=300 --junitxml=$VAL/logs/junit-main.xml \
+  --ignore=tests/test_fuzz_parsers.py \
+  --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation \
+  --deselect tests/test_intel_service.py::test_scanner_uses_intel_over_the_socket \
+  --deselect tests/test_intel_service.py::test_wrong_token_and_unreachable_intel_are_reported \
+  --deselect tests/test_intel_service.py::test_probe_reports_health
+```
+
+Run B is the same command without `DYLD_FALLBACK_LIBRARY_PATH`. That variable
+only lets `pyzbar` find the Homebrew zbar library (it was used the same way in
+27.2). Without it there is no QR decoder, as on the Linux and macOS jobs of the
+last CI matrix (30.7).
+
+| Run | QR decoder | Result | Time | Peak resident memory (tree / largest process) |
+|---|---|---|---|---|
+| A | present | **1 failed**, 1,300 passed, 8 skipped, 4 deselected, 1 warning | 273.3 s | 1,221 MB / 711 MB |
+| B | absent | 1,296 passed, 0 failed, 13 skipped, 4 deselected, 1 warning | 268.8 s | 1,459 MB / 776 MB |
+
+- 1,330 items collected; 1,308 selected (18 in the ignored file, 4 deselected).
+  The GUI smoke module skips at import and counts as one skip.
+- Skips in run A (8): GUI smoke module, Windows Restart Manager, system ELF
+  binary, box-js, OpenCV, Windows Job Object, Linux `/proc`, one non-macOS libproc
+  case. Run B adds five QR tests.
+- The warning: Starlette's deprecation notice for `TestClient` with httpx.
+- The largest process is pytest itself. Its size is consistent with I-T2 (test
+  scanners are never closed).
+- The two `/tmp` attack-string cases of 30.2 passed in both runs.
+
+**The failure (L-B7, new).**
+`tests/test_report_files.py::test_reports_with_non_ascii_names_are_utf8`, the M9
+regression test added in `eb62c0b`:
+
+```
+tests/test_report_files.py:54: in test_reports_with_non_ascii_names_are_utf8
+    assert NAME in text
+E   AssertionError: assert '<Arabic and CJK name>_<U+202E>exe.pdf' in '\nRansomware Scan Report\n...
+```
+
+The test scans a clean PDF and expects its name in the text report. The report
+lists a file only when it is flagged or not fully inspected. Without a QR
+decoder every PDF scan is partial, so the file appears under NOT FULLY INSPECTED
+and the test passes. With a decoder the scan is complete, a clean file is not
+listed, and the test fails. A/B with nothing else changed:
+
+```sh
+T=tests/test_report_files.py::test_reports_with_non_ascii_names_are_utf8
+env DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib .venv/bin/python -m pytest -p no:cacheprovider -q --tb=line $T
+#   QR_AVAILABLE = True  -> 1 failed in 1.17s
+.venv/bin/python -m pytest -p no:cacheprovider -q --tb=line $T
+#   QR_AVAILABLE = False -> 1 passed in 1.18s
+```
+
+This is a test defect, not a product defect: the report behaves as designed.
+Its effect on CI is in 30.9.
+
+Other pytest-group results:
+
+| Check | Command | Result |
+|---|---|---|
+| `test_smoke.py` | `.venv/bin/python test_smoke.py` | PASS: "ALL SMOKE TESTS PASSED" (8.6 s; peak tree 831 MB) |
+| CPIO property test | `.venv/bin/python -m pytest -p no:cacheprovider -q -rfEs --tb=short tests/test_fuzz_parsers.py::test_cpio` | PASS: 1 passed in 1.22 s (peak 201 MB) |
+
+### 30.5 Quality tools
+
+All ran from the repository root inside 30.2 with the repository's own
+configuration (`pyproject.toml`; there is no bandit configuration, so the CI
+command is the reference).
+
+| Tool | Command | Result |
+|---|---|---|
+| ruff 0.17.3 | `.venv/bin/ruff check --no-cache --extend-exclude .arena .` | PASS: "All checks passed!" on 197 files, exactly the tracked Python files |
+| mypy 2.4.0 | `.venv/bin/mypy --cache-dir $VAL/mypy` | PASS: "Success: no issues found in 68 source files"; 3 `annotation-unchecked` notes (`detectors/prompt_guard.py:420-422`) |
+| bandit 1.9.4, CI gate | `.venv/bin/bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll` | PASS: exit 0, no medium or high result |
+| bandit, every severity, same paths | the gate command without `-ll`, with `-f json -o $VAL/logs/bandit-app.json` | 68 low, 0 medium, 0 high in 22,718 lines; no `nosec` |
+| bandit, tracked Python outside the gate list | `.venv/bin/bandit -q -r gui.py build.py fuzz deploy -f json -o ...` | 7 low in 603 lines |
+| bandit, tests (reported separately) | `.venv/bin/bandit -q -r tests test_smoke.py -f json -o ...` | 2,571 results in 12,747 lines, of which 2,458 are `assert` (B101, not counted) |
+| pip-audit 2.10.1 (extra) | `.venv/bin/pip-audit --require-hashes --disable-pip -r <lock> --progress-spinner off` | `requirements.lock`: **FAIL**, 7 advisories in 1 package. `requirements-server.lock`: **FAIL**, the same 7. `requirements-build.lock`: PASS |
+
+Counts by rule:
+
+| Scope | Rule | Count |
+|---|---|---|
+| ruff, repository configuration | any | 0 |
+| bandit, shipped code (all low) | B603 subprocess without shell | 18 |
+| | B607 partial program path | 13 |
+| | B110 try/except/pass | 12 |
+| | B404 `import subprocess` | 8 |
+| | B112 try/except/continue | 6 |
+| | B105 password-like string | 4 |
+| | B101 assert | 3 |
+| | B107 password-like default | 3 |
+| | B606 process without shell | 1 |
+| bandit, outside the gate list (all low) | B101 assert (`fuzz/fuzz_b4.py`) | 4 |
+| | B603 (`build.py`) | 2 |
+| | B404 (`build.py`) | 1 |
+| bandit, tests: high | B613 bidirectional control character | 4 |
+| | B324 MD5 (`test_smoke.py:24`) | 1 |
+| bandit, tests: medium | B108 `/tmp` string | 5 |
+| bandit, tests: low without B101 | B105 22, B603 21, B311 19, B106 18, B404 17, B107 2, B607 2, B406 1, B403 1 | 103 |
+
+Nothing from ruff, mypy or bandit is promoted to a finding:
+
+- The B105 and B107 results are setting names, a regular expression of password
+  words and empty-string defaults; no secret is present. B606 is the GUI opening
+  a report the user picked. The subprocess results are fixed argument lists
+  (section 28 checked the 7-Zip arguments).
+- The four B613 results are right-to-left override characters written literally
+  in test data (`tests/test_alerts.py:314`, `tests/test_mail_analyzer.py:161`,
+  `tests/test_rar.py:64`, `tests/test_report_files.py:21`). The five B108 results
+  are the `/tmp` strings audited in 30.2 (a sixth carries `nosec`).
+- For proportion only: with the repository's ignore list removed
+  (`ruff check --isolated --select E,F,W,I,B,UP,S,PIE,RUF100,C90,G --line-length
+  110 --target-version py39` on the shipped paths) ruff reports 1,534 items:
+  UP006 964, UP045 234, UP035 196, C901 40 (at the default limit of 10; the
+  repository sets 19), E501 33, S603 14, S607 13, S110 12, UP007 7, S112 6, F403
+  6, B008 5, S101 3, F401 1. Each is a rule the configuration turns off on
+  purpose.
+
+Notes, not findings:
+
+- Plain `ruff check .`, the command in `docs/AI_WORKFLOW.md`, reports 447 items
+  on this checkout. All 447 are inside the untracked `.arena/` folder (65 Python
+  files); none is in a tracked file. CI has no such folder.
+- The CI bandit gate does not list `gui.py`, `build.py`, `fuzz/` or
+  `deploy/isolation_check.py`.
+- pip-audit skips pins whose marker excludes this interpreter: 77 of the 83 pins
+  of `requirements.lock` were audited here. CI audits with Python 3.12 on Linux.
+  pip-audit needs the advisory service, so for this one check the sandbox also
+  allowed outbound TCP 443; it sends package names and versions only.
+
+**The pip-audit failure (M21, new).** `pypdf==6.21.2` is pinned in
+`requirements.lock:1465` and `requirements-server.lock:1490`:
+
+| Advisory | Effect named by the advisory | Fixed in |
+|---|---|---|
+| CVE-2026-119209 (GHSA-x3rh-gjgm-fmqc) | large memory use when opening a file with cross-reference streams | 6.21.3 |
+| CVE-2026-119207 (GHSA-4vqv-7265-gm2w) | large memory use when loading an invalid dictionary | 6.21.3 |
+| CVE-2026-119208 (GHSA-62m5-6wh8-28x7) | long run time or large memory use: page count of an encrypted PDF with a wrong `/Count` | 6.21.3 |
+| CVE-2026-119206 (GHSA-42gh-23hr-vphw) | long run time when page labels are retrieved | 6.21.3 |
+| CVE-2026-119204 (GHSA-cggf-277g-3q54) | large memory use when parsing a page tree with many shared resources | 6.21.4 |
+| CVE-2026-119203 (GHSA-5849-834g-hvw5) | infinite loop when opening an incomplete file without a trailer | 6.21.4 |
+| CVE-2026-119205 (GHSA-mfr5-77xh-9j7h) | infinite loop when a `DictionaryObject` is cloned | 6.21.4 |
+
+The same gate passed in CI on 2026-10-30 with the same lock files and the same
+pip-audit version (30.7), so the advisories were published after that run.
+
+### 30.6 Fuzz harnesses
+
+Reviewed before running:
+
+- `fuzz/fuzz_parsers.py`: the first input byte selects one of 13 parser entry
+  points (archive, hidden content, relationships, PDF, mail, web, script, ELF,
+  OneNote, integrity, DMG, PKG) or CPIO (`0xFF`). The rest is written to a
+  temporary file and parsed in the same process. An escaping exception is a
+  failure.
+- `fuzz/fuzz_b4.py`: 12 entry points (integrity, macro, hidden content,
+  relationships, YARA, fuzzy hash, Python TLSH). It refuses to start when
+  oletools, python-tlsh, ppdeep or the compiled rules are missing; all are present
+  here.
+- `fuzz/seed_corpus.py` builds the campaign corpora from
+  `tests.test_fuzz_parsers.SEEDS` plus generated DMG, PKG and CPIO files.
+- `tests/test_fuzz_parsers.py`: 12 Hypothesis tests (40 derandomised examples;
+  11 take random bytes up to 4,096 or a mutated seed, `test_cpio` takes random
+  bytes only), five full-scanner tests on mutated seeds, and one regression case
+  built from the ZIP seed.
+
+**Excluded as linked to the known memory failures** (27.5 and B4: runs
+40969502006 and 40974246237; OOM-H; and, by shape, L-D1, L-E4 and the M21
+advisories):
+
+- the three CI artifacts (`oom-07598bbb...`, `oom-50152c60...`,
+  `oom-fb07a247...`) and the corpora CI retained. Nothing was downloaded;
+- the campaign seed corpora (`fuzz/seed_corpus.py parsers` and `b4`) and their
+  source, `tests.test_fuzz_parsers.SEEDS`. This is why 17 of the 18 tests in the
+  Hypothesis file were not run: they feed those seeds, mutated, to the parsers.
+  The previous review excluded the file for another reason (it writes
+  `.hypothesis/`); that reason is removable with `HYPOTHESIS_STORAGE_DIRECTORY`,
+  the seed link is not;
+- XAR and UDIF structures, PDF objects with streams or cross-reference streams,
+  compressed or large OOXML parts, any input over 1 KiB and any mutation loop.
+
+Only the use of these seeds as fuzz input was excluded. Ordinary unit tests that
+build similar small documents with the same helpers ran in 30.4.
+
+What was exercised:
+
+| Harness | How | Inputs | Bounds | Result |
+|---|---|---|---|---|
+| `fuzz/fuzz_parsers.py` | `TestOneInput` called directly; `atheris` replaced by a no-op stand-in kept outside the repository | 69 inputs written for this session. For every target: one byte, 12 ASCII bytes, 64 x `A`, a 256-byte ramp. Per format: an empty ZIP and a one-member stored ZIP; a three-part OOXML package; a PDF header and a three-object PDF with no stream; two small e-mails; an OLE signature and zeros; a small HTML page; one line of JavaScript; an ELF signature and zeros; a OneNote signature and zeros; 1 KiB of patterned bytes; CPIO garbage and a trailer-only CPIO. DMG and PKG received the generic inputs only | largest payload 1,024 bytes; each input once; 60 s wall; abort above 1,024 MB | all 69 calls returned, 0 exceptions; all 14 entry points reported; slowest call 0.03 s; 2.0 s wall; peak 179 MB |
+| `fuzz/fuzz_b4.py` | same | 62 inputs: the generic four per target, the OOXML package, the two PDFs, the OLE signature, `{\rtf1 hello}` and the 1 KiB pattern | same | all 62 calls returned, 0 exceptions; all 12 entry points reported; slowest call 0.02 s; 1.5 s wall; peak 189 MB |
+| `tests/test_fuzz_parsers.py::test_cpio` | pytest | 40 derandomised byte strings up to 4,096 bytes; no seed is parsed (importing the file builds the seeds but does not parse them) | 60 s wall; abort above 1,024 MB | 1 passed in 1.22 s; peak 201 MB |
+
+This shows that both harnesses import and that every entry point returns on
+trivial input at HEAD. It is **not** Atheris evidence: no instrumentation, no
+mutation engine, no coverage. The real campaigns were not run, 27.5 is unchanged
+and B4 stays failed and unresolved.
+
+### 30.7 Platform evidence
+
+**No workflow run exists for any commit after the base.** The GitHub API returns
+zero runs for each of `eb62c0b`, `3be37a2`, `3e2eed2`, `b1ce30f`, `33fd895`,
+`c056e6f` and `bfc58ff`. The newest runs in the repository are the four below.
+They are **historical evidence only**: they ran on `3e5a3f2` (pull request,
+branch `validation/v4.8-remaining`, 2026-10-30) and do not validate HEAD.
+
+| Run | Job (ID) | Runner label | Image and architecture from the job log | Commit | Result |
+|---|---|---|---|---|---|
+| tests 40977056829 | ubuntu-latest · Python 3.12 (123807581865) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | 1,229 passed, 11 skipped |
+| | ubuntu-latest · Python 3.9 (123807581878) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | 1,226 passed, 14 skipped |
+| | windows-latest · Python 3.12 (123807581927) | `windows-latest` | windows-2025-vs2026, x64 | `3e5a3f2` | 1,216 passed, 24 skipped |
+| | windows-latest · Python 3.9 (123807582054) | `windows-latest` | windows-2025-vs2026, x64 | `3e5a3f2` | 1,213 passed, 27 skipped |
+| | macos-latest · Python 3.12 (123807581525) | `macos-latest` | macos-26-arm64, arm64 | `3e5a3f2` | 1,227 passed, 13 skipped |
+| | macos-latest · Python 3.9 (123807581833) | `macos-latest` | macos-26-arm64, arm64 | `3e5a3f2` | 1,224 passed, 16 skipped |
+| quality 40977056790 | lint-and-types (123807582535) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | success; mypy: 67 files |
+| | coverage (123807582454) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | 1,237 passed, 5 skipped; `libzbar0` installed; GUI tests enabled |
+| | dependency-audit (123807582227) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | "No known vulnerabilities found" for all three locks |
+| | regression-corpus (123807582457) | `ubuntu-latest` | ubuntu-24.04, x64 | `3e5a3f2` | 19 passed |
+| docker 40977056845 | deployment (123807581744) | `ubuntu-latest` | ubuntu-24.04 | `3e5a3f2` | success |
+| parser-fuzz 40977056762 | changes (123807581295) | `ubuntu-latest` | not read | `3e5a3f2` | success |
+| | atheris (123807642354) | `ubuntu-latest` | none | `3e5a3f2` | **skipped** (documentation-only update) |
+
+Older historical runs: the release workflow last ran on tag `v4.7.0` (`8221fe7`,
+run 40728338890; `build` on `ubuntu-latest`, `windows-latest` and `macos-latest`,
+`image` on `ubuntu-latest`). That run predates the gate job, which has never run.
+The last Atheris campaigns are the failures of 27.5 (40969502006 on `b2e8aea`,
+40974246237 on `673acdc`).
+
+Two facts from these logs matter for HEAD:
+
+- **QR decoder per job.** The Linux and macOS matrix jobs skipped the QR tests
+  ("no QR decoder", "pyzbar not installed"). Both Windows jobs ran them (their
+  only QR-related skip is OpenCV), and the coverage job installs `libzbar0`. So
+  L-B7 is expected to fail on both Windows jobs and in the coverage job. This is
+  a prediction from the local A/B; it is not a CI result.
+- **Smoke script.** "ALL SMOKE TESTS PASSED" appears in the Linux, Windows and
+  macOS Python 3.12 job logs.
+
+Per platform:
+
+| Target | Evidence at HEAD `bfc58ff` | Historical evidence | Tests still needed on HEAD, and where |
+|---|---|---|---|
+| Linux x86_64 | none | all four runs above | the whole `tests` matrix (including the 21 tests not run here), `quality` (coverage with the GUI tests, lint, audit, corpus) and `docker`: existing runners, after a push |
+| Linux ARM64 | none | none | everything. No workflow uses an ARM64 Linux runner; the server image is amd64 only (D5) |
+| Windows x86_64 | none | tests 40977056829, two jobs | the whole suite, in particular the Windows-only paths added by the hardening commits (M2 `msvcrt.locking`, M9 report encoding, M20 device names): existing runners, after a push. A real desktop is still needed for the GUI, toasts and folder monitor |
+| Windows ARM64 | none | none | everything. No runner, no build |
+| macOS Intel | none | none | everything. `macos-latest` is arm64 and no workflow uses an Intel runner |
+| macOS Apple Silicon | this session: 30.4 run B passed, run A has 1 failure (L-B7); ruff, mypy, bandit passed; Python 3.14.2 and not the locked dependency set | tests 40977056829, two jobs | the 21 tests not run here, the suite on Python 3.9 and 3.12 with the lock, the packaged build: existing runners, after a push. GUI smoke: a display |
+
+How to get CI on HEAD (owner decision; nothing was pushed):
+
+- A push alone starts nothing: `tests.yml` and `quality.yml` run on pushes to
+  `main`, on pull requests and on manual dispatch; `docker.yml` adds pushes to
+  `integration/**`, `fix/**` and `area/**`. `review/**` matches none of them.
+- Opening a pull request from this branch, or adding these commits to PR #46,
+  also starts `parser-fuzz`. Its change gate would run both one-hour Atheris
+  campaigns, because the branch changes `detectors/`, `core/` and `engine/`. That
+  conflicts with the 27.5 restriction (no campaign restart).
+- The alternative that leaves the campaigns alone: push the branch and dispatch
+  the three workflows by hand, for example
+  `gh workflow run tests.yml --ref review/production-hardening` (the same for
+  `quality.yml` and `docker.yml`).
+- Expect `quality` to fail in dependency-audit (M21) and coverage (L-B7), and
+  `tests` to fail on Windows (L-B7), until those two items are fixed.
+
+### 30.8 Finding validation
+
+Statuses: **REPRODUCED** (a test or bounded check demonstrates the defect),
+**COVERED, PASSES** (an existing test exercises the path and passes; this does
+not prove the defect is absent), **NO TEST EXISTS**, **NOT TESTABLE HERE**. No
+SUSPECTED finding was upgraded. Unless a command is shown, each snippet below was
+run as `.venv/bin/python - <<'EOF' ... EOF` from the repository root inside 30.2,
+with only synthetic inputs in temporary folders.
+
+**Section 29 findings**
+
+| ID | Result | Evidence |
+|---|---|---|
+| M17 | REPRODUCED (both parts) | checks 1 and 2 below. No existing test |
+| M18 | REPRODUCED (code path) | check 3 below: a pickled object written to the worker pipe runs code in the receiving process through the product's own `_receive`. Not an exploit of a parser. No existing test (`tests/test_worker_logs.py` only checks that records can be pickled) |
+| M19 | REPRODUCED | check 4 below. `tests/test_mail_html_linear.py` pins the "last href" rule on purpose (equivalence with the old pattern) and passes |
+| M20 | NOT TESTABLE HERE; stays SUSPECTED | check 5 below shows only the precondition: the sanitiser keeps `NUL.exe`, `con.txt`, `AUX` and `COM1.pdf`. On macOS these are ordinary files. Needs a Windows runner. No existing test |
+| L-E8 | REPRODUCED, with a different trigger from the one in 29.2 | check 6 below. A 120-member ZIP and a ZIP of five 25-member ZIPs log 52 records each and lose nothing, because only `archive_scan_members` = 25 members per archive get the full pipeline. A 25 KB ZIP of five e-mails with 25 attachments each logs 262 records, 201 are forwarded and the outer file's `scan_completed` is lost. The result itself is unaffected. `tests/test_worker_logs.py` passes (it tests the cap with a limit of 3) |
+| L-L1 | REPRODUCED | check 7 below. `tests/test_prompt_guard.py::test_parse_analysis_is_strict` and `tests/test_coverage_gaps.py` cover the parser and pass; they assert `analyzed is False` and never look at `error`, so they pin the behaviour |
+| L-G1 | REPRODUCED | check 8 below. NO TEST EXISTS: no test refers to `llm_skipped` |
+| L-A4 | REPRODUCED | check 9 below. `tests/test_operations_fixes.py` checks the default version and the script syntax only, and passes |
+| L-B6 | REPRODUCED (documents against evidence) | `README.md:10`, `:14`, `:847` claim x86_64 and ARM64 on three systems; 30.7 shows runners for Linux x64, Windows x64 and macOS arm64 only. NO TEST EXISTS (`tests/test_ci_workflows.py` does not compare the README with the runner list) |
+| I-T2 | REPRODUCED BY TEST | `.venv/bin/python -m pytest -p no:cacheprovider -q -W default::ResourceWarning tests/test_scanner_integration.py` gives "18 passed, 15 warnings"; all 15 are `ResourceWarning: unclosed database in <sqlite3.Connection ...>` |
+
+```python
+# check 1 (M17): the JSON Lines path is a directory
+import tempfile
+from core import outbox, outputs
+queued = []
+outbox.queue_and_send = lambda alerts, config: queued.append(len(list(alerts))) or {}
+d = tempfile.mkdtemp()
+r = [{"file_path": d + "/a.pdf", "file_name": "a.pdf", "verdict": "High", "risk_score": 80,
+      "sha256_hash": "0" * 64, "scan_time": "2026-11-10T00:00:00"}]
+try:
+    outputs.deliver(r, {"webhook_url": "http://127.0.0.1:9/hook", "jsonl_path": d})  # a directory
+except Exception as e:
+    print(type(e).__name__, "| alerts queued:", queued)
+outputs.deliver(r, {"webhook_url": "http://127.0.0.1:9/hook", "jsonl_path": d + "/ok.jsonl"})
+print("control | alerts queued:", queued)
+# IsADirectoryError | alerts queued: []
+# control | alerts queued: [1]
+```
+
+```python
+# check 2 (M17): run_scan() with a report folder that became read-only
+import tempfile
+from pathlib import Path
+import core.outputs as outputs
+import RansomwareScanner as RS
+from tests.helpers import make_pdf
+from tests.test_scanner_integration import _config
+d = Path(tempfile.mkdtemp())
+s = RS.RansomwareScanner(_config(d, isolate_scans=False))
+(d / "scan" / "a.pdf").write_bytes(make_pdf("hello"))
+calls = []
+outputs.deliver = lambda results, config, jsonl_path=None: calls.append(len(results))
+Path(s.report_dir).chmod(0o555)
+try:
+    s.run_scan()
+except Exception as e:
+    print(type(e).__name__, "| deliver() calls:", calls)
+finally:
+    Path(s.report_dir).chmod(0o755)
+# PermissionError | deliver() calls: []      (with a writable folder: one deliver() call)
+```
+
+```python
+# check 3 (M18): bytes on the worker pipe are unpickled by the parent
+import builtins, multiprocessing as mp, pickle
+from engine import workers as W
+class Evil:
+    def __reduce__(self):
+        return (exec, ("import builtins; builtins.RAN_IN_PARENT = True",))
+parent, child = mp.Pipe()
+child.send_bytes(pickle.dumps(("ok", Evil())))        # bytes a compromised worker can write
+w = type("FakeWorker", (), {"parent": parent})()
+print(W._IsolatedScan._receive(None, w), "| code ran in the receiver:", getattr(builtins, "RAN_IN_PARENT", False))
+# ('ok', None) | code ran in the receiver: True
+```
+
+```python
+# check 4 (M19): a second href hides the deceptive link
+import tempfile
+from pathlib import Path
+from detectors.mail_analyzer import MailAnalyzer
+head = "From: a@b.example\nSubject: s\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n"
+two = '<a href="https://login.evil.example/x" href="https://paypal.com/">paypal.com</a>'
+for html in (two, two.replace(' href="https://paypal.com/"', "")):
+    p = Path(tempfile.mkdtemp()) / "m.eml"
+    p.write_text(head + "<html><body>" + html + "</body></html>\n")
+    print(MailAnalyzer().analyze(p).deceptive_links)
+# []
+# ['text shows paypal.com -> link goes to login.evil.example']
+```
+
+```python
+# check 5 (M20, precondition only): device names survive the sanitiser
+import io, tempfile, zipfile
+from pathlib import Path
+from detectors.container_extractor import ContainerExtractor
+b = io.BytesIO()
+with zipfile.ZipFile(b, "w") as z:
+    for n in ("NUL.exe", "con.txt", "AUX", "COM1.pdf"):
+        z.writestr(n, b"hello")
+p = Path(tempfile.mkdtemp()) / "m.zip"
+p.write_bytes(b.getvalue())
+with ContainerExtractor().open(p) as res:
+    print([Path(m.path).name for m in res.members if m.path])
+# ['NUL.exe', 'con.txt', 'AUX', 'COM1.pdf']
+```
+
+```python
+# check 6 (L-E8): records one outer file produces at INFO, buffer attached as _worker_main does
+import io, logging, tempfile, zipfile
+from email.message import EmailMessage
+from pathlib import Path
+import RansomwareScanner as RS
+from engine import workers as W
+from tests.test_scanner_integration import _config
+
+def zipped(members):
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w") as z:
+        for name, data in members:
+            z.writestr(name, data)
+    return b.getvalue()
+
+def eml(k):
+    m = EmailMessage()
+    m["From"], m["Subject"] = "a@b.example", f"note {k}"
+    m.set_content("hello")
+    for i in range(25):
+        m.add_attachment(b"<p>hello</p>", maintype="text", subtype="html", filename=f"a{i:02d}.html")
+    return m.as_bytes()
+
+SHAPES = {"flat-120": zipped([(f"m{i:03d}.html", b"<p>hello</p>") for i in range(120)]),
+          "zip-of-5-zips": zipped([(f"in{k}.zip", zipped([(f"m{i:02d}.html", b"<p>hello</p>") for i in range(25)]))
+                                   for k in range(5)]),
+          "zip-of-5-mails": zipped([(f"mail{k}.eml", eml(k)) for k in range(5)])}
+log = logging.getLogger("RansomwareScanner")
+for shape, data in SHAPES.items():
+    d = Path(tempfile.mkdtemp())
+    s = RS.RansomwareScanner(_config(d, isolate_scans=False))
+    (d / "scan" / "outer.zip").write_bytes(data)
+    buf = W._WorkerLogBuffer()
+    log.addHandler(buf); log.propagate = False; log.setLevel(logging.INFO)
+    s.scan_file(str(d / "scan" / "outer.zip"))
+    log.removeHandler(buf); log.setLevel(logging.WARNING)
+    logged = len(buf.records) + buf.dropped
+    out = buf.take()
+    outer = any("outer.zip. Verdict" in str(r["msg"]) for r in out)
+    print(f"{shape}: {len(data)} bytes, {logged} records logged, {len(out)} forwarded, outer scan_completed forwarded: {outer}")
+# flat-120: 12742 bytes, 52 records logged, 52 forwarded, outer scan_completed forwarded: True
+# zip-of-5-zips: 13582 bytes, 52 records logged, 52 forwarded, outer scan_completed forwarded: True
+# zip-of-5-mails: 25337 bytes, 262 records logged, 201 forwarded, outer scan_completed forwarded: False
+```
+
+```python
+# check 7 (L-L1): replies that are not a JSON object carry no error
+from detectors.llm_backends import _parse_analysis
+for reply in ("", "I will not answer.", "[1, 2]"):
+    r = _parse_analysis(reply)
+    print("analyzed:", r["analyzed"], "| error key:", "error" in r, "|", r["details"])
+# analyzed: False | error key: False | LLM returned an empty response.
+# analyzed: False | error key: False | LLM response was not valid JSON.
+# analyzed: False | error key: False | LLM response was not a JSON object.
+```
+
+`engine/completeness.py` adds an LLM gap only for an `error` key or an `error` or
+`timeout` status, so none of these three replies makes the scan partial.
+
+```python
+# check 8 (L-G1): a flagged answer is shown as skipped
+from aegis_gui.formatting import llm_skipped
+print(llm_skipped({"analyzed": True, "is_malicious": True, "confidence": 0.95,
+                   "details": "Urgent payment lure; the macro layer skipped nothing and the sender is spoofed."}))
+# True
+```
+
+```sh
+# check 9 (L-A4): the parser line of deploy/backup.sh (restore.sh has the same line)
+line="$(grep -m1 'AEGIS_VERSION="$(sed -n' deploy/backup.sh | sed 's/^ *//')"
+cd "$(mktemp -d)"
+for s in 'AEGIS_VERSION=4.7.0' 'AEGIS_VERSION="4.7.0"' 'AEGIS_VERSION=4.7.0 # pinned' \
+         'export AEGIS_VERSION=4.7.0' 'AEGIS_VERSION = 4.7.0'; do
+  printf '%s\n' "$s" > .env; AEGIS_VERSION=""; eval "$line"
+  echo "$s -> [${AEGIS_VERSION:-4.8.0 (default)}]"
+done
+# AEGIS_VERSION=4.7.0 -> [4.7.0]
+# AEGIS_VERSION="4.7.0" -> [4.7.0]
+# AEGIS_VERSION=4.7.0 # pinned -> [4.7.0 # pinned]
+# export AEGIS_VERSION=4.7.0 -> [4.8.0 (default)]
+# AEGIS_VERSION = 4.7.0 -> [4.8.0 (default)]
+```
+
+**Open findings carried from section 28 and earlier**
+
+| ID | Result | Evidence |
+|---|---|---|
+| M4 (deferred) | REPRODUCED | check 10 below: with a wrong token, all 33 chunks of a 2 MB upload are read before the 401. `tests/test_api_auth.py` passes and does not measure this |
+| M15 (packaging deferred) | REPRODUCED | check 11 below: a wheel built from a clean export of `bfc58ff` has no `rules/` entry, no `.yar` file and no `fuzzy_signatures.sample.json`. The wheel itself builds |
+| M16 | tag check: COVERED, PASSES. Workflow: NOT TESTABLE HERE | the step's script, taken from `release.yml` and run with `GITHUB_REF_NAME` set by hand: `v4.8.0` and `v4.8.0-rc1` exit 0; `v4.7.0` and `v4.8.1` exit 1 with the release-gate error. `tests/test_operations_fixes.py` passes. The gate job needs a tag push |
+| H-04+ (deferred) | REPRODUCED (bounded) | check 12 below: `visible_text` on 8, 16, 32 and 64 KB of `<` takes 0.027, 0.106, 0.425 and 1.793 s: four times longer for twice the input |
+| L-E1 | NO TEST EXISTS | read only: `engine/staging.py:145` does `ctx.scan_results.update(sub.scan_results)`, which replaces the whole `layer_errors` entry. Needed: two concurrent heavy layers that both raise, then assert both names in `layer_errors` |
+| L-E2 | REPRODUCED | `OUTBOX_MAX_AGE_HOURS=nan WORKER_MEMORY_MB=0.9` gives `outbox_max_age_hours` = `nan`, `worker_memory_mb` = `0` (no limit), an empty `ENV_PROBLEMS` and no message from `validate_config`; `SCAN_TIMEOUT_SECONDS=nan .venv/bin/python -c "import engine.config"` ends with `ValueError: cannot convert float NaN to integer` |
+| L-E3 | NO TEST EXISTS | not checked beyond reading (`engine/secret_store.py:182` filters `.env` line by line). `tests/test_secret_store.py` covers one-line values and passes. Needed: migrate a quoted multi-line value and assert nothing of it stays in `.env` |
+| L-E4 | NOT TESTABLE HERE | a memory question; large or compressed OOXML parts are excluded on this host (30.6). Needed in the VM: a `.docx` whose text parts exceed the bound, with an assertion on peak memory |
+| L-E5 | NO TEST EXISTS (stays suspected) | needs a worker killed while a helper program runs; Tesseract is not installed here |
+| L-E6 | NOT TESTABLE HERE (stays suspected) | Windows only |
+| L-E7 | NO TEST EXISTS (stays suspected) | needed: two concurrent scans on one scanner, asserting each gets its own not-scanned list |
+| L-C1 | REPRODUCED | check 13 below: `import_hash_database` returns `ok: False` only after it has replaced a valid database. The CLI (`.venv/bin/python RansomwareScanner.py --import-database <file with the header name,hash>`) prints "✅ Successfully imported database", then the missing-column warning, and exits 0 |
+| L-C2 | REPRODUCED | `.venv/bin/python RansomwareScanner.py --scan-file $VAL/t/does-not-exist.pdf` prints "Error: file not found" and exits 0 |
+| L-C3 | REPRODUCED | check 14 below: with `llm_provider` none and no VirusTotal key the report still ends its layer list with `llm, virustotal` |
+| L-C4 | NO TEST EXISTS | read only: `tools/evaluate.py` and `tools/calibrate_weights.py` have switches for VirusTotal and the LLM and none for the sandbox. Needed: a fake sandbox client and an assertion that the tools never submit |
+| L-A1 | REPRODUCED | check 15 below: a ZIP upload through `TestClient` returns member names that start with the server's temporary work folder |
+| L-A2 | NO TEST EXISTS | read only: `deploy/backup.sh` contains no `umask` |
+| L-A3 | NO TEST EXISTS (stays suspected) | read only: `core/containment.py:553` and `core/quarantine.py:384` use a plain `write_text` |
+| L-D1 | NOT TESTABLE HERE | XAR structures are excluded on this host (30.6). Read only: `detectors/macos_packages.py:244-245` turns the offset, length and size from the table of contents into integers with no range check. Needed in the VM or CI: hostile values must raise `FormatError` |
+| L-D2 | REPRODUCED | check 16 below: a one-entry CPIO archive with no `TRAILER!!!` record is accepted, and half of a zlib stream returns 0 of 4,000 bytes with no error |
+| L-D3 | NO TEST EXISTS | read only: `detectors/emulation.py:79-80` reads the whole file, then compares its length. The emulation layer is off here (no box-js) |
+| L-B2 | NO TEST EXISTS (documentation) | `docs/DEPLOYMENT.md:143` still installs `requirements.lock` on a server |
+| L-B3 | REPRODUCED (read only) | `test_smoke.py` has no home-folder handling. It ran here only because the launcher redirected `HOME` |
+| L-B4 | REPRODUCED (read only); image content NOT TESTABLE HERE | `.dockerignore` has no entry for the tool caches, `.arena` or local data folders, and the `Dockerfile` uses `COPY . .` and `COPY . /app`. No Docker daemon here |
+| I-x | not validated one by one | six separate remarks; none has a dedicated test |
+| I-T1 (deferred) | REPRODUCED BY TEST | a one-assert probe file (`assert logging.root.manager.disable == 0`) kept outside the repository passes alone ("1 passed"). `.venv/bin/python -m pytest -p no:cacheprovider -q --tb=line --rootdir . -c pyproject.toml tests/test_evaluation_tools.py <probe-folder>/test_logging_probe.py` gives "1 failed, 7 passed": "logging.disable() left at level 50" |
+| 27.5, B4, OOM-H | NOT TESTABLE HERE (restricted) | nothing was replayed or reproduced. New lead that needed no execution: the campaigns installed `requirements.lock`, so they ran `pypdf 6.21.2`, and four of the M21 advisories name large memory use on crafted PDFs in that version. Both harnesses have PDF targets. This does **not** establish the cause: the failing target is still unknown, and 27.5 stays unresolved |
+
+```python
+# check 10 (M4): how much of the upload is read before the token is refused
+import asyncio, tempfile
+from pathlib import Path
+from api.server import create_app
+from tests.test_scanner_integration import _config
+app = create_app(_config(Path(tempfile.mkdtemp())), token="t" * 40, isolate=False)
+body = (b'--X\r\nContent-Disposition: form-data; name="file"; filename="a.bin"\r\n\r\n'
+        + b"A" * (2 * 1024 * 1024) + b"\r\n--X--\r\n")
+chunks = [body[i:i + 65536] for i in range(0, len(body), 65536)]
+seen = {"read": 0}
+async def receive():
+    if seen["read"] < len(chunks):
+        seen["read"] += 1
+        return {"type": "http.request", "body": chunks[seen["read"] - 1], "more_body": seen["read"] < len(chunks)}
+    return {"type": "http.disconnect"}
+async def send(msg):
+    if msg["type"] == "http.response.start":
+        print("status", msg["status"], "| body chunks read before the answer:", seen["read"], "of", len(chunks))
+scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "path": "/scan",
+         "raw_path": b"/scan", "query_string": b"", "root_path": "", "scheme": "http",
+         "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+         "headers": [(b"host", b"testserver"), (b"authorization", b"Bearer wrong-token"),
+                     (b"content-type", b"multipart/form-data; boundary=X"),
+                     (b"content-length", str(len(body)).encode())]}
+asyncio.run(app(scope, receive, send))
+# status 401 | body chunks read before the answer: 33 of 33
+```
+
+```sh
+# check 11 (M15): wheel from a clean export, built outside the repository, no network
+git archive bfc58ff | tar -x -C $VAL/work/src
+.venv/bin/python -m pip wheel --no-deps --no-build-isolation --no-index -w $VAL/work/whl $VAL/work/src
+unzip -Z1 $VAL/work/whl/*.whl | grep -cE '^rules/|\.yara?$|fuzzy_signatures'
+# Successfully built hybrid-ransomware-detector  (hybrid_ransomware_detector-4.8.0-py3-none-any.whl, 104 entries)
+# 0        (the repository tracks five rule files under rules/)
+```
+
+```python
+# check 12 (H-04+): quadratic time, small inputs only
+import time
+from detectors.web_content import visible_text
+for kb in (8, 16, 32, 64):
+    t = time.perf_counter()
+    visible_text(b"<" * (kb * 1024))
+    print(kb, "KB:", round(time.perf_counter() - t, 3), "s")
+# 8 KB: 0.027 s / 16 KB: 0.106 s / 32 KB: 0.425 s / 64 KB: 1.793 s
+```
+
+```python
+# check 13 (L-C1): the database is replaced before the header is checked
+import tempfile
+from pathlib import Path
+import RansomwareScanner as RS
+d = Path(tempfile.mkdtemp())
+(d / "db.csv").write_text("FileName,md5Hash,Benign\ngood.docx,ffffffffffffffffffffffffffffffff,1\n")
+(d / "bad.csv").write_text("name,hash\nx,y\n")
+out = RS.import_hash_database(str(d / "bad.csv"), str(d / "db.csv"))
+print("ok:", out["ok"], "| database header now:", (d / "db.csv").read_text().splitlines()[0])
+# ok: False | database header now: name,hash
+```
+
+```python
+# check 14 (L-C3): layers the report names with the LLM and VirusTotal off
+import tempfile
+from pathlib import Path
+import RansomwareScanner as RS
+from tests.helpers import make_pdf
+from tests.test_scanner_integration import _config
+d = Path(tempfile.mkdtemp())
+s = RS.RansomwareScanner(_config(d, isolate_scans=False))      # llm_provider none, no VirusTotal key
+(d / "scan" / "a.pdf").write_bytes(make_pdf("hello"))
+text = s.generate_report([s.scan_file(str(d / "scan" / "a.pdf"))])
+print(next(ln for ln in text.splitlines() if ln.startswith("Detection layers used")))
+# Detection layers used:  hashes, local-db, fuzzy, macro, yara, integrity, elf, pe, script, prompt-guard,
+#   relationships, archives, mail, web, embedded, qr, ml, llm, virustotal        (one line)
+```
+
+```python
+# check 15 (L-A1): the API result names the server's work folder
+import io, tempfile, zipfile
+from pathlib import Path
+from fastapi.testclient import TestClient
+from api.server import create_app
+from tests.test_scanner_integration import _config
+api = TestClient(create_app(_config(Path(tempfile.mkdtemp())), token="t" * 40, isolate=False))
+b = io.BytesIO()
+with zipfile.ZipFile(b, "w") as z:
+    z.writestr("invoice.pdf.exe", b"MZ" + b"\0" * 300)          # inert stub, as the tests use
+r = api.post("/scan", headers={"Authorization": "Bearer " + "t" * 40},
+             files={"file": ("upload.zip", b.getvalue(), "application/zip")})
+i = r.text.find("aegis_api_")
+print(r.status_code, "| work folder in the response:", i != -1, "|", r.text[i:i + 44].replace(r.text[i + 10:i + 18], "<random>"))
+# 200 | work folder in the response: True | aegis_api_<random>/upload.zip!/invoice.pdf.e
+```
+
+```python
+# check 16 (L-D2): no trailer and a cut stream are both accepted
+import zlib
+from detectors.macos_packages import bounded_decompress, read_cpio
+name = b"a.txt\0"
+entry = (b"070707" + b"000000" * 2 + b"100644" + b"000000" * 4 + b"00000000000"
+         + b"%06o" % len(name) + b"%011o" % 5) + name + b"hello"
+print("no trailer:", [(e.name, len(e.data)) for e in read_cpio(entry)])
+full = zlib.compress(b"x" * 4000)
+print("half a zlib stream:", len(bounded_decompress(full[:len(full) // 2], "zlib", 8192)), "of 4000 bytes, no error")
+# no trailer: [('a.txt', 5)]
+# half a zlib stream: 0 of 4000 bytes, no error
+```
+
+### 30.9 New items found by this validation
+
+IDs continue sections 28 and 29. Nothing here was fixed. Existing items they
+touch: M21 breaks the "pip-audit clean (lock)" evidence behind acceptance
+criterion S1 in `RELEASE_READINESS.md` and is a lead for OOM-H; L-B7 is the
+regression test of M9.
+
+| ID | Severity | Status | Where | What | Fix class |
+|---|---|---|---|---|---|
+| M21 | Medium (provisional; for the owner to rate) | REPORTED BY TOOL (pip-audit, 30.5) | `requirements.lock:1465`, `requirements-server.lock:1490`; callers `engine/text.py:135`, `engine/completeness.py:228`, `detectors/prompt_guard.py:360`, `detectors/qr_scanner.py:243` | The shipped PDF parser pin, `pypdf 6.21.2`, has seven published advisories: crafted PDFs that exhaust memory, run very long or never end. Hostile PDFs are this product's normal input. In isolated scans (the default) the worker's 300 s and 2,048 MB limits turn such a file into a failed scan; that containment was not tested against these inputs. The `dependency-audit` job now fails on unchanged lock files, and `release.yml` requires a successful `quality` run. Not reproduced: memory and endless-loop inputs are excluded on this host, and which advisories reach the four call sites was judged by reading only | SAFE (dependency update): `pypdf` 6.21.4 or later in both locks with hashes, then the full gates. The local `.venv` already runs 6.21.3, which fixes four of the seven |
+| L-B7 | Low (blocks CI) | REPRODUCED BY TEST (30.4) | `tests/test_report_files.py:51-54` | The M9 regression test passes only when the scanned PDF is partial, which today happens only because no QR decoder is installed. With a decoder it fails. Expected to fail in the CI coverage job and on both Windows jobs (30.7). The report itself is correct | SAFE (test only): make the scanned file one the report always lists, or pin the QR layer state in the test |
+
+Corrections to section 29:
+
+- **L-E8.** The defect is real, but "an archive with 100 or more members" does
+  not trigger it: with the default `archive_scan_members` of 25, both archive
+  shapes tested produced exactly 52 such records. It needs containers inside
+  containers of another kind, for example a ZIP of e-mails with attachments. The
+  "241 records in, 201 out" figures of 29.2 are what the buffer gives when it is
+  fed synthetic records directly (repeated here); they do not come from a real
+  archive scan.
+- **29.1 host line.** This session read macOS 27.2.1; 29.1 says 27.0.1.
+- **29.1 exclusions.** The Hypothesis file can be kept from writing
+  `.hypothesis/` (30.6); the reason it stays excluded here is its seeds.
+  `test_smoke.py` can run with `HOME` redirected and passed.
+
+### 30.10 Final test matrix
+
+Local commands ran from the repository root inside 30.2; `python` stands for
+`.venv/bin/python`. "Run A" and "run B" are the full commands of 30.4.
+
+| Test or platform | Exact command or CI run | Commit SHA | PASS/FAIL/SKIPPED/NOT RUN | Reason for skip or not-run | Failing log excerpt or reproduction steps |
+|---|---|---|---|---|---|
+| Main selection, QR decoder present | run A | `bfc58ff` | **FAIL**: 1 failed, 1,300 passed, 8 skipped, 4 deselected | 8 skips: tools or platforms not on this host | `tests/test_report_files.py:54 ... assert NAME in text ... AssertionError` (L-B7) |
+| Main selection, no QR decoder | run B | `bfc58ff` | PASS: 1,296 passed, 13 skipped, 4 deselected | as above plus five QR tests | - |
+| M9 report test alone | `python -m pytest -p no:cacheprovider -q --tb=line tests/test_report_files.py::test_reports_with_non_ascii_names_are_utf8`, with and without `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` | `bfc58ff` | **FAIL** with the decoder, PASS without | - | 30.4 |
+| Regression corpus and registry | part of runs A and B | `bfc58ff` | PASS: 19 passed in each run | - | - |
+| Smoke script | `python test_smoke.py` | `bfc58ff` | PASS | - | - |
+| CPIO property test | `python -m pytest -p no:cacheprovider -q -rfEs --tb=short tests/test_fuzz_parsers.py::test_cpio` | `bfc58ff` | PASS: 1 passed | - | - |
+| Other 17 tests of `tests/test_fuzz_parsers.py` | `python -m pytest -q tests/test_fuzz_parsers.py` | `bfc58ff` | NOT RUN | seeds shared with the failed Atheris campaigns (30.6); run in CI | - |
+| Runaway-memory test | `python -m pytest -q tests/test_workers.py::test_memory_limit_stops_runaway_allocation` | `bfc58ff` | NOT RUN | deliberate memory spike above 1 GB on an 8 GiB host; run in CI | - |
+| Three intel socket tests | `python -m pytest -q tests/test_intel_service.py::test_scanner_uses_intel_over_the_socket tests/test_intel_service.py::test_wrong_token_and_unreachable_intel_are_reported tests/test_intel_service.py::test_probe_reports_health` | `bfc58ff` | NOT RUN | fixture hardcodes `/tmp`; run in CI | - |
+| GUI smoke | `RUN_GUI_TESTS=1 xvfb-run -a python -m pytest tests/test_gui_smoke.py` | `bfc58ff` | SKIPPED (opt-in), so NOT RUN | needs a display; run in the CI coverage job | - |
+| Coverage gate | `xvfb-run -a python -m pytest -q -rfE --tb=short --cov --cov-report=term --cov-report=xml --junitxml=junit.xml` | `bfc58ff` | NOT RUN | no coverage output in this session; run in CI | expected to fail on L-B7 |
+| ruff | `ruff check --no-cache --extend-exclude .arena .` | `bfc58ff` | PASS | - | - |
+| mypy | `mypy --cache-dir $VAL/mypy` | `bfc58ff` | PASS: 68 files | - | - |
+| bandit, CI gate | `bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll` | `bfc58ff` | PASS | - | - |
+| pip-audit, `requirements.lock` | `pip-audit --require-hashes --disable-pip -r requirements.lock --progress-spinner off` | `bfc58ff` | **FAIL** | - | `Found 7 known vulnerabilities in 1 package` (`pypdf 6.21.2`, M21) |
+| pip-audit, `requirements-server.lock` | same with that file | `bfc58ff` | **FAIL** | - | the same seven advisories |
+| pip-audit, `requirements-build.lock` | same with that file | `bfc58ff` | PASS | - | - |
+| `fuzz/fuzz_parsers.py`, synthetic inputs | stand-in driver, 69 inputs of at most 1,024 bytes (30.6) | `bfc58ff` | PASS (wiring only) | - | - |
+| `fuzz/fuzz_b4.py`, synthetic inputs | stand-in driver, 62 inputs of at most 1,024 bytes (30.6) | `bfc58ff` | PASS (wiring only) | - | - |
+| Atheris campaigns | `parser-fuzz` workflow, or 30.3 (c) | `bfc58ff` | NOT RUN | restricted by 27.5; Atheris not installed here | last runs failed: 40969502006, 40974246237 |
+| Wheel build | check 11 in 30.8 | `bfc58ff` | PASS (builds); M15 reproduced | - | no `rules/` in the wheel |
+| Desktop build | `python build.py --clean` | `bfc58ff` | NOT RUN | writes into the tree; `release.yml` runs it | - |
+| Deployment check | `deploy/check-deployment.sh` | `bfc58ff` | NOT RUN | no Docker daemon here; `docker.yml` runs it | - |
+| Release gate, tag check | the step's script with `GITHUB_REF_NAME=v4.8.0`, `v4.8.0-rc1`, `v4.7.0`, `v4.8.1` | `bfc58ff` | PASS: exit 0, 0, 1, 1 as intended | - | - |
+| Release workflow | `release.yml` | `bfc58ff` | NOT RUN | tag or manual dispatch only | - |
+| Real-sample evaluation | 30.3 (a) | `bfc58ff` | NOT RUN | isolated VM only | - |
+| Linux x86_64 | tests 40977056829 (two jobs), quality 40977056790, docker 40977056845 | `3e5a3f2` (historical) | PASS on that commit; HEAD NOT RUN | not pushed | - |
+| Linux ARM64 | none | - | NOT RUN | no runner in any workflow | - |
+| Windows x86_64 | tests 40977056829 (two jobs) | `3e5a3f2` (historical) | PASS on that commit; HEAD NOT RUN | not pushed | L-B7 expected to fail |
+| Windows ARM64 | none | - | NOT RUN | no runner in any workflow | - |
+| macOS Intel | none | - | NOT RUN | no runner in any workflow | - |
+| macOS Apple Silicon | runs A and B above; tests 40977056829 (two jobs) | `bfc58ff` local; `3e5a3f2` (historical) | local: run B PASS, run A FAIL; CI on HEAD NOT RUN | not pushed | L-B7 |
+| Atheris job of the last `parser-fuzz` run | 40977056762, job 123807642354 | `3e5a3f2` (historical) | SKIPPED | documentation-only update | - |
+
+### 30.11 What was tested, what remains, where it must run
+
+Tested at `bfc58ff` on this Mac (Apple Silicon, Python 3.14.2, dependencies close
+to but not equal to the lock):
+
+- 1,308 of the 1,330 collected tests, in two configurations, plus the smoke
+  script and one seed-free property test;
+- ruff, mypy and the bandit gate, with full bandit counts for shipped code and,
+  separately, for the tests;
+- pip-audit on the three lock files;
+- that both Atheris harnesses import and every entry point returns on trivial
+  input;
+- a wheel build from a clean export, and the tag check of the release gate;
+- bounded reproductions for the findings of 30.8.
+
+Not tested, and where each must run:
+
+| Item | Where |
+|---|---|
+| Any CI workflow on HEAD (`tests`, `quality`, `docker`) | existing GitHub runners, after the owner pushes and dispatches (30.7) |
+| 17 Hypothesis seed tests, the runaway-memory test, 3 intel socket tests | existing `tests.yml` jobs |
+| GUI smoke test, coverage gate | existing `quality.yml` coverage job |
+| The suite on Python 3.9 and 3.12 with the hash-pinned lock | existing `tests.yml` jobs |
+| Every Windows path, including M2, M9 and M20 | existing `windows-latest` jobs; a real Windows desktop for the GUI |
+| Linux ARM64, Windows ARM64, macOS Intel | no runner exists: new runners, or narrower platform claims (L-B6) |
+| Docker build and deployment check | `docker.yml`, or a clean Linux host (O1) |
+| Desktop builds and the whole release workflow, including the gate (M16) | `release.yml`: tag or manual dispatch |
+| Atheris campaigns, any work on 27.5, L-D1, L-E4, and reproduction of the M21 advisories | isolated Linux VM, with owner approval for anything under 27.5 |
+| Real-sample evaluation (M1/X1) | isolated VM |
+| Real SMTP, S3, IMAP and LLM services; desktop monitoring | owner checks, as in the handoff |
+
+### 30.12 Limitations
+
+- This is a validation of one host and one commit. It is not a full-suite pass:
+  21 collected tests and the GUI smoke module were not run, and one of the two
+  configurations has a failure.
+- The local dependency set is not the lock (30.1) and Python is 3.14.2. CI and
+  the release use Python 3.12 with the lock. PDF results in particular ran on
+  `pypdf` 6.21.3, not the pinned 6.21.2.
+- macOS does not enforce an address-space limit. Runs were bounded by input
+  size, count, wall time and a 0.2 s poll of resident memory, so a very fast
+  allocation could pass 1 GB before the kill. The highest value seen in a fuzz
+  run or finding check was 421 MB; the test suite, under its 4,096 MB safety
+  limit, peaked at 1,459 MB.
+- The kernel sandbox blocked writes outside `$VAL` and external network, but not
+  reads. The containment tests ran `lsof` and `ps` against the host process
+  table, as they do on any developer machine.
+- The reproductions use synthetic inputs and call internal functions directly.
+  M18 shows the unpickling path, not a parser exploit. M21 was reported by a
+  tool and not reproduced. The M20, L-E5, L-E6, L-E7 and L-A3 statuses did not
+  change.
+- CI statements are read from the GitHub API and job logs on 2026-11-10. The
+  L-B7 and M21 effects on CI are predictions until a run on HEAD exists.
+- Parts section 29.15 lists as not reviewed were not reviewed here either. This
+  section validates findings; it does not extend the review.
+- The project is not production ready. Open: M21 and L-B7 (new), the section 29
+  findings, the deferred section 28 items, 27.5, CI on this branch, real-sample
+  evaluation and the owner checks.

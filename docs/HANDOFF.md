@@ -1,11 +1,12 @@
 # Current task handoff
 
-- Status: production-engineering review and staged fixes; not ready for merge.
-  Latest step: Claude's evidence-driven review of the hardening branch
-  (findings report only, 2026-11-10), PROJECT_REVIEW section 29.
+- Status: production-engineering review and staged fixes; not ready for merge and
+  not production ready. Latest step: Claude's validation of the section 29 review
+  (evidence only, 2026-11-10), PROJECT_REVIEW section 30.
 - Active agent: Claude (2026-11-10). The owner confirmed the previous Codex
-  session was stopped; no concurrent changes were seen during the review.
-  One editing agent.
+  session was stopped; no concurrent changes were seen during the review or the
+  validation (HEAD and a listing of the files were compared before and after
+  each group of checks). One editing agent.
 - Branch: `review/production-hardening`, **local only**, cut from `3e5a3f2`
   (head of `validation/v4.8-remaining`, draft PR
   [#46](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/pull/46)).
@@ -91,14 +92,83 @@
   intel service beyond the LLM call, rule packs, quarantine, most GUI pages,
   build and Docker files, tools, fuzz harnesses). Not a complete project review.
 
+## Claude validation session (2026-11-10): evidence only
+
+- Scope: validate the section 29 review at `bfc58ff` and record evidence. Only
+  `docs/PROJECT_REVIEW.md` (new section 30) and this file were edited. No
+  application code, test, CI, configuration, dependency or lock-file change; no
+  finding fixed; nothing pushed; `.arena/` untouched.
+- Isolation for every local check (30.2): a clean environment, `HOME` and
+  `TMPDIR` in a temporary folder outside the repository, a kernel sandbox that
+  refuses writes outside that folder and all external network, and a wall-time
+  and memory watchdog. Repository files, the real home folder and `/tmp` were
+  unchanged afterwards. Host: macOS 27.2.1 arm64, Python 3.14.2. The installed
+  packages differ from `requirements.lock` in six places (`pypdf` 6.21.3 instead
+  of 6.21.2).
+- Checks run and results (commands in 30.4 to 30.8):
+  - pytest main selection (1,308 of 1,330 items) with a QR decoder present:
+    1,300 passed, **1 failed**, 8 skipped, 4 deselected, 273 s.
+  - The same selection without a QR decoder, as on the Linux and macOS CI jobs:
+    1,296 passed, 0 failed, 13 skipped, 4 deselected, 269 s.
+  - `test_smoke.py`: passed. `tests/test_fuzz_parsers.py::test_cpio`: passed.
+  - ruff: clean on the 197 tracked Python files (plain `ruff check .` shows 447
+    items, all inside the untracked `.arena/` folder). mypy: clean, 68 files.
+    bandit CI gate: clean; 68 low results in shipped code, none material; the
+    tests are reported separately in 30.5.
+  - pip-audit (an extra): `requirements.lock` and `requirements-server.lock`
+    **fail** with 7 advisories in `pypdf 6.21.2`; `requirements-build.lock` is
+    clean.
+  - Atheris harnesses: both import and every entry point returns on 69 and 62
+    synthetic inputs of at most 1 KiB. Wiring only; no campaign was run.
+  - A wheel builds from a clean export (M15 reproduced). The tag check of the
+    release gate behaves correctly for four stand-in tags.
+- Not run here, with the reason (30.3): 17 tests of `tests/test_fuzz_parsers.py`
+  (their seeds feed the failed Atheris campaigns), the runaway-memory test (a
+  deliberate spike above 1 GB), 3 intel socket tests (the fixture hardcodes
+  `/tmp`), the GUI smoke test (needs a display), the coverage gate, the Docker
+  check (no daemon), the desktop build, the release workflow, the Atheris
+  campaigns and real-sample evaluation.
+- New items (30.9):
+  - **M21** (Medium, provisional): the pinned `pypdf 6.21.2` has seven published
+    advisories (memory exhaustion, long run time and endless loops on crafted
+    PDFs). The CI `dependency-audit` job passed on 2026-10-30 and fails today on
+    the same lock files. Fix: `pypdf` 6.21.4 or later in both locks.
+  - **L-B7** (Low, blocks CI): the M9 regression test
+    `test_reports_with_non_ascii_names_are_utf8` in `tests/test_report_files.py`
+    passes only without a QR decoder. It is expected to fail in the CI coverage
+    job and on both Windows jobs.
+- Finding validation (30.8). Reproduced from section 29: M17, M18, M19, L-E8,
+  L-L1, L-G1, L-A4, L-B6, I-T2. Reproduced from section 28: M4, M15, H-04+,
+  L-E2, L-C1, L-C2, L-C3, L-A1, L-D2, L-B3, L-B4, I-T1. L-E8 needs containers of
+  mixed kinds (for example a ZIP of e-mails with attachments); a 100-member
+  archive does not trigger it. M20 stays SUSPECTED (Windows only). 27.5 and B4
+  are unchanged: the `pypdf` advisories are a lead for them, not a cause.
+- Platform evidence (30.7): no workflow run exists for any commit after
+  `3e5a3f2`. Every CI result is historical (tests 40977056829, quality
+  40977056790, docker 40977056845, parser-fuzz 40977056762 with Atheris
+  skipped). Linux ARM64, Windows ARM64 and macOS Intel have no runner.
+- CI on HEAD needs the owner. A push alone starts no workflow. A pull request
+  from this branch would also start the two one-hour Atheris campaigns, which
+  27.5 forbids. The alternative is a push followed by a manual dispatch of
+  `tests.yml`, `quality.yml` and `docker.yml` on this branch.
+
 ## Exact next action
 
-A separate fix session for the SAFE findings of section 29 (M17, M18, M20,
-L-E8, L-G1, L-A4, L-B6, I-T2), each with the regression test listed in 29.11
-and the full gates (pytest, ruff, mypy, bandit) afterwards. M19 and L-L1 wait
-for an owner decision (29.14), as do the section 28 deferred items (M4, H-04,
-low items, I-T1, M15 packaging). Nothing on this branch has been pushed; the
-owner decides whether and where to push (CI on HEAD needs a push). Still
-unverified: the release-gate step (tag only), the deploy scripts against real
-Docker, Windows behaviour of the outbox lock (`msvcrt.locking`) and of the UTF-8
-report fix, and every Windows/ARM64/Intel statement in 29.10.
+Owner decisions first:
+
+1. Fix M21 (lock update) and L-B7 (test only) before anything else? Both make CI
+   fail whatever else is on the branch.
+2. How to get CI on HEAD without restarting the Atheris campaigns (a push plus a
+   manual dispatch, see above).
+3. Unchanged from before: M19 and L-L1 (29.14), the direction for M18, and the
+   section 28 deferred items (M4, H-04, low items, I-T1, M15 packaging).
+
+Then a separate fix session, each item with its regression test and the full
+gates afterwards (pytest, ruff, mypy, bandit, pip-audit): M21 and L-B7 first,
+then the SAFE findings of section 29 (M17, M18, M20, L-E8 with the corrected
+trigger, L-G1, L-A4, L-B6, I-T2).
+
+Nothing on this branch has been pushed. Still unverified: everything listed in
+30.11, the release gate job (tag only), the deploy scripts against real Docker,
+the Windows behaviour of the outbox lock (`msvcrt.locking`) and of the UTF-8
+report fix, and every Windows, ARM64 and Intel statement in 29.10 and 30.7.
