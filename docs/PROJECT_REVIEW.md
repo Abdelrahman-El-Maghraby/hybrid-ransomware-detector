@@ -2820,3 +2820,306 @@ The owner approved H4-b on 2026-11-08; the other deferred items stay pending.
   limit), a full scan, the text report (both the "NOT FULLY INSPECTED" section
   and the gap line under a flagged file), the JSON report, `--scan-file`
   output, the GUI labels, the alert payload and schema validation.
+
+## 29. Evidence-driven production review of the hardening branch (Claude, 2026-11-10)
+
+Review and findings report only: no application code, test, CI, dependency,
+configuration or detection change. Only this section and `docs/HANDOFF.md` were
+edited. Hostile-input checks used small synthetic benign strings held in memory,
+each run under a 30-60 s `timeout`; no malware, real samples, fuzz campaign,
+memory-spike reproduction or OOM-artifact replay. The Superpowers skills named in
+the request are not installed in this session, so the method below was followed
+directly. This is **not** a complete project review: see 29.15.
+
+### 29.1 Baseline
+
+| Item | State |
+|---|---|
+| Branch | `review/production-hardening`, HEAD `c056e6f` (docs); last implementation commit `33fd895` |
+| Working tree | clean except the untracked `.arena/` folder (preserved, not staged) |
+| Remote | no upstream configured; `git ls-remote` shows no `review/production-hardening` on origin. Base `3e5a3f2` equals `origin/validation/v4.8-remaining` (draft PR #46). 75 commits ahead of `main` |
+| Hardening commits reviewed | `eb62c0b`, `3be37a2`, `3e2eed2`, `b1ce30f`, `33fd895` (`git diff 3e5a3f2..33fd895`: 42 files) with their callers and tests |
+| Host | macOS 27.0.1, Darwin arm64 (Apple Silicon); Python 3.14.2 in the project `.venv`; pytest 9.1.1 |
+
+Safe test selection, run once:
+
+```
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider -q -rs -W default tests \
+  --ignore=tests/test_fuzz_parsers.py \
+  --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation
+```
+
+Result: **1,299 passed, 13 skipped, 1 deselected, 0 failed, 126 warnings in
+272.37 s** (wall 4 min 34 s). This is not a full-suite pass.
+
+- Excluded: `tests/test_fuzz_parsers.py` (14 Hypothesis fuzz tests; also writes a
+  `.hypothesis/` database into the working directory);
+  `test_memory_limit_stops_runaway_allocation` (allocates 64 MiB blocks, up to
+  16 GiB, until the 1 GiB watchdog stops the worker: a memory-spike reproduction);
+  `test_smoke.py` (outside `testpaths`; uses the real HOME, L-B3).
+- Skipped by the tests themselves (13): GUI smoke (`RUN_GUI_TESTS` not set), Windows
+  Restart Manager, system ELF binary, box-js, 6 QR tests (no zbar/OpenCV), Windows
+  Job Object, Linux `/proc`, one non-macOS libproc case.
+- Warnings: 199 `ResourceWarning: unclosed database` (sqlite result caches of the
+  many scanners a test run builds, I-T2), 11 unclosed files, 19 pyparsing
+  deprecations from oletools, 1 Starlette TestClient deprecation. `-W default` only
+  made them visible.
+- Checked for repository writes: no markers, `conftest.py` sets a temporary HOME
+  and a null keyring; no coverage plugin is enabled by configuration. `git status
+  --porcelain --ignored` was identical before and after the run; no file in the
+  tree is newer than the run (only temporary directories outside the repository
+  were created).
+
+ID convention: new IDs continue section 28 (M17-M20; Low `L-<area><n>`). Fix
+class **SAFE** = a later fix session can do it without changing detection
+weights, indicator thresholds, inspection coverage or the result schema; **NEEDS
+APPROVAL** = it would change one of those or `scan_status`, or reopen an
+owner-deferred item.
+
+### 29.2 Part 1: scan pipeline and isolation workers
+
+`engine/scanner.py` walks folders and hashes; `engine/workers.py` runs each file in
+a spawned worker (time and memory limits, fail-closed start, M6 log forwarding);
+`engine/fsutil.py` (H1) refuses non-regular files; `engine/staging.py` runs the
+layers; `engine/completeness.py` turns gaps into `scan_status`. Results and log
+records travel over a `multiprocessing` pipe.
+
+Confirmed:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| M18 | Medium | CONFIRMED (code) | `engine/workers.py:727` (`w.parent.recv()`), `:304` | Worker replies are unpickled by the parent (`Connection.recv`). A worker compromised by a parser exploit can send a crafted pickle and run code in the parent: the long-lived API process that receives every client's upload. That contradicts the residual in THREAT_MODEL section 10 ("forge the result of the file that exploited it ... not other uploads' results"). Pre-existing; M6 adds a message type on the same channel. Not exploited here | SAFE |
+| L-E8 | Low | CONFIRMED (reproduced) | `engine/workers.py:254`, `:279` | At the default INFO level each container member logs `scan_started` and `scan_completed`, so an archive with 100 or more members fills the 200-record buffer. The outer file's own `scan_completed` and `external_share` events are then dropped and only "N log record(s) ... dropped" reaches the parent log, the JSON log and the cloud event spool. In-memory check: 241 records in, 201 out, no record for the outer file. Results are unaffected | SAFE |
+
+Suspected: none new. Still open from section 28: L-E5, L-E6, L-E7, I-T1.
+
+Checked and sound: H1 (walk skips non-regular files; `open_regular` checks the
+opened descriptor, so a later swap to a FIFO is refused; the folder monitor and
+canary hashing use it); M10 exclusive report names; worker-log replay tolerates
+malformed records (each replay is wrapped in `try`); no double counting of the
+new `not_checked` gaps (`_ANALYSIS_RESULTS` does not include `prompt_guard`).
+
+### 29.3 Part 2: parsers changed by the hardening commits
+
+Mail HTML link and text helpers (H2), relationships (H4), hidden-content
+inspection (M13, H4-b), member-name sanitising (M12). All use `defusedxml` and
+bounded reads; dispatch is by extension, with content checks in the integrity
+layer.
+
+Confirmed:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| M19 | Medium | CONFIRMED (reproduced) | `detectors/mail_analyzer.py:161-213` (`_anchors`), `:199` | `<a href="https://login.evil.example/x" href="https://paypal.com/">paypal.com</a>`: the scanner uses the **last** working `href` (as the original regex did, so pre-existing), while HTML parsing keeps the **first** attribute (WHATWG duplicate-attribute rule). The deceptive-link finding (`mail_deceptive_link`, 25 technical points) disappears: `deceptive_links` is `[]` with the second attribute and flagged without it. Mail-client rendering was not tested | NEEDS APPROVAL (changes inspection behaviour) |
+
+Suspected:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| M20 | Medium | SUSPECTED (Windows only) | `detectors/container_extractor.py:545-550`; `detectors/embedded_content.py:229-231` | Sanitised member names keep Windows device names (`NUL`, `CON`, `AUX`, `COM1`, `NUL.exe`). On Windows, writing `m0001\NUL.exe` can reach the device instead of a file, so the member is never examined and the scan still reads complete (same class as M12). Not run on Windows; behaviour differs between Windows versions | SAFE |
+
+Checked and sound: the H4 and H4-b `not_checked` texts reach `completeness`; M13
+keeps findings collected before an error; `_coordinate` rejects non-integer
+values; RTF truncation is detected by reading one byte past the limit. Not
+re-derived: the linear-time and equivalence claims for H2 (section 28.2 records a
+300,000-case comparison; not repeated).
+
+### 29.4 Part 3: alerts, outbox, outputs, cloud and GUI delivery
+
+`core/outputs.deliver()` writes JSON Lines, then queues verdict alerts in the
+on-disk outbox (`core/outbox.py`; per-folder thread lock plus a lock file, M2);
+the GUI calls it after every scan (H3); cloud uploads are spooled
+(`core/cloud.py`, M11).
+
+Confirmed:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| M17 | Medium | CONFIRMED (reproduced) | `core/outputs.py:111-117`; callers `RansomwareScanner.py:931-934`, `engine/scanner.py:473-474`, `:492-495`, `core/folder_watch.py:370-373` | `deliver()` writes JSON Lines before queuing alerts and does not catch the write error. With `JSONL_PATH` unwritable (a directory, a full disk, a read-only mount) it raises `IsADirectoryError`/`OSError` and **no** webhook or e-mail alert is queued (reproduced in memory). Also, `run_scan`, `--scan-now` and the folder monitor call `generate_report()` first, so a report write error skips `deliver()` as well; H3 fixed exactly this for the GUI only. In `--scan-file` the exception also skips the exit-3 check; in IMAP mode the UIDs are already marked as seen, so those messages are not fetched again | SAFE |
+
+Suspected: none new. Checked: M1 queues e-mail during an intel outage; M2 holds
+both locks; M11 excludes all four upload-pipeline events; the GUI delivers after
+`running = False` and for cancelled scans.
+
+### 29.5 Part 4: CLI, containment, IMAP, secrets and deploy scripts
+
+Confirmed:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| L-A4 | Low | CONFIRMED (shell check) | `deploy/backup.sh:15`, `deploy/restore.sh:12` | The M14 `.env` parser handles `AEGIS_VERSION=x` and `"x"` only. `AEGIS_VERSION=4.7.0 # pinned` yields `4.7.0 # pinned` (the image check then fails, so the script stops safely); `export AEGIS_VERSION=4.7.0` and `AEGIS_VERSION = 4.7.0` yield nothing, so the 4.8.0 default is used even if compose would read another value. Compose's own handling of these forms was not verified | SAFE |
+
+Checked and sound: M3 keeps `suspended`; M7 `_pause` returns without a terminal;
+M8 marks UIDs as seen only up to the first unscanned one, including after a
+UIDVALIDITY change; M5 placeholder handling (a placeholder in the process
+environment also hides a keyring key: an edge case, not a finding); the M16 gate
+fails closed on a version mismatch and runs only on tags.
+
+### 29.6 Part 5: REST API
+
+No new defect. Still open: M4 (deferred), L-A1, I-x (intel JSON before auth).
+Each upload starts an alert thread whose flush now waits up to 30 s for the
+folder lock (M2): bounded, but a burst of uploads queues one waiting thread per
+alert-worthy result.
+
+### 29.7 Part 6: LLM layer
+
+Data flow: `engine/external.py:89-96` sends `file_content[:3000]` plus
+`embedded_strings[:2000]`; `detectors/llm_backends.py` wraps them in
+`<UNTRUSTED_DATA_<16 hex>>` delimiters (look-alikes neutralised,
+`prompt_guard.py:101-110`), keeps instructions in the system role, temperature 0,
+JSON requested (Ollama `format: json`); `_parse_analysis` extracts a JSON object
+and clamps confidence to 0-1. Scoring (`detectors/scoring.py:676-685`) adds at
+most `W_LLM` = 24 semantic points, only when the model says suspicious. A "not
+suspicious" answer removes nothing. **The verdict cannot depend on the LLM alone
+beyond Low**: 24 points sit in the Low band, and semantic-only evidence is
+clamped to Medium. Timeouts: OpenAI 30 s, Ollama 120 s, intel 180 s; network
+errors and HTTP errors return `error`, so the scan is partial. Production refuses
+`LLM_PROVIDER=auto`; the image defaults to `none`.
+
+Confirmed:
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| L-L1 | Low | CONFIRMED (reproduced) | `detectors/llm_backends.py:102-128` | An empty reply, prose ("I will not answer.") or a non-object JSON reply returns `analyzed: False` **without** `error`, so `completeness` reports the LLM layer as complete. Content that makes the model abandon the JSON format silently removes the layer's opinion while the scan reads complete. Whether a given model obeys such content is theoretical; the code path is demonstrated | NEEDS APPROVAL (`scan_status`) |
+| L-G1 | Low | CONFIRMED (reproduced) | `aegis_gui/formatting.py:218-225`; `aegis_gui/detail.py:367-370` | `llm_skipped()` searches the model's free-text `details` for markers such as "layer skipped" or "not configured". A flagged answer (`is_malicious: True`, confidence 0.95) whose explanation contains one is shown as "Skipped - no LLM backend available" and its result-row token is hidden. Score and report are unaffected. The model output is attacker-influenced; a model echoing such text is theoretical | SAFE |
+
+Theoretical (no finding): content after the first 3,000/2,000 characters is never
+shown to the model; the model's `explanation` text is shown verbatim in the GUI
+and can be of any JSON type (every consumer applies `str()`); injected text can
+make the model add up to 24 points (false positive, bounded by the caps).
+
+### 29.8 Part 7: MCP integrations
+
+The repository has **no MCP integration**: no project-owned server, client, tool,
+configuration file or dependency (`git ls-files` and `git grep` for `mcp`,
+`modelcontextprotocol`, `fastmcp`, `.mcp.json`; nothing in `pyproject.toml` or the
+requirement files). The MCP tools available in this Claude session are external
+to the project and were not used to review or change it. No findings.
+
+### 29.9 Part 8: packaging, CI, documentation and tests
+
+| ID | Severity | Status | File:line | Trigger and effect | Fix class |
+|---|---|---|---|---|---|
+| L-B6 | Low | CONFIRMED (docs vs. evidence) | `README.md:10`, `:14`, `:847` (contradicts `:394`) | The README says the tool runs on x86_64 and ARM64 for Windows, macOS and Linux, and that every dependency ships wheels for both. Line 394 says `python-tlsh` is source-only. CI runs only Linux x64, Windows x64 and macOS arm64 (29.10); the server image is amd64 only (D5) | SAFE |
+| I-T2 | Info | CONFIRMED | `core/cache.py:54`; test run above | 199 unclosed sqlite connections per safe run: test scanners are never closed. Production builds one scanner per process, so this is test hygiene | SAFE |
+
+CI note: the five hardening commits have **never run in CI** (the branch is local
+only). This includes the Windows-specific `msvcrt.locking` outbox lock (M2), the
+UTF-8 report change on a real cp1252 console (M9) and every new test. Still open:
+M15 packaging, M16 (release gate unrun), L-B2, L-B3, L-B4.
+
+### 29.10 Platform compatibility evidence
+
+The latest CI is on `3e5a3f2`, the base of this branch, **not** HEAD `c056e6f`.
+It does not validate the hardening commits. Runs: tests 40977056829, quality
+40977056790, docker 40977056845, parser-fuzz 40977056762 (all `success`, event
+`pull_request`, branch `validation/v4.8-remaining`, SHA `3e5a3f2562...`). Runner
+images come from the job logs.
+
+| Target | Evidence | Python and native deps | Install and packaging | CLI | GUI | API | FS and process | Isolation | CI |
+|---|---|---|---|---|---|---|---|---|---|
+| Linux x86_64 | **CI-TESTED ON TARGET** (base only) | 3.9 and 3.12 in CI | Docker image amd64 (docker run 40977056845); desktop build only in release dry-runs of 4.7 | tests jobs "ubuntu-latest · Python 3.12/3.9", label `ubuntu-latest`, image ubuntu-24.04, x64 | GUI tests run under xvfb in the quality "coverage" job (job passed; JUnit for this run not inspected) | TestClient tests in CI | `/proc` reader tested | RLIMIT_AS (tests in CI) | yes, base SHA |
+| Linux ARM64 | **UNVERIFIED** | `python-tlsh` needs a compiler; other wheels assumed, not checked | no arm64 image (D5) | - | - | - | statically the same code as x86_64 | RLIMIT_AS, statically assessed | none |
+| Windows x86_64 | **CI-TESTED ON TARGET** (base only) | 3.9 and 3.12; `python-tlsh` skipped (built-in port) | release desktop build (4.7 dry-run only) | tests jobs "windows-latest · Python 3.12/3.9", label `windows-latest`, image windows-2025-vs2026, x64 | not tested (GUI tests are Linux/xvfb only; owner check pending) | TestClient tests in CI | M2 `msvcrt` lock, M9 cp1252 and M20 device names not run on Windows | Job Object (real test runs only on Windows, in CI on base) | yes, base SHA |
+| Windows ARM64 | **UNVERIFIED** | native wheels (yara-python, cryptography, numpy, pyzbar DLLs) not checked | no build | - | - | - | - | Job Object via ctypes, statically assessed only | none |
+| macOS Intel | **UNVERIFIED** | not checked | no build (`macos-latest` is arm64) | - | - | - | statically the same as Apple Silicon | libproc watchdog, statically assessed | none |
+| macOS Apple Silicon | **TESTED ON TARGET** (this session, HEAD `c056e6f`, safe selection only) and **CI-TESTED ON TARGET** (base only) | local 3.14.2; CI 3.9 and 3.12 | wheel/sdist not built here; M15 open | CLI subprocess tests passed | GUI smoke not run (opt-in, needs a display); GUI logic tests passed | TestClient tests passed | special-file tests passed locally | watchdog unit tests passed; runaway-memory test excluded here | tests jobs "macos-latest · Python 3.12/3.9", label `macos-latest`, image macos-26-arm64 (CI log: 1,227 passed, 13 skipped) |
+
+Remaining checks: CI on the current HEAD (needs a push, owner decision); a real
+Windows desktop run of the GUI, folder monitor, outbox lock and toasts; arm64 CI
+runners for Linux and Windows and an Intel macOS runner, or narrower platform
+claims (L-B6); a packaged-build smoke test per target; the arm64 image (D5).
+
+### 29.11 Proposed fixes and verification tests (not implemented)
+
+- **M17.** In `deliver()`, queue the alerts first (or wrap `write_jsonl` in its own
+  `try`, log `jsonl_error` and continue); in `run_scan`, `--scan-now`, the folder
+  monitor and IMAP, call `deliver()` even when `generate_report()` fails, as H3
+  does for the GUI. Test: `JSONL_PATH` pointing at a directory and a stub
+  `queue_and_send` still receives the alerts; a report directory that cannot be
+  written still produces the alerts in each path; `--scan-file` still exits 3 when
+  isolation is unavailable.
+- **M18.** Send worker replies as bytes (`send_bytes`/`recv_bytes`) with a JSON
+  encoding and a strict shape check (results are plain JSON already; the API
+  returns them as JSON), or a restricted unpickler that allows only built-in
+  containers and scalars. Otherwise, correct the THREAT_MODEL section 10 residual.
+  Test: a fake worker that sends a pickle of a class with `__reduce__` is reported
+  as a failed worker (`scan_failed`) and nothing executes in the parent;
+  round-trip tests for `ok`, `error`, `log`, `ready`.
+- **M19.** Use the first `href` of a tag (HTML semantics), or flag tags with more
+  than one `href` as deceptive. Test: the duplicate-href sample above is flagged;
+  the existing H2 equivalence and timing tests are updated for the new rule.
+- **M20.** After sanitising, prefix names whose stem (before the first dot,
+  case-insensitive, trailing spaces/dots removed) is a Windows device name (`CON`,
+  `PRN`, `AUX`, `NUL`, `COM0-9`, `LPT0-9`, `CONIN$`, `CONOUT$`), e.g. `_NUL.exe`, on
+  every OS. Test: a ZIP with `NUL.exe` and `con.txt` members extracts two regular
+  files with their content (unit test on any OS; real check on Windows CI).
+- **L-E8.** Always forward depth-0 records and event records over the cap (for
+  example, cap member-level INFO records separately). Test: an archive with 150
+  members, scanned in a worker at INFO, logs the outer file's `scan_completed`.
+- **L-L1.** Return `_empty_analysis(..., error=True)` for empty, non-JSON and
+  non-object replies, so the scan is partial with "llm failed: ...". Test: each of
+  the three replies yields a `partial` gap on the `llm` layer; a valid reply still
+  yields complete.
+- **L-G1.** Decide "skipped" from `analyzed`/`error` (results without `analyzed`,
+  from older reports, fall back to the markers) and never from model text. Test:
+  a flagged result whose explanation contains "layer skipped" shows its confidence
+  and token.
+- **L-A4.** Parse `.env` the way compose does for `export`, spaces and inline
+  comments, or ask `docker compose config` for the image. Test: the four sample
+  lines in 29.5 give `4.7.0`.
+- **L-B6.** State tested targets only (Linux x64, Windows x64, macOS arm64), and
+  list ARM64/Intel as untested until CI covers them. Test: docs review; the
+  existing `tests/test_ci_workflows.py` could assert the runner list the README
+  names.
+- **I-T2.** Close scanners (their caches) in test fixtures. Test: the safe run shows
+  no `unclosed database` warnings.
+
+### 29.12 Architecture notes tied to findings
+
+- **M18:** the worker pool is described as "not a security boundary", yet the
+  residual-risk table relies on one worker per upload to keep a compromised parser
+  away from other uploads' results. That only holds if the parent never unpickles
+  worker data. The IPC encoding is the obstacle to the boundary, not the pool.
+- **M17:** output delivery is called from five places, each with its own ordering
+  of report, JSON Lines and alerts (the GUI was fixed in H3; the others were not).
+  One helper that runs every output independently would prevent this class from
+  recurring.
+
+### 29.13 Top findings so far (reviewed parts only)
+
+1. **M17** (Medium): JSON Lines or report write errors drop webhook and e-mail alerts.
+2. **M18** (Medium): pickle IPC lets a compromised worker take over the API parent process.
+3. **§27.5 / B4** (tracked): long-fuzz OOM failures unresolved; restricted.
+4. **M19** (Medium): a second `href` hides a deceptive link (needs approval).
+5. **M4** (tracked, deferred): `/scan` spools up to 50 MB before authentication.
+6. **H-04+** (tracked, deferred): quadratic web-content regexes.
+7. **M20** (Medium, suspected): Windows device names hide extracted members.
+8. **M15** (tracked): wheel install ships no rules; YARA silently off.
+9. **Hardening commits not CI-tested** (29.9), including the Windows-only code.
+10. **L-L1 / L-G1** (Low): LLM format failures read as complete; GUI "skipped" label from model text.
+
+### 29.14 Open questions for the owner
+
+1. M19 and L-L1 change detection behaviour or `scan_status`: approve, defer or reject.
+2. M18: change the worker IPC encoding, or accept the risk and correct THREAT_MODEL section 10?
+3. Push the branch (or a copy) so CI runs on HEAD? Nothing has been pushed.
+4. Platform claims (L-B6): add arm64 and Intel runners, or narrow the README?
+5. The section 28 deferred items (M4, H-04, low items, I-T1, M15 packaging) stay deferred unless you decide otherwise.
+
+### 29.15 Limitations and parts not reviewed
+
+- Reviewed: the five hardening commits and their direct callers; the worker IPC;
+  output delivery; the LLM path end to end; the absence of MCP; CI runner coverage.
+- Not reviewed in depth (no claim about them): detectors not touched by the
+  hardening commits (PE, ELF, macro, YARA, archives other than member naming,
+  web content beyond H-04, emulation, sandbox, QR, OCR, ML), the intel service
+  (`api/intel.py`) beyond the LLM call, rule packs, quarantine and containment
+  beyond the M3 diff, GUI pages other than delivery and the LLM labels,
+  `build.py`/`scanner.spec`, Dockerfile and compose, `tools/`, the fuzz harnesses.
+- Not run: excluded tests (29.1), GUI on any display, Windows/Linux behaviour,
+  Docker, the release workflow, real SMTP/S3/IMAP/LLM services. M20 and every
+  Windows statement are static assessments. The H2 equivalence claim was not re-tested.
+- The project is not production ready: real-sample evaluation (M1/X1), CI on this
+  branch, the owner checks in the handoff and the items above are open.
