@@ -369,6 +369,10 @@ class FolderMonitor:
             return results
         try:
             self.scanner.generate_report(results)
+        except Exception as e:
+            logger.error("Folder monitor: report failed: %s", e,
+                         extra={"event": "monitor_output_error"})
+        try:                                      # M17: alerts even when the report fails
             from core.outputs import deliver
             deliver(results, self.config)
         except Exception as e:

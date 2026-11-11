@@ -107,10 +107,17 @@ def post_alert(payload: Dict, url: str, secret: str = "", session=None,
 
 def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None) -> None:
     """Send results to every configured output: the JSON Lines file, and an alert
-    per qualifying result through the outbox (webhook, e-mail)."""
+    per qualifying result through the outbox (webhook, e-mail).
+
+    M17: a JSON Lines file that cannot be written (a directory, a full disk, a
+    read-only mount) is logged and does not stop the alerts."""
     path = jsonl_path or config.get("jsonl_path")
     if path:
-        write_jsonl(results, path)
+        try:
+            write_jsonl(results, path)
+        except Exception as e:
+            logger.error("JSON Lines output %s could not be written: %s", path, e,
+                         extra={"event": "jsonl_error"})
     from .mailer import email_configured
     from .outbox import queue_and_send, verdict_alert
     if config.get("webhook_url") or email_configured(config) or config.get("intel_socket"):

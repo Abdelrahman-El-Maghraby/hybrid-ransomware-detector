@@ -929,12 +929,14 @@ def _scan_or_schedule(args, scanner) -> None:
             print(f"Error: file not found: {args.scan_file}")
             return
         result = scanner.scan_one(args.scan_file)
-        print(scanner.generate_report([result]))
         from core.outputs import deliver
-        deliver([result], CONFIG)
-        if scanner.last_not_scanned:
-            _isolation_error(scanner.last_not_scanned)
-            sys.exit(EXIT_ISOLATION_UNAVAILABLE)
+        try:
+            print(scanner.generate_report([result]))
+        finally:              # M17: alerts and the exit status even when the report fails
+            deliver([result], CONFIG)
+            if scanner.last_not_scanned:
+                _isolation_error(scanner.last_not_scanned)
+                sys.exit(EXIT_ISOLATION_UNAVAILABLE)
         return
 
     if args.scan_now:

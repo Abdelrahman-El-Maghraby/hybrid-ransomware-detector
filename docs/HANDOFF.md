@@ -414,6 +414,33 @@
     `decrypt`: 2.2 s). It sees only file names; a ZIP member name can be
     64 KB, about 1.5 s per member. A detection pattern, so not changed here.
 
+### Group 3: M17 (M18 waits for the owner)
+
+- **M18 not started.** 33.6 marks it SAFE, but 33.7 lists "M18's direction"
+  as an owner decision. 29.11 gives three directions: JSON bytes with a shape
+  check, a restricted unpickler, or a corrected THREAT_MODEL residual.
+- **M17.** Cause confirmed by tests that fail before the fix (5 failed):
+  - `deliver()` wrote JSON Lines before it queued the alerts, and did not
+    catch the error.
+  - `run_scan`, `--scan-file` and the folder monitor wrote the report
+    before they called `deliver()`.
+- Fix:
+  - `deliver()` logs a JSON Lines failure (`event=jsonl_error`) and still
+    queues the alerts.
+  - `run_scan` and `--scan-file` call `deliver()` in a `finally`. The report
+    error still propagates, and `--scan-file` still exits 3 when isolation
+    is unavailable.
+  - The folder monitor writes the report and delivers in separate `try`
+    blocks.
+  - IMAP already delivered before the report; the GUI was fixed by H3.
+  - `--scan-now` is unchanged: a report error still ends it, after the
+    alerts.
+- Test: `tests/test_output_failures.py` (5 tests; the JSON Lines case uses
+  the real outbox with the receiver down). 5 failed before the fix, 5 pass
+  after. 136 tests across the delivery, alert, folder-monitor, isolation,
+  operations and partial-evidence files pass. ruff, mypy and bandit clean.
+  The full safe selection follows in the next checkpoint.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -434,7 +461,7 @@ SAFE items, in order (done items are marked):
 2. H5, M22 and I-5 (the time-out class): done, group 2 (the local commit
    after group 1).
    New for the owner: M33 (needs approval) and L-E12 (see group 2).
-3. M17 and M18
+3. M17: done, group 3. M18: waits for the owner's choice of direction.
 4. the SAFE file-name items (M20, L-E9, I-T3)
 
 Each item needs its regression test and the full gates afterwards (pytest,

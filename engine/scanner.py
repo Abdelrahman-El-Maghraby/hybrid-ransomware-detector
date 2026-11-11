@@ -489,10 +489,12 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         logger.info("Starting scheduled ransomware scan...")
         canary_report = self.check_canaries() if self.canaries.entries() else None
         results = self.scan_all_directories()
-        report = self.generate_report(results, impact=self.last_impact,
-                                      canary_report=canary_report)
         from core.outputs import deliver
-        deliver(results, self.config)
+        try:
+            report = self.generate_report(results, impact=self.last_impact,
+                                          canary_report=canary_report)
+        finally:                                  # M17: alerts even when the report fails
+            deliver(results, self.config)
         logger.info("Scan complete.")
         return report
 
