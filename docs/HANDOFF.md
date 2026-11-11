@@ -535,7 +535,7 @@
 
 - Cause confirmed: in a new process with `SCAN_DIRECTORIES=/x/Documents
   FILE_EXTENSIONS=.pdf SCAN_INTERVAL_HOURS=3`, the old `engine/config.py`
-  built `['~/Downloads']`, 43 default types and 6 hours. Nothing read these
+  built the home Downloads folder, 43 default types and 6 hours. Nothing read these
   names, and the GUI kept its choices only in `gui_settings.json`, so the
   background service the GUI installs at login scanned other folders.
 - Fix:
@@ -578,6 +578,18 @@
   L-C6 tests, 136 passed; the docs test files 29 passed. A UNC path and a
   quote survive the `.env` round trip (checked in-process). ruff, mypy and the
   bandit gate are clean. The GUI was not run on a display; its modules import.
+
+### Full-suite evidence for groups 5 to 7
+
+- Safe selection in a clean worktree at `8e240a7` (M28), with
+  `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` so the QR decoder loads
+  (section 30 run A; the earlier groups ran without it, hence 23 skips here
+  against 28): 1,388 passed, 23 skipped, 4 deselected, **1 failed**, 276 s.
+  `test_smoke.py` passed.
+- The failure was `test_public_docs_name_no_local_download_paths`: the group
+  7 handoff entry quoted the default Downloads path literally, which that
+  test forbids in `docs/*.md`. Reworded in the next docs commit; the test
+  then passed on its own. No code changed after the run.
 
 ## Exact next action
 
