@@ -72,7 +72,9 @@ Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it):
 `AEGIS_API_SPARE_WORKERS`, `AEGIS_STOP_GRACE`) and
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
-back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL`. What each scan actually sent - a
+back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL` and `SANDBOX_WAIT_SECONDS` (600; keep it
+below `SCAN_TIMEOUT_SECONDS`, which compose also passes to intel: a longer wait stops the
+scan and the file reads as a failed scan, so intel warns at start-up). What each scan actually sent - a
 hash, a file, extracted text, to a local or a cloud LLM - is in every result's
 `provenance.shared`, the report's "Sent outside" line and the `external_share` log event. Putting an external-service key on the
 analysis side is a start-up error in the production profile.
@@ -113,8 +115,14 @@ The content volume is written only by the `content` tool service, which has no
 network either:
 
 ```bash
-docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/aegis-rules-2026.11.zip
+docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/aegis-rules-2026.11.02.tar.gz
 ```
+
+The pack is a `.tar.gz` with its `.sig` next to it. Set `RULEPACK_PUBLIC_KEYS`
+(base64 Ed25519 public keys, comma-separated; public, not a secret) in the `.env`
+file next to `docker-compose.yml`: compose passes it to `content`, which refuses
+every pack without a key, and to `analysis`, which checks the signer of the active
+pack.
 
 The pack's Ed25519 signature, manifest hashes and version are checked before
 anything is installed (`core/rulepack.py`); the running analysis service notices

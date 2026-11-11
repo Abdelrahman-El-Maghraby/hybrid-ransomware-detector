@@ -73,6 +73,8 @@ def test_secrets_come_from_files_not_the_environment():
     for name in RUNNING:
         env = SERVICES[name].get("environment", {})
         for key, value in env.items():
+            if key == "RULEPACK_PUBLIC_KEYS":          # public keys, not a secret (M27)
+                continue
             if any(w in key for w in ("TOKEN", "KEY", "PASSWORD", "SECRET")):
                 assert key.endswith("_FILE") and str(value).startswith("/run/secrets/"), key
 

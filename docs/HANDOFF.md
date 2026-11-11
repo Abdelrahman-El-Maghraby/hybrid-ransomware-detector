@@ -654,6 +654,38 @@
   - L-D8 (the silent cell and page limits).
 - I-T1 stays deferred by the owner (section 28).
 
+### Group 11: rank 6, SAFE parts (M26 start-up check, M27 compose part)
+
+- **M26.** `engine/validation._sandbox_wait`: with a sandbox URL and isolated
+  scans, `SANDBOX_WAIT_SECONDS` not below `SCAN_TIMEOUT_SECONDS` is a warning,
+  and an error in the production profile. The compose file passes both
+  settings to `intel`, which holds the sandbox, with the same defaults (600,
+  300). So intel's own start-up check compares the real pair: with a sandbox
+  configured and the defaults, it warns.
+  - Not changed (owner): the wait cap and the per-layer deadline (I-6).
+- **M27 compose part.** `RULEPACK_PUBLIC_KEYS: ${RULEPACK_PUBLIC_KEYS:-}` for
+  `analysis` and `content`. `test_secrets_come_from_files_not_the_environment`
+  treated every name with "KEY" as a secret; it now skips this one name (public
+  keys, no `_FILE` form in config).
+  - Not changed (owner): the empty-key rule.
+- Docs: `docs/DEPLOYMENT.md` names `SANDBOX_WAIT_SECONDS` and its limit, and
+  `RULEPACK_PUBLIC_KEYS` for Docker. The rule-pack example and the compose
+  comment use a `.tar.gz` with its `.sig` (D27; the signature is
+  `<pack>.sig`, `core/rulepack.py:168`).
+- Test: `tests/test_deploy_settings.py` (8 tests): the warning, the
+  production error, three cases without a report, intel's settings in
+  compose, and the keys for both services. Before the fix: 5 failed (the
+  three no-report cases passed). After: 8 passed; with deployment, config,
+  sandbox, intel, readiness, capabilities and rule-pack tests, 161 passed.
+  `docker compose config -q` is clean (no daemon needed). ruff, mypy and
+  bandit are clean.
+- **Not done, needs a Docker host (PLATFORM).** Docker is installed here but
+  its daemon is not running, so `deploy/check-deployment.sh` cannot run, and
+  an unrun change could break the CI Docker job:
+  - M27's signed-pack install in `deploy/check-deployment.sh`;
+  - I-B3's stand-in LLM and sandbox URLs for `deploy/isolation_check.py`;
+  - running the compose changes in containers.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

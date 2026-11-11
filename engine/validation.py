@@ -290,6 +290,21 @@ def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
                 warnings.append(f"SCAN_DIRECTORIES: {d} is not a folder (skipped by scans)")
 
 
+def _sandbox_wait(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
+    """M26: the sandbox layer waits inside the scan worker; a wait that is not
+    below the worker's time limit stops the scan, and the file reads failed."""
+    wait, limit = cfg.get("sandbox_wait_seconds"), cfg.get("scan_timeout_seconds")
+    if not (cfg.get("sandbox_url") and cfg.get("isolate_scans") is not False
+            and isinstance(wait, (int, float)) and isinstance(limit, (int, float))
+            and wait >= limit):
+        return
+    text = (f"SANDBOX_WAIT_SECONDS={wait:g} is not below SCAN_TIMEOUT_SECONDS={limit:g}: a "
+            "slow sandbox report stops the scan, and the file is reported as a failed scan "
+            "instead of its verdict")
+    production = str(cfg.get("profile") or "").strip().lower() == "production"
+    (errors if production else warnings).append(text)
+
+
 def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
     if (str(cfg.get("llm_provider") or "").lower() == "openai"
             and not cfg.get("chatgpt_api_key")):
@@ -376,4 +391,5 @@ def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 Check = Callable[[Mapping[str, Any], List[str], List[str]], None]
 CHECKS: Tuple[Check, ...] = (_numbers, _choices, _urls, _canary, _imap, _email, _watch, _cloud,
+                             _sandbox_wait,
                              _paths, _conflicts, _profile, _intel)

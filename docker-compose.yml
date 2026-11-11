@@ -46,6 +46,10 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       SANDBOX_URL: ${SANDBOX_URL:-}
       SANDBOX_TOKEN_FILE: /run/secrets/sandbox_token
+      # M26: the sandbox wait must stay below the analysis worker's time limit;
+      # intel checks the pair at start-up.
+      SANDBOX_WAIT_SECONDS: ${SANDBOX_WAIT_SECONDS:-600}
+      SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-300}
       # e-mail alerts (4.8, core/mailer.py): only the intel service holds these;
       # off unless SMTP_HOST, ALERT_EMAIL_FROM and ALERT_EMAIL_TO are set
       SMTP_HOST: ${SMTP_HOST:-}
@@ -99,6 +103,7 @@ services:
       ALERT_EMAIL_MIN_VERDICT: ${ALERT_EMAIL_MIN_VERDICT:-High}   # sent by intel, queued here
       SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-300}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
+      RULEPACK_PUBLIC_KEYS: ${RULEPACK_PUBLIC_KEYS:-}   # M27: trusted rule-pack signers
       TMPDIR: /tmp
     secrets: [api_token, intel_token]
     volumes:
@@ -144,7 +149,7 @@ services:
     pids_limit: 64
 
   # One-off maintenance of the detection content (the only writer of `content`):
-  #   docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/PACK.zip
+  #   docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/PACK.tar.gz   (PACK.tar.gz.sig beside it)
   content:
     <<: *hardening
     image: aegis-sentinel:${AEGIS_VERSION:-4.8.0}
@@ -156,6 +161,7 @@ services:
     network_mode: none
     environment:
       HOME: /var/lib/aegis
+      RULEPACK_PUBLIC_KEYS: ${RULEPACK_PUBLIC_KEYS:-}   # M27: --update-rules needs a key
     volumes:
       - analysis-state:/var/lib/aegis
       - content:/var/lib/aegis/RansomwareScanner/data
