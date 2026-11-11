@@ -439,7 +439,7 @@
   the real outbox with the receiver down). 5 failed before the fix, 5 pass
   after. 136 tests across the delivery, alert, folder-monitor, isolation,
   operations and partial-evidence files pass. ruff, mypy and bandit clean.
-  The full safe selection follows in the next checkpoint.
+  The full safe selection is in "Group 4" below.
 
 ### Full-suite evidence for groups 2 and 3
 
@@ -480,6 +480,9 @@
   `tests/test_mail_analyzer.py`, `tests/test_rar.py` and
   `tests/test_report_files.py` are now `\u` escapes. A test fails when any
   tracked text file holds one.
+- Full evidence for groups 3 and 4: the safe selection in a clean worktree at
+  the group 4 commit `f623adb` gave 1,348 passed, 28 skipped, 4 deselected,
+  0 failed, 284 s; `test_smoke.py` passed there too.
 - New tests fail on the code before the fix (worktree at `e334704`, with a
   pass-through `printable`): 4 of 4. After the fix: 155 tests across the
   touched files pass. ruff, mypy and bandit clean.
