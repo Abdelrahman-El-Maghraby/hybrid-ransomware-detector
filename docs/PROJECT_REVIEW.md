@@ -5170,3 +5170,86 @@ remote.docx            settings.xml.rels -> attachedTemplate http://203.0.113.5/
 remote_plus_bad.docx   the same, plus zz/_rels/x.xml.rels = b"<Relationships"
                        -> Clean 0 partial []
 ```
+
+### 33.3 Batch C: YARA string lists, dated design notes and task briefs
+
+Read in full: the strings and conditions of all 25 rules in `rules/*.yar`
+(`office_dropper.yar`, `ransomware_generic.yar`, `ransomware_behaviour.yar`,
+`recovery_inhibition.yar`, `delivery_techniques.yar`). Read by header and spot
+check: `docs/DETECTION_v3.md`, `docs/DETECTION_v4.md`,
+`docs/tasks/project-review.md`, `docs/tasks/v4.8-owner-validation.md`.
+
+**M32 (Medium, CONFIRMED by check 24, NEEDS APPROVAL: detection coverage). A
+short ransomware advisory scores High 73 from the ransom-note rules.**
+- *Evidence.* `rules/ransomware_generic.yar:13-33` (`Ransom_Note_Language`,
+  medium: any "encrypted" phrase and any payment or currency word) and
+  `:35-65` (`Crypto_Ransom_Extortion_Combo`, high: "encrypted"/"encryption",
+  "pay"/"payment"/"ransom", an urgency phrase such as "within 48 hours" or
+  "lost forever", "your files"/"your data", and a recovery word). Every string
+  is a plain `nocase` word; nothing requires note-like structure (an ID, a
+  contact address, an `.onion` host or a wallet), and `$p1 = "pay"` also matches
+  inside "payroll", "repay" and "payload".
+- *Trigger.* An advisory, news article, training slide or incident report that
+  describes a ransom demand. Check 24 used a 380-byte HTML page whose only
+  sentence tells readers not to pay and to restore from backups.
+- *Effect.* High 73 with indicator `yara_match`, which crosses the default alert
+  floor; security newsletters and helpdesk notices are exactly the documents a
+  mail gateway sees. This is the same class as M29 (single-string or prose-only
+  YARA conditions), on a different rule file.
+- *Fix (owner decision; changes detection).* Either require one structural
+  note feature in `Crypto_Ransom_Extortion_Combo` (a wallet pattern, an `.onion`
+  host, a victim ID or a contact e-mail) or lower it to medium and let the
+  corroborating rules raise it; replace `$p1 = "pay"` with word-bounded
+  regexes. Rerun the benign-corpus gate from `tools/evaluate.py` before and
+  after.
+- *Verification.* A test that scans the check 24 advisory and asserts the
+  verdict is below High, plus the existing ransom-note tests still at High or
+  above.
+
+**Suspicions in batch C (not reproduced; NEEDS APPROVAL if acted on):**
+- *S-Y1.* `ransomware_behaviour.yar:58-72` `Event_Log_Clearing` fires on the
+  plain string `Clear-EventLog` (or `Remove-EventLog`) alone, which routine
+  log-rotation and lab-reset scripts use. Same class as M29.
+- *S-Y2.* `delivery_techniques.yar:119-139` `PowerShell_Defender_Tampering`
+  fires on `Add-MpPreference` with `ExclusionPath`, which enterprise deployment
+  scripts use for build folders, and on the bare registry path string, which
+  appears in hardening guides. High severity on one admin command line.
+- *S-Y3.* `delivery_techniques.yar:12-40` `LNK_Shortcut_Runs_Script_Host`
+  accepts `cmd.exe` with `/c ` or `hidden`, which ordinary administrator
+  shortcuts contain. The header says each rule was run over a benign corpus;
+  the corpus and its result are not in the repository, so this cannot be
+  checked here.
+- *S-Y4.* `ransomware_behaviour.yar` `Stops_Services` (any kill keyword and 5 of
+  14 service names) and `Encryptor_Target_Extensions` (12 extensions, two crypto
+  and two file APIs, two note strings) describe backup agents and archivers as
+  well; both are gated on more than one string, so the risk is lower than M29.
+
+No other finding in batch C: the Office dropper rules gate on OLE magic,
+`Attribute VB_` or file size; `Embedded_Executable_In_Document` requires `MZ` at
+offset 0 and a non-program extension; the OneNote rule requires the file magic
+and the embedded-file GUID; `LOLBin_Download_Command` uses bounded regexes with
+an URL; `Script_Encoder_Encoded_Block` matches the encoder's fixed marker.
+
+**Dated design notes and task briefs.** `DETECTION_v3.md` and `DETECTION_v4.md`
+state their versions in the title (v3.0.0; v4.0.0 to v4.1.0) and the README
+(`README.md:182`, `:825`) and changelog link them as design history. Spot
+checks against `detectors/indicators.yaml` match: encrypted content 70
+(`:40`), confirmed injection 50 (`:42`), hidden content 15 (`:44`), statistical
+cap 20 (`:15`). They do not describe later layers (web, mail, emulation,
+relationship scanning), which is expected for dated notes. The README link at
+`:182` sits under the `### 4.0` release heading, so it is accurate in context.
+No documentation finding.
+- `docs/tasks/project-review.md` and `docs/tasks/v4.8-owner-validation.md` are
+  briefs and checklists. The second says plainly that it is "not a claim that
+  the checks passed"; neither states a result. No finding.
+
+**Check 24 (M32).** Under a scratch `HOME`, in-process scanner, an HTML file
+containing one heading and one paragraph: "Victims report that all your files
+are encrypted messages appear and that the gang demands payment in bitcoin
+within 48 hours, threatening that your data will be lost forever. Do not pay
+the ransom; restore your files from backups."
+
+```
+advisory.html  -> High 73  yara ['Ransom_Note_Language', 'Crypto_Ransom_Extortion_Combo']
+                  indicators ['yara_match']
+```
