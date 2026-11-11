@@ -451,4 +451,5 @@ def test_an_upload_in_another_process_is_not_repeated(tmp_path):
         assert sent == [] and counts["uploaded"] == 0
     finally:
         holder.wait(10)
+        holder.stdout.close()
     assert len(C.Spool(str(folder)).items()) == 1                # still queued, not lost

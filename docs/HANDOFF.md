@@ -847,6 +847,17 @@
   did too, and the tests passed only because of the L-E11 bug. A fixture now
   removes the variable for those three tests: 30 passed with the L-A4 tests.
 
+### Full-suite evidence for groups 12 to 16
+
+- Safe selection in a clean worktree at `85acb6e`, with the QR decoder and
+  `-W default::ResourceWarning`: **1,466 passed, 0 failed, 23 skipped, 4
+  deselected**, 284 s. `test_smoke.py` passed. 0 "unclosed database"
+  warnings.
+- 16 warnings: one Starlette deprecation and 15 resource warnings (14 as in
+  the groups 8 to 11 run, plus the child's stdout pipe in the new L-A6
+  process test). That pipe is now closed (the test passes with no warning);
+  test-only change after the run.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -877,8 +888,13 @@ SAFE items, in order (done items are marked):
 7. Rank 6 SAFE parts done (group 11): the M26 start-up check and the M27
    compose part. They still need a Docker host for the M27 signed-pack
    install in `deploy/check-deployment.sh`, I-B3, and a container run.
-8. Next SAFE work: rank 10 (low code items), then 11, 12 and 14. M18, L-E12
-   and the 33.7 owner decisions are unchanged (owner, 2026-11-11).
+8. Rank 10 done (groups 12 to 16), except L-D7, which is held for the owner
+   (inspection coverage, see group 14).
+   New for the owner: the unhashed `pip install --upgrade pip` in the release
+   build job (group 13).
+9. Next SAFE work: rank 11 (check each item's status first), 12, then 14 (docs
+   after the code). M18, L-E12 and the 33.7 owner decisions are unchanged
+   (owner, 2026-11-11).
 
 Each item needs its regression test and the full gates afterwards (pytest,
 ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must
