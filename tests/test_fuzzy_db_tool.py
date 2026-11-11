@@ -68,9 +68,26 @@ def test_signature_matching_a_benign_file_is_dropped(corpus, tmp_path):
     benign = tmp_path / "benign"
     benign.mkdir()
     (benign / "tool.bin").write_bytes(family(2, 4)[3])   # "benign" lookalike of FamB
-    db = build(corpus, benign=benign)
+    local = []
+    db = build(corpus, benign=benign, local_report=local)
     assert [s["family"] for s in db["signatures"]] == ["FamA"]
     assert db["dropped"][0]["family"] == "FamB"
+    # L-C11: the database "may leave the VM"; benign corpus file names stay local
+    assert "tool.bin" not in json.dumps(db) and "benign_file" not in db["dropped"][0]
+    assert local == [{"family": "FamB", "sha256": db["dropped"][0]["sha256"],
+                      "benign_file": "tool.bin"}]
+
+
+@needs_tlsh
+def test_the_cli_writes_benign_matches_to_a_separate_local_file(corpus, tmp_path):
+    benign = tmp_path / "benign"
+    benign.mkdir()
+    (benign / "tool.bin").write_bytes(family(2, 4)[3])
+    out = tmp_path / "fuzzy.json"
+    main([str(corpus), "--out", str(out), "--benign", str(benign)])
+    assert "tool.bin" not in out.read_text()
+    local = tmp_path / "fuzzy.json.benign-matches.local.json"
+    assert json.loads(local.read_text())[0]["benign_file"] == "tool.bin"
 
 
 @needs_tlsh

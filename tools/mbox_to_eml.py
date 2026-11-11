@@ -18,16 +18,20 @@ import mailbox
 import re
 import sys
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Dict, Iterable, Tuple
 
 
 def split(mboxes: Iterable[Path], out_dir: Path, limit: int = 0) -> Tuple[int, int, int]:
     """Write each message as OUT_DIR/<mailbox>_<n>.eml. Returns (written, duplicates, errors)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     seen = set()
+    stems: Dict[str, int] = {}
     written = dups = errors = 0
     for mb_path in mboxes:
         stem = re.sub(r"[^\w.-]", "_", mb_path.stem)[:40] or "mbox"
+        stems[stem] = stems.get(stem, 0) + 1
+        if stems[stem] > 1:               # L-C8: a/inbox.mbox and b/inbox.mbox
+            stem = f"{stem}-{stems[stem]}"
         try:
             box = mailbox.mbox(str(mb_path), create=False)
         except Exception as e:

@@ -80,10 +80,16 @@ def _init_worker(with_vt: bool, with_llm: bool) -> None:
     from engine.scanner import RansomwareScanner
     cfg = dict(CONFIG)
     cfg["cache_enabled"] = False
+    cfg["sandbox_url"] = ""                       # L-C4: evaluation samples never go to a sandbox
     if not with_vt:
         cfg["virustotal_api_key"] = ""
     if not with_llm:
         cfg["llm_provider"] = "none"
+    # L-C9: the product's per-worker memory limit (WORKER_MEMORY_MB); the time limit
+    # is the pool's --timeout. On macOS the product uses a watchdog instead, which a
+    # pool worker does not have: there this sets nothing.
+    from engine.workers import _limit_memory
+    _limit_memory(int(cfg.get("worker_memory_mb") or 0))
     _scanner = RansomwareScanner(cfg)
 
 
@@ -260,9 +266,11 @@ def summarise(rows, unsupported, out: Path, args) -> str:
     L.append("\n## Verdict distribution\n")
     L.append("| Verdict | Malicious | Benign |")
     L.append("|---|---|---|")
-    for v in RANK:
-        L.append(f"| {v} | {sum(1 for r in mal if r.get('verdict') == v)} "
-                 f"| {sum(1 for r in ben if r.get('verdict') == v)} |")
+    for v in RANK:                         # I-x: an errored file is not a Clean verdict
+        L.append(f"| {v} | {sum(1 for r in mal if r.get('verdict') == v and 'error' not in r)} "
+                 f"| {sum(1 for r in ben if r.get('verdict') == v and 'error' not in r)} |")
+    L.append(f"| Error | {sum(1 for r in mal if 'error' in r)} "
+             f"| {sum(1 for r in ben if 'error' in r)} |")
 
     def breakdown(title, key, label):
         groups = defaultdict(list)

@@ -89,3 +89,62 @@ def test_cli_scans_labelled_folders(tmp_path):
     rows = [json.loads(l) for l in (out / "features.jsonl").read_text().splitlines()]
     assert len(rows) == 6
     assert all("disguised_executable" in r["indicators"] for r in rows if r["label"] == "malicious")
+
+
+def test_a_file_that_fails_in_its_worker_gives_an_error_row(tmp_path, monkeypatch):
+    """L-C9: calibration called scan_file in its own process, with no time or
+    memory limit, so one hanging file stopped the run. It now scans through the
+    product's isolated worker (scan_one) and records a failed scan as an error."""
+    from types import SimpleNamespace
+
+    from tools import calibrate_weights as CW
+    calls = []
+
+    def scan_one(path):
+        calls.append(path)
+        if path.endswith("hang.pdf"):
+            return {"scan_status": "failed", "verdict": "Medium", "risk_score": 25,
+                    "scan_results": {"scan_failed": {"reason": "timed out after 300s"}}}
+        return {"scan_status": "complete", "risk_score": 0, "sha256_hash": "s",
+                "score_breakdown": {"contributions": []}}
+
+    def no_inline(path):
+        raise AssertionError("scanned in the calibration process")
+
+    stand_in = SimpleNamespace(file_extensions=[".pdf"], scan_one=scan_one, scan_file=no_inline)
+    monkeypatch.setattr(CW, "_scanner", lambda: stand_in)
+    mal = tmp_path / "mal"
+    mal.mkdir()
+    (mal / "hang.pdf").write_bytes(b"%PDF-1.4")
+    (mal / "ok.pdf").write_bytes(b"%PDF-1.4")
+    rows = CW.scan_folders([mal], [])
+    assert len(calls) == 2
+    errors = [r for r in rows if "error" in r]
+    assert len(errors) == 1 and "timed out" in errors[0]["error"]
+
+
+def test_proposed_scores_use_the_engines_caps_and_clamp():
+    """L-C10: proposals were scored as a plain sum (at most 100), without the
+    category caps (semantic 24, statistical 20) and the clamp at 49 the engine
+    applies, so "current" and "proposed" rates were measured differently."""
+    from tools.calibrate_weights import score_rows
+    semantic_only = {"label": "malicious", "indicators": {"llm_semantic": 90.0,
+                                                           "mail_lure_subject": 90.0}}
+    with_technical = {"label": "malicious", "indicators": {"llm_semantic": 90.0,
+                                                            "disguised_executable": 40.0}}
+    s_only, s_tech = score_rows([semantic_only, with_technical], {})
+    assert s_only <= 24 and s_tech == 40 + 24
+
+
+def test_duplicate_files_count_once_and_conflicts_are_left_out():
+    """L-C10: calibration did not dedupe (evaluate.py did), so a file present twice
+    counted twice and one labelled both ways stayed in."""
+    rows = []
+    for i in range(12):
+        rows.append({"label": "malicious", "sha256": f"m{i}", "risk": 80,
+                     "indicators": {"disguised_executable": 80.0}})
+        rows.append({"label": "benign", "sha256": f"b{i}", "risk": 0, "indicators": {}})
+    rows += [dict(rows[0]), {"label": "benign", "sha256": "m1", "risk": 0, "indicators": {}}]
+    res = calibrate(rows, min_support=1)
+    assert res["current"]["malicious"] == 11 and res["current"]["benign"] == 12
+    assert res["duplicates"] == 1 and res["conflicts"] == 1

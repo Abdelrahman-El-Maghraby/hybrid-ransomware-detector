@@ -1013,6 +1013,53 @@ been fixed since section 30.
   - the scikit-learn pickle version check is only suspected;
   - "evaluate counts errors as Clean" is in rank 12 (L-C9).
 
+### Group 22: rank 12, the evaluation and build tools
+
+Status check first: none of L-C4, L-C8, L-C9, L-C10, L-C11, I-B4 or the I-x
+"evaluate counts errors as Clean" had been fixed. All are done here. These
+tools run in the analysis VM, not in the product; no sample was used, only
+synthetic inert files.
+
+- **L-C4.** `tools/evaluate.py` (pool worker) and `tools/calibrate_weights.py`
+  set `sandbox_url` to empty: evaluation samples never go to a sandbox.
+  - Test: with `SANDBOX_URL` configured, both scanners have no sandbox. The
+    test restores the environment and `logging.disable`, because
+    `_init_worker` sets both (I-T1, still deferred).
+- **L-C9.**
+  - `calibrate_weights.scan_folders` scans through `scan_one`, the product's
+    isolated worker with its time and memory limits, and records a failed
+    scan as an error row.
+  - `evaluate._init_worker` applies the product's `WORKER_MEMORY_MB` with
+    `engine.workers._limit_memory`; the time limit stays the pool's
+    `--timeout`. On macOS that sets nothing, because the product's watchdog
+    needs a parent; Linux was not run here.
+  - Test: a stand-in `scan_one` that fails one file gives one error row, and
+    `scan_file` is never called.
+- **I-x.** The evaluation's verdict distribution no longer counts errored or
+  timed-out files as Clean; an "Error" row lists them.
+- **L-C8.** `tools/mbox_to_eml.py` names the second mailbox with one stem
+  `<stem>-2_00001.eml` and so on: two `inbox.mbox` give twice the files.
+- **L-C10.** `calibrate_weights.score_rows` scores like the engine.
+  `ScoringMatrix._aggregate` applies the per-category caps, the semantic-only
+  clamp at 49 and the maximum, with each indicator's category from the
+  registry. `calibrate()` dedupes with `tools/splits.dedupe` and reports
+  `duplicates` and `conflicts`.
+  - Tests: a semantic-only row scores at most 24, and semantic plus 40
+    technical points gives 64. Duplicates count once and a conflicting hash
+    is left out.
+- **L-C11.** `build_fuzzy_db.build()` keeps benign file paths out of the
+  database, which may leave the VM. They go only to an optional
+  `local_report`; the CLI writes them to `<out>.benign-matches.local.json`.
+- **I-B4.** `tools/profile_layers.py` times only the outermost layer calls
+  (members of a container run their layers inside it), and removes its
+  `hrd-profile-` folder and closes the cache.
+  - Test: with a clock for the tool only, the per-layer total is at most the
+    wall time; it was 286 against 223. The folder is gone.
+- Before the fixes the new or changed tests failed: L-C4, L-C9 and the I-x
+  item, 3; L-C8 1; L-C11 1; I-B4 1; L-C10 2. After: tool tests (evaluation,
+  calibration, fuzzy DB, mbox, profile, benchmark fixes, tools path) 41
+  passed. ruff, mypy and bandit clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
