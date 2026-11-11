@@ -62,6 +62,7 @@ except ImportError:  # pragma: no cover
 
 MAX_READ = 64 * 1024 * 1024
 MAX_MEMBERS = 25
+MAX_SKIPPED = 50          # L-D4: entries listed in `skipped`; the rest are counted
 MAX_MEMBER_BYTES = 30 * 1024 * 1024
 
 ONENOTE_MAGIC = bytes.fromhex("E4525C7B8CD8A74DAEB15378D02996D3")
@@ -151,6 +152,13 @@ class EmbeddedResult:
     password_from_message: bool = False
     skipped: List[str] = field(default_factory=list)
     detail: str = ""
+    skipped_more: int = 0             # L-D4: entries over MAX_SKIPPED
+
+    def skip(self, text: str) -> None:
+        if len(self.skipped) < MAX_SKIPPED:
+            self.skipped.append(text)
+        else:
+            self.skipped_more += 1
 
     def as_dict(self) -> Dict:
         return {"kind": self.kind, "members": [m.as_dict() for m in self.members],
@@ -159,7 +167,9 @@ class EmbeddedResult:
                 "msi_script_actions": self.msi_script_actions, "xll_addin": self.xll_addin,
                 "encrypted": self.encrypted, "decrypted": self.decrypted_with is not None,
                 "password_from_message": self.password_from_message,
-                "skipped": self.skipped, "detail": self.detail}
+                "skipped": self.skipped + ([f"... {self.skipped_more:,} more not listed"]
+                                           if self.skipped_more else []),
+                "detail": self.detail}
 
 
 def _guess_text_extension(data: bytes) -> str:
@@ -250,7 +260,7 @@ class EmbeddedContentAnalyzer:
                     handler(p, res, sandbox, extract)
             except Exception as e:                    # hostile file: a finding, not a crash
                 logger.debug("Embedded-content parsing failed for %s: %s", p, e)
-                res.skipped.append(f"could not be parsed completely ({type(e).__name__})")
+                res.skip(f"could not be parsed completely ({type(e).__name__})")
             res.detail = self._summary(res)
             yield res
         finally:
@@ -260,10 +270,10 @@ class EmbeddedContentAnalyzer:
     def _add(self, res: EmbeddedResult, sandbox: Path, extract: bool, name: str,
              data: bytes, kind: Optional[str] = None) -> None:
         if len(res.members) >= MAX_MEMBERS:
-            res.skipped.append(f"{name}: member limit reached")
+            res.skip(f"{name}: member limit reached")
             return
         if len(data) > MAX_MEMBER_BYTES:
-            res.skipped.append(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
+            res.skip(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
             return
         safe = re.sub(r"[^\w.\-]", "_", Path(name).name)[:80]
         if not safe.strip("."):                  # "", "." or ".." would name a folder
@@ -293,7 +303,7 @@ class EmbeddedContentAnalyzer:
             length = struct.unpack_from("<Q", header, 0)[0]
             start, end = pos + 36, pos + 36 + length
             if length == 0 or end > len(data):
-                res.skipped.append("embedded file with an impossible length")
+                res.skip("embedded file with an impossible length")
                 pos += 16
                 continue
             blob = data[start:end]
@@ -309,7 +319,7 @@ class EmbeddedContentAnalyzer:
         from .macos_packages import sevenzip_list, sevenzip_read
         tool = self.sevenzip()
         if not tool:
-            res.skipped.append("7-Zip is needed to unpack CHM files")
+            res.skip("7-Zip is needed to unpack CHM files")
             return
         work = sandbox / "chm"
         work.mkdir()
@@ -318,11 +328,11 @@ class EmbeddedContentAnalyzer:
             if item.is_dir or item.is_link or not name or name.startswith(("#", "$")):
                 continue                                 # internal index streams
             if item.size > MAX_MEMBER_BYTES:
-                res.skipped.append(f"{name}: too large")
+                res.skip(f"{name}: too large")
                 continue
             data = sevenzip_read(tool, path, item.path, work, MAX_MEMBER_BYTES)
             if data is None:
-                res.skipped.append(f"{name}: could not be read")
+                res.skip(f"{name}: could not be read")
                 continue
             low = data.lower()
             if _HHCTRL_CLSID.encode() in low and (b'"shortcut"' in low or b"'shortcut'" in low
@@ -364,7 +374,7 @@ class EmbeddedContentAnalyzer:
     def _office(self, path: Path, res: EmbeddedResult, sandbox: Path, extract: bool) -> None:
         res.encrypted = True
         if not MSOFFCRYPTO_AVAILABLE:
-            res.skipped.append("password-protected document; install msoffcrypto-tool to try "
+            res.skip("password-protected document; install msoffcrypto-tool to try "
                                "known passwords")
             return
         from_message = [p for p in self.password_source() if p]
@@ -391,7 +401,7 @@ class EmbeddedContentAnalyzer:
                                 + (" with the password from the message" if res.password_from_message
                                    else ""))
             return
-        res.skipped.append("password-protected document; password unknown")
+        res.skip("password-protected document; password unknown")
 
     # ------------------------------------------------------------- XLL
     @staticmethod

@@ -117,7 +117,7 @@ class YaraEngine:
             logger.info("No .yar/.yara files in %s.", rules_dir)
             return
         # filepaths={namespace: path} lets multiple rule files coexist.
-        sources = {p.stem: str(p) for p in rule_files}
+        sources = {p.name: str(p) for p in rule_files}     # L-D6: a.yar and a.yara
         try:
             self._rules = _yara.compile(filepaths=sources, externals=YARA_EXTERNALS)
             self._rules_count = len(rule_files)

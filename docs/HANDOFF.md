@@ -753,6 +753,34 @@
 - Runs: locks, CI workflows, metrics, HTTP, sandbox and intel tests, 62
   passed. ruff, mypy and bandit clean.
 
+### Group 14: L-D4 and L-D6 (rank 10); L-D7 held for the owner
+
+- **L-D4.** Cause confirmed on the old code: a 720 KB OneNote file of 20,000
+  FileDataStoreObject GUIDs with impossible lengths gave 20,000 `skipped`
+  entries.
+  - Fix: `EmbeddedResult.skip()` keeps the first `MAX_SKIPPED` (50) and counts
+    the rest; `as_dict()` adds one line "... N more not listed". The field
+    stays a list of strings, and a non-empty list still makes the scan
+    partial. All nine `skipped.append` calls use it.
+  - Test: `tests/test_embedded_bounds.py` (bounded flood, short list
+    unchanged).
+- **L-D6.** `detectors/yara_engine.py` compiles each rule file under its file
+  name (`a.yar`, `a.yara`), as `core/rulepack.py` does; the namespace appears
+  in no result. Test: two rule files with one stem both match. The bundled
+  set still compiles 5 files.
+- Before the fix the three new tests failed; after it, 3 passed. With the
+  embedded, mail, YARA, rule-pack, device-name and integration tests, 155
+  passed. ruff and mypy clean.
+- **L-D7 not changed: an owner decision.** `_chm` reads every page with
+  `7z e -so`, because the HTML Help ShortCut check (`chm_shortcut`) looks at
+  all of them, including pages past the 25-member limit. The plan's fix (stop
+  reading at the member limit) would leave a shortcut page after the first 25
+  members unchecked. That is an inspection-coverage change, which the
+  repository rules reserve for the owner. Options:
+  - (a) the plan's cap, with a `skipped` note so the scan reads partial;
+  - (b) a higher read cap only for the shortcut check;
+  - (c) keep reading every page.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
