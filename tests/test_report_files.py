@@ -15,6 +15,7 @@ import pytest
 
 import engine.report as report_module
 import RansomwareScanner as RS
+from detectors import qr_scanner
 from tests.helpers import make_pdf
 from tests.test_scanner_integration import _config
 
@@ -22,7 +23,11 @@ NAME = "فاتورة_报告_‮exe.pdf"          # Arabic, CJK and a right-to-le
 
 
 @pytest.fixture
-def scanned(tmp_path):
+def scanned(tmp_path, monkeypatch):
+    # L-B7: the text report lists only flagged or not-complete files. Pin the QR
+    # layer as unavailable so this clean PDF is always reported as partial (and
+    # so listed by name), whether or not the host has a QR decoder.
+    monkeypatch.setattr(qr_scanner, "QR_AVAILABLE", False)
     s = RS.RansomwareScanner(_config(tmp_path, isolate_scans=False))
     path = tmp_path / "scan" / NAME
     path.write_bytes(make_pdf("hello"))

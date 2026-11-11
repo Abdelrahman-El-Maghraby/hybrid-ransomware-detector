@@ -1,10 +1,9 @@
 # Current task handoff
 
 - Status: production-engineering review and staged fixes; not ready for merge and
-  not production ready. Latest step: Claude's review of the components section
-  32 left (findings only, 2026-11-11), PROJECT_REVIEW section 33. It ends the
-  review stage with one ranked repair plan for sections 28 to 33 (33.6). The
-  next stage is implementation.
+  not production ready. The review stage ended with PROJECT_REVIEW section 33
+  and its ranked repair plan (33.6). Current stage: implementation of the SAFE
+  items of 33.6, in small groups (see "Implementation of the SAFE items" below).
 - Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
@@ -309,6 +308,46 @@
   was replaced with a placeholder in `632ef11`. Scan added lines for bidirectional
   characters before every commit.
 
+## Implementation of the SAFE items (Claude, 2026-11-11)
+
+- Owner request: fix the confirmed SAFE items of 33.6 in small groups, each with
+  its cause verified, a focused regression test, the smallest complete fix and
+  the relevant checks. Local only: no push, PR, merge, tag, release, deploy or
+  version change. No real malware, heavy fuzzing or memory-spike tests. OWNER
+  items stay untouched until the owner decides.
+- Test environment for every run below: `.venv` (Python 3.14.2, macOS arm64),
+  `HOME` and `TMPDIR` in a scratch folder outside the repository, `env -i` with
+  `PATH=/usr/bin:/bin` (so Homebrew tools such as 7-Zip are not found). "Safe
+  selection" means the section 30 command: `tests` minus
+  `tests/test_fuzz_parsers.py`, the runaway-memory test and the three intel
+  socket tests that hardcode `/tmp`.
+
+### Group 1: M21 and L-B7 (CI blockers)
+
+- **L-B7.** Cause confirmed: the text report lists only flagged or not-complete
+  files, and the PDF in the M9 test is partial only because the QR layer says
+  "needs zbar". With the decoder simulated as present (`QR_AVAILABLE = True`)
+  the scan is complete and Clean, so the name is missing from the report. Fix
+  (test only): the shared fixture in `tests/test_report_files.py` pins
+  `qr_scanner.QR_AVAILABLE = False`, as `tests/test_qr.py` already does.
+  Before the fix, with the decoder forced present: 1 failed, 1 passed. After:
+  2 passed in both states.
+- **M21.** `pypdf` 6.21.2 to **6.21.4** in `requirements.lock` and
+  `requirements-server.lock` (the newest 6.x; `uv` would otherwise have picked
+  7.0.1, a major version, which was not taken). Regenerated with the documented
+  `uv pip compile` commands plus `--upgrade-package pypdf` and a temporary
+  `pypdf==6.21.4` constraint. Only the `pypdf` entry changed in each lock; the
+  headers are kept; both hashes equal PyPI's published SHA-256. `.venv` updated
+  from 6.21.3 to 6.21.4 with `--require-hashes` from the lock entry.
+- Checks: `pip-audit --require-hashes --disable-pip -r <lock>` reports no known
+  vulnerabilities for all three locks (it failed with 7 advisories before).
+  Safe selection: 1,281 passed, 28 skipped, 4 deselected, 0 failed, 264 s
+  (the H5 edit of group 2 was made while this run was in progress, so it
+  counts as evidence for group 1 only). ruff (tracked files), mypy (68 files)
+  and the bandit CI gate: clean.
+- Not verified: CI (nothing pushed); the advisories' crafted PDFs were not
+  replayed (excluded on this host).
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -324,9 +363,9 @@ in 33.7 and must be obtained before the OWNER items:
 - D22, D23 and D26
 - I-1, I-2 and I-6
 
-SAFE items can start without a decision, beginning with:
-1. M21 and L-B7 (CI)
-2. H5 and M22 (the time-out class)
+SAFE items, in order (done items are marked):
+1. M21 and L-B7 (CI): done, group 1 (local commit after `05aae35`).
+2. H5 and M22 (the time-out class), then I-5: in progress, group 2.
 3. M17 and M18
 4. the SAFE file-name items (M20, L-E9, I-T3)
 
@@ -335,13 +374,12 @@ ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must
 change with their fix are listed in 33.4.
 
 Commit state:
-- In local commits: section 31 in `6cde91e`, section 32 in `7e449cb`.
-- Section 33 checkpoints, also local: `3ee787c` (batch A), `18635cc` (batch
-  B), `c2de93e` (batch C) and `632ef11` (character fix).
-- Batch D, 33.5 to 33.8 and this update are meant to go into one more local
-  documentation commit. Its ID is reported in chat and visible in `git log`; a
-  commit cannot record its own ID. Until that commit exists, these are
-  uncommitted changes.
+- Review documents, local commits: section 31 `6cde91e`, section 32
+  `7e449cb`, section 33 `3ee787c`, `18635cc`, `c2de93e`, `632ef11`,
+  `05aae35` (last review commit).
+- Implementation commits are local and listed by `git log 05aae35..HEAD`; a
+  commit cannot record its own ID. Anything shown by `git status` other than
+  `.arena/` is uncommitted work in progress of the current group.
 - Pushed: nothing on this branch, ever.
 - The untracked `.arena/` folder is unrelated and preserved.
 
