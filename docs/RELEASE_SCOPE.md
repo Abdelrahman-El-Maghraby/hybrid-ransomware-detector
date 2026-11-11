@@ -59,12 +59,12 @@ An optional layer that is disabled by configuration is recorded in provenance. I
 
 | Platform | Support | Evidence today |
 |---|---|---|
-| Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | No Dockerfile yet (Phase 2). |
+| Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | `Dockerfile` and `docker-compose.yml` since 4.7; built and checked by the `docker` workflow (`deploy/check-deployment.sh`). |
 | Docker Engine on Linux arm64 | **Decision D5**; proposed "supported once the image is built and tested in CI" | Dependencies ship arm64 wheels (README); not tested yet. |
 | Docker Desktop on macOS / Windows | Evaluation only, not production | macOS cannot enforce RLIMIT_AS, so worker memory falls back to a 0.25 s watchdog (THREAT_MODEL §1). |
 | Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025. |
-| Python 3.13 | The lock file is resolved for it | `requirements.lock` header. |
-| Python 3.14 | Not supported yet | `requirements.lock` does not install (`backports-zstd==1.8.0` requires < 3.14); see RELEASE_READINESS baseline B3. |
+| Python 3.13 | The lock file is resolved for 3.12 and later | `requirements.lock` header; not run in CI. |
+| Python 3.14 | Installs from the lock (B3 fixed) | Local runs of the review stage on macOS arm64 used Python 3.14.2; not run in CI. |
 | Desktop binaries (Windows, macOS, Linux) | Only if D2 = yes | Built and smoke-tested by `release.yml`; unsigned. Signing and notarisation need certificates the owner buys. Signing does not remove every OS warning (for example SmartScreen reputation). |
 
 ## 5. Explicitly out of scope

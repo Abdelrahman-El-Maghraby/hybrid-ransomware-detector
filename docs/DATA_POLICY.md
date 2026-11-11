@@ -101,7 +101,9 @@ uploaded report is only as trustworthy as the host that produced it
 
 Secrets (API tokens, service keys, the IMAP and SMTP passwords, the cloud secret key) are kept in the OS keyring
 on a desktop and in Docker secrets on a server - never in logs, reports, results
-or error messages.
+or error messages. One exception to watch: a chat-service webhook URL carries its
+credential in the path. It is kept in `.env` (keep the file private); delivery
+errors name only its host.
 
 ## Choices for the customer
 

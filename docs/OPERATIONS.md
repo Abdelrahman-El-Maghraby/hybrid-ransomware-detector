@@ -15,7 +15,9 @@ From a release (offline-capable):
 
 ```bash
 mkdir /opt/aegis && cd /opt/aegis
-# copy in: docker-compose.yml, deploy/Caddyfile, and the release archive
+# copy in: docker-compose.yml, the deploy/ folder (Caddyfile, and the scripts sections 3
+# and 6 use: check-deployment.sh, isolation_check.py, backup.sh, restore.sh), and the
+# release archive
 sha256sum -c SHA256SUMS --ignore-missing          # verify first (docs/RELEASING.md)
 docker load -i aegis-sentinel-server-4.8.0-linux-amd64.tar.gz
 echo "AEGIS_VERSION=4.8.0" > .env
@@ -59,7 +61,7 @@ you are likely to change:
 | `AEGIS_ANALYSIS_MEMORY`, `AEGIS_ANALYSIS_CPUS` | 6g, 2 | limits of the analysis service |
 | `AEGIS_TMP_SIZE` | 2g | extraction sandbox (tmpfs; counts against the memory limit) |
 | `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_SPARE_WORKERS` | 2, 2 | parallel scans; workers started ahead |
-| `AEGIS_API_MAX_UPLOAD_MB`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | 50, 300, 2048 | per-upload limits |
+| `AEGIS_API_MAX_UPLOAD_MB`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | 50, 300, 2048 | per-upload limits; the bundled proxy also stops bodies at 52 MB (`deploy/Caddyfile`) |
 | `VT_UPLOAD_UNKNOWN`, `LLM_PROVIDER`, `OLLAMA_HOST`, `SANDBOX_URL` | false, none, -, - | external services (intel only; `docs/DATA_POLICY.md`) |
 | `LOG_FORMAT` | text | `json` for one JSON object per log line |
 
@@ -89,7 +91,7 @@ curl --cacert deploy/tls/cert.pem -H "Authorization: Bearer $(cat deploy/secrets
 curl --cacert deploy/tls/cert.pem -H "Authorization: Bearer $(cat deploy/secrets/api_token)" \
      -F file=@invoice.pdf https://aegis.example.internal:8443/scan
 
-docker compose stop                               # scans in progress may finish (120 s)
+docker compose stop                               # scans that end within 120 s may finish
 docker compose start
 ```
 
@@ -128,17 +130,20 @@ docker compose up -d --wait
   before upgrading (section 6).
 * *systemd API → Docker:* install as in section 1, carry the settings from
   `/etc/aegis/aegis.env` into `.env` (external-service keys go into
-  `deploy/secrets/`, not `.env`), and copy installed rule packs into the content
-  volume:
-  `docker compose run --rm -v /var/lib/aegis/RansomwareScanner/data/rulepacks:/import:ro content --update-rules /import/<pack>`
-  (or simply install the current pack). Keep the old service stopped but installed
+  `deploy/secrets/`, not `.env`), and install the current signed pack into the content
+  volume: `docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules
+  /import/<pack>.tar.gz` (its `.sig` beside it; `RULEPACK_PUBLIC_KEYS` in `.env`).
+  Installed packs are folders, not signed archives, so they cannot be copied across. Keep the old service stopped but installed
   until the new one has passed `/ready` and a test scan. The result schema is
   backward compatible (4.6.0's 1.1 → 1.4, fields only added), so API clients need no change.
 
 ## 5. Roll back
 
 To the previous image (4.7.x → earlier 4.7.x): set `AEGIS_VERSION` back and
-`docker compose up -d --wait`; the volumes are compatible within 4.7. If a
+`docker compose up -d --wait`; the volumes are compatible within 4.7. Going back from
+4.8 to 4.7 was not tested: it needs the 4.7 `docker-compose.yml` (4.8 added the
+`smtp_password` secret and new settings), the 4.7 image, and preferably the backup
+taken before the upgrade. If a
 backup was taken before the upgrade, `deploy/restore.sh <backup>` puts the
 volumes back exactly. Back to a 4.6.0 systemd install: stop the Docker
 deployment (`docker compose down`) and start the old service again.

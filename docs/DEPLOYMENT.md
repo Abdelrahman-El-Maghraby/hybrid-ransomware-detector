@@ -68,7 +68,8 @@ Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it):
 `AEGIS_HTTPS_PORT` (8443), `AEGIS_TLS_DIR`, `AEGIS_SECRETS_DIR`, resource sizes
 (`AEGIS_ANALYSIS_MEMORY` 6g, `AEGIS_ANALYSIS_CPUS` 2, `AEGIS_TMP_SIZE` 2g,
 `AEGIS_INTEL_MEMORY`, `AEGIS_INTEL_CPUS`), scan limits (`SCAN_TIMEOUT_SECONDS`,
-`WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB`,
+`WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB` (the
+bundled proxy also stops bodies at 52 MB, `deploy/Caddyfile`: raise both together),
 `AEGIS_API_SPARE_WORKERS`, `AEGIS_STOP_GRACE`) and
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
@@ -98,8 +99,8 @@ request (`.github/workflows/docker.yml`).
 | Privilege escalation | `no-new-privileges:true` | setuid binaries cannot raise privileges |
 | System calls | Docker's default seccomp profile (never `unconfined`) | blocks mount, kernel module, keyring and similar calls |
 | Resources | `mem_limit`, `cpus`, `pids_limit` per service | a hostile file cannot starve the host; tmpfs usage counts against the memory limit |
-| Fresh worker per upload | `AEGIS_API_SPARE_WORKERS` started ahead, each used for one file | an exploited parser cannot touch another upload; the start (about 1.4 s) is paid in the background, not by the upload. Size memory as: main process + (concurrent scans + spares) x `WORKER_MEMORY_MB` at worst; an idle spare uses about 200 MB |
-| Shutdown | `stop_grace_period` 120 s | `docker stop` lets scans in progress finish instead of cutting them at Docker's default 10 s |
+| Fresh worker per upload | `AEGIS_API_SPARE_WORKERS` started ahead, each used for one file | an exploited parser cannot touch another upload; the start (about 1.4 s) is paid in the background, not by the upload. Size memory as: main process + concurrent scans x `WORKER_MEMORY_MB` + spares x about 200 MB (an idle spare); at the defaults 2 x 2,048 MB + 2 x about 200 MB + the main process, within `AEGIS_ANALYSIS_MEMORY` 6g. Only workers that hold an upload are busy, and uploads are capped at the concurrent scans |
+| Shutdown | `stop_grace_period` 120 s | `docker stop` lets scans that end within 120 s finish instead of cutting them at Docker's default 10 s; a scan may take up to `SCAN_TIMEOUT_SECONDS` (300), so raise `AEGIS_STOP_GRACE` to keep those |
 | Detection content | the `content` volume is mounted `:ro` in analysis | a compromised parser cannot edit rules, the allowlist, the hash or fuzzy databases |
 | Result cache | in intel's volume only; analysis keeps none | a compromised parser cannot plant a clean VirusTotal / LLM / sandbox answer for another file |
 | Secrets | Docker secrets via `NAME_FILE`, never environment values | `docker inspect` and child processes do not see them |

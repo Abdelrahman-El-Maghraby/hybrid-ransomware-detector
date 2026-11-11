@@ -1092,6 +1092,53 @@ README changes:
 `write_atomic` moved from `core/fsutil.py` (group 19) to `engine/fsutil.py`, so
 there is one `fsutil` module; its users and test were updated (56 passed).
 
+### Group 24: rank 14 documentation, the other documents
+
+Each statement was checked against the code before it was written.
+- **THREAT_MODEL.**
+  - D12: one total budget.
+  - D15: the layer guard is in `engine/staging.py`.
+  - D16: the 100 MB budget is fixed, not a setting.
+  - D17: a timed-out file reads Medium without its other findings, below the
+    default alert floor (H6); the slow-file risk is re-rated Medium.
+  - D18: all secrets named.
+  - D19: removing a key works only while another key stays configured (M27).
+- **RULE_PACKS (D19).** The same limit, and where Docker reads the keys.
+- **ARCHITECTURE.** D7: every scan runs in a worker. D21: the interfaces added
+  since 4.6 (folder monitoring, outbox and e-mail, cloud, the intel service).
+- **RELEASE_SCOPE.**
+  - D24: the Dockerfile exists, and the `docker` workflow builds and checks it.
+  - D25: the lock is for Python 3.12 and later; 3.14 installs (local runs used
+    3.14.2); neither 3.13 nor 3.14 runs in CI.
+- **DEPLOYMENT, RUNBOOKS, OPERATIONS.**
+  - D28: the memory rule is concurrent scans x `WORKER_MEMORY_MB` plus about
+    200 MB per idle spare, plus the main process. Only workers holding an
+    upload are busy, and uploads are capped by `ScanSlots`.
+  - D29: a stop keeps scans that end within 120 s; raise `AEGIS_STOP_GRACE`
+    for longer ones.
+  - D30: the bundled proxy stops bodies at 52 MB (`deploy/Caddyfile`).
+  - D33: copy the `deploy/` folder too.
+  - D34: install the current signed pack; installed packs cannot be copied.
+  - D35: going back from 4.8 to 4.7 was not tested, and what it needs:
+    4.7.0's compose has no `smtp_password` secret (checked with `git show`).
+  - No default was changed.
+- **RELEASING.**
+  - D36: `X.Y.Z` in the examples. The release workflow compares the tag with
+    `pyproject.toml` and `ENGINE_VERSION` only (`release.yml:57-68`), so the
+    changelog heading is kept in step by hand.
+  - D37: the readiness matrix is the 4.7 one; the 4.8 state is here and in
+    the review.
+- **DATA_POLICY (D39), SUPPORT (D40), DATASET_PLAN (D41).**
+  - D39: the webhook URL can be a credential.
+  - D40: the result fields that can hold document content (`prompt_guard`'s
+    `hidden_text_snippets` exists, `detectors/prompt_guard.py:127`).
+  - D41: the extension list matches `SUPPORTED_EXTENSIONS` exactly (checked
+    by script); `evaluate.py` also takes LNK, ELF, PE and embedded-content
+    files by content.
+- Unchanged: D10 and D14 (release state), D11, D20, D22, D23, D26, D32 (owner).
+- Docs-reading tests (background reliability, closed limits, operations,
+  printable names, deployment, CI workflows, locks): 59 passed.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

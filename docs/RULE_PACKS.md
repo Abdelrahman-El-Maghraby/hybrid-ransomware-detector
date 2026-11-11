@@ -69,6 +69,10 @@ enormous version (`9999.1`) so that no later pack is "newer".
    the scanner. A pack signed by a key that is no longer trusted is not used: the
    scanner falls back to the bundled rules at once (`rulepack_untrusted` in the
    log), and such a pack does not count as "installed" when checking versions.
+   This needs another key to stay configured: with `RULEPACK_PUBLIC_KEYS` empty the
+   signer is not checked and the pack stays in use (M27, an owner decision). So add
+   the new key (step 2) in the same change. In Docker, set the keys in the `.env`
+   next to `docker-compose.yml`; compose passes them to `analysis` and `content`.
 2. **Publish a pack signed by a new key**, add that key to the customers'
    configuration, and they install it with `--update-rules`. From then on versions
    are monotonic again, against the new pack.

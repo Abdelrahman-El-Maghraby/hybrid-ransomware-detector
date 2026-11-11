@@ -1,7 +1,8 @@
 # Evaluation dataset plan
 
 For re-collecting the labelled dataset that `tools/evaluate.py` measures. Part 1
-lists what the scanner inspects, taken from the code (v4.7.0). Part 2 is the
+lists what the scanner inspects, taken from the code (v4.7.0; the extension list
+was checked again against 4.8). Part 2 is the
 collection plan. Collect, unpack and run everything **inside the isolated analysis
 VM**; nothing here downloads anything. Only hashes, labels and results leave the
 VM.
@@ -9,7 +10,9 @@ VM.
 ## Part 1: what the scanner inspects, by layer
 
 **Supported extensions** (`engine/config.py`, `SUPPORTED_EXTENSIONS`; folder scans
-and `tools/evaluate.py` pick files by these):
+and `tools/evaluate.py` pick files by these; `evaluate.py` also takes, whatever
+their name, Windows shortcuts, ELF and PE files, and OneNote, CHM, MSI, XLL and
+encrypted Office files, which it recognises by content):
 `.pdf .docx .doc .docm .dotm .xlsx .xlsm .xls .pptx .pptm .ppt .rtf .zip .7z .rar
 .iso .img .pkg .mpkg .dmg .eml .msg .html .htm .svg .js .jse .vbs .vbe .wsf .hta
 .ps1 .bat .cmd .one .chm .msi .xll .exe .dll .scr .cpl .sys .jpg .jpeg .png .gif

@@ -12,19 +12,22 @@ branch.
    that commit (the push to `main` after the merge runs all three). Tag a
    commit only after those runs have finished.
 2. `ENGINE_VERSION` in `engine/config.py`, `version` in `pyproject.toml` and the
-   `CHANGELOG.md` heading say the same version.
+   `CHANGELOG.md` heading say the same version. The release workflow compares the tag with
+   the first two only (M16); keep the changelog heading in step by hand.
 3. The readiness matrix (`docs/RELEASE_READINESS.md`) has no open blocker for this
-   release.
+   release. That matrix is the 4.7 one; for 4.8 the state is in sections 24 to 33 of
+   `docs/PROJECT_REVIEW.md` and in `docs/HANDOFF.md`.
 
 ## 2. Tag
 
 ```bash
 git switch main && git pull
-git tag -a v4.7.0 -m "Aegis Sentinel 4.7.0"
-git push origin v4.7.0
+# X.Y.Z: the version being released (the examples below use it too)
+git tag -a vX.Y.Z -m "Aegis Sentinel X.Y.Z"
+git push origin vX.Y.Z
 ```
 
-A tag with a suffix (`v4.7.0-rc1`) becomes a pre-release. `release.yml` then:
+A tag with a suffix (`vX.Y.Z-rc1`) becomes a pre-release. `release.yml` then:
 
 | Job | Produces |
 |---|---|
@@ -38,15 +41,15 @@ A tag with a suffix (`v4.7.0-rc1`) becomes a pre-release. `release.yml` then:
 ```bash
 sha256sum -c SHA256SUMS
 python -m pip install sigstore
-python -m sigstore verify github aegis-sentinel-server-4.7.0-linux-amd64.tar.gz \
-  --cert-identity https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/.github/workflows/release.yml@refs/tags/v4.7.0
+python -m sigstore verify github aegis-sentinel-server-X.Y.Z-linux-amd64.tar.gz \
+  --cert-identity https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/.github/workflows/release.yml@refs/tags/vX.Y.Z
 ```
 
 A customer installs the images offline with:
 
 ```bash
-docker load -i aegis-sentinel-server-4.7.0-linux-amd64.tar.gz
-AEGIS_VERSION=4.7.0 docker compose up -d --no-build --wait
+docker load -i aegis-sentinel-server-X.Y.Z-linux-amd64.tar.gz
+AEGIS_VERSION=X.Y.Z docker compose up -d --no-build --wait
 ```
 
 ## 4. Code signing and notarisation (needs certificates: X2)

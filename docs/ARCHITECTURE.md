@@ -51,8 +51,8 @@ proposes data-driven values (cross-validated) for review.
 
 - **Bounded everything:** depth, member count, bytes, compression ratio, pixels,
   pages, decoding depth.
-- **Guards:** each layer runs in a try-block (`layer_errors`); folder and API scans
-  run each file in a worker process with a time and memory limit (`scan_failed`):
+- **Guards:** each layer runs in a try-block (`layer_errors`); every scan (folders,
+  single files, the folder monitor, the mailbox, the API) runs each file in a worker process with a time and memory limit (`scan_failed`):
   RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog in the
   parent on macOS.
 - **Fail fast on configuration:** importing `engine/config.py` has no side
@@ -94,8 +94,13 @@ metadata only.
 CLI (`RansomwareScanner.py`), desktop app (`aegis_gui/`), background scheduler with
 canary tripwires and containment (`core/response.py`, `core/containment.py`: stop
 the writing process, lock folders, cut the network), IMAP mailbox scanning
-(`core/mailbox.py`, read-only), JSON Lines and signed webhooks for SIEM/SOAR, and an
-optional REST API with abuse limits (`api/limits.py`). All results follow
+(`core/mailbox.py`, read-only), folder monitoring (`core/folder_watch.py`), JSON Lines
+and signed webhooks for SIEM/SOAR, a persistent alert outbox with e-mail alerts
+(`core/outbox.py`, `core/mailer.py`), optional report and log upload to
+S3-compatible storage (`core/cloud.py`), and an optional REST API with abuse limits
+(`api/limits.py`). In the Docker edition the analysis service has no network; the
+intel service (`api/intel.py`, `core/intel_client.py`) holds the external services
+and their secrets. All results follow
 `api/scan_result.schema.json` (`schema_version`). Operations: structured JSON logs
 (`engine/logs.py`) and counters (`engine/metrics.py`, `GET /metrics`); see
 `docs/DEPLOYMENT.md`.

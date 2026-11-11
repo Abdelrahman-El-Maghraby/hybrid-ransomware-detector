@@ -53,8 +53,8 @@ means the worker machinery is broken.
 * One file: treat it as suspicious (the verdict already does); send the hash for analysis
   (`docs/SUPPORT.md`). If it is a legitimate large file, raise `SCAN_TIMEOUT_SECONDS` or
   `WORKER_MEMORY_MB` and keep `AEGIS_ANALYSIS_MEMORY` above
-  `(AEGIS_API_MAX_CONCURRENT_SCANS + AEGIS_API_SPARE_WORKERS) x WORKER_MEMORY_MB`
-  plus about 1 GB.
+  `AEGIS_API_MAX_CONCURRENT_SCANS x WORKER_MEMORY_MB` plus about 200 MB per
+  `AEGIS_API_SPARE_WORKERS` (an idle spare) plus about 1 GB (`docs/DEPLOYMENT.md`).
 * Every file: `docker compose logs analysis` for the start-up error; check that the
   container is not at its memory limit (`docker stats`) or `pids_limit`; restart with
   `docker compose restart analysis`.

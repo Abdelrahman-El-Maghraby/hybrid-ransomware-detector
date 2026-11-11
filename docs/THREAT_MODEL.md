@@ -39,7 +39,9 @@ library cannot handle; an archive nests 50 levels deep.*
   memory limit - folder scans, API uploads and, since 4.8, single files (`--scan-file`,
   the GUI's single file, a one-file folder) and monitored files. A hung or dead
   worker is replaced and the file is reported as `scan_failed` (Medium)
-  (`engine/workers.py`).
+  (`engine/workers.py`). That result replaces the file's other findings, and Medium
+  is below the default alert floor (High), so a file that outlasts the limit is not
+  alerted on by default (H6 in `docs/PROJECT_REVIEW.md`).
 - **Isolation fails closed (4.8).** When workers cannot start (three failed starts,
   or a worker silent for 120 s at start-up), nothing is parsed in the scanning
   process: every file left gets a `failed` result with the code
@@ -50,9 +52,10 @@ library cannot handle; an archive nests 50 levels deep.*
   isolation off (`ISOLATE_SCANS=0`) is a development-only opt-out, recorded in every
   result and refused at start-up under the production profile.
 - **Every pipeline layer runs in a guard**: a parser that raises costs only that
-  layer's evidence and is recorded in `layer_errors` (`engine/scanner.py`).
-- Hard limits on archive depth, members, total and per-member size, compression
-  ratio, image pixels, PDF pages, script size and decoding depth.
+  layer's evidence and is recorded in `layer_errors` (`engine/staging.py`,
+  `_run_layer`).
+- Hard limits on archive depth, members, one total decompressed-size budget per
+  scan, compression ratio, image pixels, PDF pages, script size and decoding depth.
 - **Fuzzing** of every parser (`tests/test_fuzz_parsers.py`, `fuzz/`). Found and
   fixed: a pyzipper `NotImplementedError` that ended a file's scan; a known infinite
   loop in PyPDF2 3.0.x (CVE-2023-36464), removed by moving to `pypdf`.
@@ -88,7 +91,8 @@ to the time limit.
   name, so a member called `-x...` is not an option and the tool's own path
   handling is never used. 7z members are extracted into a private folder, then
   only names that passed the checks and resolve inside it are moved, never links.
-- Unpacked data has a budget (`ARCHIVE_MAX_TOTAL_MB`, member count, nesting); in
+- Unpacked data has a budget (100 MB in total, fixed in `engine/config.py` as
+  `archive_max_total_mb`; member count; nesting); in
   Docker it lands on a size-limited `noexec,nosuid,nodev` tmpfs.
 - A worker killed for a timeout or the memory limit cannot run its own clean-up;
   each worker has its own temporary folder, which the parent deletes when it kills
@@ -132,6 +136,8 @@ covers part of this; without it, this is the largest gap.
   records its signing key: removing a compromised key from RULEPACK_PUBLIC_KEYS
   stops the content it signed from being used and lets a pack signed by the new
   key install, even if the attacker published a huge version (`docs/RULE_PACKS.md`).
+  This holds only while another key stays configured: with no key configured, the
+  signer of the active pack is not checked (M27, an owner decision).
 - The allowlist holds **SHA-256 hashes** only (no names, paths or wildcards), so an
   attacker cannot reuse an entry without a byte-identical file; a hash in the
   malware database still wins.
@@ -173,7 +179,8 @@ the account.
   so it slows ransomware down rather than stopping a determined one.
 - **Helper programs** (7-Zip, unrar, nmcli, ...) are resolved outside the current
   directory, so a planted `7z.exe` in a scanned folder is never started.
-- **Secrets** (API keys, the sandbox token, the webhook secret, the IMAP app password)
+- **Secrets** (API keys, the sandbox token, the webhook secret, the IMAP app password,
+  the SMTP password, the cloud access key and pseudonym key)
   come from the environment or a `NAME_FILE` secret on a server, and from the OS keyring
   on a desktop; the scanner never writes one to a file. A secret left in `.env` is moved
   to the keyring on the next start, and `.env` is only rewritten after the keyring
@@ -388,7 +395,7 @@ residual risk.
 | macOS memory watchdog reacts within 0.25 s, not instantly | Low | Run the API on Linux or in a VM |
 | Local tampering with config / allowlist | Medium | OS file permissions; signed config (future) |
 | Unsigned binaries | Medium | Code-signing certificates |
-| Slow-file DoS up to the timeout | Low | Lower SCAN_TIMEOUT_SECONDS where latency matters |
+| Slow-file DoS up to the timeout | Medium | The timed-out file reads Medium, without its other findings, below the default alert floor (H6, open). Lower SCAN_TIMEOUT_SECONDS where latency matters |
 | Parser exploit forges the result of the file that exploited it | Low | Fresh worker per API upload; cached external answers live only in intel |
 | Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
 | Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |
