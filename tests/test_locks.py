@@ -29,7 +29,7 @@ def _entries(name):
     return out
 
 
-@pytest.mark.parametrize("name", LOCKS)
+@pytest.mark.parametrize("name", LOCKS + ("requirements-sbom.lock",))   # I-B2: SBOM tool
 def test_every_pin_has_hashes_and_no_local_path(name):
     entries = _entries(name)
     assert entries and all(n >= 1 for _, n in entries.values()), \
@@ -67,4 +67,4 @@ def test_quality_jobs_keep_hash_mode_and_audit_every_lock():
     for line in re.findall(r".*-r requirements\.lock.*", text):
         if "pip install" in line:
             assert "--require-hashes" in line, line
-    assert "requirements-server.lock requirements-build.lock" in text
+    assert "requirements-server.lock requirements-build.lock requirements-sbom.lock" in text

@@ -109,7 +109,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/sbom"
           tool="$RUNNER_TEMP/sbom/bin"; [ -d "$tool" ] || tool="$RUNNER_TEMP/sbom/Scripts"
-          "$tool/python" -m pip install -q cyclonedx-bom==7.5.0
+          "$tool/python" -m pip install -q --require-hashes -r requirements-sbom.lock
           for archive in dist/*.zip dist/*.tar.gz; do
             [ -e "$archive" ] || continue
             base="${archive%.zip}"; base="${base%.tar.gz}"
@@ -147,7 +147,7 @@ jobs:
           docker run --rm --network none --entrypoint pip "aegis-sentinel:$VERSION" freeze --all \
             > "$RUNNER_TEMP/image-requirements.txt"
           python3 -m venv "$RUNNER_TEMP/sbom"
-          "$RUNNER_TEMP/sbom/bin/pip" install -q cyclonedx-bom==7.5.0
+          "$RUNNER_TEMP/sbom/bin/pip" install -q --require-hashes -r requirements-sbom.lock
           "$RUNNER_TEMP/sbom/bin/cyclonedx-py" requirements "$RUNNER_TEMP/image-requirements.txt" \
             --of JSON -o "dist/$base.cdx.json"
           docker run --rm --network none --entrypoint dpkg-query "aegis-sentinel:$VERSION" \

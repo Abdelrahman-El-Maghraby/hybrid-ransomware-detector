@@ -205,3 +205,23 @@ def test_bad_api_setting_fails_fast(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="AEGIS_API_MAX_CONCURRENT_SCANS"):
         srv.create_app(_config(tmp_path), token=TOKEN, isolate=False)
     importlib.reload(srv)
+
+
+def test_prometheus_reads_alerts_under_the_lock():
+    """L-E10: prometheus() iterated self.alerts after snapshot() released the lock,
+    so an alert recorded with a new key meanwhile raised "dictionary changed size
+    during iteration" (HTTP 500). The stand-in records one exactly then."""
+    from collections import Counter
+
+    m = Metrics()
+    m.alert("webhook", "sent")
+
+    class Racing(Counter):
+        def items(self):
+            if not m._lock.locked():                    # read outside the lock: a writer
+                raise RuntimeError("dictionary changed size during iteration")
+            return super().items()
+
+    m.alerts = Racing(m.alerts)
+    text = m.prometheus()
+    assert 'aegis_alerts_total{channel="webhook",outcome="sent"} 1' in text

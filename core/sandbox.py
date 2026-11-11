@@ -86,7 +86,7 @@ class CapeClient:
         self.wait_seconds = wait_seconds
         self.poll_seconds = poll_seconds
         self.options = options
-        self.session = session or build_session(user_agent="aegis-sentinel/4.4")
+        self.session = session or build_session()
         if token:
             self.session.headers["Authorization"] = f"Token {token}"
         self.sleep, self.clock = sleep, clock

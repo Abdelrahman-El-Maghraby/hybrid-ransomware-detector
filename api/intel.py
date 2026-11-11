@@ -143,8 +143,7 @@ class IntelService:
         if url:
             self.destinations["sandbox"] = _origins(url)
             self.sandbox = CapeClient(url, token=str(config.get("sandbox_token") or ""),
-                                      session=build_session(user_agent="aegis-sentinel/4.7",
-                                                            allowed_origins=self.destinations["sandbox"]))
+                                      session=build_session(allowed_origins=self.destinations["sandbox"]))
         self._tasks: OrderedDict[int, str] = OrderedDict()     # task id -> sample sha256
         self._tasks_lock = threading.Lock()
         from core.mailer import SmtpMailer, email_configured

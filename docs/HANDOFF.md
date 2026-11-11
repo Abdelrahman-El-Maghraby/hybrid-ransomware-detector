@@ -725,6 +725,34 @@
 - Related runs: secret store, config, env isolation, GUI integration, intel,
   API, alerts, cloud and mailbox tests, 177 passed. ruff and mypy clean.
 
+### Group 13: L-E10, I-B1 and I-B2 (rank 10)
+
+- **L-E10.** `engine/metrics.prometheus` now reads the alert counter under the
+  lock, as `snapshot()` does; the JSON snapshot is unchanged. Test in
+  `tests/test_ops_metrics.py`: a stand-in counter raises "dictionary changed
+  size during iteration" when it is read outside the lock. Before 1 failed,
+  after it passes.
+- **I-B1.** `core/http.USER_AGENT = "aegis-sentinel/<ENGINE_VERSION>"` is the
+  default of `build_session`. The intel sandbox session and `CapeClient` no
+  longer pass their own (4.7, 4.4); the default had been
+  `hybrid-ransomware-detector/4.0`. Test in `tests/test_http.py`: before 1
+  failed, after it passes.
+- **I-B2.** New `requirements-sbom.txt` and `requirements-sbom.lock`
+  (`cyclonedx-bom==7.5.0` and 32 dependencies, universal, Python 3.12+, every
+  file hashed; same `uv pip compile` flags as the build lock). Both release
+  SBOM steps install it with `--require-hashes`, and `quality.yml` audits it
+  with the other locks.
+  - Checked: it installs in a fresh venv with `--require-hashes`
+    (`cyclonedx-py` 7.5.0), and pip-audit reports "No known
+    vulnerabilities".
+  - Test: `test_every_release_install_is_hash_pinned` (before the workflow
+    edit 1 failed); the lock tests now cover the file.
+  - **For the owner:** `python -m pip install --upgrade pip` (release build
+    job) is the one remaining unhashed install. The test names it as the only
+    exception; removing it would change the build environment.
+- Runs: locks, CI workflows, metrics, HTTP, sandbox and intel tests, 62
+  passed. ruff, mypy and bandit clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

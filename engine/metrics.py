@@ -146,6 +146,8 @@ class Metrics:
     def prometheus(self) -> str:
         """The snapshot in the Prometheus text exposition format."""
         s = self.snapshot()
+        with self._lock:                  # L-E10: read under the lock, like snapshot()
+            alerts = sorted(self.alerts.items())
         out = [
             "# HELP aegis_uptime_seconds Seconds since the counters started.",
             "# TYPE aegis_uptime_seconds gauge",
@@ -170,7 +172,7 @@ class Metrics:
         out += ["# HELP aegis_alerts_total Alert deliveries by channel and outcome.",
                 "# TYPE aegis_alerts_total counter"]
         out += [f'aegis_alerts_total{{channel="{c}",outcome="{o}"}} {n}'
-                for (c, o), n in sorted(self.alerts.items())]
+                for (c, o), n in alerts]
         out += ["# HELP aegis_scheduled_job_failures_total Background jobs that raised.",
                 "# TYPE aegis_scheduled_job_failures_total counter"]
         out += [f'aegis_scheduled_job_failures_total{{job="{k}"}} {n}'
