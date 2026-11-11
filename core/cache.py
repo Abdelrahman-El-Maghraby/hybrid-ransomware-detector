@@ -35,6 +35,7 @@ from typing import Any, Dict, Optional, Union
 logger = logging.getLogger("RansomwareScanner.cache")
 
 SCHEMA_VERSION = 1
+PURGE_EVERY_SECONDS = 3600.0     # I-x: a long-running process drops expired rows too
 
 
 class ResultCache:
@@ -48,6 +49,7 @@ class ResultCache:
         self.misses = 0
         self._lock = threading.RLock()
         self._conn: Optional[sqlite3.Connection] = None
+        self._next_purge = 0.0
         try:
             if self.db_path != ":memory:":
                 Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +68,7 @@ class ResultCache:
             self._conn.commit()
             self.enabled = True
             self.purge_expired()             # expired answers are never served; drop them
+            self._next_purge = time.time() + PURGE_EVERY_SECONDS
         except Exception as e:
             logger.warning("Result cache disabled (could not open %s): %s", self.db_path, e)
             self._close_quietly()
@@ -109,6 +112,9 @@ class ResultCache:
                 self._conn.commit()  # type: ignore[union-attr]
         except Exception as e:
             logger.debug("Cache write failed (%s/%s): %s", sha256, layer, e)
+        if now >= self._next_purge:          # at most once an hour, on a write
+            self._next_purge = now + PURGE_EVERY_SECONDS
+            self.purge_expired()
 
     def purge_expired(self) -> int:
         """Delete expired rows; returns how many were removed."""

@@ -1369,6 +1369,28 @@ files and malware alerts stay as they were.
   warnings**, 299 s; 0 "unclosed database"; `test_smoke.py` passed. ruff,
   mypy and bandit clean.
 
+### Group 27: the last SAFE I-x items (2026-11-11)
+
+A reconciliation of every finding against the code and tests found two
+confirmed SAFE sub-items of the I-x row still open. Both are done here.
+- **Cache purge.** `core/cache.ResultCache.put` also deletes expired rows, at
+  most once an hour (`PURGE_EVERY_SECONDS`). Before, only opening the cache
+  did, so the background service and the API kept expired rows on disk until
+  a restart (they were never served). Test
+  `test_expired_answers_are_purged_while_the_process_runs`, with a fake clock:
+  before 1 failed; after, with the cache and scanner tests, 29 passed.
+- **Unused `send_webhook`.** Removed from `core/outputs.py`; the product uses
+  the outbox and `post_alert`.
+  - Its test now goes through `verdict_alert`, `channels_for` and
+    `post_alert`, keeping the signature, threshold and "metadata only"
+    checks.
+  - The L-A7 test keeps its `post_alert` part.
+  - 80 passed with the alert, output-failure and notice tests.
+- Not done: the scikit-learn version check on model pickles. The review
+  records it as a suspicion (S), not a confirmed finding.
+- **Optional improvements I-3 and I-4** (31.9, "not defects"; 24.2: done only
+  if approved separately) are listed for the owner, not done.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1412,8 +1434,8 @@ SAFE items, in order (done items are marked):
      - retrying failed IMAP fetches (group 21).
    - Platform or VM only: L-D1, L-E4, L-E5, L-E6; the M27 signed-pack install
      and I-B3 in the deployment check (Docker host).
-   - Not done, low: the I-x cache purge at start-up only, the unused
-     `send_webhook`, and the scikit-learn version check (suspected).
+   - Not done: the scikit-learn version check (suspected only). The I-x cache
+     purge and the unused `send_webhook` are done (group 27).
    - Docs left as they are: D10 and D14 (release state); D11, D20, D22, D23,
      D26 and D32 (owner).
 10. What remains SAFE is ranks 13 and 15. They are owner or platform work by

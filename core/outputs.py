@@ -71,32 +71,6 @@ def _failure(e: BaseException, url: str) -> str:
     return f"{type(e).__name__} from {urlsplit(url).hostname or 'the webhook'}"
 
 
-def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdict: str = "High",
-                 session=None, timeout: float = 10) -> List[str]:
-    """POST one alert per qualifying result; returns the file paths that were sent."""
-    import requests
-    http = session or requests
-    floor = RANK.get(min_verdict, 3)
-    sent: List[str] = []
-    for r in results:
-        if RANK.get(r.get("verdict", "Clean"), 0) < floor:
-            continue
-        body = json.dumps(alert_payload(r), ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            headers["X-Aegis-Signature"] = sign(body, secret)
-        try:
-            resp = http.post(url, data=body, headers=headers, timeout=timeout)
-            if 200 <= getattr(resp, "status_code", 0) < 300:
-                sent.append(r.get("file_path", ""))
-            else:
-                logger.warning("Webhook returned %s for %s", resp.status_code, r.get("file_path"))
-        except Exception as e:
-            logger.warning("Webhook delivery failed for %s: %s", r.get("file_path"),
-                           _failure(e, url))
-    return sent
-
-
 def post_alert(payload: Dict, url: str, secret: str = "", session=None,
                timeout: float = 10) -> None:
     """POST one alert payload, signed when there is a secret; raises when it was

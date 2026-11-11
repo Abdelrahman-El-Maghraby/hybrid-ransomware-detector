@@ -7,7 +7,7 @@ import json
 import pytest
 
 from api import SCHEMA_VERSION, load_schema
-from core.outputs import alert_payload, send_webhook, sign, write_jsonl
+from core.outputs import alert_payload, sign, write_jsonl
 from tests.helpers import make_pdf
 from tests.test_file_integrity import _pe_bytes
 from tests.test_regression_corpus import build_corpus
@@ -60,17 +60,26 @@ class Recorder:
 
 
 def test_webhook_sends_signed_alerts_above_the_threshold(corpus_results):
+    """Through the path the product uses (the outbox's channels and post_alert);
+    the older send_webhook was unused and is removed (I-x)."""
+    from core.outbox import channels_for, verdict_alert
+    from core.outputs import post_alert
     rec = Recorder()
-    sent = send_webhook(corpus_results, "https://hooks.example.invalid/x", "s3cret", "High", session=rec)
+    cfg = {"webhook_url": "https://hooks.example.invalid/x", "webhook_min_verdict": "High"}
+    alerts = [verdict_alert(r) for r in corpus_results]
+    for alert in alerts:
+        if channels_for(alert, cfg, email_available=False) == ["webhook"]:
+            post_alert(alert["webhook"], cfg["webhook_url"], "s3cret", session=rec)
     high = [r for r in corpus_results if r["verdict"] in ("High", "Critical")]
-    assert len(sent) == len(high) == len(rec.calls)
+    assert high and len(rec.calls) == len(high)
     url, body, headers = rec.calls[0]
     expect = "sha256=" + hmac.new(b"s3cret", body, hashlib.sha256).hexdigest()
     assert headers["X-Aegis-Signature"] == expect == sign(body, "s3cret")
     payload = json.loads(body)
     assert set(payload) >= {"verdict", "sha256", "indicators", "top_reason"}
     assert "content" not in payload and "scan_results" not in payload       # metadata only
-    assert send_webhook(corpus_results, "u", min_verdict="Critical", session=Recorder(500)) == []
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        post_alert(alerts[0]["webhook"], "https://hooks.example.invalid/x", session=Recorder(500))
 
 
 def test_alert_payload_orders_indicators_by_points():

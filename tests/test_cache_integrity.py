@@ -116,3 +116,21 @@ def test_intel_without_a_cache_still_answers(tmp_path):
     service.vt_lookup("ab" * 32)
     service.vt_lookup("ab" * 32)
     assert len(vt.seen) == 2
+
+
+def test_expired_answers_are_purged_while_the_process_runs(tmp_path, monkeypatch):
+    """I-x: expired rows were deleted only when the cache was opened, so a
+    background service or the API kept them on disk until it restarted. A write
+    now also purges them, at most once an hour."""
+    from core import cache as C
+    now = [1_000_000.0]
+    monkeypatch.setattr(C.time, "time", lambda: now[0])
+    c = C.ResultCache(tmp_path / "c.sqlite3")
+    c.put("a" * 64, "vt", {"x": 1}, ttl_seconds=60)
+    now[0] += 120                                          # expired, not yet purged
+    c.put("b" * 64, "vt", {"x": 2}, ttl_seconds=86_400)
+    assert c.stats()["expired"] == 1                       # within the hour: kept
+    now[0] += C.PURGE_EVERY_SECONDS
+    c.put("c" * 64, "vt", {"x": 3}, ttl_seconds=86_400)
+    assert c.stats()["expired"] == 0 and c.get("b" * 64, "vt") == {"x": 2}
+    c.close()

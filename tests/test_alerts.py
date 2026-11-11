@@ -698,12 +698,9 @@ def test_webhook_errors_name_the_host_not_the_url_path(caplog):
     """L-A7: a connection error carried the webhook URL path into the log, the
     outbox file and the GUI status; for chat-service webhooks the path is the
     credential."""
-    from core.outputs import post_alert, send_webhook
+    from core.outputs import post_alert
     url = "https://hooks.example.invalid" + SECRET_PATH
     with pytest.raises(Exception) as info:
         post_alert({"a": 1}, url, session=_Refusing())
     assert SECRET_PATH not in str(info.value) and "xoxb" not in str(info.value)
     assert "ConnectionError" in str(info.value) and "hooks.example.invalid" in str(info.value)
-    with caplog.at_level(logging.WARNING, logger="RansomwareScanner"):
-        send_webhook([_result()], url, session=_Refusing())
-    assert "xoxb" not in caplog.text and "hooks.example.invalid" in caplog.text
