@@ -1164,6 +1164,16 @@ Notes:
   members, counting the reads; and, for (a) or (b), a ShortCut page past the
   cap gives `partial`.
 
+### Full-suite evidence for groups 17 to 24
+
+- Safe selection in a clean worktree at `0ca988a`, with the QR decoder and
+  `-W default::ResourceWarning`: **1,500 passed, 0 failed, 23 skipped, 4
+  deselected**, 300 s. `test_smoke.py` passed. 0 "unclosed database".
+- 17 warnings. The two new ones came from the L-C8 test reaching a known leak:
+  `tools/mbox_to_eml.py` never closed its mailbox (listed in groups 8 to 11).
+  Fixed after the run; the mbox tests then pass with no warning. The rest are
+  as before: Starlette, test sockets and files.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1198,9 +1208,22 @@ SAFE items, in order (done items are marked):
    (inspection coverage, see group 14).
    New for the owner: the unhashed `pip install --upgrade pip` in the release
    build job (group 13).
-9. Next SAFE work: rank 11 (check each item's status first), 12, then 14 (docs
-   after the code). M18, L-E12 and the 33.7 owner decisions are unchanged
-   (owner, 2026-11-11).
+9. Ranks 11, 12 and 14 done (groups 17 to 24), except the items below.
+   - Owner decisions, unchanged: M18, L-E12, L-D7 (options compared above),
+     L-D2 (group 20) and the 33.7 list.
+   - New questions from this work:
+     - the unhashed `pip install --upgrade pip` in the release job (group 13);
+     - exit code 2's three meanings (group 18);
+     - retrying failed IMAP fetches (group 21).
+   - Platform or VM only: L-D1, L-E4, L-E5, L-E6; the M27 signed-pack install
+     and I-B3 in the deployment check (Docker host).
+   - Not done, low: the I-x cache purge at start-up only, the unused
+     `send_webhook`, and the scikit-learn version check (suspected).
+   - Docs left as they are: D10 and D14 (release state); D11, D20, D22, D23,
+     D26 and D32 (owner).
+10. What remains SAFE is ranks 13 and 15. They are owner or platform work by
+    their class (deferred items; evidence on Windows, Docker, ARM64, a display,
+    the release workflow, the VM). Nothing SAFE is left to do on this Mac.
 
 Each item needs its regression test and the full gates afterwards (pytest,
 ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must

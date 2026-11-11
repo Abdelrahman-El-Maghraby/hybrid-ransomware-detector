@@ -38,21 +38,24 @@ def split(mboxes: Iterable[Path], out_dir: Path, limit: int = 0) -> Tuple[int, i
             print(f"skip {mb_path}: {e}", file=sys.stderr)
             errors += 1
             continue
-        for i, key in enumerate(box.iterkeys(), 1):
-            if limit and written >= limit:
-                return written, dups, errors
-            try:
-                raw = box.get_bytes(key)
-            except Exception:
-                errors += 1
-                continue
-            digest = hashlib.sha256(raw).hexdigest()
-            if digest in seen:
-                dups += 1
-                continue
-            seen.add(digest)
-            (out_dir / f"{stem}_{i:05d}.eml").write_bytes(raw)
-            written += 1
+        try:
+            for i, key in enumerate(box.iterkeys(), 1):
+                if limit and written >= limit:
+                    return written, dups, errors
+                try:
+                    raw = box.get_bytes(key)
+                except Exception:
+                    errors += 1
+                    continue
+                digest = hashlib.sha256(raw).hexdigest()
+                if digest in seen:
+                    dups += 1
+                    continue
+                seen.add(digest)
+                (out_dir / f"{stem}_{i:05d}.eml").write_bytes(raw)
+                written += 1
+        finally:
+            box.close()                   # the mailbox file was left open
     return written, dups, errors
 
 
