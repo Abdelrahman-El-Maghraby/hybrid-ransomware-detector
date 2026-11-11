@@ -531,6 +531,54 @@
   intel service, so the card still says "Key missing" there. Showing intel's
   VirusTotal state would need a capability call from the GUI thread.
 
+### Group 7: M28 (rank 7) and D38
+
+- Cause confirmed: in a new process with `SCAN_DIRECTORIES=/x/Documents
+  FILE_EXTENSIONS=.pdf SCAN_INTERVAL_HOURS=3`, the old `engine/config.py`
+  built `['~/Downloads']`, 43 default types and 6 hours. Nothing read these
+  names, and the GUI kept its choices only in `gui_settings.json`, so the
+  background service the GUI installs at login scanned other folders.
+- Fix:
+  - `engine/config.py` reads `SCAN_DIRECTORIES` (";", also ":" outside
+    Windows, `~` expanded, as for `WATCH_DIRS`), `FILE_EXTENSIONS` (commas,
+    lower-cased) and `SCAN_INTERVAL_HOURS`. Unset gives the old defaults;
+    set but empty gives an empty list.
+  - `engine/validation.py` names `SCAN_INTERVAL_HOURS` in its range error and
+    `FILE_EXTENSIONS` in the format error. It warns for a scan folder that
+    does not exist, except with the intel socket (Docker has no folder
+    scans).
+  - GUI: `aegis_gui/integration.save_scan_settings` writes the three values
+    to `.env` through the existing validated `apply_settings`. The Scan page
+    (folders, types) and the Settings page (interval) call it on each
+    change.
+  - When the GUI starts, a value set in the environment or `.env` wins over
+    `gui_settings.json`. A GUI choice that `.env` lacks (an install from
+    before the fix) is written to `.env` once.
+  - A folder name containing a list separator is refused with an error,
+    since it could not be read back.
+- Docs (D38): README configuration table and "Scan directories..."
+  paragraph, and `.env.example`.
+- Limits, documented or recorded here:
+  - A running background service reads `.env` at start only.
+  - A value set in the process environment wins over `.env`, so a GUI change
+    is overridden there at the next start.
+- Test: `tests/test_scan_settings_shared.py` (8 tests):
+  - a fresh process reads the three settings;
+  - empty means no folders, and a bad interval is reported;
+  - list parsing;
+  - validation messages, including the missing-folder warning and its Docker
+    exception;
+  - the values the GUI writes to a real `.env` (python-dotenv `set_key`) give
+    the same CONFIG in a fresh process;
+  - the separator refusal;
+  - the store's precedence and the one-time save flag.
+  On the old code the module fails at import (the helpers do not exist), and
+  the in-process probe above shows the behaviour. After: 8 passed; with the
+  GUI integration, config, scanner, cloud, folder monitor, secret store and
+  L-C6 tests, 136 passed; the docs test files 29 passed. A UNC path and a
+  quote survive the `.env` round trip (checked in-process). ruff, mypy and the
+  bandit gate are clean. The GUI was not run on a display; its modules import.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -553,8 +601,11 @@ SAFE items, in order (done items are marked):
    New: M33 (owner-approved, done in group 5) and L-E12 (see group 2).
 3. M17: done, group 3. M18: waits for the owner's choice of direction.
 4. the SAFE file-name items (M20, L-E9, I-T3): done, group 4.
-5. Next SAFE work in 33.6 order: rank 7 (M28, L-C6), rank 9 (tests), rank 10
-   onward. Rank 6 has SAFE parts (the M27 compose change and start-up check).
+5. Rank 7: M28 (with D38) and L-C6 done, groups 7 and 6. M33 (owner-approved)
+   done, group 5.
+6. Next SAFE work in 33.6 order: rank 9 (tests), rank 10 onward. Rank 6 has
+   SAFE parts (the M27 compose change and start-up check). M18 is still not
+   approved (owner, 2026-11-11).
 
 Each item needs its regression test and the full gates afterwards (pytest,
 ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must

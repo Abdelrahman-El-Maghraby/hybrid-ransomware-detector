@@ -33,12 +33,17 @@ class SettingsStore:
                 "Could not read GUI settings: %s", e)
         for key, default in self.DEFAULTS.items():
             self.data.setdefault(key, default)
-        if not self.data["scan_directories"]:
-            self.data["scan_directories"] = list(RS.CONFIG["scan_directories"])
-        if not self.data["file_extensions"]:
-            self.data["file_extensions"] = list(RS.CONFIG["file_extensions"])
-        if not self.data["scan_interval_hours"]:
-            self.data["scan_interval_hours"] = int(RS.CONFIG["scan_interval_hours"])
+        # M28: a value set in the environment or .env is shared with the background
+        # service and wins; otherwise the GUI's saved choice, or the default.
+        from aegis_gui.integration import SCAN_FIELDS
+        from engine.config import env_is_set
+        self.unsaved_scan_settings = False      # GUI choices the .env file lacks
+        for env, key in SCAN_FIELDS.items():
+            shared = RS.CONFIG[key]
+            if env_is_set(env) or not self.data[key]:
+                self.data[key] = list(shared) if isinstance(shared, list) else int(shared)
+            elif self.data[key] != shared:
+                self.unsaved_scan_settings = True
         if self.data["watch_dirs"] is None:
             from core.folder_watch import split_dirs
             self.data["watch_dirs"] = split_dirs(RS.CONFIG.get("watch_dirs"))

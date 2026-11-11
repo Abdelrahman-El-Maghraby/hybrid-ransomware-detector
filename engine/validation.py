@@ -47,7 +47,7 @@ NUMBERS: Dict[str, Tuple[str, Optional[float], Optional[float]]] = {
     "imap_max_mb": ("IMAP_MAX_MB", 1, 2_048),
     "imap_check_minutes": ("IMAP_CHECK_MINUTES", 0, 10_080),
     "canary_check_minutes": ("CANARY_CHECK_MINUTES", 1, 10_080),
-    "scan_interval_hours": ("", 1, 8_760),
+    "scan_interval_hours": ("SCAN_INTERVAL_HOURS", 1, 8_760),
     "archive_max_depth": ("", 0, 16),
     "archive_max_members": ("", 1, 1_000_000),
     "archive_scan_members": ("", 0, 100_000),
@@ -279,10 +279,15 @@ def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
     exts = cfg.get("file_extensions")
     if exts is not None and (not isinstance(exts, (list, tuple)) or not all(
             isinstance(e, str) and e.startswith(".") for e in exts)):
-        errors.append("file_extensions must be a list like ['.pdf', '.docx']")
+        errors.append("file_extensions must be a list like ['.pdf', '.docx'] "
+                      "(FILE_EXTENSIONS=.pdf,.docx)")
     dirs = cfg.get("scan_directories")
     if dirs is not None and not isinstance(dirs, (list, tuple)):
         errors.append("scan_directories must be a list of folders")
+    elif dirs and not cfg.get("intel_socket"):         # the Docker edition has no folder scans
+        for d in dirs:
+            if not os.path.isdir(d):
+                warnings.append(f"SCAN_DIRECTORIES: {d} is not a folder (skipped by scans)")
 
 
 def _conflicts(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:

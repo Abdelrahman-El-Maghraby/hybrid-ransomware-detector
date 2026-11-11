@@ -11,6 +11,7 @@ from aegis_gui.common import (
     ACCENT_SOFT,
     APP_VERSION,
     BG,
+    ENV_FILE,
     MUTED,
     PANEL,
     PANEL_2,
@@ -82,6 +83,8 @@ class App(ctk.CTk):
         # state
         self.settings = SettingsStore()
         self.scanner = RS.RansomwareScanner(self._build_config())
+        if self.settings.unsaved_scan_settings:    # M28: chosen before they were shared
+            self.save_scan_settings()
         self.bus = queue.Queue()
         self.log_queue = queue.Queue()
         self.controller = ScanController(self.bus)
@@ -141,6 +144,12 @@ class App(ctk.CTk):
         self.gui_log.info(f"GUI started (v{APP_VERSION}) on {platform.system()}")
 
     # -- construction helpers ---------------------------------------------------------
+
+    def save_scan_settings(self) -> None:
+        """Share the scan folders, file types and interval with the background
+        service through the .env file (M28)."""
+        from aegis_gui.integration import save_scan_settings
+        save_scan_settings(self.scanner.config, self.settings, ENV_FILE)
 
     def _build_config(self) -> dict:
         config = dict(RS.CONFIG)

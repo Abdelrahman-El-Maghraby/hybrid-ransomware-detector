@@ -121,6 +121,23 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def env_is_set(name: str) -> bool:
+    """True when the environment or .env sets `name` (even to an empty value)."""
+    return _raw(name) is not None
+
+
+def split_dir_list(raw: str) -> List[str]:
+    """Folders separated by ';' (and ':' outside Windows), as for WATCH_DIRS."""
+    import re
+    items = re.split(r";" if os.name == "nt" else r"[;:]", raw or "")
+    return [os.path.expanduser(x.strip()) for x in items if x.strip()]
+
+
+def split_extension_list(raw: str) -> List[str]:
+    """File types separated by commas: ".pdf,.docx"."""
+    return [e.strip().lower() for e in (raw or "").split(",") if e.strip()]
+
+
 # Every file type the engine understands. The GUI lets you pick a subset.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
                         ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
@@ -140,11 +157,12 @@ CONFIG = {
     # "production" = the supported on-prem edition (docs/RELEASE_SCOPE.md): every
     # required layer must be available and enabled, emulation is refused.
     "profile": _getenv("AEGIS_PROFILE", "standard").strip().lower(),
-    "scan_directories": [
-        str(USER_HOME / "Downloads"),
-        # Add more folders to scan as needed
-    ],
-    "file_extensions": list(DEFAULT_EXTENSIONS),
+    # M28: one setting for the GUI, the CLI and the background service at login.
+    # Unset: the defaults. Set, even to an empty value: exactly that list.
+    "scan_directories": (split_dir_list(_getenv("SCAN_DIRECTORIES"))
+                         if env_is_set("SCAN_DIRECTORIES") else [str(USER_HOME / "Downloads")]),
+    "file_extensions": (split_extension_list(_getenv("FILE_EXTENSIONS"))
+                        if env_is_set("FILE_EXTENSIONS") else list(DEFAULT_EXTENSIONS)),
     "kaggle_database_path": str(DATA_DIR / "data_file.csv"),
 
     # --- LLM semantic layer -------------------------------------------------
@@ -310,7 +328,7 @@ CONFIG = {
     "containment_state_file": str(DATA_DIR / "containment_state.json"),
 
     "report_directory": str(REPORT_DIR),
-    "scan_interval_hours": 6,  # Scan every 6 hours
+    "scan_interval_hours": int(_env_float("SCAN_INTERVAL_HOURS", 6)),
 }
 
 VERDICT_RANK = {"Clean": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}

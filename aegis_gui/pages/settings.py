@@ -198,6 +198,7 @@ class SettingsPage(BasePage):
         if hours != self.app.settings["scan_interval_hours"]:
             self.app.settings["scan_interval_hours"] = hours
             self.app.scanner.config["scan_interval_hours"] = hours
+            self.app.save_scan_settings()
             self.app.reset_schedule()
 
     def _autostart_toggled(self):

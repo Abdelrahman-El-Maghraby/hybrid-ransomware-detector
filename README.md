@@ -497,6 +497,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `ISOLATE_SCANS`, `SCAN_WORKERS`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | `true`, auto, `300`, `2048` | isolated worker processes for every scan (folders, single files, the API). When workers cannot start, nothing is scanned in the main process: the files get a `failed` result (`isolation_unavailable`), the CLI exits with code 3 and the API answers 503. `ISOLATE_SCANS=0` is a development-only opt-out, recorded in `provenance.isolation` and refused under `AEGIS_PROFILE=production` |
 | `ML_ENABLED`, `ML_MODEL_PATH` | `true`, data folder | ML layer and a model you trained |
 | `JSONL_PATH`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `WEBHOOK_MIN_VERDICT` | empty, empty, empty, `High` | SIEM outputs (HMAC-signed webhook) |
+| `SCAN_DIRECTORIES`, `FILE_EXTENSIONS`, `SCAN_INTERVAL_HOURS` | `~/Downloads`, every supported type except pictures, `6` | folders for folder scans (semicolon-separated), comma-separated file types, hours between scheduled scans. Shared by the CLI, the background service and the GUI, which saves its Scan page choices here |
 | `WATCH_DIRS`, `WATCH_SETTLE_SECONDS`, `WATCH_MAX_QUEUE`, `WATCH_RETRY_MINUTES` | empty, `2`, `1000`, `5` | desktop monitoring roots (semicolon-separated), settle delay, queue bound and retry delay |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD` | empty, `465`, `tls`, empty, empty | e-mail over verified TLS (`starttls` also supported); password from secret store; Docker settings belong to intel |
 | `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO`, `ALERT_EMAIL_MIN_VERDICT` | empty, empty, `High` | sender, comma-separated recipients, verdict threshold |
@@ -592,7 +593,7 @@ aegis-api                                         # optional REST API (pip insta
 python RansomwareScanner.py --version
 ```
 
-Scan directories, file types and the scan interval come from `.env` and the defaults in `engine/config.py` (or the GUI's Scan page). All paths are derived from the user's home directory via `pathlib`, so they adapt to the host OS.
+Scan directories, file types and the scan interval come from `SCAN_DIRECTORIES`, `FILE_EXTENSIONS` and `SCAN_INTERVAL_HOURS` (environment or `.env`), else the defaults in `engine/config.py`. The GUI's Scan and Settings pages save their choices to the same `.env` file, so the background service started at login scans the same folders; a running service picks up a change at its next start. All paths are derived from the user's home directory via `pathlib`, so they adapt to the host OS.
 
 ### Example report (excerpt, recorded with 4.6.0)
 

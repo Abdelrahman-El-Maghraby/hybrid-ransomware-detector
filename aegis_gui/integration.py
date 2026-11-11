@@ -11,6 +11,7 @@ when the result would not start.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, MutableMapping, Optional, Tuple
@@ -25,6 +26,9 @@ FIELDS: Dict[str, Tuple[str, str]] = {
     "ALERT_EMAIL_MIN_VERDICT": ("alert_email_min_verdict", "str"),
     "WEBHOOK_URL": ("webhook_url", "str"), "WEBHOOK_MIN_VERDICT": ("webhook_min_verdict", "str"),
     "WATCH_DIRS": ("watch_dirs", "str"),
+    "SCAN_DIRECTORIES": ("scan_directories", "dirs"),
+    "FILE_EXTENSIONS": ("file_extensions", "exts"),
+    "SCAN_INTERVAL_HOURS": ("scan_interval_hours", "int"),
     "CLOUD_UPLOAD": ("cloud_upload", "bool"), "CLOUD_ENDPOINT": ("cloud_endpoint", "str"),
     "CLOUD_REGION": ("cloud_region", "str"), "CLOUD_BUCKET": ("cloud_bucket", "str"),
     "CLOUD_PREFIX": ("cloud_prefix", "str"), "CLOUD_ACCESS_KEY_ID": ("cloud_access_key_id", "str"),
@@ -35,8 +39,20 @@ SECRETS: Dict[str, str] = {"SMTP_PASSWORD": "smtp_password", "WEBHOOK_SECRET": "
                            "CLOUD_SECRET_ACCESS_KEY": "cloud_secret_access_key"}
 
 
+# M28: the GUI's scan choices, saved to .env so the background service started at
+# login (RansomwareScanner.py --background) scans the same folders and file types.
+SCAN_FIELDS: Dict[str, str] = {"SCAN_DIRECTORIES": "scan_directories",
+                               "FILE_EXTENSIONS": "file_extensions",
+                               "SCAN_INTERVAL_HOURS": "scan_interval_hours"}
+
+
 def _convert(kind: str, value: str) -> Any:
+    from engine.config import split_dir_list, split_extension_list
     value = (value or "").strip()
+    if kind == "dirs":
+        return split_dir_list(value)
+    if kind == "exts":
+        return split_extension_list(value)
     if kind == "int":
         return int(float(value)) if value else 0
     if kind == "float":
@@ -80,6 +96,28 @@ def apply_settings(config: MutableMapping[str, Any], updates: Dict[str, str],
     logger.info("Settings saved from the GUI: %s", ", ".join(sorted(list(updates) + list(secrets))),
                 extra={"event": "settings_saved"})
     return [], warnings
+
+
+def save_scan_settings(config: MutableMapping[str, Any], settings: Any,
+                       env_file: Optional[Path],
+                       set_key: Optional[Callable[[str, str, str], Any]] = None) -> List[str]:
+    """Save the GUI's folders, file types and interval to the .env file (M28);
+    the errors, also logged. `settings` maps the CONFIG keys of SCAN_FIELDS."""
+    seps = ";" if os.name == "nt" else ";:"
+    unsplittable = [d for d in settings["scan_directories"] if any(c in d for c in seps)]
+    if unsplittable:                    # SCAN_DIRECTORIES could not be read back
+        errors = [f"SCAN_DIRECTORIES: a folder name holds a list separator ({seps}): "
+                  f"{unsplittable[0]}"]
+        logger.error("Scan settings not saved for the background service: %s", errors[0])
+        return errors
+    updates = {"SCAN_DIRECTORIES": ";".join(settings["scan_directories"]),
+               "FILE_EXTENSIONS": ",".join(settings["file_extensions"]),
+               "SCAN_INTERVAL_HOURS": str(int(settings["scan_interval_hours"]))}
+    errors, _ = apply_settings(config, updates, env_file=env_file, set_key=set_key)
+    if errors:
+        logger.error("Scan settings not saved for the background service: %s",
+                     "; ".join(errors))
+    return errors
 
 
 def test_alert() -> Dict[str, Any]:
