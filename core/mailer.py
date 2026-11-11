@@ -175,7 +175,8 @@ class SmtpMailer:
     def destination(self) -> str:
         return f"smtp://{self.host}:{self.port} ({self.security})"
 
-    def _take(self) -> None:
+    def _take(self) -> float:
+        """Reserve a slot under the caps; `_give_back` returns it after a failure."""
         now = self._clock()
         with self._lock:
             while self._sent and now - self._sent[0] > 86_400:
@@ -184,10 +185,25 @@ class SmtpMailer:
             if last_hour >= self.per_hour or len(self._sent) >= self.per_day:
                 raise RateLimited(f"e-mail cap reached ({self.per_hour}/hour, {self.per_day}/day)")
             self._sent.append(now)
+        return now
+
+    def _give_back(self, slot: float) -> None:
+        with self._lock:
+            try:
+                self._sent.remove(slot)
+            except ValueError:            # already aged out of the day window
+                pass
 
     def send(self, fields: Mapping[str, Any]) -> None:
         msg = build_message(fields, self.sender, self.to)
-        self._take()
+        slot = self._take()
+        try:
+            self._deliver(msg)
+        except BaseException:
+            self._give_back(slot)         # L-A8: only a sent message counts
+            raise
+
+    def _deliver(self, msg: Any) -> None:
         context = ssl.create_default_context()          # CERT_REQUIRED + host name check
         try:
             if self.security == "tls":

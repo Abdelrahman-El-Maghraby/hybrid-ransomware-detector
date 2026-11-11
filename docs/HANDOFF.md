@@ -781,6 +781,40 @@
   - (b) a higher read cap only for the shortcut check;
   - (c) keep reading every page.
 
+### Group 15: L-A5, L-A6, L-A7 and L-A8 (rank 10)
+
+- **L-A8.** `core/mailer.SmtpMailer.send` reserves a slot under the caps, then
+  gives it back when the attempt fails, so only sent messages count and two
+  threads cannot overshoot. Test: 25 failing sends with a cap of 20 an hour,
+  then a working server sends.
+- **L-A7.** `core/outputs._failure`: webhook errors (`post_alert`, which the
+  outbox stores and the GUI shows, and the older `send_webhook` log line) name
+  only the error type and the host. The README settings row says a chat
+  service's webhook URL is itself a credential. Test: a `requests` error
+  repeating a credential path does not leak it into the error or the log.
+- **L-A5.** `core/containment.lock_folders` saves the record before every
+  change: before anything, before each folder's `icacls`, and with each
+  folder's original modes before its `chmod`.
+  - If the record cannot be saved, nothing (more) is changed and a problem is
+    returned.
+  - A walk cut at `MAX_LOCK_ENTRIES` is reported ("the rest stay writable").
+  - `_save_state` returns whether it saved.
+  - Tests (check 9): an unwritable record path changes nothing; a crash after
+    two `chmod` calls is undone by `unlock_folders`; the cap is reported.
+- **L-A6.** `core/outbox._FlushLock` takes a lock name. `core/cloud.Spool`
+  uses two per folder, shared by every thread and process:
+  - "state", around each read-modify-write of `state.json` (in `add`,
+    `cleanup` and `upload_due`);
+  - "upload", one uploader at a time; another one returns at once.
+  Uploads run outside the state lock. Tests (check 14): two Spool objects in
+  two threads upload six items exactly once. While another process holds the
+  upload lock, nothing is sent and the item stays queued.
+- Before the fixes the new tests failed: L-A8 1, L-A7 1, L-A5 3, L-A6 2 (the
+  thread test showed duplicate uploads). After: cloud, alerts, locks,
+  background reliability, containment and response tests, 95 + 36 passed (1
+  skip); the L-A6 tests passed in three repeat runs. ruff, mypy and bandit
+  clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

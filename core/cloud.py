@@ -51,6 +51,7 @@ what is spooled stays until it expires; nothing is deleted remotely.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
@@ -64,13 +65,14 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional
 
 logger = logging.getLogger("RansomwareScanner")
 
 KINDS = ("report", "logs")
 FIRST_RETRY_SECONDS = 60.0
 MAX_RETRY_SECONDS = 3_600.0
+STATE_LOCK_WAIT = 30.0          # L-A6: the state lock is held for one file write
 _EXT = re.compile(r"^\.[a-z0-9]{1,8}$")
 _CODE = re.compile(r"^[A-Za-z0-9_.:+-]{1,80}$")
 
@@ -210,7 +212,18 @@ class Spool:
         self.max_age = float(days) * 86_400
         self.max_bytes = int(float(max_mb) * 1024 * 1024)
         self._clock = clock
-        self._lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def _state_lock(self) -> Iterator[None]:
+        """L-A6: state.json is read, changed and written by the GUI, the background
+        service and their threads, each with its own Spool (spool_for). One lock
+        per folder for every thread and process (core/outbox._FlushLock)."""
+        from .outbox import _FlushLock
+        self._ensure()
+        with _FlushLock(self.root, STATE_LOCK_WAIT, "state") as lock:
+            if not lock.acquired:
+                raise OSError(f"cloud spool {self.root} is busy")
+            yield
 
     def _ensure(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -250,8 +263,7 @@ class Spool:
         return sorted(p for p in self.root.glob("*.json") if p.name != "state.json")
 
     def add(self, kind: str, data: bytes) -> Path:
-        with self._lock:
-            self._ensure()
+        with self._state_lock():
             now = self._clock()
             stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%S")
             path = self.root / f"{kind}-{stamp}-{secrets.token_hex(8)}.json"
@@ -264,9 +276,9 @@ class Spool:
     def cleanup(self) -> int:
         """Delete what expired (age) and the oldest beyond the size cap."""
         removed = 0
-        with self._lock:
-            if not self.root.is_dir():
-                return 0
+        if not self.root.is_dir():
+            return 0
+        with self._state_lock():
             state, now = self._state(), self._clock()
             entries = []
             for p in self.items():
@@ -306,31 +318,49 @@ class Spool:
         """Upload every due item once; delete it after a confirmed upload."""
         counts = {"uploaded": 0, "retry": 0, "waiting": 0}
         from engine.metrics import METRICS
-        with self._lock:
-            state, now = self._state(), self._clock()
+
+        from .outbox import _FlushLock
+        if not self.root.is_dir():
+            return counts
+        state: Dict[str, Any] = {}
+        # L-A6: one uploader per folder; another one (thread or process) that holds
+        # the lock is sending these items already. Uploads run outside the state
+        # lock, so a slow upload never blocks add().
+        with _FlushLock(self.root, 0, "upload") as uploading:
+            if not uploading.acquired:
+                return counts
+            now = self._clock()
             for p in self.items():
-                info = state["items"].setdefault(p.name, {"queued": now, "attempts": 0,
-                                                          "next": 0.0})
-                if info["next"] > now:
+                with self._state_lock():
+                    state = self._state()
+                    info = state["items"].setdefault(p.name, {"queued": now, "attempts": 0,
+                                                              "next": 0.0})
+                    self._save(state)
+                if info["next"] > now or not p.exists():
                     counts["waiting"] += 1
                     continue
                 kind = p.name.split("-", 1)[0]
                 try:
                     put(kind, p.read_bytes())
                 except Exception as e:
-                    info["attempts"] += 1
-                    info["next"] = now + min(MAX_RETRY_SECONDS,
-                                             FIRST_RETRY_SECONDS * 2 ** (info["attempts"] - 1))
-                    state["last_error"] = f"{type(e).__name__}: {str(e)[:160]}"
+                    with self._state_lock():
+                        state = self._state()
+                        info = state["items"].setdefault(p.name, info)
+                        info["attempts"] = int(info.get("attempts", 0)) + 1
+                        info["next"] = now + min(MAX_RETRY_SECONDS,
+                                                 FIRST_RETRY_SECONDS * 2 ** (info["attempts"] - 1))
+                        state["last_error"] = f"{type(e).__name__}: {str(e)[:160]}"
+                        self._save(state)
                     METRICS.cloud("failed")
                     counts["retry"] += 1
                     continue
-                p.unlink(missing_ok=True)
-                state["items"].pop(p.name, None)
+                with self._state_lock():
+                    p.unlink(missing_ok=True)
+                    state = self._state()
+                    state["items"].pop(p.name, None)
+                    self._save(state)
                 METRICS.cloud("uploaded")
                 counts["uploaded"] += 1
-            if self.root.is_dir():
-                self._save(state)
         if counts["retry"]:
             logger.warning("Cloud upload: %d item(s) not uploaded (%s); retried later.",
                            counts["retry"], state.get("last_error", ""),

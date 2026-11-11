@@ -660,3 +660,50 @@ def test_email_keeps_member_indicators_by_their_base_name():
         {"indicator": "Not A Code:x y", "points": 5}]}
     assert verdict_alert(r)["email"]["reason_codes"] == [
         "external_relationship", "macro_autoexec", "yara_match"]
+
+
+def test_failed_sends_do_not_use_up_the_caps():
+    """L-A8: every attempt counted against the caps before the connection, so 25
+    failures during an outage (cap 20/hour) kept alerts queued after the server
+    was back, although nothing had been sent."""
+    from core.mailer import MailError
+    down = [True]
+
+    def server(*a, **k):
+        if down[0]:
+            raise ConnectionRefusedError("down")
+        return FakeSMTP(*a, **k)
+
+    m = SmtpMailer(_mail_config(alert_email_per_hour=20), smtp_ssl=server)
+    fields = OB.verdict_alert(_result())["email"]
+    for _ in range(25):
+        with pytest.raises(MailError):
+            m.send(fields)
+    down[0] = False
+    m.send(fields)                                        # the server is back: sent
+    assert len(m._sent) == 1
+
+
+SECRET_PATH = "/services/T000/B000/xoxb-webhook-credential"
+
+
+class _Refusing:
+    def post(self, url, **kw):
+        import requests
+        raise requests.ConnectionError(f"HTTPSConnectionPool(host='hooks.example.invalid'): "
+                                       f"Max retries exceeded with url: {SECRET_PATH}")
+
+
+def test_webhook_errors_name_the_host_not_the_url_path(caplog):
+    """L-A7: a connection error carried the webhook URL path into the log, the
+    outbox file and the GUI status; for chat-service webhooks the path is the
+    credential."""
+    from core.outputs import post_alert, send_webhook
+    url = "https://hooks.example.invalid" + SECRET_PATH
+    with pytest.raises(Exception) as info:
+        post_alert({"a": 1}, url, session=_Refusing())
+    assert SECRET_PATH not in str(info.value) and "xoxb" not in str(info.value)
+    assert "ConnectionError" in str(info.value) and "hooks.example.invalid" in str(info.value)
+    with caplog.at_level(logging.WARNING, logger="RansomwareScanner"):
+        send_webhook([_result()], url, session=_Refusing())
+    assert "xoxb" not in caplog.text and "hooks.example.invalid" in caplog.text

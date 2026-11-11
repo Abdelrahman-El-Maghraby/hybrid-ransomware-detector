@@ -401,3 +401,54 @@ def test_uploading_logs_does_not_cause_the_next_upload(tmp_path, app, caplog):
         assert [e["event"] for e in events] == ["scan_completed"]
     finally:
         logging.getLogger("RansomwareScanner").removeHandler(spool)
+
+
+# ------------------------------------------------------------------ L-A6
+def test_two_uploaders_send_each_item_once(tmp_path):
+    """L-A6 (check 14): spool_for() builds a new Spool, each with its own lock, so
+    the GUI and the background service (or two threads) uploaded the same item
+    and could lose state.json updates."""
+    folder = str(tmp_path / "spool")
+    first = C.Spool(folder)
+    for i in range(6):
+        first.add("report", f'{{"n": {i}}}'.encode())
+    sent, gate = [], threading.Barrier(2)
+
+    def put(kind, data):
+        sent.append(data)
+        return "ok"
+
+    def run():
+        gate.wait()
+        C.Spool(folder).upload_due(put)                  # separate objects, as spool_for
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert sorted(sent) == sorted(f'{{"n": {i}}}'.encode() for i in range(6))
+    assert C.Spool(folder).items() == []
+
+
+def test_an_upload_in_another_process_is_not_repeated(tmp_path):
+    import subprocess
+    import sys
+    folder = tmp_path / "spool"
+    spool = C.Spool(str(folder))
+    spool.add("report", b'{"n": 1}')
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time; sys.path.insert(0, sys.argv[2]); from core.outbox import _FlushLock\n"
+         "with _FlushLock(__import__('pathlib').Path(sys.argv[1]), 5, 'upload') as l:\n"
+         "    print(l.acquired, flush=True); time.sleep(3)",
+         str(folder), str(C.Path(__file__).resolve().parents[1])],
+        stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "True"
+        sent = []
+        counts = C.Spool(str(folder)).upload_due(lambda k, d: sent.append(d) or "ok")
+        assert sent == [] and counts["uploaded"] == 0
+    finally:
+        holder.wait(10)
+    assert len(C.Spool(str(folder)).items()) == 1                # still queued, not lost

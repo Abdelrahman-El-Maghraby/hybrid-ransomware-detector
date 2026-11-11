@@ -154,10 +154,10 @@ class _FlushLock:
     """Held for one flush: `acquired` is False when another flush kept the lock
     for longer than `wait` seconds (its alerts are being delivered anyway)."""
 
-    def __init__(self, folder: Path, wait: float):
-        self.folder, self.wait = folder, wait
+    def __init__(self, folder: Path, wait: float, name: str = "flush"):
+        self.folder, self.wait, self.name = folder, wait, name
         self.acquired = False
-        self._thread_lock = _folder_lock(folder, "flush")
+        self._thread_lock = _folder_lock(folder, name)
         self._fh: Optional[IO[bytes]] = None
 
     def __enter__(self) -> _FlushLock:
@@ -165,7 +165,7 @@ class _FlushLock:
         if not self._thread_lock.acquire(timeout=max(0.0, self.wait)):
             return self
         try:
-            fd = os.open(str(self.folder / ".flush.lock"),
+            fd = os.open(str(self.folder / f".{self.name}.lock"),
                          os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
             self._fh = os.fdopen(fd, "r+b")
             while not _try_lock_file(self._fh):

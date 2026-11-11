@@ -64,6 +64,13 @@ def sign(body: bytes, secret: str) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+def _failure(e: BaseException, url: str) -> str:
+    """L-A7: the error type and the host only. A webhook URL path can be the
+    credential (chat services), and request errors repeat it."""
+    from urllib.parse import urlsplit
+    return f"{type(e).__name__} from {urlsplit(url).hostname or 'the webhook'}"
+
+
 def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdict: str = "High",
                  session=None, timeout: float = 10) -> List[str]:
     """POST one alert per qualifying result; returns the file paths that were sent."""
@@ -85,7 +92,8 @@ def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdic
             else:
                 logger.warning("Webhook returned %s for %s", resp.status_code, r.get("file_path"))
         except Exception as e:
-            logger.warning("Webhook delivery failed for %s: %s", r.get("file_path"), e)
+            logger.warning("Webhook delivery failed for %s: %s", r.get("file_path"),
+                           _failure(e, url))
     return sent
 
 
@@ -99,7 +107,10 @@ def post_alert(payload: Dict, url: str, secret: str = "", session=None,
     headers = {"Content-Type": "application/json"}
     if secret:
         headers["X-Aegis-Signature"] = sign(body, secret)
-    resp = http.post(url, data=body, headers=headers, timeout=timeout)
+    try:
+        resp = http.post(url, data=body, headers=headers, timeout=timeout)
+    except Exception as e:
+        raise RuntimeError(_failure(e, url)) from None
     status = getattr(resp, "status_code", 0)
     if not 200 <= status < 300:
         raise RuntimeError(f"webhook answered HTTP {status}")
