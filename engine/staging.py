@@ -142,7 +142,10 @@ class StagedPipelineMixin:
         futures = [self._heavy_pool.submit(run_on_copy, layer) for layer in layers]
         for fut in futures:                      # merge in pipeline order: same report order
             sub = fut.result()
+            errors = sub.scan_results.pop("layer_errors", None)
             ctx.scan_results.update(sub.scan_results)
+            if errors:                           # L-E1: add to, never replace, the errors
+                ctx.scan_results.setdefault("layer_errors", {}).update(errors)
             for key, value in sub.signals.changed_since(before_signals).items():
                 ctx.signals.set(key, value)              # only what this layer changed
             for key, value in sub.result.items():

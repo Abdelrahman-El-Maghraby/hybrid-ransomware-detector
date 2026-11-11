@@ -14,6 +14,7 @@ adds one line, not a new branch.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -116,6 +117,8 @@ def _numbers(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
         value = cfg[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             errors.append(f"{_name(key, env)} must be a number, got {value!r}")
+        elif not math.isfinite(value):                  # L-E2: nan passes the range check
+            errors.append(f"{_name(key, env)}={value!r} is not a finite number")
         elif (low is not None and value < low) or (high is not None and value > high):
             span = f"{low:g}..{high:g}" if high is not None else f">= {low:g}"
             errors.append(f"{_name(key, env)}={value:g} is out of range ({span})")

@@ -247,3 +247,20 @@ def test_an_empty_environment_variable_overrides_a_stored_key(monkeypatch):
     sources = S.apply(cfg, kr)
     assert cfg["virustotal_api_key"] == "" and sources["VIRUSTOTAL_API_KEY"] == "environment"
     assert cfg["chatgpt_api_key"] == "from-keyring-OPENAI_API_KEY"     # unset: keyring
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_a_multi_line_secret_is_removed_completely(tmp_path, quote):
+    """L-E3: _remove_lines dropped only the first line of a quoted multi-line
+    value, so the rest of the secret stayed in .env."""
+    text = (f"# local\nOPENAI_API_KEY={quote}line-one-secret\nline-two-secret\n"
+            f"line-three-secret{quote}\nLLM_PROVIDER=none\nVT_UPLOAD_UNKNOWN=false\n")
+    env = _env_file(tmp_path, text)
+    values = _values(env)
+    assert "line-two-secret" in values["OPENAI_API_KEY"]          # dotenv reads it whole
+    kr = FakeKeyring()
+    result = S.migrate_env_file(env, values, kr)
+    assert result.moved == ["OPENAI_API_KEY"]
+    left = env.read_text()
+    assert "secret" not in left
+    assert left == "# local\nLLM_PROVIDER=none\nVT_UPLOAD_UNKNOWN=false\n"

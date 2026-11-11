@@ -181,11 +181,36 @@ def migrate_env_file(env_file: Path, values: Mapping[str, Optional[str]],
     return result
 
 
+def _closes(text: str, quote: str) -> bool:
+    """Whether `text` holds the closing `quote` (a double quote can be escaped)."""
+    escaped = False
+    for ch in text:
+        if escaped:
+            escaped = False
+        elif ch == "\\" and quote == '"':
+            escaped = True
+        elif ch == quote:
+            return True
+    return False
+
+
 def _remove_lines(env_file: Path, names: Set[str]) -> None:
     """Rewrite .env without the lines that set `names`, atomically, same permissions."""
     text = env_file.read_text(encoding="utf-8")
-    kept = [ln for ln in text.splitlines(keepends=True)
-            if not ((m := _LINE.match(ln)) and m.group(1) in names)]
+    kept: List[str] = []
+    open_quote = ""                       # L-E3: inside a quoted value of a removed name
+    for ln in text.splitlines(keepends=True):
+        if open_quote:
+            if _closes(ln, open_quote):
+                open_quote = ""
+            continue
+        m = _LINE.match(ln)
+        if m and m.group(1) in names:
+            value = ln[m.end():].lstrip()
+            if value[:1] in ("'", '"') and not _closes(value[1:], value[0]):
+                open_quote = value[0]
+            continue
+        kept.append(ln)
     mode = env_file.stat().st_mode & 0o777
     fd, tmp = tempfile.mkstemp(dir=str(env_file.parent), prefix=".env.", suffix=".tmp")
     try:

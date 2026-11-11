@@ -11,6 +11,7 @@ clear message instead of surfacing later as a silent default.
 """
 
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -115,10 +116,24 @@ def _env_float(name: str, default: float) -> float:
     if value is None or not str(value).strip():
         return default
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         ENV_PROBLEMS.append(f"{name}={value!r} is not a number")
         return default
+    if not math.isfinite(number):            # L-E2: nan and inf pass every comparison
+        ENV_PROBLEMS.append(f"{name}={value!r} is not a finite number")
+        return default
+    return number
+
+
+def _env_int(name: str, default: int) -> int:
+    """A whole-number setting. A positive value below 1 is reported (L-E2): it
+    would become 0, which means off, no limit or automatic for some settings."""
+    number = _env_float(name, default)
+    if 0 < number < 1:
+        ENV_PROBLEMS.append(f"{name}={number:g} would be read as 0; use a whole number")
+        return default
+    return int(number)
 
 
 def env_is_set(name: str) -> bool:
@@ -180,7 +195,7 @@ CONFIG = {
     # Optional self-hosted CAPEv2 sandbox (dynamic analysis). Empty URL = off.
     "sandbox_url": _getenv("SANDBOX_URL", ""),
     "sandbox_token": _getenv("SANDBOX_TOKEN", ""),
-    "sandbox_wait_seconds": int(_env_float("SANDBOX_WAIT_SECONDS", 600)),
+    "sandbox_wait_seconds": _env_int("SANDBOX_WAIT_SECONDS", 600),
     # "suspicious": only files the static layers already rate Medium or worse; "all": every top-level file
     "sandbox_submit": _getenv("SANDBOX_SUBMIT", "suspicious"),
     # Docker deployment: the analysis service has no network and reaches VirusTotal,
@@ -191,14 +206,14 @@ CONFIG = {
     # Node sandbox: enable inside an analysis VM / container only.
     "emulation_enabled": _env_bool("EMULATION_ENABLED", False),
     "emulation_tool": _getenv("EMULATION_TOOL", "box-js"),
-    "emulation_timeout": int(_env_float("EMULATION_TIMEOUT", 20)),
+    "emulation_timeout": _env_int("EMULATION_TIMEOUT", 20),
     # Reviewed weight changes (e.g. from tools/calibrate_weights.py); empty = registry as shipped
     "weights_override": _getenv("WEIGHTS_OVERRIDE", ""),
     # Folder scans: each file in a worker process with a time and memory limit
     "isolate_scans": _env_bool("ISOLATE_SCANS", True),
-    "scan_workers": int(_env_float("SCAN_WORKERS", 0)),          # 0 = automatic (up to 4)
-    "scan_timeout_seconds": int(_env_float("SCAN_TIMEOUT_SECONDS", 300)),
-    "worker_memory_mb": int(_env_float("WORKER_MEMORY_MB", 2048)),  # 0 = no limit
+    "scan_workers": _env_int("SCAN_WORKERS", 0),          # 0 = automatic (up to 4)
+    "scan_timeout_seconds": _env_int("SCAN_TIMEOUT_SECONDS", 300),
+    "worker_memory_mb": _env_int("WORKER_MEMORY_MB", 2048),  # 0 = no limit
     # Machine-readable outputs (SIEM / SOC): JSON Lines file and alert webhook
     "jsonl_path": _getenv("JSONL_PATH", ""),
     "webhook_url": _getenv("WEBHOOK_URL", ""),
@@ -208,22 +223,22 @@ CONFIG = {
     # comes from the secret store (SMTP_PASSWORD). In Docker these belong to the
     # intel service, which sends for the analysis service.
     "smtp_host": _getenv("SMTP_HOST", ""),
-    "smtp_port": int(_env_float("SMTP_PORT", 465)),
+    "smtp_port": _env_int("SMTP_PORT", 465),
     "smtp_security": _getenv("SMTP_SECURITY", "tls").lower(),
     "smtp_user": _getenv("SMTP_USER", ""),
     "smtp_password": _getenv("SMTP_PASSWORD", ""),
     "alert_email_from": _getenv("ALERT_EMAIL_FROM", ""),
     "alert_email_to": _getenv("ALERT_EMAIL_TO", ""),
     "alert_email_min_verdict": _getenv("ALERT_EMAIL_MIN_VERDICT", "High"),
-    "alert_email_per_hour": int(_env_float("ALERT_EMAIL_PER_HOUR", 20)),
-    "alert_email_per_day": int(_env_float("ALERT_EMAIL_PER_DAY", 100)),
+    "alert_email_per_hour": _env_int("ALERT_EMAIL_PER_HOUR", 20),
+    "alert_email_per_day": _env_int("ALERT_EMAIL_PER_DAY", 100),
     # The alert outbox (core/outbox.py): pending alerts, retried until delivered
     "outbox_dir": _getenv("OUTBOX_DIR", str(APP_DIR / "outbox")),
     "outbox_max_age_hours": _env_float("OUTBOX_MAX_AGE_HOURS", 24),
     # Folder monitoring (core/folder_watch.py, desktop): scan files as they arrive
     "watch_dirs": _getenv("WATCH_DIRS", ""),
     "watch_settle_seconds": _env_float("WATCH_SETTLE_SECONDS", 2),
-    "watch_max_queue": int(_env_float("WATCH_MAX_QUEUE", 1000)),
+    "watch_max_queue": _env_int("WATCH_MAX_QUEUE", 1000),
     "watch_retry_minutes": _env_float("WATCH_RETRY_MINUTES", 5),
     # Optional cloud storage of reports and logs (core/cloud.py): off by default,
     # desktop only, a redacted upload view to one S3-compatible bucket over HTTPS.
@@ -261,7 +276,7 @@ CONFIG = {
     "virustotal_upload_unknown": _env_bool("VT_UPLOAD_UNKNOWN", False),
     # Free public API: 4 requests/minute. Set 0 to disable client-side pacing.
     "virustotal_requests_per_minute": _env_float("VT_REQUESTS_PER_MINUTE", 4),
-    "http_timeout": int(_env_float("HTTP_TIMEOUT", 30)),
+    "http_timeout": _env_int("HTTP_TIMEOUT", 30),
 
     # --- Result cache (VirusTotal + LLM answers, keyed by SHA-256) ---------
     "cache_enabled": _env_bool("CACHE_ENABLED", True),
@@ -305,20 +320,20 @@ CONFIG = {
     # --- Mailbox (IMAP) scanning -------------------------------------------
     # Read-only, TLS only. Use an app password. Empty host = off.
     "imap_host": _getenv("IMAP_HOST", ""),
-    "imap_port": int(_env_float("IMAP_PORT", 993)),
+    "imap_port": _env_int("IMAP_PORT", 993),
     "imap_starttls": _env_bool("IMAP_STARTTLS", False),
     "imap_user": _getenv("IMAP_USER", ""),
     "imap_password": _getenv("IMAP_PASSWORD", ""),
     "imap_folder": _getenv("IMAP_FOLDER", "INBOX"),
-    "imap_since_days": int(_env_float("IMAP_SINCE_DAYS", 7)),
-    "imap_max_messages": int(_env_float("IMAP_MAX_MESSAGES", 200)),
+    "imap_since_days": _env_int("IMAP_SINCE_DAYS", 7),
+    "imap_max_messages": _env_int("IMAP_MAX_MESSAGES", 200),
     "imap_max_mb": _env_float("IMAP_MAX_MB", 25),
     "imap_state_path": str(DATA_DIR / "imap_state.json"),
-    "imap_check_minutes": int(_env_float("IMAP_CHECK_MINUTES", 0)),   # background mode; 0 = off
+    "imap_check_minutes": _env_int("IMAP_CHECK_MINUTES", 0),   # background mode; 0 = off
 
     # --- Canary tripwires ---------------------------------------------------
     "canary_registry": str(DATA_DIR / "canaries.json"),
-    "canary_check_minutes": int(_env_float("CANARY_CHECK_MINUTES", 5)),
+    "canary_check_minutes": _env_int("CANARY_CHECK_MINUTES", 5),
     # On a NEW trigger: "" (alert only, default) or any of "network_off,script"
     "canary_response": _getenv("CANARY_RESPONSE", ""),
     "canary_response_script": _getenv("CANARY_RESPONSE_SCRIPT", ""),
@@ -328,7 +343,7 @@ CONFIG = {
     "containment_state_file": str(DATA_DIR / "containment_state.json"),
 
     "report_directory": str(REPORT_DIR),
-    "scan_interval_hours": int(_env_float("SCAN_INTERVAL_HOURS", 6)),
+    "scan_interval_hours": _env_int("SCAN_INTERVAL_HOURS", 6),
 }
 
 VERDICT_RANK = {"Clean": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}

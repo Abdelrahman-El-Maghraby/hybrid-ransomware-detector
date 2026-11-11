@@ -858,6 +858,41 @@
   process test). That pipe is now closed (the test passes with no warning);
   test-only change after the run.
 
+### Rank 11: status check (2026-11-11)
+
+Each rank 11 item was checked against the code before work started; none had
+been fixed since section 30.
+- Done in groups 17 to 20 below: L-E1, L-E2, L-E3, L-C1, L-C2, L-C3, L-A1,
+  L-A3, L-D2, L-D3, L-B4, L-E7 and parts of the I-x row.
+- Not done here, as the register records:
+  - L-D1 and L-E4 are excluded on this host with the known memory failures
+    (30.6) and need the VM;
+  - L-E5 and L-E6 stay suspected: Tesseract is not installed here, and L-E6
+    is Windows only.
+
+### Group 17: L-E1, L-E2 and L-E3 (rank 11)
+
+- **L-E1.** `engine/staging._run_heavy` adds each parallel heavy layer's
+  `layer_errors` to the result instead of letting `dict.update` replace the
+  entry, which lost the other layers' errors. Test: two failing heavy layers
+  are both recorded. Before 1 failed; after, the pipeline, scan-status and
+  partial-evidence tests pass (93).
+- **L-E2.** Three changes:
+  - `engine/config._env_float` reports `nan` and `inf` and keeps the default;
+    the import no longer crashes with `SCAN_TIMEOUT_SECONDS=nan`.
+  - A new `_env_int`, used by the 16 whole-number settings, reports a
+    positive value below 1 instead of reading it as 0, which means no limit
+    for `WORKER_MEMORY_MB`, off for `IMAP_CHECK_MINUTES` and automatic for
+    `SCAN_WORKERS`. Other values truncate as before.
+  - `validate_config` rejects non-finite numbers set in code.
+  - Test: `tests/test_config_numbers.py` (6 tests, fresh processes). Before
+    5 failed; after 6 passed, with the config tests 58.
+- **L-E3.** `engine/secret_store._remove_lines` also removes the continuation
+  lines of a quoted multi-line value up to its closing quote (a double quote
+  may be escaped). Test: single and double quotes; only the other settings
+  stay in `.env`. Before 2 failed; after, with the other secret tests, 32
+  passed.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
