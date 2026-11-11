@@ -5089,3 +5089,84 @@ attaches the log bridge and the timers (`app.py:83-141`); pages are layout code.
 'a.zip' holding the same name and bytes                          -> Critical 95 ['archive_rtlo_spoof', 'archive_executable']
 generate_report() of the first result contains a raw U+202E      -> True
 ```
+
+### 33.2 Batch B: remaining detector and storage code
+
+Read: `detectors/prompt_guard.py` lines 152-623 (every inspector and helper),
+`detectors/relationship_scanner.py` lines 60-230, `engine/secret_store.py`
+lines 40-193, `core/outbox.py` lines 1-119. With batch A and section 32, every
+line of these files has now been read.
+
+**M31 (Medium, CONFIRMED by check 23; NEEDS APPROVAL, the same rule as the
+owner-approved M13 (b)). One malformed relationship part hides the others.**
+- *Where.* `detectors/relationship_scanner.py:136-151` parses every `.rels`
+  part in archive order inside one `try` (`:114-125`); `_DET.fromstring` on a
+  broken part raises, and the error result is built with no findings
+  (`:122-125`), dropping what earlier parts found.
+- *Trigger.* An Office file whose `word/_rels/settings.xml.rels` points at a
+  remote template, plus one extra part whose name ends in `.rels` and whose XML
+  is broken (`zz/_rels/x.xml.rels` holding `<Relationships`). The member order is
+  the attacker's.
+- *Effect.* Check 23: `High` 70 (`external_relationship`, complete) becomes
+  `Clean` 0 (partial). The partial status remains, the evidence and the alert do
+  not. M13 (b) fixed exactly this for the hidden-content check.
+- *Fix.* Parse each part in its own `try`; keep the findings, add the broken
+  part to `error` (partial) as M13 (b) does.
+- *Verification.* Check 23 as a test: the second file keeps
+  `external_relationship` and is partial.
+
+**L-D8 (Low, CONFIRMED by code path; NEEDS APPROVAL, `scan_status`).
+Hidden-content limits end the check silently.**
+- *Where.* `detectors/prompt_guard.py:583-588` (`_cells` stops after
+  `_MAX_CELLS` = 200,000 cells, `:64`) and `:361` (`_MAX_PDF_PAGES` = 50 pages).
+  Neither adds a `not_checked` note, unlike oversized XML parts (`:449-469`).
+- *Trigger.* A workbook whose first sheets hold 200,000 text cells and whose
+  later hidden sheet or hidden column holds an injection phrase; a PDF with the
+  invisible text on page 51.
+- *Effect.* No hidden-content or injection finding, and the scan reads
+  complete. Same class as H4, L-D5. Not reproduced (the inputs are large).
+- *Fix.* Record "N cells / pages not checked" in `not_checked`.
+- *Verification.* With the limits lowered in a test (as 28.6 did): the result
+  carries `not_checked` and the scan is partial.
+
+**L-E11 (Low, CONFIRMED by code path). An empty environment variable does not
+override a stored key.**
+- *Where.* `engine/secret_store.py:119-121`: `from_environment` returns `""`
+  for `VIRUSTOTAL_API_KEY=` set in the process environment; the empty value is
+  falsy, so the keyring value is used. The Settings page says "An environment
+  variable with the same name takes precedence"
+  (`aegis_gui/pages/settings.py:90-94`).
+- *Effect.* A user who exports an empty key to switch VirusTotal (or the cloud
+  LLM) off for a run still sends hashes (or text) with the stored key; the
+  start-up line names the source as `keyring`.
+- *Fix.* Treat a variable that is present in the process environment as the
+  value, even when empty.
+- *Verification.* With a stub keyring holding a key and `VIRUSTOTAL_API_KEY=`
+  in the environment, `apply()` sets the key to `""` with source `environment`.
+
+**I-B5 (Info, CONFIRMED by code path). E-mail alerts drop member indicators.**
+`core/outbox.py:66`, `:76-77` keep only reason codes made of letters, digits and
+underscores, so container indicators such as
+`archive_member:external_relationship` are removed. An e-mail about a
+`Critical` archive whose evidence comes from a member can list only the
+archive-level codes, or "-". Fix: send the base indicator name (after the last
+`:`). Verification: an archive alert's e-mail fields contain
+`external_relationship`.
+
+No other finding in batch B: `_inspect_docx`, `_inspect_xlsx`, `_inspect_xls`,
+`_inspect_pptx`, `_inspect_pdf` and the classification are bounded and keep
+findings on error (M13); deep group nesting in slides ends in a caught
+`RecursionError` (partial); the RTF and OOXML classification rules match their
+documentation; `migrate_env_file` and `_remove_lines` write atomically with the
+same mode (L-E3 still open); the outbox's id, band and canary payloads are
+metadata only.
+
+**Check 23 (M31).** Under a scratch `HOME`, in-process scanner, a document built
+with `tests/helpers.make_docx` and `rewrite_zip`:
+
+```
+remote.docx            settings.xml.rels -> attachedTemplate http://203.0.113.5/t.dotm
+                       -> High 70 complete ['external_relationship']
+remote_plus_bad.docx   the same, plus zz/_rels/x.xml.rels = b"<Relationships"
+                       -> Clean 0 partial []
+```
