@@ -43,6 +43,8 @@ and `docker compose run --rm --entrypoint python content RansomwareScanner.py --
 **Notice.** `aegis_scan_failures_total` rises; results have `scan_status: failed`,
 verdict at least Medium (`scan_failed` indicator), and the reason `timed out after Ns`,
 `the worker process died (exit code N)` or `MemoryError: the worker used N MB`.
+With a webhook or e-mail configured, each such file also sends a scan-failed notice
+(`kind: scan_failed`, `detection: false`, not a detection) whatever the verdict floor.
 `/ready` shows `workers: warm-up scan failed: ...` when workers cannot start at all.
 
 **Confirm.** Is it one file or every file? One file is the design working: a file that

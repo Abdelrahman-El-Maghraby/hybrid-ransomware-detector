@@ -83,12 +83,39 @@ def verdict_alert(result: Mapping[str, Any]) -> Dict[str, Any]:
             "webhook": webhook, "email": email}
 
 
+def _notice(result: Mapping[str, Any], kind: str, codes: List[str],
+            gaps: List[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The outbox entry for a notice that is not a detection (L-D7 ii, H6 a): the
+    result is not changed, the id differs from the verdict alert's, and the same
+    result gives the same id, so the outbox never sends it twice."""
+    sha = str(result.get("sha256_hash") or "")
+    scan_time = str(result.get("scan_time") or "")
+    path = str(result.get("file_path") or "")
+    alert_id = _alert_id(kind, sha, scan_time, path)
+    verdict = str(result.get("verdict") or "Clean")
+    email = {"alert_id": alert_id, "kind": kind, "verdict": verdict,
+             "risk_band": risk_band(result.get("risk_score")),
+             "sha256": sha if len(sha) == 64 else "",
+             "file_name": clean_text(result.get("file_name") or os.path.basename(path), 120),
+             "time": clean_text(scan_time, 40) or "-",
+             "scan_id": _alert_id("scan", scan_time, sha)[:16],
+             "reason_codes": codes}
+    webhook = {"source": "aegis-sentinel", "alert_id": alert_id, "kind": kind,
+               "detection": False, "schema_version": result.get("schema_version"),
+               "engine_version": result.get("engine_version"), "scan_time": scan_time,
+               "file_path": path, "sha256": sha, "verdict": verdict,
+               "risk_score": result.get("risk_score"),
+               "scan_status": result.get("scan_status", "complete"),
+               "gaps": [{"member_path": str(g.get("member_path", "")),
+                         "reason": clean_text(g.get("reason", ""), 300)} for g in gaps[:10]]}
+    return {"id": alert_id, "kind": kind, "verdict": verdict,
+            "webhook": webhook, "email": email}
+
+
 def incomplete_alert(result: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     """L-D7 (ii): a notice, not a detection, when CHM content was left unread: help
     pages over the read limit, or pages not scanned because of the member limit (also
-    for a CHM inside an archive or e-mail). None otherwise.
-    The result itself is not changed; its id differs from the verdict alert's, and
-    the same result gives the same id, so the outbox never sends it twice."""
+    for a CHM inside an archive or e-mail). None otherwise."""
     from detectors.embedded_content import CHM_MEMBER_LIMIT_MARK, CHM_READ_LIMIT_MARK
     gaps = [g for g in result.get("incomplete_reasons") or [] if isinstance(g, Mapping)
             and any(m in str(g.get("reason", "")) for m in (CHM_READ_LIMIT_MARK,
@@ -99,39 +126,40 @@ def incomplete_alert(result: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     codes = [code for code, mark in (("chm_pages_not_read", CHM_READ_LIMIT_MARK),
                                      ("chm_members_not_scanned", CHM_MEMBER_LIMIT_MARK))
              if any(mark in x for x in texts)]
-    sha = str(result.get("sha256_hash") or "")
-    scan_time = str(result.get("scan_time") or "")
-    path = str(result.get("file_path") or "")
-    alert_id = _alert_id("incomplete_scan", sha, scan_time, path)
-    verdict = str(result.get("verdict") or "Clean")
-    email = {"alert_id": alert_id, "kind": "incomplete_scan", "verdict": verdict,
-             "risk_band": risk_band(result.get("risk_score")),
-             "sha256": sha if len(sha) == 64 else "",
-             "file_name": clean_text(result.get("file_name") or os.path.basename(path), 120),
-             "time": clean_text(scan_time, 40) or "-",
-             "scan_id": _alert_id("scan", scan_time, sha)[:16],
-             "reason_codes": codes}
-    webhook = {"source": "aegis-sentinel", "alert_id": alert_id, "kind": "incomplete_scan",
-               "detection": False, "schema_version": result.get("schema_version"),
-               "engine_version": result.get("engine_version"), "scan_time": scan_time,
-               "file_path": path, "sha256": sha, "verdict": verdict,
-               "risk_score": result.get("risk_score"),
-               "scan_status": result.get("scan_status", "complete"),
-               "gaps": [{"member_path": str(g.get("member_path", "")),
-                         "reason": clean_text(g.get("reason", ""), 300)} for g in gaps[:10]]}
-    return {"id": alert_id, "kind": "incomplete_scan", "verdict": verdict,
-            "webhook": webhook, "email": email}
+    return _notice(result, "incomplete_scan", codes, gaps)
+
+
+# H6 (a): the failure texts of engine/workers.py, as engine/metrics.py reads them.
+_FAILURE_CODES = (("MemoryError", "worker_memory_limit"), ("timed out", "scan_timed_out"),
+                  ("died", "worker_died"))
+
+
+def failed_alert(result: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """H6 (a): a notice, not a detection, when a file's scan failed (time-out, a dead
+    worker, the memory limit or a scan error), so its findings were not assessed.
+    None otherwise, and for a file that was never scanned because no isolated worker
+    could start (isolation_unavailable: the CLI exits 3 and the GUI and API report it)."""
+    failed = (result.get("scan_results") or {}).get("scan_failed")
+    if not isinstance(failed, Mapping) or failed.get("code") == "isolation_unavailable":
+        return None
+    why = str(failed.get("reason", ""))
+    code = next((c for mark, c in _FAILURE_CODES if mark in why), "scan_error")
+    gaps: List[Mapping[str, Any]] = [g for g in result.get("incomplete_reasons") or []
+                                     if isinstance(g, Mapping)]
+    return _notice(result, "scan_failed", [code],
+                   gaps or [{"member_path": result.get("file_path", ""), "reason": why}])
 
 
 def results_alerts(results: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     """The outbox entries for scan results: a verdict alert each (queued only at or
-    above a channel's floor) and, for a CHM read-limit gap, an incomplete-scan notice."""
+    above a channel's floor) and the notices that are not detections: a CHM gap
+    (incomplete_scan) or a failed scan (scan_failed)."""
     out: List[Dict[str, Any]] = []
     for r in results:
         out.append(verdict_alert(r))
-        notice = incomplete_alert(r)
-        if notice is not None:
-            out.append(notice)
+        for notice in (incomplete_alert(r), failed_alert(r)):
+            if notice is not None:
+                out.append(notice)
     return out
 
 
@@ -403,9 +431,10 @@ def channels_for(alert: Mapping[str, Any], config: Mapping[str, Any],
                  email_available: bool) -> List[str]:
     """Which channels this alert goes to under `config`: a canary trip on every
     configured channel; a verdict at or above each channel's minimum. An
-    incomplete-scan notice is not a verdict: every configured channel (L-D7 ii)."""
+    incomplete-scan (L-D7 ii) or failed-scan (H6 a) notice is not a verdict: every
+    configured channel."""
     rank = RANK.get(str(alert.get("verdict")), 0)
-    canary = alert.get("kind") in ("canary", "incomplete_scan")
+    canary = alert.get("kind") in ("canary", "incomplete_scan", "scan_failed")
     out = []
     if config.get("webhook_url") and (
             canary or rank >= RANK.get(str(config.get("webhook_min_verdict") or "High"), 3)):

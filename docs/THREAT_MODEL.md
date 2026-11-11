@@ -40,8 +40,10 @@ library cannot handle; an archive nests 50 levels deep.*
   the GUI's single file, a one-file folder) and monitored files. A hung or dead
   worker is replaced and the file is reported as `scan_failed` (Medium)
   (`engine/workers.py`). That result replaces the file's other findings, and Medium
-  is below the default alert floor (High), so a file that outlasts the limit is not
-  alerted on by default (H6 in `docs/PROJECT_REVIEW.md`).
+  is below the default alert floor (High). Since H6 (a) (`docs/PROJECT_REVIEW.md`)
+  such a file sends a separate scan-failed notice (`kind: scan_failed`, not a
+  detection) to every configured channel whatever the floor; its other findings are
+  still lost (H6 (b), not done), so automatic quarantine does not act on it.
 - **Isolation fails closed (4.8).** When workers cannot start (three failed starts,
   or a worker silent for 120 s at start-up), nothing is parsed in the scanning
   process: every file left gets a `failed` result with the code
@@ -395,7 +397,7 @@ residual risk.
 | macOS memory watchdog reacts within 0.25 s, not instantly | Low | Run the API on Linux or in a VM |
 | Local tampering with config / allowlist | Medium | OS file permissions; signed config (future) |
 | Unsigned binaries | Medium | Code-signing certificates |
-| Slow-file DoS up to the timeout | Medium | The timed-out file reads Medium, without its other findings, below the default alert floor (H6, open). Lower SCAN_TIMEOUT_SECONDS where latency matters |
+| Slow-file DoS up to the timeout | Medium | The timed-out file reads Medium, without its other findings, below the default alert floor; a scan-failed notice goes to the configured channels (H6 (a)); the lost findings remain (H6 (b), open). Lower SCAN_TIMEOUT_SECONDS where latency matters |
 | Parser exploit forges the result of the file that exploited it | Low | Fresh worker per API upload; cached external answers live only in intel |
 | Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
 | Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |

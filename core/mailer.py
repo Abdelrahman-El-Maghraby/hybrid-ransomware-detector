@@ -34,7 +34,7 @@ from email.utils import formatdate, make_msgid
 from typing import Any, Callable, Deque, Dict, List, Mapping, Optional
 
 VERDICTS = ("Clean", "Low", "Medium", "High", "Critical")
-KINDS = ("verdict", "canary", "incomplete_scan")
+KINDS = ("verdict", "canary", "incomplete_scan", "scan_failed")
 _ALERT_ID = re.compile(r"^[0-9a-f]{32}$")
 _SCAN_ID = re.compile(r"^([0-9a-f]{16})?$")
 _SHA256 = re.compile(r"^([0-9a-f]{64})?$")
@@ -110,11 +110,17 @@ def email_configured(config: Mapping[str, Any]) -> bool:
 SUBJECTS = {"verdict": "Aegis Sentinel alert: {verdict} - {file_name}",
             "canary": "Aegis Sentinel alert: ransomware tripwire triggered",
             "incomplete_scan": "Aegis Sentinel notice: incomplete scan (not a detection) - "
-                               "{file_name}"}
-# L-D7 (ii): the incomplete-scan notice says what it is; the other kinds keep their text.
+                               "{file_name}",
+            "scan_failed": "Aegis Sentinel notice: scan failed (not a detection) - {file_name}"}
+# L-D7 (ii), H6 (a): the notices say what they are; the other kinds keep their text.
 INTROS = {"incomplete_scan": "Aegis Sentinel could not inspect part of a file. This is not a "
                              "malware detection:\nthe verdict below covers only what was "
-                             "inspected (help-file content over a read or member limit)."}
+                             "inspected (help-file content over a read or member limit).",
+          # H6 (a)
+          "scan_failed": "Aegis Sentinel could not finish scanning a file (time-out, a stopped "
+                         "worker or a scan error).\nThis is an incomplete scan, not a malware "
+                         "detection: the file's contents were not\nassessed, and the verdict "
+                         "below reflects only the failed scan. Scan it again or check it by hand."}
 BODY = """{intro}
 
 Kind:         {kind}
