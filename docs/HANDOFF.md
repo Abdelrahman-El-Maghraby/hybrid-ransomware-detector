@@ -506,6 +506,31 @@
   read as UTF-8. Before the fix: 5 failed, 8 passed. After: 13 passed; with the
   other mail test files, 73 passed. ruff and mypy clean.
 
+### Group 6: L-C6 (rank 7)
+
+- Cause confirmed: `_llm_posture_label` (`engine/report.py`) and
+  `_llm_card_state` (`aegis_gui/pages/dashboard.py`) tested the class name for
+  "Ollama" or "OpenAI". With `AEGIS_INTEL_SOCKET` the backend is
+  `IntelLLMBackend`, so both said disabled even when intel sends text to a
+  cloud LLM.
+- Fix: both now use the backend's `available`, `is_local` and `model` (or
+  `name`). One visible text change: a direct OpenAI backend now reads
+  `CLOUD (<model> - documents leave the machine)` instead of
+  `CLOUD (OpenAI - ...)`, the same form as the LOCAL line. Nothing pinned the
+  old text.
+- The 33.1 addition: the VirusTotal card said "Connected" whenever a key was
+  set, with no request made; it now says "Key set".
+- Test: `tests/test_llm_posture.py` (15 tests). The report line and the card
+  for an intel stand-in (cloud, local, disabled, unreachable), direct Ollama,
+  direct OpenAI, the null backend and no backend. The card tests import the
+  GUI module and skip without Tkinter; the report tests do not. Before the
+  fix: 6 failed (4 intel cases, plus the changed OpenAI text), 9 passed.
+  After: 15 passed. ruff and mypy clean; the dashboard module imports. The
+  cards were not shown on a display.
+- Not changed (observation): with intel, the VirusTotal key lives in the
+  intel service, so the card still says "Key missing" there. Showing intel's
+  VirusTotal state would need a capability call from the GUI thread.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

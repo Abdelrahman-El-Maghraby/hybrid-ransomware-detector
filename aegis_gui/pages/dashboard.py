@@ -224,7 +224,8 @@ class DashboardPage(BasePage):
             self.card_yara.update_card("—", "Libs missing", False)
 
         vt_key = scanner.config.get("virustotal_api_key")
-        self.card_vt.update_card("API v3", "Connected" if vt_key else "Key missing",
+        # L-C6 addition: no request is made here, so say only that a key is set.
+        self.card_vt.update_card("API v3", "Key set" if vt_key else "Key missing",
                                  bool(vt_key))
 
         # LLM — reflect the active backend posture (local vs cloud vs off).
@@ -268,9 +269,7 @@ class DashboardPage(BasePage):
     def _llm_card_state(scanner):
         """Map the active LLM backend to (value, status, ok) for its card."""
         backend = getattr(scanner, "llm_backend", None)
-        name = backend.__class__.__name__ if backend else ""
-        if "Ollama" in name:
-            return (getattr(backend, "model", "ollama"), "Local · OPSEC", True)
-        if "OpenAI" in name:
-            return (scanner.config.get("openai_model", "openai"), "Cloud", True)
-        return ("—", "Disabled", False)
+        if backend is None or not backend.available:     # L-C6: not by class name
+            return ("—", "Disabled", False)
+        model = getattr(backend, "model", "") or backend.name
+        return (model, "Local · OPSEC" if backend.is_local else "Cloud", True)

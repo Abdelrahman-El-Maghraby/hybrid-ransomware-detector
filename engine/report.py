@@ -208,12 +208,13 @@ LLM posture:            {self._llm_posture_label()}
         backend = getattr(self, "llm_backend", None)
         if backend is None:
             return "none"
-        name = backend.__class__.__name__
-        if "Ollama" in name:
-            return f"LOCAL ({getattr(backend, 'model', 'ollama')})"
-        if "OpenAI" in name:
-            return "CLOUD (OpenAI - documents leave the machine)"
-        return "disabled"
+        # L-C6: ask the backend, so the intel service's LLM is described too.
+        if not backend.available:
+            return "disabled"
+        model = getattr(backend, "model", "") or backend.name
+        if backend.is_local:
+            return f"LOCAL ({model})"
+        return f"CLOUD ({model} - documents leave the machine)"
 
 
 # --------------------------------------------------------------------------
