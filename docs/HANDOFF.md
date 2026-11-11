@@ -686,6 +686,20 @@
   - I-B3's stand-in LLM and sandbox URLs for `deploy/isolation_check.py`;
   - running the compose changes in containers.
 
+### Full-suite evidence for groups 8 to 11
+
+- Safe selection in a clean worktree at `4665b0c`, with the QR decoder and
+  `-W default::ResourceWarning`: **1,429 passed, 0 failed, 23 skipped, 4
+  deselected**, 278 s. `test_smoke.py` passed.
+- I-T2: **0** "unclosed database" warnings; 33.4 recorded 199 per safe run.
+- 15 warnings remain:
+  - one Starlette deprecation;
+  - 14 other resources, not SQLite: unclosed text files under pytest
+    collection, three loopback SSL sockets, and files in
+    `tools/mbox_to_eml.py:61`, `tests/test_mbox_tool.py:15` and
+    `tests/test_evaluation_tools.py:110`.
+  These are new test-hygiene notes, not fixed here.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -710,9 +724,14 @@ SAFE items, in order (done items are marked):
 4. the SAFE file-name items (M20, L-E9, I-T3): done, group 4.
 5. Rank 7: M28 (with D38) and L-C6 done, groups 7 and 6. M33 (owner-approved)
    done, group 5.
-6. Next SAFE work in 33.6 order: rank 9 (tests), rank 10 onward. Rank 6 has
-   SAFE parts (the M27 compose change and start-up check). M18 is still not
-   approved (owner, 2026-11-11).
+6. Rank 9: L-T1, L-B3, I-T2, S-T1 and the 33.4 rule tests done (groups 8
+   to 10). I-T1 stays deferred. The other 33.4 missing tests wait on owner
+   items (M29, M32, S-Y1 to S-Y3, M30, M31, L-D8).
+7. Rank 6 SAFE parts done (group 11): the M26 start-up check and the M27
+   compose part. They still need a Docker host for the M27 signed-pack
+   install in `deploy/check-deployment.sh`, I-B3, and a container run.
+8. Next SAFE work: rank 10 (low code items), then 11, 12 and 14. M18, L-E12
+   and the 33.7 owner decisions are unchanged (owner, 2026-11-11).
 
 Each item needs its regression test and the full gates afterwards (pytest,
 ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must
