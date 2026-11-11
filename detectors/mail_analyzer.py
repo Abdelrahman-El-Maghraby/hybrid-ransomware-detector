@@ -719,7 +719,8 @@ def _decode_text(part: Message) -> str:
         if codecs.lookup(charset).name == "punycode":
             charset = "utf-8"
         return payload.decode(charset, errors="replace")
-    except LookupError:
+    # M33: idna and undefined raise UnicodeError even with errors="replace".
+    except (LookupError, UnicodeError):
         return payload.decode("utf-8", errors="replace")
 
 

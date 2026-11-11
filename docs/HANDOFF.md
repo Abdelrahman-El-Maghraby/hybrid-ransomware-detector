@@ -487,6 +487,25 @@
   pass-through `printable`): 4 of 4. After the fix: 155 tests across the
   touched files pass. ruff, mypy and bandit clean.
 
+### Group 5: M33 (owner-approved, 2026-11-11)
+
+- The owner approved the proposed fix: a mail part that declares
+  `charset=idna` or `charset=undefined` is read as UTF-8.
+- Cause confirmed: of all codecs in the standard library, only `idna` and
+  `undefined` raise `UnicodeError` from `bytes.decode(..., errors="replace")`
+  (checked by decoding test bytes with every codec). `_decode_text` caught
+  only `LookupError`, so the error ended the whole analysis.
+- Fix: `_decode_text` in `detectors/mail_analyzer.py` also catches
+  `UnicodeError` and decodes as UTF-8. Every other charset takes the same path
+  as before. Encoded-word headers (`=?idna?Q?..?=`) already did not raise,
+  checked in-process.
+- Test: `tests/test_mail_charset.py` (13 tests). The body, the planted
+  password and an empty `error` with `idna`, `undefined` and `IDNA`; the UTF-8
+  fallback; six valid charsets (utf-8, latin-1, cp1252, shift_jis, utf-16,
+  koi8-r) give the same text as a direct decode; unknown and `punycode` still
+  read as UTF-8. Before the fix: 5 failed, 8 passed. After: 13 passed; with the
+  other mail test files, 73 passed. ruff and mypy clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -506,7 +525,7 @@ SAFE items, in order (done items are marked):
 1. M21 and L-B7 (CI): done, group 1 (local commit after `05aae35`).
 2. H5, M22 and I-5 (the time-out class): done, group 2 (the local commit
    after group 1).
-   New for the owner: M33 (needs approval) and L-E12 (see group 2).
+   New: M33 (owner-approved, done in group 5) and L-E12 (see group 2).
 3. M17: done, group 3. M18: waits for the owner's choice of direction.
 4. the SAFE file-name items (M20, L-E9, I-T3): done, group 4.
 5. Next SAFE work in 33.6 order: rank 7 (M28, L-C6), rank 9 (tests), rank 10
