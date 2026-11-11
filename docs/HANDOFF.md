@@ -1174,6 +1174,71 @@ Notes:
   Fixed after the run; the mbox tests then pass with no warning. The rest are
   as before: Starlette, test sockets and files.
 
+### Final safe run at `04f396e` (owner request, 2026-11-11)
+
+- Clean worktree, `env -i PATH=/usr/bin:/bin`, scratch `HOME` and `TMPDIR`,
+  `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. Command: `.venv/bin/python -m pytest
+  -p no:cacheprovider -q -rfE --tb=short -W default::ResourceWarning -o
+  faulthandler_timeout=300 --ignore=tests/test_fuzz_parsers.py`, deselecting the
+  runaway-memory test and the three intel socket tests.
+- Result: **1,500 passed, 0 failed, 23 skipped, 4 deselected, 13 warnings**,
+  301 s. 0 "unclosed database". `test_smoke.py`: "ALL SMOKE TESTS PASSED".
+
+### L-D7 option (b): proposal, not implemented (waits for the owner)
+
+- **Cap.** A new `MAX_CHM_READS = 1000`: the most pages and files `_chm` reads
+  with `7z e -so`. Internal streams (`#...`, `$...`), folders and links are
+  not counted, as today. Pages over `MAX_MEMBER_BYTES` stay skipped as today,
+  and the 25-member limit is unchanged.
+- **Why 1,000.**
+  - The phishing CHM files this check is for are small, a handful of pages,
+    and most product help files have tens to a few hundred.
+  - 1,000 keeps today's coverage for all of them, at a cost that is a small
+    part of the 300 s scan limit.
+  - Large reference CHMs (programming-language manuals) can have several
+    thousand pages; they would read partial.
+  - 500 would halve the cost but reach that point sooner; this was chosen
+    from typical sizes, not measured on a corpus.
+- **Resource cost (measured here).**
+  - Starting `7zz` takes 4.2 ms. Reading one page with `7z e -so` from a
+    synthetic 600-page ZIP took 3.9 to 4.0 ms (50 and 200 reads, macOS arm64).
+  - So 1,000 pages is about 4 s of 7-Zip time, plus a CHM index that may cost
+    more than a ZIP's.
+  - Today a hostile file with 75,000 tiny pages would take about 300 s and
+    end as a timeout (H6). With the cap the worst case stays near 4 s.
+  - 7-Zip is not in the server image: desktop and analysis VM only.
+- **What can be missed beyond the cap.**
+  - The HTML Help ShortCut object (`chm_shortcut_command`, 60 technical
+    points) on a page after the 1,000th. Alone it makes a file High (50 to
+    79), so such a file would read Clean, but partial.
+  - Pages are read in sorted path order, so an attacker who adds 1,000 filler
+    pages in front can push the ShortCut page past the cap. That costs them
+    the partial flag and a 1,000-page file.
+  - A script or program page that would have been one of the first 25
+    members but sorts after the cap.
+- **When `scan_status` becomes partial.** Only when pages are left unread:
+  `res.skip("N of M help pages not read (read limit 1000)")`. The existing
+  embedded-content rule (`engine/completeness.py`: every `skipped` entry is a
+  partial reason) makes the file partial with the reason "not unpacked: N of M
+  help pages not read (read limit 1000)". A CHM with at most 1,000 pages is
+  unchanged.
+- **Regression tests (stand-in `sevenzip_list` and `sevenzip_read`, as in
+  `test_chm_pages_are_scanned_and_shortcut_object_flagged`):**
+  1. 1,200 pages: `sevenzip_read` is called exactly 1,000 times, and
+     `skipped` holds "200 of 1200 help pages not read (read limit 1000)".
+  2. A ShortCut page at position 1,000: found, nothing skipped, `complete`.
+  3. A ShortCut page at position 1,001: not found, skipped note present;
+     through the scanner, `scan_status` is `partial` with that reason.
+  4. 30 pages: all read, nothing skipped, `complete`; the existing CHM test
+     unchanged.
+  5. 2,000 internal streams (`#SYSTEM`, `$FIftiMain`) plus 10 pages: 10
+     reads, no skip.
+  6. 40 script pages within the cap: 25 members as today, the rest
+     "member limit reached".
+- Optional later: read the CHM's default topic (named in `#SYSTEM`) first,
+  since a ShortCut that runs on opening is usually there. Not part of this
+  proposal.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
