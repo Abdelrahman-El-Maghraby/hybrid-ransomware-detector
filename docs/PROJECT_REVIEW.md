@@ -5085,7 +5085,7 @@ attaches the log bridge and the timers (`app.py:83-141`); pages are layout code.
 **Check 22 (M30).** Under a scratch `HOME`, in-process scanner as in 31.4:
 
 ```
-'invoice‮fdp.exe'   (bytes b"MZ" + 300 zero bytes)          -> Clean 0 []
+'invoice<U+202E>fdp.exe'   (bytes b"MZ" + 300 zero bytes)          -> Clean 0 []
 'a.zip' holding the same name and bytes                          -> Critical 95 ['archive_rtlo_spoof', 'archive_executable']
 generate_report() of the first result contains a raw U+202E      -> True
 ```
