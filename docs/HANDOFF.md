@@ -2,8 +2,9 @@
 
 - Status: production-engineering review and staged fixes; not ready for merge and
   not production ready. Latest step: Claude's review of the components section
-  31 left unread (findings only, 2026-11-11), PROJECT_REVIEW section 32, after
-  the whole-repository review of section 31 (commit `6cde91e`).
+  32 left (findings only, 2026-11-11), PROJECT_REVIEW section 33. It ends the
+  review stage with one ranked repair plan for sections 28 to 33 (33.6). The
+  next stage is implementation.
 - Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
@@ -271,51 +272,85 @@
   L-C11, I-B3, I-B4. Additions to L-E7, L-C1, I-1 and L-A7 (32.4). Five more
   documentation corrections, D38 to D42 (32.5).
 
+## Claude review of the components section 32 left (2026-11-11): findings only
+
+- Scope: the components 32.8 listed, from commit `7e449cb`. Only
+  `docs/PROJECT_REVIEW.md` (new section 33) and this file were edited.
+  - No code, test, CI, dependency or detection change, and nothing pushed.
+  - `.arena/` untouched. No Arena run, no subagent, no suite rerun; the
+    baseline is section 30.
+- Coverage (33.5):
+  - Reviewed in full: the GUI layout and start-up, the `prompt_guard`
+    inspectors, `relationship_scanner.py`, the body of `secret_store.py`, the
+    first 119 lines of `outbox.py`, and all 25 YARA rules with their strings.
+  - Reviewed as dated notes or briefs: `DETECTION_v3`/`v4`, `docs/tasks/*`.
+  - Tests: every one of the 95 files under `tests/` and `test_smoke.py` was
+    checked for structure and assertions (941 tests); only some parts were read
+    line by line. This item is partly reviewed.
+  - Not opened: the binary RAR fixtures.
+  - So this is not a complete line-by-line audit.
+- Checks run (all synthetic, in-process, under a scratch `HOME`):
+  - check 22: a top-level file name with U+202E
+  - check 23: a docx with one malformed relationship part
+  - check 24: a short ransomware advisory page
+- New findings (33.1 to 33.4):
+  - **M30.** A right-to-left override in a top-level name is not a finding:
+    Clean 0, while the same name inside a ZIP is Critical 95. Needs approval.
+  - **M31.** One malformed `.rels` part drops the earlier relationship findings,
+    so a remote-template docx turns from High 70 into Clean, partial. Needs
+    approval.
+  - **M32.** A short ransomware advisory scores High 73 from the ransom-note
+    rules. Needs approval.
+  - Low or informational: L-D8 (needs approval), L-E11, I-B5, L-T1, I-T3.
+  - Suspicions S-Y1 to S-Y4 (YARA admin-command rules) and S-T1 (sleep-based
+    tests).
+  - Additions to L-E9, L-C6 and L-B3.
+- `PROJECT_REVIEW.md` carried a raw U+202E from the batch A checkpoint. It
+  was replaced with a placeholder in `632ef11`. Scan added lines for bidirectional
+  characters before every commit.
+
 ## Exact next action
 
-Owner decisions first:
+The review stage is closed; the next stage is implementation in the order of
+PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
+in 33.7 and must be obtained before the OWNER items:
+- H6 (a)/(b) and M18's direction
+- M23, M24, M25, M30, M31
+- L-D5, L-C7, L-D8
+- the M26 wait cap and the M27 empty-key rule
+- M29, M32 and S-Y1 to S-Y4
+- M19 and L-L1
+- the section 28 deferred items
+- D22, D23 and D26
+- I-1, I-2 and I-6
 
-1. Fix M21 (lock update) and L-B7 (test only) before anything else? Both make CI
-   fail whatever else is on the branch (unchanged from section 30).
-2. H6: alerts for failed scans, partial evidence kept, or both?
-3. M23, M24, M25, M29, the M26 wait cap, the M27 empty-key rule, L-D5 and
-   L-C7 change
-   inspection behaviour, `scan_status` or a response action: approve, defer or
-   reject each. Unchanged from before: M19 and L-L1 (29.14), the direction for
-   M18, and the section 28 deferred items (M4, H-04, low items, I-T1, M15
-   packaging).
-4. Documentation questions D22, D23 and D26 (31.11): outputs and quarantine in
-   the Docker edition; Python 3.9 in 4.8.
-5. How to get CI on HEAD without restarting the Atheris campaigns (a push plus
-   a manual dispatch of `tests.yml`, `quality.yml` and `docker.yml`, 30.7).
+SAFE items can start without a decision, beginning with:
+1. M21 and L-B7 (CI)
+2. H5 and M22 (the time-out class)
+3. M17 and M18
+4. the SAFE file-name items (M20, L-E9, I-T3)
 
-Then the fix stage, each item with its regression test and the full gates
-afterwards (pytest, ruff, mypy, bandit, pip-audit), in the order of 32.6:
+Each item needs its regression test and the full gates afterwards (pytest,
+ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must
+change with their fix are listed in 33.4.
 
-1. M21 and L-B7.
-2. H5.
-3. H6 (a), if approved.
-4. M22, before any fuzz campaign is restarted.
-5. The compose part of M27 and the start-up check of M26.
-6. M28.
-7. M17 and M18 (section 29), then H6 (b) if approved.
-8. The approved items: M23, M24, M25, M29, the M26 wait cap, the M27 empty-key
-   rule, L-D5, L-C7, M19, L-L1.
-9. Low items in code: L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, L-C6,
-   L-E9, L-E10, I-B1, I-B2, with M20, L-E8, L-G1, L-A4 and I-T2.
-10. Tools: L-C8, L-C9, L-C10, L-C11, I-B4 and L-C4.
-11. Documentation corrections D1 to D42, with L-B6.
-12. CI on the branch, I-B3, then the Windows, Docker and VM items of 30.11.
+Commit state:
+- In local commits: section 31 in `6cde91e`, section 32 in `7e449cb`.
+- Section 33 checkpoints, also local: `3ee787c` (batch A), `18635cc` (batch
+  B), `c2de93e` (batch C) and `632ef11` (character fix).
+- Batch D, 33.5 to 33.8 and this update are meant to go into one more local
+  documentation commit. Its ID is reported in chat and visible in `git log`; a
+  commit cannot record its own ID. Until that commit exists, these are
+  uncommitted changes.
+- Pushed: nothing on this branch, ever.
+- The untracked `.arena/` folder is unrelated and preserved.
 
-Commit state: section 31 is in local commit `6cde91e`. Section 32 and this
-update are meant to go into one local documentation commit on top of it; its
-ID is reported in chat and visible in `git log` (a commit cannot record its own
-ID). Until that commit exists, both files are uncommitted changes. Pushed:
-nothing on this branch, ever. The untracked `.arena/` folder is unrelated and
-preserved.
-
-Still unverified: everything listed in 30.11, 31.12 and 32.7, the release gate job
-(tag only), the deploy scripts against real Docker, the Windows behaviour of the
-outbox lock (`msvcrt.locking`) and of the UTF-8 report fix, the delivery step of
-M24, the Docker part of M27, M29 on the benign corpus, and every Windows, ARM64
-and Intel statement in 29.10, 30.7 and 31.8.
+Still unverified (33.7 lists the platform checks):
+- CI on this branch
+- the Windows items: M2, M9, M20, M24, L-E6, toasts, containment, autostart
+- Docker: M27, I-B3 and the deploy scripts
+- Linux ARM64, Windows ARM64 and macOS Intel
+- the GUI on a display
+- the VM items: 27.5, L-D1, L-E4, OOM-H, real-sample evaluation
+- the release gate job (runs on a tag only)
+- the benign corpus for M29, M32 and S-Y1 to S-Y4

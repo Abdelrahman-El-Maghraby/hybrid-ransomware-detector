@@ -5253,3 +5253,199 @@ the ransom; restore your files from backups."
 advisory.html  -> High 73  yara ['Ransom_Note_Language', 'Crypto_Ransom_Extortion_Combo']
                   indicators ['yara_match']
 ```
+
+### 33.4 Batch D: tests, file by file
+
+**Method and depth.** Each of the 95 tracked Python files under `tests/` (88
+test modules and 7 support files), plus `test_smoke.py`, was parsed. For each file this records the test count, the
+number of `assert` statements, and every test function that has no assertion,
+`pytest.raises` or `fail()`. It also records patterns that touch the host:
+`time.sleep`, the home folder, sockets and loopback, and literal `/tmp` paths.
+The three binary RAR fixtures and their README are listed but were not opened.
+
+Every file was then checked against its module docstring. These were read in
+full or at the lines given:
+- `conftest.py`, `test_yara_rules.py`, the first 41 lines of `test_smoke.py`
+- `test_relationship_scanner.py:73-81`, `test_report_files.py:18-37`,
+  `test_mail_html_linear.py:40-86`, `test_regression_corpus.py:1-30`
+- the five test functions with no `assert`
+- every `/tmp` and `sleep` line
+- the six lines that hold raw bidirectional characters
+
+Other test bodies were **not** read line by line; sections 28 to 30 ran the
+suite (section 30 is the baseline) and read the tests tied to their findings.
+
+| Group (files) | Tests | Notes from this pass |
+|---|---|---|
+| Support (`conftest`, `helpers`, `*_builder`, `worker_fakes`) | 0 | L-T1 in `conftest.py:18-19`; builders write synthetic inert bytes only |
+| Engine and pipeline (`test_pipeline`, `staged_pipeline`, `scan_status`, `partial_evidence`, `workers`, `worker_limits`, `worker_logs`, `isolation_policy`, `special_files`, `signals`, `registry`, `provenance`, `sharing`, `config_runtime`, `capabilities`, `readiness`, `background_reliability`) | 207 | Assertion-free tests are schema validations (`test_partial_evidence.py`) or no-raise checks (`test_worker_limits.py`, `test_wait_survives_a_closed_pipe`): sound |
+| Detectors (`test_pe_analysis`, `elf`, `file_integrity`, `encrypted_containers`, `embedded_content`, `embedded_msg`, `ole_attachments`, `office_hidden`, `prompt_guard`, `relationship_scanner`, `container_extractor`, `archive_formats`, `rar`, `dmg_streaming`, `macos_packages`, `images_svg`, `qr`, `scripts`, `web_smuggling`, `mail_analyzer`, `mail_archive_password`, `mail_html_linear`, `emulation`, `sandbox`, `ml_classifier`, `tlsh_py`, `strings`, `yara_rules`, `closed_limits`, `coverage_gaps`, `benchmark_fixes`) | 356 | Gaps and pins below; the PE no-raise tests are fuzz-style by design |
+| End to end (`scanner_integration`, `v41_integration`, `regression_corpus`, `report_*`) | 42 | The regression corpus has 13 files, of which two (`clean.docx`, `letter.pdf`) are benign |
+| Delivery and services (`alerts`, `outputs_and_api`, `api_auth`, `intel_service`, `ops_metrics`, `operations_fixes`, `cloud`, `mailbox`, `http`, `cache*`, `canary*`, `containment`, `response`, `quarantine`, `key_backup`, `privilege_separation`, `folder_monitor`, `allowlist`, `rulepack`, `secret_store`, `locks`, `deployment`, `ci_workflows`, `tools_path`) | 288 | Sleeps (S-T1); loopback-only network use |
+| GUI (`gui_smoke`, `gui_integration`, `gui_delivery`) | 14 | `gui_smoke` is opt-in and needs a display |
+| Tools (`evaluation_tools`, `calibrate_tool`, `fuzzy_db_tool`, `mbox_tool`) | 20 | I-T1 (logging disabled in-process) still applies |
+| Fuzz (`test_fuzz_parsers.py`) | 14 | Ten no-raise properties; heavy settings were not run (rule of this stage) |
+| Total | 941 | |
+| `test_smoke.py` (repository root) | script | Run by CI at `.github/workflows/tests.yml:91-95`, outside pytest; see L-B3 |
+
+**L-T1 (Low, CONFIRMED by code path, SAFE). The test environment does not force
+the provider and key settings.**
+- *Evidence.*
+  - `tests/conftest.py:18-19` use `os.environ.setdefault` for `LLM_PROVIDER`
+    and `VIRUSTOTAL_API_KEY`, so a value exported in the developer's shell wins.
+  - The other secrets in `engine/secret_store.py:33-37` are not cleared at all,
+    and neither are their `NAME_FILE` forms, which `from_environment` reads
+    first (`:74-77`).
+  - The subprocess tests copy the whole environment: `test_capabilities.py:185`,
+    `test_config_runtime.py:21`, `:173` and `test_containment.py:367`.
+- *Trigger.* `pytest` in a shell that exports `VIRUSTOTAL_API_KEY`,
+  `LLM_PROVIDER=openai` or `OPENAI_API_KEY_FILE`.
+- *Effect.* Scanners built from the default configuration can send hashes of
+  test samples to VirusTotal, or text to an LLM, and use the account's quota.
+  Results then depend on the network.
+- *Fix.* Assign instead of `setdefault`. Remove every name in `SECRET_NAMES`
+  and its `_FILE` form, and the provider URL settings, before the first import.
+- *Verification.* A test, run in a session started with
+  `VIRUSTOTAL_API_KEY=dummy`, that asserts the configuration seen by the tests
+  is empty.
+
+**Addition to L-B3 (`test_smoke.py`).**
+- The script also reads the repository `.env` for every non-secret setting
+  (`engine/config.py:45`, `:55`), because it runs outside `conftest`.
+- It does not call `init_runtime` (that happens only in `main`,
+  `RansomwareScanner.py:1058`).
+- It blanks both API keys (`test_smoke.py:41`), so no key reaches a service.
+  The open part remains the real home folder.
+
+**Tests that pin current behaviour (each must change with its fix):**
+- `test_report_files.py:21`, `:31-37` assert that a name holding a raw U+202E
+  appears verbatim in the text report and in the JSON. The M30 and L-E9 report
+  fix must keep the JSON assertion and change the text-report one.
+- `test_mail_html_linear.py:16-17` assert that the linear HTML judge matches the
+  old one, which includes the last-`href` rule (M19).
+- `test_relationship_scanner.py:73-81` asserts `findings == []` for a document
+  whose only relationship part is hostile. It stays valid after the M31 fix, but
+  it does not cover a good part followed by a bad one.
+- The L-L1 tests named in section 29 still apply.
+
+**Missing tests (for the open findings):**
+- No YARA rule tests for:
+  - 14 of the 23 public rules, which no test names:
+    `Crypto_Ransom_Extortion_Combo`, `Event_Log_Clearing`, the HTA, LNK,
+    LOLBin, OneNote, Script Encoder and Defender rules,
+    `PDF_AutoLaunch_Action`, `PowerShell_Download_Cradle`,
+    `Ransom_Note_Tor_Negotiation`, `Encryptor_Target_Extensions`,
+    `Safe_Mode_Boot` and `Stops_Services_And_Processes`.
+  - Benign documents beyond the two in `test_yara_rules.py:35-43`, such as
+    advisories (M32), listing scripts (M29) and admin scripts (S-Y1 to S-Y3).
+  - Some rules may still fire inside integration tests under the generic
+    `yara_match` indicator.
+- No test for a top-level right-to-left override name (M30), only for archive
+  and mail members (`test_container_extractor.py:110-118`,
+  `test_mail_analyzer.py:161-171`, `test_rar.py:62-67`).
+- No test for M31 (a good relationship part plus a malformed one).
+- No test for the silent cell and page limits (L-D8).
+
+**S-T1 (suspicion, not reproduced). Timing-dependent tests.**
+- Sleeps of 0.2 to 2.5 s gate the assertions in `test_folder_monitor.py:160-205`
+  and `test_canary_watch.py:59-112`, with 1.2 s in `test_api_auth.py:122`.
+- `test_mail_html_linear.py:47` uses a 15 s wall-clock bound.
+- They passed in the section 30 baseline. On a loaded or Windows runner they may
+  fail intermittently.
+- Fix: poll for the condition with a deadline instead of sleeping.
+
+**I-T3 (Info, CONFIRMED, optional). Raw bidirectional characters in test
+sources.**
+- *Evidence.* Six lines in four tracked files hold raw U+202E or U+200F inside
+  string literals: `test_alerts.py:314`, `:316`, `:320`,
+  `test_mail_analyzer.py:161`, `test_rar.py:64` and `test_report_files.py:21`.
+  `test_container_extractor.py:110` uses `\u202e` escapes instead.
+- *Effect.* They are harmless in literals, but reviewers and diffs show
+  reordered text. No CI step rejects such characters; this document carried one
+  until commit `632ef11`.
+- *Fix.* Use escapes, and add a test that scans tracked text files for U+202A
+  to U+202E, U+2066 to U+2069, U+200E and U+200F.
+
+### 33.5 Coverage after section 33
+
+| Component (from 32.8) | Status | Depth |
+|---|---|---|
+| GUI layout and start-up (`pages/dashboard.py`, `widgets.py`, `common.py`, `app.py` start) | REVIEWED | Read in full (33.1); the GUI was never run on a display |
+| `prompt_guard` inspectors | REVIEWED | Read in full (33.2) |
+| `relationship_scanner.py` | REVIEWED | Read in full (33.2) |
+| `engine/secret_store.py` body | REVIEWED | Read in full (33.2) |
+| `core/outbox.py:1-119` | REVIEWED | Read in full (33.2) |
+| YARA string lists (all 25 rules) | REVIEWED | Read in full (33.3) |
+| `DETECTION_v3.md`, `DETECTION_v4.md` | REVIEWED as dated notes | Header, links and spot checks of weights (33.3); not every paragraph |
+| `docs/tasks/*` | REVIEWED as briefs | Header and claims (33.3) |
+| Tests (95 files and `test_smoke.py`) | PARTIALLY REVIEWED | Every file was checked for structure and assertions (33.4). Only the parts listed in 33.4 were read line by line |
+| RAR binary fixtures | NOT REVIEWED | Binary; not opened on this host |
+
+With this section, every component named in 31.12 and 32.8 has been read at the
+depth stated, and earlier sections cover the rest. Two items remain short of a
+line-by-line review: most test bodies, and the RAR fixtures. The review is
+therefore **not** a complete line-by-line audit. It is complete enough to start
+implementation; the remaining depth is listed in 33.8.
+
+### 33.6 Ranked repair plan (sections 28 to 33, deduplicated)
+
+Nothing here has been started.
+- Each item needs its regression test and the full gates afterwards: pytest,
+  ruff, mypy, bandit and pip-audit.
+- **SAFE** items need no owner decision. **OWNER** items change detection,
+  coverage, `scan_status` or a response, and wait for a decision.
+- **PLATFORM** marks a check that cannot run on this Mac.
+- Items that share a cause are grouped once.
+
+| Rank | Items | What | Class |
+|---|---|---|---|
+| 1 | M21, L-B7 | Unblock CI: update pypdf; make the M9 test independent of the QR decoder | SAFE; PLATFORM: run CI on the branch (none since `3e5a3f2`) |
+| 2 | H5, M22, I-5 | The time-out class: two script patterns, seven quadratic paths, and a guard that keeps the class closed | SAFE |
+| 3 | H6 (a), M17, M18, H6 (b) | Alerts for failed scans; JSON Lines errors must not drop alerts; byte replies from workers; keep partial evidence | M17, M18 SAFE; H6 (a), (b) OWNER |
+| 4 | M30, M24, M20, L-E9 (with 33.1 addition), I-T3 | File-name checks: right-to-left override on top-level names, trailing dots and spaces, Windows device names, format characters in logs, report and GUI | M20, L-E9, I-T3 SAFE; M30, M24 OWNER (coverage); PLATFORM: Windows for M20, M24 |
+| 5 | M31, M23, M25, L-D5, L-C7, L-D8 | Evidence that is dropped or hidden: one bad `.rels` part, a certificate entry hiding an overlay, a lost canary registry, silent cell, page and `scan_status` limits | OWNER (same rule as M13 (b) and H4) |
+| 6 | M27, M26, I-B3 | Rule-pack trust without a key; sandbox wait longer than the scan limit | Compose part and start-up check SAFE; empty-key rule and wait cap OWNER; PLATFORM: Docker |
+| 7 | M28, L-C6 (with 33.1 addition) | One scan-folder setting shared by GUI and service; dashboard cards that claim a connection | SAFE |
+| 8 | M29, M32, S-Y1, S-Y2, S-Y3, S-Y4, M19, L-L1 | Detection false positives (prose and admin commands in YARA), the last-`href` rule, LLM format failures | OWNER; PLATFORM: benign corpus before and after |
+| 9 | L-T1, L-B3, I-T1, I-T2, S-T1, plus the tests listed in 33.4 | Test isolation and missing tests | SAFE (I-T1 was deferred by the owner in section 28) |
+| 10 | L-E11, I-B5, L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, L-E10, I-B1, I-B2, L-E8, L-G1, L-A4 | Low code items from sections 29 to 33 | SAFE |
+| 11 | L-E1 to L-E7, L-C1 to L-C3, L-A1, L-A3, L-D1 to L-D3, L-B4, the I-x row | Low items still open in 28.1 (check the status of each before starting) | SAFE; PLATFORM: VM for L-D1, L-E4, Windows for L-E6 |
+| 12 | L-C4, L-C8, L-C9, L-C10, L-C11, I-B4 | Evaluation and build tools | SAFE |
+| 13 | M4, M15 packaging, H-04+, L-A2, the L-B2 lock choice, OOM-H | Deferred or restricted in section 28 | OWNER (OOM-H restricted: VM only) |
+| 14 | D1 to D42, L-B6 | Documentation, after the code it describes | SAFE; L-B6 needs the platform evidence |
+| 15 | 30.11, 27.5, M16, M1/X1 | Evidence: Windows, Docker, Linux ARM64, Windows ARM64 and macOS Intel; a display for the GUI; the release workflow on a tag; real-sample evaluation in the VM | PLATFORM |
+
+### 33.7 Owner decisions and platform checks
+
+- **Owner decisions:**
+  - H6 (a) and (b), and M18's direction
+  - M23, M24, M25, M30, M31
+  - L-D5, L-C7, L-D8
+  - the M26 wait cap and the M27 empty-key rule
+  - M29, M32 and S-Y1 to S-Y4 (YARA changes)
+  - M19 and L-L1
+  - the section 28 deferred items (M4, M15 packaging, H-04+, L-A2, L-B2, I-T1)
+  - documentation questions D22, D23 and D26
+  - improvements I-1, I-2 and I-6
+- **Platform checks:**
+  - CI on this branch
+  - Windows: M2, M9, M20, M24, L-E6, toasts, containment, autostart and the GUI
+  - Docker: M27, I-B3 and the deploy scripts
+  - Linux ARM64, Windows ARM64 and macOS Intel, which have no runner
+  - a display for the GUI
+  - the VM for 27.5, L-D1, L-E4, OOM-H and real-sample evaluation
+  - the benign corpus for M29, M32 and S-Y1 to S-Y4
+  - M21's advisories after the update
+
+### 33.8 Limitations
+
+- The checks were small and synthetic. Checks 22 to 24 reproduced M30, M31 and
+  M32. The other section 33 items come from reading the lines given, or are
+  marked as suspicions.
+- Tests were reviewed by structure and assertions for every file, and in part
+  line by line. The RAR fixtures were not opened. The GUI has still never run
+  on a display in this review.
+- No YARA change was evaluated on a benign corpus; that corpus is not in the
+  repository.
+- The project is not production ready while the items in 33.6 and 33.7 are
+  open.
