@@ -5033,3 +5033,59 @@ decision; NEEDS APPROVAL items wait for one.
   lines given.
 - The project is not production ready: the open findings of sections 28 to 32,
   27.5, CI on this branch, real-sample evaluation and the owner checks remain.
+
+## 33. Components left after section 32 (Claude, 2026-11-11)
+
+Review only, from commit `7e449cb`. No code, test, CI, dependency or detection
+change; only this section and `docs/HANDOFF.md` are edited. Nothing pushed. The
+baseline stays section 30. Work is saved in batches; each batch below is
+complete before the next starts.
+
+### 33.1 Batch A: GUI layout and start-up
+
+Read: `gui.py`, `aegis_gui/__init__.py`, `common.py`, `widgets.py`,
+`pages/__init__.py`, `pages/base.py`, `pages/dashboard.py` (data handling,
+lines 146-275; widget layout only skimmed), `app.py` lines 1-180. Not run on a
+display.
+
+**M30 (Medium, CONFIRMED by check 22; NEEDS APPROVAL, inspection coverage).
+A right-to-left override in a top-level file name is not a finding.**
+- *Where.* The name checks exist only for archive members
+  (`detectors/container_extractor.py:1084-1094`) and attachments
+  (`detectors/mail_analyzer.py:645-653`); scoring has `archive_rtlo_spoof` and
+  `mail_rtlo_spoof` only (`detectors/scoring.py:369-372`, `:416-419`). No layer
+  looks at the scanned file's own name.
+- *Trigger.* A browser download or a dropped file named
+  `invoice<U+202E>fdp.exe` (shown as `invoiceexe.pdf`). Folder scans and the
+  folder monitor of `~/Downloads` see exactly such top-level files.
+- *Effect.* Check 22: an inert two-byte `MZ` stub under that name scores
+  `Clean` 0 with no indicator; the same bytes under the same name inside a ZIP
+  score `Critical` 95 (`archive_rtlo_spoof`, `archive_executable`). The raw
+  character also reaches the text report (and the GUI table,
+  `aegis_gui/pages/dashboard.py:157`), where it reverses the displayed name;
+  see L-E9.
+- *Fix (owner decision).* Run `_classify_name` on the top-level file name as
+  well (a new `file_name` signal scored like the archive ones), and render names
+  with `visible_name` in the text report, logs and GUI.
+- *Verification.* Check 22 as a test: the top-level file gets an RTLO finding;
+  the report shows `[RTLO]`.
+
+**Additions.**
+- **L-E9** (32): also the GUI result table (`aegis_gui/pages/dashboard.py:157`)
+  and the report's file lines, and also format characters such as U+202E, not
+  only line breaks (check 22).
+- **L-C6** (32): the dashboard's LLM card uses the same class-name test
+  (`aegis_gui/pages/dashboard.py:266-275`) and shows "Disabled" for the intel
+  backend. The VirusTotal card says "Connected" whenever a key is set
+  (`:224-226`), without any request being made: optional wording fix.
+
+No other finding in batch A: start-up builds one scanner on the main thread,
+attaches the log bridge and the timers (`app.py:83-141`); pages are layout code.
+
+**Check 22 (M30).** Under a scratch `HOME`, in-process scanner as in 31.4:
+
+```
+'invoice‮fdp.exe'   (bytes b"MZ" + 300 zero bytes)          -> Clean 0 []
+'a.zip' holding the same name and bytes                          -> Critical 95 ['archive_rtlo_spoof', 'archive_executable']
+generate_report() of the first result contains a raw U+202E      -> True
+```
