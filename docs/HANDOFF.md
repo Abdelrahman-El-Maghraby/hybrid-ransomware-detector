@@ -1400,20 +1400,73 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | H6 (a)/(b), M18, M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | H6 (b), M18, M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
+
+### Group 28: H6 option (a), the scan-failed notice (owner-approved 2026-11-12)
+
+- Owner decision: H6 (a) only. H6 (b) (keep the partial evidence) and every
+  other owner item are unchanged.
+- **Behaviour.** A result whose `scan_results.scan_failed` is set (time-out,
+  a dead worker, the memory limit, or a scan error in the worker or the
+  in-process path) also queues a notice of kind `scan_failed` on every
+  configured channel, whatever the verdict floor, as canary and
+  incomplete-scan notices do. A file never scanned because no worker could
+  start (`code: isolation_unavailable`) gets none; it is reported by exit code
+  3, the GUI error and the API 503 as before. The review's option (a) text
+  ("failed scans other than isolation_unavailable") sets this scope; the
+  memory limit and scan errors are included because they build the same
+  `failure_result`.
+- **Unchanged:** the verdict (Medium), risk score, `scan_status: failed`, the
+  result schema, the CLI exit code, and the verdict alert. Under a Medium
+  floor the verdict alert is still sent, with the notice beside it (pinned).
+- **Code.** `core/outbox.py`: `_notice()` is the shared builder for both
+  notices (the incomplete-scan output is byte-for-byte the same);
+  `failed_alert()` names the failure (`scan_timed_out`, `worker_died`,
+  `worker_memory_limit`, `scan_error`, read from the failure text as
+  `engine/metrics.py` does); `results_alerts()` adds it; `channels_for()`
+  routes it. `core/mailer.py`: kind `scan_failed`, subject "Aegis Sentinel
+  notice: scan failed (not a detection) - {file_name}", and an intro saying it
+  is an incomplete scan, not a malware detection.
+- **Dedup, retry, caps.** The id is `_alert_id("scan_failed", sha256,
+  scan_time, path)`, so the outbox skips the same result twice; retries,
+  expiry and the e-mail hourly and daily caps are the existing ones.
+- **Compatibility.** As for `incomplete_scan` (group 26): the result schema is
+  unchanged; webhook receivers see a third non-verdict `kind` with
+  `detection: false`; the intel service validates e-mail kinds with the same
+  code, and both services run the same image. An older intel would answer 422
+  and the e-mail would stay queued until it expires.
+- **Docs.** README (isolation), DATA_POLICY (webhook row), RUNBOOKS section
+  2, THREAT_MODEL (worker bullet and the slow-file row).
+- **Tests:** `tests/test_failed_scan_alert.py` (13). All 13 failed before the
+  change. They cover a real time-out and a real worker exit in isolated
+  workers (one notice each, none for the file that scanned, none on a second
+  delivery), each failure code, `isolation_unavailable`, a successful scan,
+  malware alerts unchanged, the Medium floor, routing, the e-mail text and
+  intel validation, the e-mail cap and the API e-mail queue. No memory-spike
+  test was run (the memory code is checked on a built result).
+- **Checks.** Related suites (alerts, notices, outputs, workers, scan status,
+  metrics, isolation, intel, mailbox, mail, cache): 231 passed, 1 deselected
+  (the runaway-memory test). ruff, mypy (68 files) and bandit (`-ll`, the CI
+  scope) clean. pip-audit not run: no dependency changed.
+- **Full safe run at `592e920`** (clean worktree, the command of the
+  `04f396e` run): **1,534 passed, 0 failed, 23 skipped, 4 deselected, 13
+  warnings**, 313 s; 0 "unclosed database"; `test_smoke.py`: "ALL SMOKE TESTS
+  PASSED". Skipped and deselected tests are not counted as passed.
+- Not verified here: delivery to a real webhook receiver or SMTP server, the
+  notice through the Docker intel service, and Windows worker deaths.
 
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
 PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
 in 33.7 and must be obtained before the OWNER items:
-- H6 (a)/(b) and M18's direction
+- H6 (b) and M18's direction (H6 (a) done, group 28)
 - M23, M24, M25, M30, M31
 - L-D5, L-C7, L-D8
 - the M26 wait cap and the M27 empty-key rule
