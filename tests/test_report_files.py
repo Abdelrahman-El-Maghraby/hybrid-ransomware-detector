@@ -16,10 +16,11 @@ import pytest
 import engine.report as report_module
 import RansomwareScanner as RS
 from detectors import qr_scanner
+from engine.logs import printable
 from tests.helpers import make_pdf
 from tests.test_scanner_integration import _config
 
-NAME = "فاتورة_报告_‮exe.pdf"          # Arabic, CJK and a right-to-left override
+NAME = "فاتورة_报告_\u202eexe.pdf"          # Arabic, CJK and a right-to-left override
 
 
 @pytest.fixture
@@ -56,11 +57,14 @@ class FrozenClock(datetime):
 def test_reports_with_non_ascii_names_are_utf8(scanned, windows_default_encoding):
     s, results = scanned
     text = s.generate_report(results)
-    assert NAME in text
+    # L-E9: the text report shows the override instead of obeying it; the JSON
+    # report keeps the exact name.
+    shown = printable(NAME)
+    assert "[RTLO]exe.pdf" in shown and shown in text and NAME not in text
     folder = Path(s.report_dir)
     assert len(list(folder.iterdir())) == 2
     txt = next(folder.glob("ransomware_scan_*.txt")).read_text(encoding="utf-8")
-    assert NAME in txt
+    assert shown in txt
     data = json.loads(next(folder.glob("ransomware_scan_*.json")).read_text(encoding="utf-8"))
     assert data[0]["file_name"] == NAME
 

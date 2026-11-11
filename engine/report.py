@@ -13,6 +13,7 @@ from detectors.relationship_scanner import defang
 
 from .completeness import COMPLETE, PRECEDENCE, verdict_label
 from .config import ENGINE_VERSION
+from .logs import printable
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -88,11 +89,11 @@ LLM posture:            {self._llm_posture_label()}
             report_text += f"\n[Allowlist] {len(allowed)} known-good file(s) scanned but not scored:\n"
             for r in allowed[:20]:
                 note = r["scan_results"]["allowlist"].get("note") or "no note"
-                report_text += f"  - {r.get('file_path')} ({note})\n"
+                report_text += f"  - {printable(r.get('file_path'))} ({note})\n"
         if canary_report is not None and canary_report.triggered:
             report_text += f"\n{'!' * 60}\nCANARY TRIPWIRE TRIGGERED\n{'!' * 60}\n"
             for f in canary_report.findings:
-                report_text += f"  [{f.status}] {f.path}\n      {f.evidence}\n"
+                report_text += f"  [{f.status}] {printable(f.path)}\n      {f.evidence}\n"
 
         incomplete = [r for r in results if r.get("scan_status", COMPLETE) != COMPLETE]
         if malicious_files == 0:
@@ -148,13 +149,13 @@ LLM posture:            {self._llm_posture_label()}
         out += f"{'#' * 60}\n"
         if encrypted:
             out += f"  Files whose content looks encrypted: {len(encrypted)}\n"
-            out += "".join(f"    - {p}\n" for p in encrypted[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in encrypted[:10])
         if note_count:
             out += f"  Ransom-note-like files: {note_count}\n"
-            out += "".join(f"    - {p}\n" for p in notes[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in notes[:10])
         if ext_count:
             out += f"  Files with known ransomware extensions: {ext_count}\n"
-            out += "".join(f"    - {p}\n" for p in ext_files[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in ext_files[:10])
         return out
 
     def _format_file_finding(self, result: Dict) -> str:
@@ -163,7 +164,7 @@ LLM posture:            {self._llm_posture_label()}
         quarantine note and the score breakdown."""
         sr = result.get("scan_results", {})
         lines = [
-            f"\n- File:     {result.get('file_path')}",
+            f"\n- File:     {printable(result.get('file_path'))}",
             f"  Verdict:  {verdict_label(result) if result.get('verdict') else 'n/a'} "
             f"(risk {result.get('risk_score', 0)}/100, "
             f"severity {result.get('severity_score', 0)}/10)",
@@ -284,7 +285,7 @@ def _gap_lines(result: Dict, limit: int = 5) -> Lines:
     for r in reasons[:limit]:
         where = r.get("member_path") or result.get("file_path")
         lines.append(f"              - [{r.get('layer')}] {r.get('reason')}"
-                     + (f"  ({where})" if where != result.get("file_path") else ""))
+                     + (f"  ({printable(where)})" if where != result.get("file_path") else ""))
     if len(reasons) > limit:
         lines.append(f"              ... {len(reasons) - limit} more in the JSON report")
     return lines
@@ -297,7 +298,7 @@ def _incomplete_section(results: List[Dict]) -> str:
     out = f"\n{'=' * 60}\nNOT FULLY INSPECTED ({len(results)})\n{'=' * 60}\n"
     for r in sorted(results, key=lambda r: PRECEDENCE.index(r.get("scan_status", COMPLETE)),
                     reverse=True):
-        out += f"\n- File:     {r.get('file_path')}\n  Verdict:  {verdict_label(r)}\n"
+        out += f"\n- File:     {printable(r.get('file_path'))}\n  Verdict:  {verdict_label(r)}\n"
         out += "".join(f"{line}\n" for line in _gap_lines(r, limit=3))
     return out
 

@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
+from .container_extractor import not_a_device
 from .file_integrity import detect_format
 
 logger = logging.getLogger("RansomwareScanner.embedded")
@@ -269,7 +270,7 @@ class EmbeddedContentAnalyzer:
             safe = "member"
         member = EmbeddedMember(safe, len(data), kind or Path(safe).suffix.lstrip(".") or "data")
         if extract:
-            target = sandbox / f"m{len(res.members)}" / safe
+            target = sandbox / f"m{len(res.members)}" / not_a_device(safe)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             member.path = str(target)

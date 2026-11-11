@@ -61,7 +61,7 @@ def test_detection_needs_extension_and_magic(tmp_path):
 def test_members_are_extracted_and_lures_flagged(tmp_path):
     p = build_rar(tmp_path / "invoice.rar", [("docs/readme.txt", b"hello" * 50),
                                               ("invoice.pdf.exe", _pe_bytes(1024)),
-                                              ("photo‮gpj.scr", b"x")])
+                                              ("photo\u202egpj.scr", b"x")])
     with ContainerExtractor().open(p) as res:
         assert res.container_type == "rar"
         assert names(res) == ["docs/readme.txt", "invoice.pdf.exe", "photo[RTLO]gpj.scr"]

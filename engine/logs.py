@@ -20,6 +20,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,35 @@ EVENT_FIELDS = ("event", "path", "sha256", "verdict", "risk_score", "duration_ms
                 # what was sent to external services
                 "scan_status", "layers", "problems", "client", "sources", "shared")
 _MARK = "_aegis_handler"
+
+# L-E9: a file name may hold line breaks or bidirectional controls. In a text
+# line they would forge a new log line or report entry, or reverse the shown
+# name. They are shown instead: control characters as "?", the right-to-left
+# override as "[RTLO]" (as visible_name does for archive members), and the
+# other bidi and line-separator characters as "[U+XXXX]".
+_BIDI = (0x061C, 0x200E, 0x200F, 0x2028, 0x2029, *range(0x202A, 0x202F), *range(0x2066, 0x206A))
+_UNSAFE = re.compile("[\\x00-\\x1f\\x7f-\\x9f" + "".join(map(chr, _BIDI)) + "]")
+_RTLO = chr(0x202E)
+
+
+def _show(m: re.Match[str]) -> str:
+    c = m.group(0)
+    if c == _RTLO:
+        return "[RTLO]"
+    return "?" if ord(c) < 0xA0 else f"[U+{ord(c):04X}]"
+
+
+def printable(text: object) -> str:
+    """`text` as one line of plain, left-to-right characters (L-E9)."""
+    return _UNSAFE.sub(_show, str(text))
+
+
+class TextFormatter(logging.Formatter):
+    """The text log: one record is one line, whatever a file name holds (L-E9).
+    A traceback is still appended on its own lines."""
+
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        return printable(super().formatMessage(record))
 
 
 class JsonFormatter(logging.Formatter):
@@ -65,7 +95,7 @@ def _env_number(name: str, default: float) -> float:
 
 def make_formatter(fmt: Optional[str] = None) -> logging.Formatter:
     fmt = (fmt or os.getenv("LOG_FORMAT") or "text").strip().lower()
-    return JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT)
+    return JsonFormatter() if fmt == "json" else TextFormatter(TEXT_FORMAT)
 
 
 def configure_logging(log_file: Path, console: bool = True, level: int = logging.INFO,

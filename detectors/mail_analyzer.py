@@ -69,7 +69,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Deque, Dict, Iterator, List, Optional, Tuple, Union
 
 from .cfb_writer import MAX_TREE_BYTES, write_cfb
-from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, visible_name
+from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, not_a_device, visible_name
 
 logger = logging.getLogger("RansomwareScanner.mail")
 
@@ -655,7 +655,7 @@ class MailAnalyzer:
         target_dir = sandbox / f"a{len(res.attachments):04d}"
         target_dir.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^\w.\- ]", "_", clean)[-120:].lstrip(".") or "attachment.bin"
-        target = target_dir / safe
+        target = target_dir / not_a_device(safe)
         target.write_bytes(data)
         info.path = str(target)
         res.attachments.append(info)

@@ -158,7 +158,7 @@ def test_deceptive_links(tmp_path):
 
 # -------------------------------------------------------------- attachments
 def test_risky_attachment_names(tmp_path):
-    rtlo_name = "invoice‮fdp.exe"         # displays as "invoiceexe.pdf"
+    rtlo_name = "invoice\u202efdp.exe"         # displays as "invoiceexe.pdf"
     p = make_eml(tmp_path / "m.eml", attachments=[
         ("invoice.pdf.exe", b"MZ" + b"\0" * 100, "application", "octet-stream"),
         (rtlo_name, b"MZ", "application", "octet-stream"),

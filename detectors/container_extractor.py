@@ -326,6 +326,18 @@ def visible_name(name: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "?", out)
 
 
+# M20: on Windows these names (any case, with any extension, before trailing
+# spaces) open a device, not a file, so a member written as "NUL.exe" never
+# reaches the disk and is never examined.
+_WINDOWS_DEVICE = re.compile(r"(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(?=[ .]|\Z)",
+                             re.I)
+
+
+def not_a_device(name: str) -> str:
+    """A sandbox file name that is never a Windows device name ("_NUL.exe")."""
+    return "_" + name if _WINDOWS_DEVICE.match(name) else name
+
+
 def _priority_name(name: str) -> bool:
     """Unpack these first when an archive has more entries than the member limit."""
     suffix = PurePosixPath(name.replace("\\", "/").replace(RTLO, "")).suffix.lower()
@@ -547,7 +559,7 @@ class ContainerExtractor:
             # "", ".", ".." (e.g. ".<RTLO>.") or only dots and spaces would name the
             # member folder or the sandbox itself; Windows also drops trailing dots.
             safe = "member"
-        return target_dir / safe
+        return target_dir / not_a_device(safe)
 
     def _new_member(self, name: str, size: int, csize: int, encrypted: bool, shown: str,
                     res: ContainerResult) -> ArchiveMember:

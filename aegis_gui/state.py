@@ -6,6 +6,7 @@ import queue
 import threading
 
 from aegis_gui.common import RS, SETTINGS_FILE
+from engine.logs import TextFormatter
 
 # --- Settings persistence -----------------------------------------------------
 
@@ -67,8 +68,8 @@ class QueueLogHandler(logging.Handler):
     def __init__(self, log_queue: queue.Queue):
         super().__init__()
         self.log_queue = log_queue
-        self.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s  %(message)s",
-                                            "%H:%M:%S"))
+        self.setFormatter(TextFormatter("[%(asctime)s] %(levelname)s  %(message)s",  # L-E9
+                                        "%H:%M:%S"))
 
     def emit(self, record: logging.LogRecord) -> None:
         try:

@@ -441,6 +441,49 @@
   operations and partial-evidence files pass. ruff, mypy and bandit clean.
   The full safe selection follows in the next checkpoint.
 
+### Full-suite evidence for groups 2 and 3
+
+- Group 2 (`c09f904`), safe selection in a clean worktree at that commit:
+  1,321 passed, 28 skipped, 4 deselected, 0 failed, 290 s.
+- Two earlier runs saw files change mid-run and count only as smoke checks:
+  1,320 and 1,321 passed, 0 failed.
+- Group 3 (`e334704`) is covered by the group 4 run below. The group 4 commit
+  contains it.
+
+### Group 4: M20, L-E9 and I-T3 (file names)
+
+- **M20.** `not_a_device()` in `detectors/container_extractor.py` puts "_"
+  before a sandbox file name that is a Windows device name. That means CON,
+  PRN, AUX, NUL, COM0-9 and LPT0-9 (also with superscript 1-3), in any case,
+  followed by an extension, a space or nothing.
+  - Applied where archive members, embedded blocks and mail attachments are
+    written to the sandbox.
+  - Only the file name on disk changes; the names shown in results are
+    unchanged.
+  - Test: `tests/test_device_names.py` (17 tests). The device behaviour
+    itself is still PLATFORM (Windows) and was not run.
+- **L-E9.** `engine/logs.py` gains `printable()` and `TextFormatter`.
+  - `printable()` shows control characters as "?", U+202E as "[RTLO]", and
+    the other bidi and line-separator characters as "[U+XXXX]".
+  - `TextFormatter` is used by the text log and the GUI log view: one record
+    is one line, and a traceback stays on its own lines.
+  - The text report shows every path through `printable()`: file lines,
+    gaps, allowlist, canary paths and impact lists. So does the GUI result
+    table.
+  - JSON logs, the JSON report and `visible_name` are unchanged.
+  - Test: `tests/test_printable_names.py`. The GUI table change was not run
+    on a display; the module imports.
+  - The M9 test (`tests/test_report_files.py`) pinned the raw override in
+    the text report (listed in 33.4). It now checks the shown form in text
+    and the exact name in JSON.
+- **I-T3.** The six raw bidi characters in `tests/test_alerts.py`,
+  `tests/test_mail_analyzer.py`, `tests/test_rar.py` and
+  `tests/test_report_files.py` are now `\u` escapes. A test fails when any
+  tracked text file holds one.
+- New tests fail on the code before the fix (worktree at `e334704`, with a
+  pass-through `printable`): 4 of 4. After the fix: 155 tests across the
+  touched files pass. ruff, mypy and bandit clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -462,7 +505,9 @@ SAFE items, in order (done items are marked):
    after group 1).
    New for the owner: M33 (needs approval) and L-E12 (see group 2).
 3. M17: done, group 3. M18: waits for the owner's choice of direction.
-4. the SAFE file-name items (M20, L-E9, I-T3)
+4. the SAFE file-name items (M20, L-E9, I-T3): done, group 4.
+5. Next SAFE work in 33.6 order: rank 7 (M28, L-C6), rank 9 (tests), rank 10
+   onward. Rank 6 has SAFE parts (the M27 compose change and start-up check).
 
 Each item needs its regression test and the full gates afterwards (pytest,
 ruff, mypy, bandit, pip-audit). Tests that pin current behaviour and must

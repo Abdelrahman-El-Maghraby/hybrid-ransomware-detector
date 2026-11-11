@@ -32,6 +32,7 @@ from aegis_gui.formatting import (
 )
 from aegis_gui.pages.base import BasePage
 from aegis_gui.widgets import StatCard
+from engine.logs import printable
 
 
 class DashboardPage(BasePage):
@@ -154,7 +155,7 @@ class DashboardPage(BasePage):
         verdict = result_verdict(result)
         risk = result_risk(result)
         iid = self.tree.insert("", "end", values=(
-            result.get("file_name", "?"),
+            printable(result.get("file_name", "?")),        # L-E9
             verdict_text(result),
             f"{risk}",
             top_reasons(result) if verdict != "Clean" else first_gap(result),

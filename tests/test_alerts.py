@@ -311,13 +311,13 @@ def test_starttls_is_required_and_never_falls_back_to_plaintext():
 
 
 def test_a_hostile_file_name_cannot_inject_headers_or_reorder_text():
-    name = "Invoice\r\nBcc: attacker@evil.example‮gpj.exe\x00" + "A" * 300
+    name = "Invoice\r\nBcc: attacker@evil.example\u202egpj.exe\x00" + "A" * 300
     fields = OB.verdict_alert(_result(name=name))["email"]
-    assert "\n" not in fields["file_name"] and "‮" not in fields["file_name"]
+    assert "\n" not in fields["file_name"] and "\u202e" not in fields["file_name"]
     assert len(fields["file_name"]) <= 120
     msg = build_message(fields, "aegis@example.org", ["soc@example.org"])
     assert msg["Bcc"] is None and "\r\nBcc" not in msg["Subject"]
-    assert clean_text("a\r\nb\tc‏d", 50) == "a b cd"
+    assert clean_text("a\r\nb\tc\u200fd", 50) == "a b cd"
 
 
 @pytest.mark.parametrize("change", [
