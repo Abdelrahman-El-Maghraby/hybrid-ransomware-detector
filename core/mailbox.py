@@ -31,7 +31,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 logger = logging.getLogger("RansomwareScanner.mailbox")
 
@@ -76,10 +76,14 @@ class ImapSettings:
         return f"{self.user}@{self.host}:{self.port}/{self.folder}"
 
 
+_FETCH_FAILED = object()               # _fetch: the server did not return the message
+
+
 @dataclass
 class MailboxRun:
     results: List[Dict] = field(default_factory=list)
     skipped_too_large: List[int] = field(default_factory=list)
+    fetch_failed: List[int] = field(default_factory=list)   # the server did not return the body
     new_messages: int = 0
     more_waiting: bool = False         # more new messages than max_messages
     not_scanned: int = 0               # no isolated worker could start; retried next run
@@ -153,6 +157,9 @@ class MailboxScanner:
                 if raw is None:
                     out.skipped_too_large.append(uid)
                     continue
+                if raw is _FETCH_FAILED:              # I-x: not a size problem
+                    out.fetch_failed.append(uid)
+                    continue
                 path = workdir / f"{uid}.eml"
                 path.write_bytes(raw)
                 paths.append(str(path))
@@ -205,7 +212,8 @@ class MailboxScanner:
         uids = sorted({int(x) for x in b" ".join(d for d in data if d).split() if x.isdigit()})
         return [u for u in uids if u > last_uid]   # "N:*" also returns the last one
 
-    def _fetch(self, conn, uid: int) -> Optional[bytes]:
+    def _fetch(self, conn, uid: int) -> Any:
+        """The message, None when it is over the size limit, or _FETCH_FAILED."""
         typ, data = conn.uid("FETCH", str(uid), "(RFC822.SIZE)")
         size_match = _SIZE.search(b" ".join(_flatten(data))) if typ == "OK" else None
         if size_match and int(size_match.group(1)) > self.settings.max_bytes:
@@ -214,11 +222,13 @@ class MailboxScanner:
             return None
         typ, data = conn.uid("FETCH", str(uid), "(BODY.PEEK[])")   # PEEK: stays unread
         if typ != "OK":
-            return None
+            logger.warning("Mailbox: the server did not return UID %d (%s).", uid, typ)
+            return _FETCH_FAILED
         for item in data or []:
             if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
                 return item[1][:self.settings.max_bytes]
-        return None
+        logger.warning("Mailbox: the answer for UID %d held no message.", uid)
+        return _FETCH_FAILED
 
 
 def _quote(folder: str) -> str:

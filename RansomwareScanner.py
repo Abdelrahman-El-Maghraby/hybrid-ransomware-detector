@@ -881,6 +881,9 @@ def _mailbox_command(args, scanner) -> bool:
     if run.skipped_too_large:
         print(f"⚠️  {len(run.skipped_too_large)} message(s) over IMAP_MAX_MB were not scanned "
               f"(UIDs {', '.join(map(str, run.skipped_too_large[:10]))}).")
+    if run.fetch_failed:
+        print(f"⚠️  {len(run.fetch_failed)} message(s) could not be fetched from the server "
+              f"and were not scanned (UIDs {', '.join(map(str, run.fetch_failed[:10]))}).")
     if run.more_waiting:
         print("⚠️  More new messages are waiting; run --scan-imap again.")
     if run.not_scanned:

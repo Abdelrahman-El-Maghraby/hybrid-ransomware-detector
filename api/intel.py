@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -50,7 +51,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from api.limits import BodyLimit, TokenBuckets
@@ -319,6 +320,15 @@ def _extension(value: str) -> str:
     return value.lower()
 
 
+async def _json_body(request: Request) -> Any:
+    """I-x: parsed inside the route, so after the token check (a `Body(...)`
+    parameter is parsed by FastAPI before the route's dependencies run)."""
+    try:
+        return json.loads(await request.body())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="the body is not JSON") from None
+
+
 def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
                      service: Optional[IntelService] = None) -> FastAPI:
     from engine.config import CONFIG, ENGINE_VERSION
@@ -372,8 +382,9 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return service.capabilities(max_upload)
 
     @app.post("/v1/virustotal/lookup", dependencies=[Depends(guard("vt_lookup"))])
-    def vt_lookup(payload: Any = Body(...)) -> Dict:
-        return service.vt_lookup(_sha256(payload))
+    async def vt_lookup(request: Request) -> Dict:
+        sha = _sha256(await _json_body(request))
+        return await run_in_threadpool(service.vt_lookup, sha)
 
     @app.post("/v1/virustotal/upload", dependencies=[Depends(guard("vt_upload"))])
     async def vt_upload(request: Request) -> Dict:
@@ -383,8 +394,9 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return await with_sample(request, "", service.vt_upload)
 
     @app.post("/v1/llm/analyze", dependencies=[Depends(guard("llm_analyze"))])
-    def llm_analyze(payload: Any = Body(...)) -> Dict:
-        return service.llm_analyze(_content(payload))
+    async def llm_analyze(request: Request) -> Dict:
+        content = _content(await _json_body(request))
+        return await run_in_threadpool(service.llm_analyze, content)
 
     @app.post("/v1/sandbox/submit", dependencies=[Depends(guard("sandbox_submit"))])
     async def sandbox_submit(request: Request,
@@ -396,14 +408,16 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
                                  lambda path: service.sandbox_submit(path, f"sample{ext}"))
 
     @app.post("/v1/sandbox/poll", dependencies=[Depends(guard("sandbox_poll"))])
-    def sandbox_poll(payload: Any = Body(...)) -> Dict:
-        return service.sandbox_poll(_task_id(payload))
+    async def sandbox_poll(request: Request) -> Dict:
+        task = _task_id(await _json_body(request))
+        return await run_in_threadpool(service.sandbox_poll, task)
 
     @app.post("/v1/alert/email", dependencies=[Depends(guard("alert_email"))])
-    def alert_email(payload: Any = Body(...)) -> Dict:
+    async def alert_email(request: Request) -> Dict:
         if service.mailer is None:                  # before looking at the fields
             raise HTTPException(status_code=403, detail="e-mail alerts are not configured")
-        return service.alert_email(_email_fields(payload))
+        fields = _email_fields(await _json_body(request))
+        return await run_in_threadpool(service.alert_email, fields)
 
     return app
 

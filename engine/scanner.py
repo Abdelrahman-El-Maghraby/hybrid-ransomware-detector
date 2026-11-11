@@ -75,6 +75,14 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     protection (engine/protection.py), reports, external lookups and text
     extraction come from mixins."""
 
+    @property
+    def last_not_scanned(self) -> int:
+        return int(getattr(self._not_scanned, "count", 0))
+
+    @last_not_scanned.setter
+    def last_not_scanned(self, count: int) -> None:
+        self._not_scanned.count = count
+
     def __init__(self, config: Dict):
         """Build every detection engine from the configuration."""
         self.config = config
@@ -102,7 +110,9 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         self._vault: Optional[QuarantineVault] = None
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None
-        self.last_not_scanned = 0        # files of the last scan no isolated worker could take
+        # L-E7: per thread (GUI scan, folder monitor, API alerts share one scanner):
+        # files of this thread's last scan that no isolated worker could take
+        self._not_scanned = threading.local()
         self._log_layers()
         self._content_lock = threading.Lock()
         self._content_fp = self._content_fingerprint()

@@ -976,6 +976,43 @@ been fixed since section 30.
   - Proposed when approved: a `Truncated` error carrying the partial output;
     `_pkg_stream` keeps the members it has and adds one unreadable member.
 
+### Group 21: L-E7 and two I-x items (rank 11)
+
+- **L-E7.** `RansomwareScanner.last_not_scanned` is a property backed by a
+  `threading.local`. The GUI scan thread, the folder monitor and the CLI each
+  set and read it in the thread that ran the scan, so concurrent scans no
+  longer see each other's count. No caller changed, and the scanner is never
+  pickled (the workers use `config`, `scan_file`, `scoring` and
+  `calculate_hashes` only).
+  - Test: two threads set 0 and 3 and each reads its own. Before 1 failed;
+    after, the scanner, folder-monitor, output-failure, isolation,
+    GUI-delivery and background tests pass.
+- **I-x: IMAP fetch failures.** `MailboxRun.fetch_failed` lists UIDs whose
+  body the server did not return; they were counted in `skipped_too_large`.
+  The CLI prints a separate warning.
+  - Test: a stand-in server that answers NO for one body. Before 1 failed;
+    after, 8 mailbox tests pass.
+  - **For the owner:** a failed fetch is still marked seen (not retried), as
+    before. Retrying it would rescan every later message on each run while
+    the failure lasts (duplicate alerts).
+- **I-x: intel JSON parsed before auth.** The four JSON routes
+  (`/v1/virustotal/lookup`, `/v1/llm/analyze`, `/v1/sandbox/poll`,
+  `/v1/alert/email`) took `Body(...)`, which FastAPI parses before the token
+  dependency. They now read the body in the route (`_json_body`) and run the
+  service call in the thread pool, as FastAPI did for the old sync routes.
+  - Test: without a token or with a wrong one, a broken body gets 401 (it
+    was 422); with the token, 422, or 403 for e-mail when no mailer is
+    configured. Before 4 failed; after, intel, alert and mailbox tests pass
+    (85).
+  - The three real-socket intel tests stay deselected here (they hardcode
+    `/tmp`).
+- I-x items not done:
+  - the cache purge runs at start-up only (expired answers are never
+    served; disk growth only);
+  - `send_webhook` is unused in production but kept, since tests use it;
+  - the scikit-learn pickle version check is only suspected;
+  - "evaluate counts errors as Clean" is in rank 12 (L-C9).
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

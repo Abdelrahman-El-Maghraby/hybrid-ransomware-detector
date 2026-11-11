@@ -194,3 +194,22 @@ def test_cli_imap_pass_exits_3_when_messages_were_not_scanned(monkeypatch, capsy
         RS._mailbox_command(type("A", (), {"scan_imap": True})(), scanner)
     assert info.value.code == RS.EXIT_ISOLATION_UNAVAILABLE
     assert "not scanned" in capsys.readouterr().err
+
+
+class FailingBodyImap(FakeImap):
+    """The size answer works; fetching the body of UID 102 fails."""
+
+    def uid(self, command, *args):
+        if command == "FETCH" and args[1] == "(BODY.PEEK[])" and int(args[0]) == 102:
+            self.calls.append(("uid", command) + args)
+            return "NO", [b"server error"]
+        return super().uid(command, *args)
+
+
+def test_a_failed_fetch_is_not_reported_as_too_large(setup):
+    """I-x: _fetch returned None for an over-limit message and for a failed
+    fetch alike, so failures were counted under skipped_too_large."""
+    scanner, settings, tmp_path = setup
+    run = MailboxScanner(scanner, settings, connect=lambda s: FailingBodyImap(_messages(tmp_path))).run()
+    assert run.skipped_too_large == [] and run.fetch_failed == [102]
+    assert [r["mailbox"]["uid"] for r in run.results] == [101]
