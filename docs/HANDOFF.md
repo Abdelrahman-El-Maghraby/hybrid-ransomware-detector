@@ -893,6 +893,30 @@ been fixed since section 30.
   stay in `.env`. Before 2 failed; after, with the other secret tests, 32
   passed.
 
+### Group 18: L-C1, L-C2 and L-C3 (rank 11)
+
+- **L-C1.** `import_hash_database` reads and checks the new file's header
+  before anything is written. A file without `FileName`, `md5Hash` and
+  `Benign` is refused and the working database is kept; a valid one replaces
+  it atomically (temporary copy, `os.replace`). The CLI no longer prints
+  "Successfully imported" for a refused file. The GUI already showed the
+  message, and the database now really is unchanged.
+- **L-C2.** `--scan-file` with a missing path, and a failed or refused
+  `--import-database`, exit with the new `EXIT_INPUT_ERROR` (1); README
+  updated.
+  - **For the owner:** exit code 2 still has three meanings (configuration
+    error, tripped canary for `--verify-canaries`, argparse usage error). They
+    are documented and scripts may rely on them, so they were not renumbered.
+- Tests for L-C1 and L-C2: `tests/test_cli_inputs.py` (3 tests, the CLI run
+  in a subprocess with a scratch HOME). Before 2 failed; after 3 passed.
+- **L-C3.** The report's "Detection layers used" lists `llm` only when the
+  backend is available, and `virustotal` only with a key here, or when the
+  intel service reports VirusTotal enabled. Test in
+  `tests/test_llm_posture.py`: before 1 failed, after it passes.
+- Runs: LLM posture, report files, scanner and v4.1 integration, intel
+  tests: 74 passed; CLI, output-failure and pipeline tests: 42 passed;
+  `test_smoke.py` passed.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

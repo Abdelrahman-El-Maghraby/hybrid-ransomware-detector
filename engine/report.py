@@ -194,8 +194,15 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("qr")
         if getattr(self, "ml", None) is not None:
             layers.append("ml")
-        layers.append("llm")
-        layers.append("virustotal")
+        # L-C3: only the external layers that can run (an LLM backend that is
+        # available; a VirusTotal key here, or VirusTotal on the intel service).
+        backend = getattr(self, "llm_backend", None)
+        if backend is not None and backend.available:
+            layers.append("llm")
+        intel = getattr(self, "intel", None)
+        if (intel.service("virustotal").get("enabled") if intel is not None
+                else (getattr(self, "config", None) or {}).get("virustotal_api_key")):
+            layers.append("virustotal")
         emulator = getattr(self, "emulator", None)
         if emulator is not None and emulator.available:
             layers.append("emulation")

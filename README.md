@@ -65,6 +65,8 @@ Originally built as my B.Sc. graduation project as a three-layer scanner, then g
 See [operations](docs/OPERATIONS.md), [data policy](docs/DATA_POLICY.md) and
 [upgrade notes](CHANGELOG.md). CLI exit code **3** means isolated workers could
 not start and files were not scanned. API callers receive 503 in this case.
+Exit code **1** means a missing input: `--scan-file` was given a path that does not
+exist, or `--import-database` did not import (the current database is kept).
 
 ## 🆕 What's new in 4.7
 

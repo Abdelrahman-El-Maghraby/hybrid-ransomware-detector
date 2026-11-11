@@ -376,21 +376,29 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
         return outcome
 
     try:
-        shutil.copy2(source_path, destination_path)
-
-        with open(destination_path, encoding="utf-8", newline="") as f:
+        # L-C1: check the new file first; the working database is replaced only
+        # by a valid one, and atomically.
+        with open(source_path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
             outcome["entries"] = sum(1 for _ in reader)
 
         required_columns = ['FileName', 'md5Hash', 'Benign']
         outcome["missing_columns"] = [col for col in required_columns if col not in header]
-        outcome["ok"] = not outcome["missing_columns"]
-        outcome["message"] = (
-            f"Database format validated. Found {outcome['entries']} entries."
-            if outcome["ok"]
-            else f"Missing required columns: {', '.join(outcome['missing_columns'])}"
-        )
+        if outcome["missing_columns"]:
+            outcome["message"] = (f"Missing required columns: "
+                                  f"{', '.join(outcome['missing_columns'])}; "
+                                  "the current database was kept")
+            return outcome
+        tmp = f"{destination_path}.tmp"
+        try:
+            shutil.copy2(source_path, tmp)
+            os.replace(tmp, destination_path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        outcome["ok"] = True
+        outcome["message"] = f"Database format validated. Found {outcome['entries']} entries."
         logger.info(f"Hash database imported from {source_path} -> {destination_path} "
                     f"({outcome['entries']} entries)")
         return outcome
@@ -742,17 +750,17 @@ def _setup_command(args) -> bool:
         outcome = import_hash_database(args.import_database)
         if outcome["error_kind"] == "missing_source":
             print(f"Error: Cannot find database file at {args.import_database}")
-            return True
+            sys.exit(EXIT_INPUT_ERROR)
         if outcome["error_kind"] == "exception":
             print(f"❌ Error importing database: {outcome['message']}")
-            return True
+            sys.exit(EXIT_INPUT_ERROR)
+        if outcome["missing_columns"]:                     # L-C1: nothing was replaced
+            print(f"❌ Not imported: missing required columns: "
+                  f"{', '.join(outcome['missing_columns'])}. The current database was kept.")
+            sys.exit(EXIT_INPUT_ERROR)
         print(f"✅ Successfully imported database from {args.import_database}")
         print(f"   Database saved to {outcome['destination']}")
-        if outcome["missing_columns"]:
-            print(f"⚠️  Missing required columns: {', '.join(outcome['missing_columns'])}")
-            print("   The scanner may not work properly without these columns.")
-        else:
-            print(f"✅ Database format validated. Found {outcome['entries']} entries.")
+        print(f"✅ Database format validated. Found {outcome['entries']} entries.")
         return True
     return False
 
@@ -883,6 +891,7 @@ def _mailbox_command(args, scanner) -> bool:
     return True
 
 
+EXIT_INPUT_ERROR = 1            # L-C2: a missing file or a database that was not imported
 EXIT_ISOLATION_UNAVAILABLE = 3
 
 
@@ -913,7 +922,7 @@ def _scan_or_schedule(args, scanner) -> None:
     if args.scan_file:
         if not os.path.exists(args.scan_file):
             print(f"Error: file not found: {args.scan_file}")
-            return
+            sys.exit(EXIT_INPUT_ERROR)
         result = scanner.scan_one(args.scan_file)
         from core.outputs import deliver
         try:

@@ -61,3 +61,20 @@ def test_dashboard_card_follows_the_backend_not_its_class(backend, report, card)
 def test_no_backend():
     assert _posture(None) == "none"
     assert _card(None) == ("—", "Disabled", False)
+
+
+def _layers(**over):
+    me = SimpleNamespace(**{"llm_backend": NullBackend(), "intel": None,
+                            "config": {"virustotal_api_key": ""}, **over})
+    return ReportMixin._active_layers_label(me).split(", ")
+
+
+def test_layers_used_names_llm_and_virustotal_only_when_they_run():
+    """L-C3 (check 14): with no LLM and no VirusTotal key the report still listed
+    "llm, virustotal" as layers used."""
+    assert "llm" not in _layers() and "virustotal" not in _layers()
+    on = _layers(llm_backend=OllamaBackend(), config={"virustotal_api_key": "k"})
+    assert "llm" in on and "virustotal" in on
+    via_intel = _layers(llm_backend=_intel(enabled=True, name="openai", is_local=False),
+                        intel=SimpleNamespace(service=lambda n: {"enabled": n == "virustotal"}))
+    assert "llm" in via_intel and "virustotal" in via_intel
