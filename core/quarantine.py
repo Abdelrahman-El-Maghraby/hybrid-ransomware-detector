@@ -63,6 +63,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from .fsutil import write_atomic
+
 logger = logging.getLogger("RansomwareScanner.quarantine")
 
 try:
@@ -168,13 +170,12 @@ class QuarantineVault:
                     "Restore it from a backup; refusing to overwrite it.")
             return data
         key = os.urandom(32)
-        # O_EXCL: if another process created it a moment ago, use theirs.
+        # L-A3: written whole or not at all; create_only: if another process created
+        # it a moment ago, use theirs.
         try:
-            fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            write_atomic(key_path, key, create_only=True)
         except FileExistsError:
             return self._load_or_create_master_key()
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(key)
         try:
             os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
         except OSError:  # pragma: no cover - e.g. some Windows filesystems
@@ -254,14 +255,10 @@ class QuarantineVault:
                     "would become unreadable if it were replaced; back it up first, then "
                     "import with --replace-key.")
             backup = key_path.with_name(f"{KEY_FILE_NAME}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-            fd = os.open(str(backup), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(current)
-            key_path.unlink()
+            write_atomic(backup, current, create_only=True)
             status = "replaced"
-        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(key)
+        # L-A3: one atomic step from the old key to the new one (no empty slot).
+        write_atomic(key_path, key, create_only=status == "installed")
         self._key = key
         logger.info("Imported quarantine key (fingerprint %s): %s", self.key_fingerprint(), status)
         return status
@@ -381,7 +378,7 @@ class QuarantineVault:
                 logger.error("Vaulted %s but could not delete the original: %s", src, e)
         meta["original_removed"] = removed
         meta["vault_file"] = str(vault_file)
-        self._sidecar_path(item_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        write_atomic(self._sidecar_path(item_id), json.dumps(meta, indent=2).encode("utf-8"))
         logger.warning("QUARANTINED %s -> vault id %s (%s), by %s", src, item_id,
                        reason or "no reason", _os_user(), extra={"event": "quarantined"})
         return meta

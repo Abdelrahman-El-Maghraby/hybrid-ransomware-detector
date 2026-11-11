@@ -917,6 +917,34 @@ been fixed since section 30.
   tests: 74 passed; CLI, output-failure and pipeline tests: 42 passed;
   `test_smoke.py` passed.
 
+### Group 19: L-A1 and L-A3 (rank 11)
+
+- **L-A1.** `api/server._without_work_path` replaces, in every string of an
+  API result, the temporary path of the upload by the client's file name.
+  Its folder is removed, and `upload<ext>!/` member prefixes become
+  `<name>!/`. Before, only `file_path` and `file_name` were replaced, so
+  member names and findings started with the server's work folder.
+  - Test (check 15): a ZIP upload through `TestClient` shows `bundle.zip!/...`
+    and neither `aegis_api_` nor `upload.zip`. Before 1 failed; after, the
+    API, auth, metrics, cache and alert tests pass (96).
+- **L-A3.** New `core/fsutil.write_atomic`: a temporary file in the same
+  folder, flushed and fsynced, then `os.replace`, or `os.link` with
+  `create_only`, which never replaces an existing file. Used for:
+  - the containment record (`_save_state`);
+  - the quarantine master key at creation (a concurrent creator still wins);
+  - the key backup and import (`os.replace` from the old key to the new: no
+    empty key slot);
+  - the quarantine item records.
+  - Not done: the folder itself is not fsynced, so a power loss just after
+    the rename may still lose the new name on some file systems; the old
+    file stays intact.
+  - Test: `tests/test_atomic_writes.py` (4 tests). The commit step is made to
+    fail, and the previous record or "no key" state is intact, with no
+    temporary file left. With the old write paths all 4 fail; with the fix,
+    4 pass, and with the quarantine and key-backup tests 27 passed;
+    containment, response and folder-monitor tests pass. ruff and mypy
+    clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

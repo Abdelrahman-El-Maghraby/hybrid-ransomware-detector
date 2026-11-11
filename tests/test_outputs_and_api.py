@@ -143,3 +143,19 @@ def test_scan_endpoint_isolated_worker(tmp_path):
     c = TestClient(create_app(_config(tmp_path), token=TOKEN, isolate=True))
     r = c.post("/scan", headers=auth(), files={"file": ("invoice.pdf", _pe_bytes(4096))})
     assert r.json()["verdict"] == "Critical" and r.json()["file_name"] == "invoice.pdf"
+
+
+def test_api_results_never_show_the_server_work_folder(client):
+    """L-A1 (check 15): member names of an uploaded archive started with the
+    server's temporary work folder; only file_path and file_name were replaced."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("inner/report.pdf", make_pdf("hello"))
+        z.writestr("tool.exe", _pe_bytes(4096))
+    r = client.post("/scan", headers=auth(), files={"file": ("bundle.zip", buf.getvalue())})
+    assert r.status_code == 200
+    text = r.text
+    assert "aegis_api_" not in text and "upload.zip" not in text
+    assert "bundle.zip!/tool.exe" in text

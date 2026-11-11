@@ -77,6 +77,21 @@ _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 logger = logging.getLogger("RansomwareScanner")
 
 
+
+def _without_work_path(value: Any, path: str, display: str) -> Any:
+    """L-A1: the upload is scanned under a temporary work folder; member names,
+    evidence and messages show the client's file name instead of that path."""
+    folder, member = os.path.dirname(path) + os.sep, os.path.basename(path) + "!/"
+    if isinstance(value, str):
+        if folder in value:
+            value = value.replace(path, display).replace(folder, "")
+        return value.replace(member, display + "!/") if member in value else value
+    if isinstance(value, dict):
+        return {k: _without_work_path(v, path, display) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_without_work_path(v, path, display) for v in value]
+    return value
+
 class _ScanService:
     """Owns the scanner and runs each upload isolated (or in-process for tests).
 
@@ -166,6 +181,7 @@ class _ScanService:
             if unscanned:
                 raise IsolationUnavailable(ISOLATION_TEXT)
             result = box["r"]
+        result = _without_work_path(result, path, display)
         result["file_path"] = display
         result["file_name"] = display
         return result
