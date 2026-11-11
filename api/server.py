@@ -252,9 +252,9 @@ class _Alerts:
     def submit(self, result: Dict) -> None:
         if not self.enabled:
             return
-        from core.outbox import queue_and_send, verdict_alert
-        alert = verdict_alert(result)
-        threading.Thread(target=queue_and_send, args=([alert], self.config),
+        from core.outbox import queue_and_send, results_alerts
+        alerts = results_alerts([result])        # plus an incomplete-scan notice (L-D7 ii)
+        threading.Thread(target=queue_and_send, args=(alerts, self.config),
                          name="aegis-alert", daemon=True).start()
 
     def _retry(self) -> None:

@@ -1296,6 +1296,75 @@ Notes:
   alerts and LLM-skip tests, 138 passed before the alert pin; the CHM file
   then had 10 passed. ruff, mypy and bandit clean.
 
+### Group 26: L-D7 option (ii), the incomplete-scan notice (owner-approved 2026-11-11)
+
+The owner chose (ii), then corrected the scope: CHM content left unread by
+either the 1,000-page read limit or the 25-member limit. Fully inspected CHM
+files and malware alerts stay as they were.
+- **Notice.** `core/outbox.incomplete_alert(result)` builds a notice of kind
+  `incomplete_scan` when the result's gaps hold
+  `embedded_content.CHM_READ_LIMIT_MARK` or `CHM_MEMBER_LIMIT_MARK`. That
+  includes a CHM inside an archive or e-mail; otherwise it returns None.
+  - The id is `_alert_id("incomplete_scan", sha256, scan_time, path)`: the
+    same result gives the same id, and `Outbox.enqueue` skips an id already
+    pending or sent, so the notice is never sent twice.
+  - `channels_for` sends it, like a canary trip, to every configured channel
+    whatever the verdict floor.
+  - Delivery, retries, expiry and the e-mail caps (`SmtpMailer`) are the
+    existing ones.
+  - `results_alerts()` is used by `core/outputs.deliver` (CLI, folder scans,
+    folder monitor, GUI) and by the API's alert queue.
+- **Unchanged:** the result (a test compares it before and after delivery),
+  its score, verdict, `scan_status` and fields; the CLI exit code; the
+  verdict alert and its payload.
+- **E-mail.** The kind `incomplete_scan` is added to `core/mailer.KINDS`; the
+  field set is unchanged. Subject: "Aegis Sentinel notice: incomplete scan
+  (not a detection) - <file>". It opens with "...This is not a malware
+  detection...". The reason codes are `chm_pages_not_read` and/or
+  `chm_members_not_scanned`. Messages of the other kinds are byte-identical.
+- **Webhook.** A separate message: `kind: incomplete_scan`, `detection: false`,
+  verdict, score, `scan_status`, and up to 10 gaps (path and reason).
+- **The only change to result content.** A CHM page over the member limit is
+  now noted "<page>: member limit reached (help file)" instead of
+  "<page>: member limit reached", so the notice can tell CHM files apart from
+  OneNote, MSI and XLL files, which keep the old text. Same field, same
+  status, same score.
+- **Compatibility.**
+  - Result schema: unchanged.
+  - Webhook receivers get a third value of `kind`. The canary message
+    already has a different shape, so a receiver that handles canary
+    messages handles this one; one that assumes every message has
+    `indicators` and `top_reason` was already broken by canary messages.
+    There is no documented webhook schema; DATA_POLICY now names the notice.
+  - Docker: the intel service validates the e-mail `kind`. Analysis and intel
+    run the same image; a mixed-version pair (an older intel) would answer
+    422, so the e-mail stays queued and expires after `OUTBOX_MAX_AGE_HOURS`.
+  - Outbox files and metrics are kind-neutral. No code in the repository
+    branches on alert kinds besides the outbox and the mailer (searched).
+- **Tests:** `tests/test_incomplete_scan_alert.py` (10).
+  - Read limit: one notice, the result unchanged, no second notice for the
+    same result.
+  - Member limit only (30 pages): a notice with `chm_members_not_scanned`.
+  - Fully read (20 pages): nothing.
+  - Other partial scans (an archive limit, a OneNote member limit): none.
+  - A Clean result's alert is unchanged; a High CHM sends only its verdict
+    alert when fully read, and both when it also has a gap.
+  - The e-mail wording, and existing e-mails unchanged.
+  - The hourly cap applies.
+  - Every configured channel whatever the floor.
+  - `tests/test_chm_read_cap.py`'s alert pin now expects the one notice.
+  - Before the change 5 failed and 2 passed (today's behaviour). After: with
+    the CHM, alerts, embedded, output-failure, GUI-delivery and intel tests,
+    122 passed.
+- **Reports, checked in-process with stand-in 7-Zip calls:**
+  - 1,001 pages: text "Verdict: Clean (partial scan)", "51 gap(s)", the
+    read-limit line first, then "member limit reached (help file)"; JSON
+    `partial` with the same first reason; notice with both codes.
+  - 30 pages: Clean, partial, 5 member-limit gaps; notice
+    `chm_members_not_scanned`.
+  - 20 pages: Clean, complete, no notice.
+- Docs: README CHM paragraph; DATA_POLICY webhook row.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1331,8 +1400,8 @@ SAFE items, in order (done items are marked):
    New for the owner: the unhashed `pip install --upgrade pip` in the release
    build job (group 13).
 9. Ranks 11, 12 and 14 done (groups 17 to 24), except the items below.
-   - Owner decisions, unchanged: M18, L-E12, L-D2 (group 20), alerting on
-     partial scans (group 25) and the 33.7 list. L-D7 is done (group 25).
+   - Owner decisions, unchanged: M18, L-E12, L-D2 (group 20) and the 33.7
+     list. L-D7 is done: the read limit in group 25, the notice in group 26.
    - New questions from this work:
      - the unhashed `pip install --upgrade pip` in the release job (group 13);
      - exit code 2's three meanings (group 18);

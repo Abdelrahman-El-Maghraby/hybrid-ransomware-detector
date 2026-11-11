@@ -126,11 +126,11 @@ def test_more_than_25_pages_already_read_partial_through_the_member_limit(chm):
     assert _read_notes(res) == [] and sum("member limit reached" in s for s in res.skipped) == 5
 
 
-def test_the_partial_clean_result_is_visible_but_sends_no_alert(scanner, chm, tmp_path,
-                                                                monkeypatch):
-    """Pinned, not changed (owner decision pending): alerts follow the verdict only,
-    so a ShortCut page beyond the cap gives a Clean, partial result that every
-    output marks as partial but that queues no webhook or e-mail alert."""
+def test_the_partial_clean_result_is_visible_and_sends_only_a_notice(scanner, chm, tmp_path,
+                                                                     monkeypatch):
+    """The owner chose option (ii): the verdict alert still follows the verdict only
+    (none for Clean); the gap sends a separate incomplete-scan notice instead
+    (tests/test_incomplete_scan_alert.py)."""
     from core.outputs import alert_payload, deliver
     install, _ = chm
     scanner.embedded_analyzer.sevenzip = lambda: "7z"
@@ -142,5 +142,6 @@ def test_the_partial_clean_result_is_visible_but_sends_no_alert(scanner, chm, tm
     cfg = dict(scanner.config, webhook_url="https://siem.example.invalid/hook",
                outbox_dir=str(tmp_path / "outbox"), jsonl_path=str(tmp_path / "out.jsonl"))
     deliver([r], cfg)
-    assert not list((tmp_path / "outbox").rglob("*.json"))
+    queued = [p.read_text() for p in (tmp_path / "outbox").rglob("*.json")]
+    assert len(queued) == 1 and '"kind": "incomplete_scan"' in queued[0]
     assert '"scan_status": "partial"' in (tmp_path / "out.jsonl").read_text()

@@ -67,6 +67,10 @@ MAX_SKIPPED = 50          # L-D4: entries listed in `skipped`; the rest are coun
 # process each. Phishing CHMs have a handful of pages and product help a few hundred;
 # the rest are named in `skipped`, so the scan reads partial.
 MAX_CHM_READS = 1000
+# Markers core/outbox.incomplete_alert looks for in a result's gaps (L-D7 ii): CHM
+# content left unread by the read limit, or not scanned because of the member limit.
+CHM_READ_LIMIT_MARK = "help pages not read (read limit"
+CHM_MEMBER_LIMIT_MARK = "member limit reached (help file)"
 MAX_MEMBER_BYTES = 30 * 1024 * 1024
 
 ONENOTE_MAGIC = bytes.fromhex("E4525C7B8CD8A74DAEB15378D02996D3")
@@ -272,9 +276,10 @@ class EmbeddedContentAnalyzer:
 
     # ------------------------------------------------------------- helpers
     def _add(self, res: EmbeddedResult, sandbox: Path, extract: bool, name: str,
-             data: bytes, kind: Optional[str] = None) -> None:
+             data: bytes, kind: Optional[str] = None,
+             limit_note: str = "member limit reached") -> None:
         if len(res.members) >= MAX_MEMBERS:
-            res.skip(f"{name}: member limit reached")
+            res.skip(f"{name}: {limit_note}")
             return
         if len(data) > MAX_MEMBER_BYTES:
             res.skip(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
@@ -334,8 +339,8 @@ class EmbeddedContentAnalyzer:
                 continue                                 # internal index streams
             pages.append((item, name))
         if len(pages) > MAX_CHM_READS:                   # L-D7: say what was not read
-            res.skip(f"{len(pages) - MAX_CHM_READS} of {len(pages)} help pages not read "
-                     f"(read limit {MAX_CHM_READS})")
+            res.skip(f"{len(pages) - MAX_CHM_READS} of {len(pages)} "
+                     f"{CHM_READ_LIMIT_MARK} {MAX_CHM_READS})")
         for item, name in pages[:MAX_CHM_READS]:
             if item.size > MAX_MEMBER_BYTES:
                 res.skip(f"{name}: too large")
@@ -351,7 +356,8 @@ class EmbeddedContentAnalyzer:
             if PurePosixPath(name).suffix.lower() in (
                     ".htm", ".html", ".js", ".vbs", ".hta", ".exe", ".dll", ".bat", ".cmd",
                     ".ps1", ".lnk") or detect_format(data[:4096]):
-                self._add(res, sandbox, extract, name, data)
+                self._add(res, sandbox, extract, name, data,
+                          limit_note=CHM_MEMBER_LIMIT_MARK)
         if res.chm_shortcut:
             res.findings.append("help page runs a command through the HTML Help ShortCut object")
 

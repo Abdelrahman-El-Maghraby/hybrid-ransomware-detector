@@ -34,7 +34,7 @@ from email.utils import formatdate, make_msgid
 from typing import Any, Callable, Deque, Dict, List, Mapping, Optional
 
 VERDICTS = ("Clean", "Low", "Medium", "High", "Critical")
-KINDS = ("verdict", "canary")
+KINDS = ("verdict", "canary", "incomplete_scan")
 _ALERT_ID = re.compile(r"^[0-9a-f]{32}$")
 _SCAN_ID = re.compile(r"^([0-9a-f]{16})?$")
 _SHA256 = re.compile(r"^([0-9a-f]{64})?$")
@@ -108,8 +108,14 @@ def email_configured(config: Mapping[str, Any]) -> bool:
 
 
 SUBJECTS = {"verdict": "Aegis Sentinel alert: {verdict} - {file_name}",
-            "canary": "Aegis Sentinel alert: ransomware tripwire triggered"}
-BODY = """Aegis Sentinel raised an alert.
+            "canary": "Aegis Sentinel alert: ransomware tripwire triggered",
+            "incomplete_scan": "Aegis Sentinel notice: incomplete scan (not a detection) - "
+                               "{file_name}"}
+# L-D7 (ii): the incomplete-scan notice says what it is; the other kinds keep their text.
+INTROS = {"incomplete_scan": "Aegis Sentinel could not inspect part of a file. This is not a "
+                             "malware detection:\nthe verdict below covers only what was "
+                             "inspected (help-file content over a read or member limit)."}
+BODY = """{intro}
 
 Kind:         {kind}
 Verdict:      {verdict}
@@ -128,7 +134,8 @@ message carries metadata only: no file content is attached or included.
 
 def build_message(fields: Mapping[str, Any], sender: str, to: List[str]) -> EmailMessage:
     f = validate_fields(dict(fields))
-    values = dict(f, reasons=", ".join(f["reason_codes"]) or "-",
+    values = dict(f, intro=INTROS.get(f["kind"], "Aegis Sentinel raised an alert."),
+                  reasons=", ".join(f["reason_codes"]) or "-",
                   file_name=f["file_name"] or "-", sha256=f["sha256"] or "-",
                   scan_id=f["scan_id"] or "-")
     msg = EmailMessage()

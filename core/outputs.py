@@ -130,6 +130,6 @@ def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None)
             logger.error("JSON Lines output %s could not be written: %s", path, e,
                          extra={"event": "jsonl_error"})
     from .mailer import email_configured
-    from .outbox import queue_and_send, verdict_alert
+    from .outbox import queue_and_send, results_alerts
     if config.get("webhook_url") or email_configured(config) or config.get("intel_socket"):
-        queue_and_send([verdict_alert(r) for r in results], config)
+        queue_and_send(results_alerts(results), config)
