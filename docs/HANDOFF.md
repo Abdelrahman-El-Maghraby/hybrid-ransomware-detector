@@ -815,6 +815,38 @@
   skip); the L-A6 tests passed in three repeat runs. ruff, mypy and bandit
   clean.
 
+### Group 16: L-C5, L-E8 and L-A4 (rank 10), and a group 12 test repair
+
+- **L-C5.** `setup_macos_autostart` writes the launchd agent with
+  `plistlib.dumps` (paths with "&" or "<" are escaped). It returns False and
+  prints the `launchctl load` error when the load fails; it used to report
+  success. Test: `tests/test_autostart_macos.py` with a stand-in
+  `subprocess.run` (no real launchctl): the plist parses with the exact
+  arguments, and a failing load gives False. Before 2 failed, after 2 passed.
+- **L-E8.** `engine/workers._WorkerLogBuffer` keeps the first records and the
+  last `LOG_TAIL_RECORDS` (50) of its 200, with the "dropped" note between
+  them. So the outer file's own `scan_completed` and `external_share`, which
+  come after its members' records, reach the parent.
+  - Test: 302 records give 201, ending with the outer file's two events.
+  - The existing limit test now builds its 3-record buffer with `tail=0`
+    (the old head-only form).
+  - Before the fix 1 failed. After: worker log, worker and worker-limit
+    tests, 39 passed, 3 skipped.
+- **L-A4.** `deploy/backup.sh` and `deploy/restore.sh` read
+  `AEGIS_VERSION=x`, `"x"` or `'x'`, with an optional `# comment`. Another
+  form that sets the name (`export ...`, `AEGIS_VERSION = ...`) stops the
+  script with a message, instead of the 4.8.0 default being used silently.
+  Compose's own reading of those forms was not verified, so the scripts do
+  not guess it.
+  - Test: `tests/test_deploy_env_version.py` (14 cases) runs copies of the
+    real scripts with a stand-in `docker` that records the image it is asked
+    for. Before 6 failed, after 14 passed; `bash -n` clean.
+- **Group 12 repair.** I did not run `tests/test_operations_fixes.py` with
+  group 12 (L-E11), and three of its tests failed. They expected a keyring or
+  unset source while conftest exports `VIRUSTOTAL_API_KEY=""`; old conftest
+  did too, and the tests passed only because of the L-E11 bug. A fixture now
+  removes the variable for those three tests: 30 passed with the L-A4 tests.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

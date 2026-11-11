@@ -47,7 +47,7 @@ def test_worker_start_up_lines_are_not_repeated_in_the_parent(tmp_path, caplog):
 def test_buffer_limits_records_and_keeps_them_picklable(caplog):
     # set_level also lifts a logging.disable() an earlier test may have left on
     caplog.set_level(logging.INFO, logger="RansomwareScanner.test_worker_logs")
-    buf = W._WorkerLogBuffer(limit=3)
+    buf = W._WorkerLogBuffer(limit=3, tail=0)          # the first records only
     log = logging.getLogger("RansomwareScanner.test_worker_logs")
     log.addHandler(buf)
     log.propagate = False
@@ -74,3 +74,38 @@ def test_replayed_records_respect_the_parent_level(caplog):
     warn = dict(info, levelno=logging.WARNING, levelname="WARNING", msg="loud")
     W.replay_worker_logs([info, warn, "not a record"])
     assert [r.getMessage() for r in caplog.records] == ["loud"]
+
+
+def test_the_outer_files_last_events_survive_a_flood_of_member_records():
+    """L-E8: with the default limit, an archive whose members log 200 records
+    pushed out the outer file's own scan_completed and external_share, which
+    come last. The buffer now keeps the first records and the last ones."""
+    logger = logging.getLogger("RansomwareScanner")
+    buffer = W._WorkerLogBuffer()
+    logger.addHandler(buffer)
+    try:
+        with caplog_level(logger):
+            for i in range(300):
+                logger.info("member %d", i, extra={"event": "scan_completed"})
+            logger.info("outer shared", extra={"event": "external_share"})
+            logger.info("outer done", extra={"event": "scan_completed"})
+    finally:
+        logger.removeHandler(buffer)
+    records = buffer.take()
+    msgs = [r["msg"] for r in records]
+    assert len(records) == W.LOG_RECORDS_PER_FILE + 1
+    assert msgs[0] == "member 0" and msgs[-2:] == ["outer shared", "outer done"]
+    note = next(m for m in msgs if "dropped" in m)
+    assert note.startswith("102 log record(s)")
+    assert msgs.index(note) == W.LOG_RECORDS_PER_FILE - W.LOG_TAIL_RECORDS   # between
+
+
+class caplog_level:
+    def __init__(self, logger):
+        self.logger, self.old = logger, logger.level
+
+    def __enter__(self):
+        self.logger.setLevel(logging.INFO)
+
+    def __exit__(self, *a):
+        self.logger.setLevel(self.old)

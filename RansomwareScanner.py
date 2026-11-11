@@ -142,35 +142,21 @@ def setup_macos_autostart() -> bool:
         agents_dir = Path.home() / "Library" / "LaunchAgents"
         agents_dir.mkdir(parents=True, exist_ok=True)
         plist_path = agents_dir / f"{AUTOSTART_LABEL}.plist"
-        script_line = f"\n        <string>{script_path}</string>" if script_path else ""
-        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{AUTOSTART_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{python_exe}</string>{script_line}
-        <string>--background</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{LOG_FILE}</string>
-    <key>StandardErrorPath</key>
-    <string>{LOG_FILE}</string>
-</dict>
-</plist>
-"""
-        plist_path.write_text(plist)
+        # L-C5: plistlib escapes the paths ("&", "<" in a home or install folder).
+        import plistlib
+        args = [str(python_exe)] + ([str(script_path)] if script_path else []) + ["--background"]
+        plist_path.write_bytes(plistlib.dumps({
+            "Label": AUTOSTART_LABEL, "ProgramArguments": args,
+            "RunAtLoad": True, "KeepAlive": True,
+            "StandardOutPath": str(LOG_FILE), "StandardErrorPath": str(LOG_FILE)}))
         # Reload the agent (unload first in case it already exists)
         subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True, text=True)
         result = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
-        if result.returncode != 0 and result.stderr.strip():
-            logger.warning(f"launchctl load reported: {result.stderr.strip()}")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()[:200]
+            logger.error(f"launchctl load failed ({result.returncode}): {detail}")
+            print(f"❌ macOS autostart: launchctl load failed ({detail or result.returncode}).")
+            return False
         logger.info(f"Installed launchd agent at {plist_path}")
         print(f"✅ Configured to run at macOS login (launchd agent: {plist_path}).")
         return True

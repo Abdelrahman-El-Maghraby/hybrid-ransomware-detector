@@ -49,7 +49,8 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections import deque
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from engine.metrics import METRICS
 
@@ -252,6 +253,7 @@ def linux_rss_reader(pid: int) -> Optional[int]:
 
 
 LOG_RECORDS_PER_FILE = 200
+LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer file's)
 
 
 def _plain(value: Any, depth: int = 0) -> bool:
@@ -270,27 +272,37 @@ class _WorkerLogBuffer(logging.Handler):
     (log file, GUI log, cloud event spool), so events such as scan_completed,
     external_share and layer_error are not lost in the worker process."""
 
-    def __init__(self, limit: int = LOG_RECORDS_PER_FILE):
+    def __init__(self, limit: int = LOG_RECORDS_PER_FILE, tail: int = LOG_TAIL_RECORDS):
         super().__init__()
         self.limit, self.dropped = limit, 0
+        self.tail_size = max(0, min(tail, limit - 1))
         self.records: List[Dict[str, Any]] = []
+        # L-E8: the first records and the last ones; the outer file's own
+        # scan_completed and external_share come after its members' records.
+        self.tail: Deque[Dict[str, Any]] = deque()
 
     def emit(self, record: logging.LogRecord) -> None:
-        if len(self.records) >= self.limit:
-            self.dropped += 1
-            return
         try:
             data = dict(record.__dict__)
             data["msg"], data["args"] = record.getMessage(), None
             if record.exc_info and not record.exc_text:
                 data["exc_text"] = logging.Formatter().formatException(record.exc_info)
             data["exc_info"] = None
-            self.records.append({k: v if _plain(v) else repr(v) for k, v in data.items()})
+            plain = {k: v if _plain(v) else repr(v) for k, v in data.items()}
         except Exception:
+            self.dropped += 1
+            return
+        if len(self.records) < self.limit - self.tail_size:
+            self.records.append(plain)
+            return
+        self.tail.append(plain)
+        if len(self.tail) > self.tail_size:
+            self.tail.popleft()
             self.dropped += 1
 
     def take(self) -> List[Dict[str, Any]]:
         out, self.records = self.records, []
+        tail, self.tail = list(self.tail), deque()
         if self.dropped:
             out.append(logging.makeLogRecord({
                 "name": "RansomwareScanner", "levelno": logging.WARNING,
@@ -298,7 +310,7 @@ class _WorkerLogBuffer(logging.Handler):
                 "msg": f"{self.dropped} log record(s) from a scan worker were dropped "
                        f"(limit {self.limit} per file)."}).__dict__)
             self.dropped = 0
-        return out
+        return out + tail
 
 
 def replay_worker_logs(records: Any) -> None:

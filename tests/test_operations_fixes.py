@@ -81,7 +81,14 @@ def test_the_example_file_switches_no_external_service_on():
         assert not values.get(name), f"{name} has a value in .env.example"
 
 
-def test_the_template_placeholder_is_ignored_and_never_migrated(tmp_path, caplog):
+@pytest.fixture
+def no_env_key(monkeypatch):
+    """These tests are about the keyring and .env sources. Since L-E11 an exported
+    VIRUSTOTAL_API_KEY (conftest exports it empty) wins, so it is removed here."""
+    monkeypatch.delenv("VIRUSTOTAL_API_KEY", raising=False)
+
+
+def test_the_template_placeholder_is_ignored_and_never_migrated(tmp_path, caplog, no_env_key):
     caplog.set_level(logging.WARNING, logger="RansomwareScanner")
     config = {"virustotal_api_key": PLACEHOLDER}
     sources = SS.apply(config, backend=MemoryKeyring())
@@ -94,13 +101,13 @@ def test_the_template_placeholder_is_ignored_and_never_migrated(tmp_path, caplog
     assert moved.moved == [] and kr.values == {}
 
 
-def test_a_placeholder_already_in_the_keyring_is_ignored():
+def test_a_placeholder_already_in_the_keyring_is_ignored(no_env_key):
     config = {"virustotal_api_key": ""}
     sources = SS.apply(config, backend=MemoryKeyring({"VIRUSTOTAL_API_KEY": PLACEHOLDER}))
     assert config["virustotal_api_key"] == "" and sources["VIRUSTOTAL_API_KEY"] == "unset"
 
 
-def test_real_looking_keys_are_kept():
+def test_real_looking_keys_are_kept(no_env_key):
     key = "0123456789abcdef" * 4
     config = {"virustotal_api_key": ""}
     sources = SS.apply(config, backend=MemoryKeyring({"VIRUSTOTAL_API_KEY": key}))
