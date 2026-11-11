@@ -63,6 +63,10 @@ except ImportError:  # pragma: no cover
 MAX_READ = 64 * 1024 * 1024
 MAX_MEMBERS = 25
 MAX_SKIPPED = 50          # L-D4: entries listed in `skipped`; the rest are counted
+# L-D7 (option b, owner-approved): pages and files of a CHM read with `7z e -so`, one
+# process each. Phishing CHMs have a handful of pages and product help a few hundred;
+# the rest are named in `skipped`, so the scan reads partial.
+MAX_CHM_READS = 1000
 MAX_MEMBER_BYTES = 30 * 1024 * 1024
 
 ONENOTE_MAGIC = bytes.fromhex("E4525C7B8CD8A74DAEB15378D02996D3")
@@ -323,10 +327,16 @@ class EmbeddedContentAnalyzer:
             return
         work = sandbox / "chm"
         work.mkdir()
+        pages = []
         for item in sorted(sevenzip_list(tool, path), key=lambda i: i.path):
             name = PurePosixPath(item.path.replace("\\", "/")).name
             if item.is_dir or item.is_link or not name or name.startswith(("#", "$")):
                 continue                                 # internal index streams
+            pages.append((item, name))
+        if len(pages) > MAX_CHM_READS:                   # L-D7: say what was not read
+            res.skip(f"{len(pages) - MAX_CHM_READS} of {len(pages)} help pages not read "
+                     f"(read limit {MAX_CHM_READS})")
+        for item, name in pages[:MAX_CHM_READS]:
             if item.size > MAX_MEMBER_BYTES:
                 res.skip(f"{name}: too large")
                 continue

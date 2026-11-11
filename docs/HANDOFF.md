@@ -1239,6 +1239,57 @@ Notes:
   since a ShortCut that runs on opening is usually there. Not part of this
   proposal.
 
+### Group 25: L-D7 option (b), owner-approved 2026-11-11
+
+- `detectors/embedded_content.py`: `MAX_CHM_READS = 1000`.
+  - `_chm` collects the pages and files it would read: not internal
+    `#`/`$` streams, folders or links, as before.
+  - It reads at most 1,000 of them in sorted path order.
+  - When more exist, it adds "N of M help pages not read (read limit 1000)"
+    before any other note, so it is always among the 50 listed entries.
+  - Nothing else changed: weights, thresholds, member limit, size limit and
+    result fields. The roughly 4 s cost for 1,000 pages is an estimate from a
+    synthetic ZIP, not a measured CHM runtime.
+- Found while testing, not changed: every `.htm` page is a member, so a help
+  file with more than 25 pages already reads partial through the member limit
+  ("member limit reached"). A test pins this.
+- Tests: `tests/test_chm_read_cap.py` (10).
+  - The cap value; 1,200 pages give 1,000 reads and the note.
+  - ShortCut on page 1,000: found, no read note.
+  - ShortCut on page 1,001: not found, note.
+  - 20 pages: complete. Internal streams do not count. Member limit
+    unchanged. More than 25 pages read partial (existing).
+  - Through the scanner: beyond the cap, Clean and partial with the reason;
+    at page 1,000, the indicator; 20 pages: complete and High.
+  - The alert pin below.
+  - Before the change the four cap tests failed, and the other five passed
+    on the old code.
+- Output check, in-process with stand-in 7-Zip calls and a scratch home: a
+  ShortCut page on page 1,001 of 1,001.
+
+  | Output | What it shows |
+  |---|---|
+  | Result | `Clean`, risk 0, `scan_status: partial`, first reason "not unpacked: 1 of 1001 help pages not read (read limit 1000)" |
+  | Text report (what `--scan-file` prints) | "Scan completeness: 1 partial", "No suspicious files detected in what was inspected; 1 scan(s) were not complete", "Verdict: Clean (partial scan)", the gap line |
+  | JSON report, JSON Lines | `partial` and the same reason |
+  | Webhook payload | `scan_status: partial` |
+  | GUI helpers (`verdict_text`, `first_gap`, `gap_rows`, used by the result table and the detail window) | "Clean (partial scan)", the read-limit gap first |
+  | Alerts | none queued: alerts follow the verdict only; the e-mail fields have no `scan_status` |
+
+  The CLI exit code stays 0 for a partial scan (3 only when isolation is
+  unavailable). The GUI was not shown on a display.
+- **Owner decision needed (not changed): alerting on a partial scan.** Such a
+  file sends no webhook or e-mail at any verdict below the floor (default
+  High), as for every partial result today. Options:
+  - (i) keep it;
+  - (ii) an alert for partial results of selected kinds, such as "help pages
+    not read", at a configured floor;
+  - (iii) let a partial result's verdict be raised.
+  (ii) changes alert semantics and (iii) changes result semantics; both are
+  the owner's.
+- README: the CHM paragraph names the 1,000-page limit and the partial
+  report.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1274,8 +1325,8 @@ SAFE items, in order (done items are marked):
    New for the owner: the unhashed `pip install --upgrade pip` in the release
    build job (group 13).
 9. Ranks 11, 12 and 14 done (groups 17 to 24), except the items below.
-   - Owner decisions, unchanged: M18, L-E12, L-D7 (options compared above),
-     L-D2 (group 20) and the 33.7 list.
+   - Owner decisions, unchanged: M18, L-E12, L-D2 (group 20), alerting on
+     partial scans (group 25) and the 33.7 list. L-D7 is done (group 25).
    - New questions from this work:
      - the unhashed `pip install --upgrade pip` in the release job (group 13);
      - exit code 2's three meanings (group 18);
