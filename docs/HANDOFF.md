@@ -1364,6 +1364,10 @@ files and malware alerts stay as they were.
     `chm_members_not_scanned`.
   - 20 pages: Clean, complete, no notice.
 - Docs: README CHM paragraph; DATA_POLICY webhook row.
+- Full safe run at `37ee441` (clean worktree, the same command as at
+  `04f396e`): **1,520 passed, 0 failed, 23 skipped, 4 deselected, 13
+  warnings**, 299 s; 0 "unclosed database"; `test_smoke.py` passed. ruff,
+  mypy and bandit clean.
 
 ## Exact next action
 
