@@ -591,6 +591,34 @@
   test forbids in `docs/*.md`. Reworded in the next docs commit; the test
   then passed on its own. No code changed after the run.
 
+### Full-suite rerun at `2803b56` (owner request, 2026-11-11)
+
+- Safe selection in a clean worktree, with the QR decoder (as for groups 5
+  to 7): **1,389 passed, 0 failed, 23 skipped, 4 deselected**, 276 s.
+  `test_smoke.py` passed. Nothing needed fixing.
+
+### Group 8: L-T1 and L-B3 (rank 9, test isolation)
+
+- **L-T1.** Cause confirmed by the new test: a child pytest session started
+  with `VIRUSTOTAL_API_KEY=dummy-vt` saw it in CONFIG ("AssertionError:
+  virustotal_api_key"). `tests/conftest.py` used `setdefault` for two names
+  and left the rest alone.
+  - Fix: it now removes every secret's `NAME_FILE` form. It sets every secret
+    of `engine/secret_store.SECRETS`, the two service tokens and the service
+    endpoints (`OLLAMA_HOST`, `SANDBOX_URL`, `WEBHOOK_URL`, `SMTP_HOST`,
+    `IMAP_HOST`, `CLOUD_ENDPOINT`, the two sockets) to empty, which also
+    hides a repository `.env`. `LLM_PROVIDER` is now assigned `none`.
+  - Test: `tests/test_env_isolation.py` (3 tests): the child session with
+    eight exported settings and two `_FILE` forms sees none of them; the
+    conftest list covers `SECRET_NAMES`. Before: 1 failed. After: 3 passed;
+    with the secret store, API, intel, config, capabilities, containment,
+    alerts, readiness and deployment tests, 197 passed, 1 skipped.
+- **L-B3.** `test_smoke.py` runs outside pytest; before the fix its app
+  folder was under the real home (checked in-process: True). It now imports
+  `tests/conftest.py` first, which only sets the environment, and asserts
+  that `APP_DIR` is outside the real home. Run with the real `HOME`: "ALL
+  SMOKE TESTS PASSED".
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

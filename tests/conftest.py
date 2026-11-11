@@ -15,7 +15,19 @@ if str(ROOT) not in sys.path:
 _TEST_HOME = tempfile.mkdtemp(prefix="hrd_test_home_")
 os.environ["HOME"] = _TEST_HOME
 os.environ["USERPROFILE"] = _TEST_HOME          # Windows equivalent
-os.environ.setdefault("LLM_PROVIDER", "none")    # never call a real LLM in tests
-os.environ.setdefault("VIRUSTOTAL_API_KEY", "")
+# L-T1: keys and service settings exported in the developer's shell never reach a
+# test. Assigned, not setdefault; an empty value also hides the repository .env.
+# Kept in step with engine/secret_store.SECRETS (not imported: that would load
+# engine.config before HOME is set).
+_SECRET_NAMES = ("OPENAI_API_KEY", "VIRUSTOTAL_API_KEY", "SANDBOX_TOKEN", "WEBHOOK_SECRET",
+                 "IMAP_PASSWORD", "SMTP_PASSWORD", "CLOUD_SECRET_ACCESS_KEY",
+                 "CLOUD_PSEUDONYM_KEY", "AEGIS_API_TOKEN", "AEGIS_INTEL_TOKEN")
+_SERVICES = ("OLLAMA_HOST", "SANDBOX_URL", "WEBHOOK_URL", "SMTP_HOST", "IMAP_HOST",
+             "CLOUD_ENDPOINT", "AEGIS_INTEL_SOCKET", "AEGIS_API_SOCKET")
+for _name in _SECRET_NAMES:
+    os.environ.pop(_name + "_FILE", None)
+for _name in _SECRET_NAMES + _SERVICES:
+    os.environ[_name] = ""
+os.environ["LLM_PROVIDER"] = "none"               # never call a real LLM in tests
 # Tests never read or write the developer's real OS keyring.
 os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
