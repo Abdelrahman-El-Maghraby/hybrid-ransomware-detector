@@ -118,3 +118,16 @@ def test_workflow_actions_are_pinned_to_commits():
             m = re.search(r"uses:\s*(\S+)", line)
             if m and not m.group(1).startswith("./"):
                 assert re.search(r"@[0-9a-f]{40}$", m.group(1)), f"{wf.name}:{n} {m.group(1)}"
+
+
+LOCAL_ONLY = (".arena", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis",
+              ".coverage", "*.key", "secrets.*", "*.csv", "*.quar", "*.joblib", "keystore",
+              "quarantine", "scan_reports", "data", "datasets")
+
+
+def test_local_data_secrets_and_tool_caches_stay_out_of_the_image():
+    """L-B4: the Dockerfile copies the context (`COPY . .`), and .dockerignore did
+    not exclude tool caches, the .arena folder, or the local data and secret files
+    .gitignore keeps out of the repository (keys, hash CSVs, vault items)."""
+    ignored = set((ROOT / ".dockerignore").read_text().splitlines())
+    assert [p for p in LOCAL_ONLY if p not in ignored] == []

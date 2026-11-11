@@ -862,8 +862,9 @@
 
 Each rank 11 item was checked against the code before work started; none had
 been fixed since section 30.
-- Done in groups 17 to 20 below: L-E1, L-E2, L-E3, L-C1, L-C2, L-C3, L-A1,
-  L-A3, L-D2, L-D3, L-B4, L-E7 and parts of the I-x row.
+- Done in groups 17 to 21 below: L-E1, L-E2, L-E3, L-C1, L-C2 (in part),
+  L-C3, L-A1, L-A3, L-D3, L-B4, and the I-x items listed in group 21. L-D2
+  is held for the owner (group 20).
 - Not done here, as the register records:
   - L-D1 and L-E4 are excluded on this host with the known memory failures
     (30.6) and need the VM;
@@ -944,6 +945,36 @@ been fixed since section 30.
     4 pass, and with the quarantine and key-backup tests 27 passed;
     containment, response and folder-monitor tests pass. ruff and mypy
     clean.
+
+### Group 20: L-D3 and L-B4 (rank 11); L-D2 held for the owner
+
+- **L-D3.** `ScriptEmulator.emulate` checks the file size before reading the
+  file (and again after, in case it grew). Test: a sparse file just over
+  `MAX_SCRIPT_BYTES` is refused without `read_bytes`. Before 1 failed, after
+  the emulation tests pass (5 passed, 1 skipped as before).
+- **L-B4.** `.dockerignore` also excludes:
+  - tool caches and `.arena`;
+  - editor folders;
+  - the local data and secret patterns of `.gitignore`: `*.key`, `secrets.*`,
+    `*.csv`, `*.quar`, `*.joblib`, `keystore`, `quarantine`, `scan_reports`,
+    `data`, `datasets`.
+  No tracked file matches them (`git ls-files`: none under those roots, none
+  with those extensions). Before, `COPY . .` in a local build could copy a
+  key, hash CSVs or vault items into the image.
+  - Test `test_local_data_secrets_and_tool_caches_stay_out_of_the_image`:
+    before 1 failed; after, deployment and privilege-separation tests pass
+    (21). The image itself was not built (no Docker daemon).
+- **L-D2 not changed: an owner decision.**
+  - A cut zlib, bzip2 or xz stream (`bounded_decompress` ignores the
+    decompressor's `eof`), and a CPIO archive without `TRAILER!!!`, read as
+    complete.
+  - The fix that keeps the members read so far and counts the stream as
+    unreadable changes those files' `scan_status` from `complete` to
+    `partial`. 33.6 classes that as an owner decision (as for H4 and M13).
+  - A plain `FormatError` would be worse: the caller collects members in a
+    list comprehension, so every member already read would be lost.
+  - Proposed when approved: a `Truncated` error carrying the partial output;
+    `_pkg_stream` keeps the members it has and adds one unreadable member.
 
 ## Exact next action
 

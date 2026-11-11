@@ -76,8 +76,11 @@ class ScriptEmulator:
     def emulate(self, path: str, data: Optional[bytes] = None) -> EmulationResult:
         if not self.tool:
             return EmulationResult(detail="box-js not found (npm install -g box-js)")
+        size = len(data) if data is not None else os.path.getsize(path)   # L-D3: before reading
+        if size > MAX_SCRIPT_BYTES:
+            return EmulationResult(detail="script too large to emulate")
         raw = data if data is not None else Path(path).read_bytes()
-        if len(raw) > MAX_SCRIPT_BYTES:
+        if len(raw) > MAX_SCRIPT_BYTES:                  # grew since the size check
             return EmulationResult(detail="script too large to emulate")
         source = raw
         if Path(path).suffix.lower() == ".jse":
