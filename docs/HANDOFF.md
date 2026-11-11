@@ -638,6 +638,22 @@
   Three consecutive runs of both files: 19 passed each.
   `test_mail_html_linear.py`'s 15 s bound is a time limit, not a gate: kept.
 
+### Group 10: the 33.4 missing rule tests (rank 9)
+
+- 33.4 listed 14 public YARA rules that no test named; a fresh check found the
+  same 14. `tests/test_yara_rule_coverage.py` (29 tests): for each rule, an
+  inert synthetic input with every part of its condition matches, and a near
+  miss without one part does not. A further test fails when a rule in
+  `rules/` is named by no test. Reserved `.invalid` domains only; no sample
+  or executable content. 29 passed (yara-python present, nothing skipped).
+- The rules are unchanged. The other missing tests in 33.4 are left for the
+  owner, because they would pin or change owner items:
+  - benign documents for M29, M32 and S-Y1 to S-Y3;
+  - M30 (top-level right-to-left override names);
+  - M31 (a good relationship part plus a bad one);
+  - L-D8 (the silent cell and page limits).
+- I-T1 stays deferred by the owner (section 28).
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
