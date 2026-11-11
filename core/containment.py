@@ -571,7 +571,7 @@ def _load_state(path: Path) -> Dict[str, Any]:
 def _save_state(path: Path, state: Dict[str, Any]) -> bool:
     try:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        from core.fsutil import write_atomic  # L-A3: never a half-written record
+        from engine.fsutil import write_atomic  # L-A3: never a half-written record
         write_atomic(path, json.dumps(state, indent=1).encode("utf-8"))
         return True
     except OSError as e:

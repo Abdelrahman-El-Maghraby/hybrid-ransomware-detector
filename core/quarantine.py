@@ -63,7 +63,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .fsutil import write_atomic
+from engine.fsutil import write_atomic
 
 logger = logging.getLogger("RansomwareScanner.quarantine")
 

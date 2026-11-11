@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from core import containment as C
-from core import fsutil
 from core.quarantine import QUARANTINE_AVAILABLE, QuarantineVault
+from engine import fsutil
 
 
 class Crash(Exception):

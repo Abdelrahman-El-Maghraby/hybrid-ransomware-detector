@@ -928,7 +928,8 @@ been fixed since section 30.
   - Test (check 15): a ZIP upload through `TestClient` shows `bundle.zip!/...`
     and neither `aegis_api_` nor `upload.zip`. Before 1 failed; after, the
     API, auth, metrics, cache and alert tests pass (96).
-- **L-A3.** New `core/fsutil.write_atomic`: a temporary file in the same
+- **L-A3.** New `write_atomic` (first in `core/fsutil.py`, moved to `engine/fsutil.py`
+  with the docs group so there is one `fsutil` module): a temporary file in the same
   folder, flushed and fsynced, then `os.replace`, or `os.link` with
   `create_only`, which never replaces an existing file. Used for:
   - the containment record (`_save_state`);
@@ -1059,6 +1060,37 @@ synthetic inert files.
   item, 3; L-C8 1; L-C11 1; I-B4 1; L-C10 2. After: tool tests (evaluation,
   calibration, fuzzy DB, mbox, profile, benchmark fixes, tools path) 41
   passed. ruff, mypy and bandit clean.
+
+### Group 23: rank 14 documentation, README part
+
+Status check first, against the code:
+- **Already done:** D27 and D38 (with M27 and M28); D42 is now true, because
+  L-C11 keeps benign paths out of the fuzzy database.
+- **Owner items, unchanged:** D20 (M18), D22, D23 and D26 (33.7), D32 (the
+  L-B2 lock choice) and D11 (M23).
+- **Release state, unchanged:** D14 (badge, tag, image archive) and D10 (the
+  history and "delivered" list); both are true only after a release, and the
+  version is not touched.
+
+README changes:
+- **D1:** "23 public rules" (yara-python compiles 25: 23 public and the 2
+  private helpers in `office_dropper.yar`).
+- **D2:** CI runs on pull requests, pushes to `main` and manual dispatch.
+- **D3 and L-B6:** the badge and two sentences now name the tested targets
+  (Linux x64, Windows x64, macOS arm64), and `python-tlsh` is source-only.
+- **D4:** all eight secret names.
+- **D5:** notifications on Windows too.
+- **D6:** `AUTO_QUARANTINE` accepts `medium` and `off`.
+- **D7:** every scan runs in a worker.
+- **D8:** the project tree lists the modules added since 4.6, `deploy/`,
+  Docker and the documents.
+- **D9:** the docker and parser-fuzz workflows.
+- **D12:** one total decompressed-size budget, not a per-member limit.
+- **D13:** `requirements.txt` is unpinned; the audited set is the lock.
+- **D31:** the sandbox wait must stay below `SCAN_TIMEOUT_SECONDS`.
+
+`write_atomic` moved from `core/fsutil.py` (group 19) to `engine/fsutil.py`, so
+there is one `fsutil` module; its users and test were updated (56 passed).
 
 ## Exact next action
 

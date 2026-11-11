@@ -7,11 +7,11 @@
 [![tests](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml/badge.svg)](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
-![Arch](https://img.shields.io/badge/Arch-x86__64%20%7C%20ARM64-lightgrey)
+![Arch](https://img.shields.io/badge/tested-Linux%20x64%20%7C%20Windows%20x64%20%7C%20macOS%20arm64-lightgrey)
 
 A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, archives (ZIP, 7z, RAR, ISO), scripts, web pages and e-mails (.eml / Outlook .msg, or straight from an IMAP mailbox)** for ransomware and other malicious indicators. It fuses **twenty detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
 
-Runs on **Windows, macOS, and Linux** (x86_64 and ARM64), from the command line or a desktop GUI, with optional autostart at login.
+Runs on **Windows, macOS, and Linux**, from the command line or a desktop GUI, with optional autostart at login. CI tests Linux x64, Windows x64 and macOS arm64; Linux and Windows on ARM64 and macOS on Intel are not tested.
 
 Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6); a hardened Docker deployment, scan completeness and provenance (4.7). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
 
@@ -202,7 +202,7 @@ flowchart TD
         H["Hashes + local DB<br/>allowlist"]
         FZ["Fuzzy hashing<br/>TLSH / ssdeep"]
         MA["Macros<br/>VBA · XLM · stomping"]
-        Y["YARA<br/>23 rules"]
+        Y["YARA<br/>23 public rules"]
         FI["File integrity<br/>disguise · encryption"]
         EL["Linux ELF"]
         PE["Windows PE<br/>imports · T1490 · overlay"]
@@ -260,7 +260,7 @@ Signals fall into five weight categories: **technical** (everything structural, 
    - exploit URI schemes in any relationship (`ms-msdt:`, `search-ms:`, `ms-officecmd:`, `mhtml:`, …),
    - UNC / `file://host` paths that make Windows send the user's NTLM hash to the attacker (T1187),
    - RTF `{\*\template http://…}` and auto-updating OLE links (`\objupdate`).
-8. **Archive inspection.** ZIP archives (and, since 4.2, AES ZIP, 7z and ISO/IMG; since 4.3, RAR) are unpacked into a temporary sandbox with hard limits (nesting depth, member count, total and per-member decompressed size, compression ratio). It reports **zip bombs**, **zip slip** (path traversal, absolute paths, symlinks; such members are never written), executables/scripts/shortcuts inside the archive (by extension *and* magic bytes), **double extensions** (`invoice.pdf.exe`) and **right-to-left-override** names. Encrypted members are tried against a short list of delivery passwords ("infected", the archive's own name, …). Up to 25 members per archive go through all the other layers, and the archive is scored like its most dangerous member.
+8. **Archive inspection.** ZIP archives (and, since 4.2, AES ZIP, 7z and ISO/IMG; since 4.3, RAR) are unpacked into a temporary sandbox with hard limits (nesting depth, member count, one total decompressed-size budget per scan, compression ratio). It reports **zip bombs**, **zip slip** (path traversal, absolute paths, symlinks; such members are never written), executables/scripts/shortcuts inside the archive (by extension *and* magic bytes), **double extensions** (`invoice.pdf.exe`) and **right-to-left-override** names. Encrypted members are tried against a short list of delivery passwords ("infected", the archive's own name, …). Up to 25 members per archive go through all the other layers, and the archive is scored like its most dangerous member.
 9. **VirusTotal (threat intelligence).** Looks the file's SHA-256 up via the v3 API and reads how many engines flag it. **Privacy by default:** unknown files are *not* uploaded (an upload shares the document with VirusTotal and its Enterprise subscribers); set `VT_UPLOAD_UNKNOWN=true` to opt in. Requests are paced to the free quota (4/min), retried with backoff on 429/5xx, time out after 30 s, and answers are cached for 24 h.
 10. **LLM semantic analysis (local-first, OPSEC-preserving).** Extracts visible text (pypdf / python-docx / OOXML parts, with **OCR fallback** for scanned PDFs when an LLM is active) plus printable strings, and asks an LLM whether it reads like a ransomware/phishing lure.
     - **OPSEC by default.** With `LLM_PROVIDER=auto` the scanner prefers a **local Ollama** model if one is reachable, so sensitive documents never leave the machine. It falls back to OpenAI only if no local model is available *and* a key is set, and logs the egress.
@@ -360,7 +360,7 @@ python RansomwareScanner.py --verify-canaries             # exit code 2 if tripp
 python RansomwareScanner.py --remove-canaries
 ```
 
-Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on macOS/Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves. A trip can also **act** (`CANARY_RESPONSE`, run in this order): `stop_writers` suspends the processes writing in the canary folders with their children (`CANARY_CONTAIN_MODE=terminate` kills them), `lock_folders` removes write access to `CANARY_LOCK_DIRS`, `controlled_folder_access` turns on Windows' own blocker, `network_off` disconnects the machine, and `script` runs your playbook. `--resume-pid PID` and `--unlock-folders` undo the containment. It is a **rapid-containment and damage-mitigation tripwire**: it acts after encryption has started and cannot replace kernel-level EDR prevention.
+Decoy documents (`!000_Finance_Records_Backup.docx`, `!000_Signed_Contracts_Archive.pdf`, `!000_Asset_Inventory.csv`) are planted where an alphabetical ransomware walk reaches them first. Each is a valid, unique file whose SHA-256 is recorded. If one is **deleted, modified, rewritten with random bytes, or renamed with an appended extension** (`….docx.lockbit`), or a ransom-note-named file appears beside it, the tripwire fires. It writes `canary_alert_<time>.txt` next to the reports, logs at CRITICAL, and raises a desktop notification on Windows, macOS and Linux. With `watchdog` installed, canary folders are also **watched in real time**: a verification runs about a second after a canary is touched. `--background` checks every 5 minutes as well (`CANARY_CHECK_MINUTES`), the GUI does the same while it is open, and canary files are never scanned or quarantined themselves. A trip can also **act** (`CANARY_RESPONSE`, run in this order): `stop_writers` suspends the processes writing in the canary folders with their children (`CANARY_CONTAIN_MODE=terminate` kills them), `lock_folders` removes write access to `CANARY_LOCK_DIRS`, `controlled_folder_access` turns on Windows' own blocker, `network_off` disconnects the machine, and `script` runs your playbook. `--resume-pid PID` and `--unlock-folders` undo the containment. It is a **rapid-containment and damage-mitigation tripwire**: it acts after encryption has started and cannot replace kernel-level EDR prevention.
 
 ### Encrypted quarantine vault
 
@@ -428,6 +428,9 @@ pip install -r requirements.txt
 pip install -r requirements-ml.txt     # optional: train / load ML models
 ```
 
+`requirements.txt` is unpinned. The tested and audited set is `requirements.lock`
+(Python 3.12 and later): `pip install --require-hashes -r requirements.lock`.
+
 ---
 
 ## 📦 Standalone executables
@@ -458,7 +461,8 @@ Notes:
 ## 🔑 Configuration
 
 Settings are loaded from a local `.env` file and are **never** stored in the code. Secrets
-(`OPENAI_API_KEY`, `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`) come
+(`OPENAI_API_KEY`, `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`,
+`SMTP_PASSWORD`, `CLOUD_SECRET_ACCESS_KEY`, `CLOUD_PSEUDONYM_KEY`) come
 from the environment first (or `NAME_FILE`, e.g. a Docker secret), then the OS keyring (the
 desktop app saves keys there), then `.env`. Since 4.7 a secret found in `.env` is moved to the OS
 keyring on the next start: written, read back, and only then removed from the file.
@@ -477,7 +481,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `VT_REQUESTS_PER_MINUTE` | `4` | client-side pacing (free API quota); `0` disables |
 | `HTTP_TIMEOUT` | `30` | seconds, every external call |
 | `CACHE_ENABLED`, `CACHE_TTL_HOURS` | `true`, `24` | VirusTotal/LLM result cache |
-| `AUTO_QUARANTINE` | empty (off) | `high` or `critical` |
+| `AUTO_QUARANTINE` | empty (off) | `medium`, `high` or `critical`: quarantine results at or above that verdict; `off` or empty: never |
 | `CANARY_CHECK_MINUTES` | `5` | canary verification interval |
 | `FUZZY_SIGNATURE_DB`, `YARA_RULES_DIR` | bundled | custom signature/rule locations |
 | `SKIP_HEAVY_WHEN_SATURATED` | `true` | skip ML/LLM/VirusTotal when the local layers already score 100 |
@@ -485,7 +489,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `QR_SCAN_ENABLED` | `true` | decode QR codes (needs pyzbar or OpenCV) |
 | `ALLOWLIST_PATH` | `~/RansomwareScanner/data/allowlist.txt` | known-good SHA-256 hashes |
 | `SANDBOX_URL`, `SANDBOX_TOKEN` | empty (off) | your CAPEv2 server and API token |
-| `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report |
+| `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report. Keep the wait below `SCAN_TIMEOUT_SECONDS` (300): a longer one stops the scan, and start-up warns |
 | `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD` | empty (off) | mailbox for `--scan-imap` (use an app password) |
 | `IMAP_PORT`, `IMAP_STARTTLS`, `IMAP_FOLDER` | `993`, `false`, `INBOX` | connection and folder (TLS only) |
 | `IMAP_SINCE_DAYS`, `IMAP_MAX_MESSAGES`, `IMAP_MAX_MB` | `7`, `200`, `25` | first-run look-back, per-run and per-message limits |
@@ -722,7 +726,7 @@ python test_smoke.py             # the original v3 smoke test, still passing
 RUN_GUI_TESTS=1 xvfb-run -a python -m pytest tests/test_gui_smoke.py
 ```
 
-Every push and pull request runs the suite on **Windows, macOS and Linux** with Python 3.9 and 3.12 (GitHub Actions, `.github/workflows/tests.yml`).
+Every pull request, every push to `main` and a manual dispatch run the suite on **Windows, macOS and Linux** with Python 3.9 and 3.12 (GitHub Actions, `.github/workflows/tests.yml`); a push to another branch starts nothing.
 
 The suite covers each detector and protection feature in isolation, the full scan pipeline, the CLI commands, and the GUI flow (scan → quarantine → restore → canary trigger). Highlights:
 
@@ -772,6 +776,10 @@ hybrid-ransomware-detector/
 ├── engine/                      # the scanner itself
 │   ├── config.py                # version, per-user paths, .env, CONFIG; init_runtime() (no import side effects)
 │   ├── validation.py            # start-up configuration checks
+│   ├── secret_store.py          # secrets: environment, OS keyring, .env migration
+│   ├── completeness.py, provenance.py  # scan_status and its reasons; what each result was built with
+│   ├── capabilities.py, readiness.py   # --capabilities report; the production-profile readiness check
+│   ├── fsutil.py                # regular-file checks, atomic writes
 │   ├── logs.py, metrics.py      # text / JSON logging; runtime counters (/metrics)
 │   ├── scanner.py               # RansomwareScanner facade: engines, folder walks, runs
 │   ├── staging.py               # pipeline runner, layer guard, heavy-layer gate
@@ -811,14 +819,20 @@ hybrid-ransomware-detector/
 │   ├── containment.py           # find / suspend the writing process; folder lock and unlock
 │   ├── tools.py                 # helper programs found outside the current directory
 │   ├── outputs.py               # JSON Lines + signed webhook
+│   ├── outbox.py, mailer.py     # persistent alert outbox; e-mail alerts over verified TLS
+│   ├── folder_watch.py          # folder monitoring (WATCH_DIRS)
+│   ├── cloud.py                 # optional report / log upload to S3-compatible storage
+│   ├── intel_client.py          # the Docker edition's client of the intel service
 │   ├── cache.py, http.py
-├── api/                         # result JSON schema + optional REST API (FastAPI) + abuse limits
-├── rules/                       # YARA rules (23 original rules in five files)
+├── api/                         # result JSON schema + optional REST API (FastAPI) + abuse limits; intel.py: the intel service
+├── deploy/                      # Caddyfile, deployment check, isolation check, backup and restore
+├── Dockerfile, docker-compose.yml  # the Docker edition (analysis, intel, proxy, content tool)
+├── rules/                       # YARA rules (23 public rules and 2 private helpers in five files)
 ├── tools/                       # evaluate, calibrate_weights, profile_layers, build_fuzzy_db, rulepack, mbox_to_eml
 ├── tests/                       # pytest suite (synthetic samples only), incl. fuzz + regression corpus
 ├── fuzz/                        # atheris harness for long coverage-guided fuzzing
-├── docs/                        # ARCHITECTURE.md, THREAT_MODEL.md, DEPLOYMENT.md, DETECTION_v3/v4.md, screenshots
-├── .github/workflows/           # tests (3 OS), quality gates (lint, types, bandit, coverage, audit, regression), release
+├── docs/                        # ARCHITECTURE, THREAT_MODEL, DEPLOYMENT, OPERATIONS, RUNBOOKS, RULE_PACKS, DATA_POLICY, RELEASE_*, SUPPORT, DETECTION_v3/v4, screenshots
+├── .github/workflows/           # tests (3 OS), quality gates (lint, types, bandit, coverage, audit, regression), docker, parser-fuzz, release
 ├── pyproject.toml               # package metadata, extras, tool configuration
 ├── requirements.txt             # loose requirements; requirements.lock = pinned versions
 ├── build.py, scanner.spec       # PyInstaller build + smoke test + packaging
@@ -834,7 +848,7 @@ See [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md) for the design of the v4 laye
 How the project is built to be trusted, not only to detect. Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 - **One indicator registry.** Every weight, category cap and label lives in `detectors/indicators.yaml`; scoring, the desktop app and the calibration tool read it. Reports record the registry version. Reviewed changes can be applied as an override file (`WEIGHTS_OVERRIDE`) without editing code.
-- **Isolation.** Folder and API scans run each file in a worker process with a time limit and a memory limit (RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog on macOS); a file that hangs or kills a worker is reported as `scan_failed`. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
+- **Isolation.** Every scan (folders, single files, the folder monitor, the mailbox, the API) runs each file in a worker process with a time limit and a memory limit (RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog on macOS); a file that hangs or kills a worker is reported as `scan_failed`. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
 - **Fuzzed parsers.** Every parser is fuzzed in the suite (Hypothesis) and can be fuzzed for hours with atheris (`fuzz/`). Fuzzing found a ZIP that ended a scan (fixed); `pip-audit` found a parser hang in PyPDF2 (CVE-2023-36464), fixed by moving to `pypdf`.
 - **Typed contracts.** Layers fill typed signal dataclasses and each layer has one scorer function; mypy checks both sides, so a renamed field is a type error, not a silent missed detection.
 - **Quality gates in CI.** ruff (lint, import order, bug and security patterns, cyclomatic complexity under 20, lazy log arguments), bandit, mypy over every engine and detector module, an 85 % coverage floor, `pip-audit` on the pinned lock file, and a 13-file regression corpus whose verdicts, scores and indicators must not change unintentionally.
@@ -847,7 +861,7 @@ How the project is built to be trusted, not only to detect. Details in [`docs/AR
 ## 🌐 Cross-platform & architecture notes
 
 - **OS-aware paths:** all runtime paths (app dir, logs, reports, vault, cache) are built from `Path.home()`; nothing is hardcoded to one OS.
-- **No architecture lock-in:** dependencies are pure Python or ship x86_64 and ARM64 wheels (Windows/macOS/Linux), including Apple Silicon.
+- **Architectures:** dependencies are pure Python or ship x86_64 and ARM64 wheels, except `python-tlsh`, which is source-only (see Python above). CI tests Linux x64, Windows x64 and macOS arm64 (Apple Silicon) only.
 - **Tested** in CI on Windows, macOS and Linux with Python 3.9 and 3.12, and the GUI headlessly on Linux. The code avoids OS-specific APIs outside the autostart and notification helpers, which branch per platform.
 - **Graceful degradation:** missing libraries, keys, OCR binaries or scan folders produce warnings, not crashes.
 
