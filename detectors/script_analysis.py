@@ -42,7 +42,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 PathLike = Union[str, Path]
 
@@ -131,15 +131,29 @@ _SE_ROWS = (
 )
 _SE_TABLE = {code: tuple(row[i] for row in _SE_ROWS) for i, code in enumerate(_SE_CODES)}
 _SE_PICK = "0120121221210212021200122102122100212120200120210212001220012021"
-_SE_BLOCK = re.compile(r"#@~\^[A-Za-z0-9+/]{6}==(.*?)[A-Za-z0-9+/]{6}==\^#~@", re.S)
+# M22: `start(.*?)end` rescanned to the end of the text from every start
+# marker when no end marker followed; a start is now paired with the first end
+# after it, and the search stops when none is left (the same blocks).
+_SE_START = re.compile(r"#@~\^[A-Za-z0-9+/]{6}==")
+_SE_END = re.compile(r"[A-Za-z0-9+/]{6}==\^#~@")
 _SE_ESCAPES = (("@&", "\n"), ("@#", "\r"), ("@*", ">"), ("@!", "<"), ("@$", "@"))
+
+
+def _se_bodies(text: str) -> Iterator[str]:
+    pos = 0
+    while True:
+        start = _SE_START.search(text, pos)
+        end = _SE_END.search(text, start.end()) if start else None
+        if start is None or end is None:
+            return
+        yield text[start.end():end.start()]
+        pos = end.end()
 
 
 def decode_script_encoder(text: str) -> str:
     """Plain source of every Script Encoder block in `text` ('' if there is none)."""
     out = []
-    for m in _SE_BLOCK.finditer(text):
-        data = m.group(1)
+    for data in _se_bodies(text):
         for esc, plain in _SE_ESCAPES:
             data = data.replace(esc, plain)
         chars, index = [], -1
@@ -167,19 +181,109 @@ _STR = r"(?:\"((?:[^\"\\\n]|\\.){1,20000})\"|'((?:[^'\\\n]|\\.){1,20000})')"
 _CONCAT = re.compile(r"([\"'])\s*(?:\+|&)\s*(?:_\s*\r?\n\s*)?\1")
 _B64_LITERAL = re.compile(r"[\"']([A-Za-z0-9+/]{40,}={0,2})[\"']")
 _ATOB = re.compile(r"\batob\s*\(\s*" + _STR, re.I)
-_CHR_RUN = re.compile(r"(?:chrw?\s*\(\s*\d{1,5}\s*\)\s*(?:&|\+)?\s*(?:_\s*\r?\n\s*)?){4,}", re.I)
+# H5: every white-space run has exactly one owner (the old adjacent `\s*`
+# could split one run in many ways, so three tokens and a failure took
+# polynomial time: ~165 bytes held a worker for the full scan limit).
+# `_[^\S\n]*\n\s*` splits a VB line continuation at its first newline.
+_CHR_RUN = re.compile(r"(?:chrw?\s*\(\s*\d{1,5}\s*\)\s*(?:[&+]\s*)?(?:_[^\S\n]*\n\s*)?){4,}", re.I)
 _CHR_ONE = re.compile(r"chrw?\s*\(\s*(\d{1,5})\s*\)", re.I)
 _FROMCC = re.compile(r"fromcharcode\s*\(\s*((?:\d{1,5}\s*,\s*){3,}\d{1,5})\s*\)", re.I)
 _PSCHAR_ARR = re.compile(r"\[char\[\]\]\s*\(\s*((?:\d{1,5}\s*,\s*){3,}\d{1,5})\s*\)", re.I)
-_PSCHAR_RUN = re.compile(r"(?:\[char\]\s*\(?\s*\d{1,5}\s*\)?\s*\+?\s*){4,}", re.I)
-_PSCHAR_ONE = re.compile(r"\[char\]\s*\(?\s*(\d{1,5})", re.I)
+_PSCHAR_RUN = re.compile(r"(?:\[char\]\s*(?:\(\s*)?\d{1,5}\s*(?:\)\s*)?(?:\+\s*)?){4,}", re.I)
+_PSCHAR_ONE = re.compile(r"\[char\]\s*(?:\(\s*)?(\d{1,5})", re.I)
 _HEX_RUN = re.compile(r"(?:\\x[0-9a-f]{2}|\\u[0-9a-f]{4}){8,}", re.I)
 _PCT_RUN = re.compile(r"(?:%[0-9a-f]{2}|%u[0-9a-f]{4}){8,}", re.I)
 _REVERSE_VB = re.compile(r"strreverse\s*\(\s*" + _STR, re.I)
-_REVERSE_JS = re.compile(_STR + r"\s*\.split\(\s*(?:\"\"|'')\s*\)\s*\.reverse\(\s*\)\s*\.join\(", re.I)
-_REPLACE_DOT = re.compile(_STR + r"\s*\.replace\s*\(\s*" + _STR + r"\s*,\s*(?:\"\"|'')\s*\)", re.I)
+# M22: `_STR` + suffix, tried by `finditer` at every quote, rescanned a long
+# literal from each escaped quote inside it. These two are matched by
+# `_literal_matches` below with the same results; the suffixes stay patterns.
+_REVERSE_JS_TAIL = re.compile(r"\s*\.split\(\s*(?:\"\"|'')\s*\)\s*\.reverse\(\s*\)\s*\.join\(", re.I)
+_REPLACE_DOT_MID = re.compile(r"\s*\.replace\s*\(\s*", re.I)
+_REPLACE_DOT_TAIL = re.compile(r"\s*,\s*(?:\"\"|'')\s*\)")
+_QUOTE = re.compile(r"[\"']")
+_STR_MAX_UNITS = 20000
+_PLAIN_RUN = {'"': re.compile(r'[^"\\\n]*'), "'": re.compile(r"[^'\\\n]*")}
 _REPLACE_VB = re.compile(r"\breplace\s*\(\s*" + _STR + r"\s*,\s*" + _STR + r"\s*,\s*\"\"\s*\)", re.I)
 _BACKTICK = re.compile(r"`(?=[a-z])", re.I)
+
+
+class _Literals:
+    """Where the string literal of `_STR` that opens at a quote closes (M22).
+
+    The content of a literal is a sequence of units, `[^q\\\n]` or `\\.`, so it
+    closes at the first unescaped quote of its kind. A literal that opens at an
+    escaped quote inside a longer one of the same kind continues exactly as
+    that longer one from the next character, so each run is scanned once."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.tail: Dict[Tuple[str, int], Tuple[int, int]] = {}    # (q, pos) -> (close, units)
+
+    def close(self, p: int) -> int:
+        """Index of the closing quote of the literal opening at `p`, or -1."""
+        text, q = self.text, self.text[p]
+        i, units, marks = p + 1, 0, []
+        while True:
+            known = self.tail.get((q, i))
+            if known is not None:
+                close, rest = known
+                units += rest
+                break
+            run = _PLAIN_RUN[q].match(text, i)            # skip ordinary units in C
+            plain = run.end() if run else i
+            units += plain - i
+            i = plain
+            c = text[i] if i < len(text) else "\n"
+            if c == q:
+                close = i
+                break
+            if c == "\n" or (c == "\\" and (i + 1 >= len(text) or text[i + 1] == "\n")):
+                close = -1
+                break
+            units += 1
+            if c == "\\":
+                i += 2
+                if text[i - 1] == q:
+                    marks.append((i, units))
+            else:
+                i += 1
+        for pos, before in marks:
+            self.tail[(q, pos)] = (close, units - before)
+        return close if close >= 0 and 1 <= units <= _STR_MAX_UNITS else -1
+
+
+def _literal_matches(text: str, kind: str) -> List[Tuple[str, str]]:
+    """`_lit` values of `finditer` with the old `_REVERSE_JS` (kind "reverse") or
+    `_REPLACE_DOT` (kind "replace") pattern: [(first literal, second literal)]."""
+    lits = _Literals(text)
+    out: List[Tuple[str, str]] = []
+    pos = 0
+    while True:
+        q = _QUOTE.search(text, pos)
+        if q is None:
+            return out
+        p = q.start()
+        end, found = -1, None
+        close = lits.close(p)
+        if close >= 0:
+            first = text[p + 1:close]
+            if kind == "reverse":
+                tail = _REVERSE_JS_TAIL.match(text, close + 1)
+                if tail:
+                    end, found = tail.end(), (first, "")
+            else:
+                mid = _REPLACE_DOT_MID.match(text, close + 1)
+                p2 = mid.end() if mid else -1
+                if mid and p2 < len(text) and text[p2] in "\"'":
+                    close2 = lits.close(p2)
+                    tail = _REPLACE_DOT_TAIL.match(text, close2 + 1) if close2 >= 0 else None
+                    if tail:
+                        end, found = tail.end(), (first, text[p2 + 1:close2])
+        if found is not None:
+            out.append(found)
+            pos = end
+        else:
+            pos = p + 1
 
 
 def _lit(m, i=1) -> str:
@@ -238,8 +342,8 @@ def _t_escapes(text):
 
 def _t_reverse_replace(text):
     out = [_lit(m)[::-1] for m in _REVERSE_VB.finditer(text)]
-    out += [_lit(m)[::-1] for m in _REVERSE_JS.finditer(text)]
-    out += [_lit(m, 1).replace(_lit(m, 3), "") for m in _REPLACE_DOT.finditer(text) if _lit(m, 3)]
+    out += [first[::-1] for first, _ in _literal_matches(text, "reverse")]
+    out += [first.replace(second, "") for first, second in _literal_matches(text, "replace") if second]
     out += [_lit(m, 1).replace(_lit(m, 3), "") for m in _REPLACE_VB.finditer(text) if _lit(m, 3)]
     return out
 
@@ -249,11 +353,8 @@ _TRANSFORMS = (_t_concat, _t_backticks, _t_base64, _t_char_codes, _t_escapes, _t
 
 def deobfuscate(text: str, max_layers: int = MAX_LAYERS) -> Tuple[List[str], int]:
     """Texts recovered from `text` (not including it) and the deepest layer reached."""
-    if _SE_BLOCK.search(text):
-        first = decode_script_encoder(text)
-        seeds = [first] if first else []
-    else:
-        seeds = []
+    first = decode_script_encoder(text)
+    seeds = [first] if first else []
     found: List[str] = []
     seen = {hash(text)}
     frontier = [(t, 1) for t in seeds]

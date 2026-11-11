@@ -40,7 +40,7 @@ import struct
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Callable, Dict, Iterator, List, Optional, Sequence, Union
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from .file_integrity import detect_format
 
@@ -77,13 +77,51 @@ _EXT_BY_FORMAT = {"pe": ".exe", "elf": ".elf", "macho": ".macho", "lnk": ".lnk",
 RISKY_EXTENSIONS = frozenset({".exe", ".dll", ".scr", ".lnk", ".hta", ".vbs", ".vbe", ".js",
                               ".jse", ".wsf", ".ps1", ".bat", ".cmd", ".elf", ".macho", ".sh"})
 
-_SCRIPT_GUESS = (
-    (".hta", re.compile(rb"<hta:application", re.I)),
-    (".wsf", re.compile(rb"<job\b[^>]*>|<script\s+language\s*=\s*[\"']?(?:vbscript|jscript)", re.I)),
-    (".ps1", re.compile(rb"\$[a-z_]\w*\s*=|invoke-|new-object\s|-encodedcommand|\[convert\]::", re.I)),
-    (".vbs", re.compile(rb"createobject\s*\(|wscript\.|\bdim\s+\w+|\bsub\s+\w+\s*\(", re.I)),
-    (".bat", re.compile(rb"^\s*@?echo\s+off|^\s*(?:set|start|call|goto)\s", re.I | re.M)),
-    (".js", re.compile(rb"activexobject|\bvar\s+\w+\s*=|function\s*\w*\s*\(", re.I)),
+# M22: these run on every OneNote and MSI block, so each one is linear. The
+# old `.bat` pattern let `^\s*` cross lines (quadratic on blank lines) and the
+# old `.wsf` and `.js` patterns rescanned the rest of a run from every `<job` or
+# `function`; the helpers below give the same yes/no answer in one pass.
+_WSF_JOB = re.compile(rb"<job\b", re.I)
+_WSF_SCRIPT = re.compile(rb"<script\s+language\s*=\s*[\"']?(?:vbscript|jscript)", re.I)
+_JS_WORDS = re.compile(rb"activexobject|\bvar\s+\w+\s*=", re.I)
+_JS_FUNCTION = re.compile(rb"function", re.I)
+_JS_FUNCTION_TAIL = re.compile(rb"\s*(?:\w+\s*)?\(")   # = \s*\w*\s*\( with one owner per run
+_WORD_RUN = re.compile(rb"\w*")
+
+
+def _looks_wsf(head: bytes) -> bool:
+    r"""`<job\b[^>]*>|<script language=...`: a `<job` with any later `>` is a match."""
+    job = _WSF_JOB.search(head)
+    return bool(job and head.find(b">", job.end()) >= 0) or bool(_WSF_SCRIPT.search(head))
+
+
+def _looks_js(head: bytes) -> bool:
+    r"""`activexobject|\bvar\s+\w+\s*=|function\s*\w*\s*\(` without the rescans.
+
+    Every `function` that a word character follows inside one word run reaches
+    the same end of that run, so it gives the same answer as the first one;
+    only the first and the one that ends the run are tried."""
+    if _JS_WORDS.search(head):
+        return True
+    pos = 0
+    while True:
+        m = _JS_FUNCTION.search(head, pos)
+        if m is None:
+            return False
+        if _JS_FUNCTION_TAIL.match(head, m.end()):
+            return True
+        run = _WORD_RUN.match(head, m.end())       # `\w*` always matches
+        run_end = run.end() if run else m.end()
+        pos = max(m.start() + 1, run_end - len(b"function"))
+
+
+_SCRIPT_GUESS: Tuple[Tuple[str, Callable[[bytes], object]], ...] = (
+    (".hta", re.compile(rb"<hta:application", re.I).search),
+    (".wsf", _looks_wsf),
+    (".ps1", re.compile(rb"\$[a-z_]\w*\s*=|invoke-|new-object\s|-encodedcommand|\[convert\]::", re.I).search),
+    (".vbs", re.compile(rb"createobject\s*\(|wscript\.|\bdim\s+\w+|\bsub\s+\w+\s*\(", re.I).search),
+    (".bat", re.compile(rb"^[^\S\n]*@?echo\s+off|^[^\S\n]*(?:set|start|call|goto)\s", re.I | re.M).search),
+    (".js", _looks_js),
 )
 
 
@@ -127,8 +165,8 @@ def _guess_text_extension(data: bytes) -> str:
     head = data[:65536]
     if head.count(b"\x00") > len(head) // 20:
         return ".bin"
-    for ext, rx in _SCRIPT_GUESS:
-        if rx.search(head):
+    for ext, looks in _SCRIPT_GUESS:
+        if looks(head):
             return ext
     return ".txt"
 

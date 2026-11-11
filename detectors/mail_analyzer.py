@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import contextlib
 import email
 import email.policy
@@ -353,7 +354,7 @@ _PASSWORD_LABELS = (  # label words, not a password
     r"contrase(?:n|ñ)a|senha|parola|wachtwoord|has(?:l|ł)o|şifre|sifre|"
     r"كلمة (?:المرور|السر)|الرقم السري|كود|пароль")
 _PASSWORD_RX = re.compile(
-    r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?\s*[:=：\-–]?\s*"
+    r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?(?:\s*[:=：\-–])?\s*"
     r"[\"'“«‘]?([^\s\"'”»’<>]{3,40})", re.I | re.M)
 _NOT_PASSWORDS = frozenset({"the", "for", "and", "attached", "below", "above", "file", "files",
                             "zip", "archive", "document", "is", "please", "to", "you", "your"})
@@ -714,6 +715,9 @@ def _decode_text(part: Message) -> str:
         payload = b""
     charset = part.get_content_charset() or "utf-8"
     try:
+        # M22: punycode is not a MIME charset and decodes in quadratic time.
+        if codecs.lookup(charset).name == "punycode":
+            charset = "utf-8"
         return payload.decode(charset, errors="replace")
     except LookupError:
         return payload.decode("utf-8", errors="replace")
@@ -752,9 +756,9 @@ def _display_name_spoof(display: str, from_domain: str) -> str:
         if shown and not _same_org(shown, from_domain):
             return f"display name shows an address at {shown} but the mail is from {from_domain}"
         return ""
-    m = _DOMAIN_IN_TEXT.search(display)
-    if m and "." in m.group(1) and not _same_org(m.group(1).lower(), from_domain):
-        return f"display name shows {m.group(1).lower()} but the mail is from {from_domain}"
+    shown = _first_domain(display)        # M22: linear; the plain search was quadratic
+    if "." in shown and not _same_org(shown.lower(), from_domain):
+        return f"display name shows {shown.lower()} but the mail is from {from_domain}"
     return ""
 
 

@@ -348,6 +348,72 @@
 - Not verified: CI (nothing pushed); the advisories' crafted PDFs were not
   replayed (excluded on this host).
 
+### Group 2: H5, M22 and I-5 (the time-out class)
+
+- Rule kept throughout: every new form gives the same matches as the old
+  pattern. The old patterns stay in the tests as the reference and are compared
+  on 30,000 random inputs each, with a minimum number of real matches so the
+  comparison cannot pass empty.
+- **H5** (`detectors/script_analysis.py`): `_CHR_RUN`, `_PSCHAR_RUN` and
+  `_PSCHAR_ONE` give each white-space run one owner. The review's proposed
+  `_\s*\r?\n\s*` still split blank lines two ways; `_[^\S\n]*\n\s*` matches
+  the same strings and splits at the first newline.
+- **M22**, all seven paths of check 3:
+  - `_PASSWORD_RX`: `(?:\s*[:=...])?\s*` in place of `\s*[:=...]?\s*`. The
+    subject is not capped; the pattern is linear without it.
+  - `From:` display name: `_first_domain()` (the H2 helper) in place of
+    `_DOMAIN_IN_TEXT.search`.
+  - Mail body charset: `punycode` is read as UTF-8. Every other charset is
+    unchanged (see M33 below for the ones that still fail).
+  - Embedded-block type guess (`detectors/embedded_content.py`): the `.bat`
+    pattern is line-local; `.wsf` and `.js` use two small helpers with the
+    same yes/no answer. Only a boolean was ever used.
+  - Script Encoder blocks: a start marker is paired with the first end marker
+    after it; the search stops when no end is left.
+  - `_REVERSE_JS` and `_REPLACE_DOT`: a memoised string-literal scanner
+    (`_Literals`, `_literal_matches`). A literal opening at an escaped quote
+    inside a longer one continues exactly as the longer one, so each run is
+    scanned once. Plain characters are skipped by a C-level pattern: 1 MB of
+    ordinary JavaScript takes 0.10 s (old regex 0.08 s).
+- **I-5** (`tests/test_regex_guard.py`): every module-level compiled pattern
+  in `detectors/` (114) runs `finditer` on ~20 KB hostile inputs in a child
+  process. The inputs are runs of one character, tokens from the pattern's own
+  text, and the H5 shape. Limits: 0.5 s per call, 240 s in all; 3.7 s here.
+  The slowest call that is checked is about 0.006 s. Shown to catch the old
+  `_PSCHAR_RUN`, `_CHR_RUN`, `_PASSWORD_RX`, `.bat` guess and `_REVERSE_JS`
+  when they are put back. It does not catch the old Script Encoder pattern
+  (0.25 s at 20 KB); that one has its own test. Inline `re.*` calls are not
+  covered. Skipped by name, with the reason in the file:
+  - helpers that run only anchored at positions their caller bounds:
+    `_JS_FUNCTION_TAIL`, `_DOMAIN_CHAIN`, `_DOMAIN_IN_TEXT`, `_TAG`, and the
+    three `_literal_matches` suffix patterns;
+  - three web-content patterns that are quadratic on `<a` runs: H-04+,
+    deferred by the owner (`_DATA_DOWNLOAD_ANCHOR`, `_SMUGGLE_DOWNLOAD`,
+    `_SVG_ACTIVE[1][1]`);
+  - `file_integrity.RANSOM_NOTE_RE`: L-E12 below.
+- Tests: `tests/test_script_patterns_linear.py`,
+  `tests/test_mail_embedded_linear.py`, `tests/test_regex_guard.py`. Every
+  timing test was run against the unfixed detectors in a temporary worktree:
+  each group was still running at a 30 s cap (exit 124). After the fix they
+  take 0.1 to 1.5 s each.
+- Gates at commit time: ruff (tracked files), mypy (68 files), bandit CI
+  gate and `test_smoke.py` clean; the three new test files pass. The full safe
+  selection is run in a clean worktree at this commit afterwards (edits for
+  the next group were being made in the main tree); its result is in the next
+  checkpoint.
+- Review (Ponytail Review of the diff): one finding, the speed of the
+  pure-Python literal scanner on ordinary scripts. Fixed with the C-level skip.
+- New items found during this group (not fixed, recorded here for the owner):
+  - **M33** (Medium, needs approval, same rule as M31): a mail part that
+    declares `charset=idna` or `charset=undefined` makes `bytes.decode` raise
+    `UnicodeError` even with `errors="replace"`. The whole mail analysis then
+    ends in an error: a planted `Password: ...` and everything after it are
+    not found. Reproduced in-process with a three-line `.eml`. Proposed fix:
+    read these two (and any codec that raises) as UTF-8, as for `punycode`.
+  - **L-E12** (Low): `RANSOM_NOTE_RE` is quadratic on a long name (80 KB of
+    `decrypt`: 2.2 s). It sees only file names; a ZIP member name can be
+    64 KB, about 1.5 s per member. A detection pattern, so not changed here.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -365,7 +431,9 @@ in 33.7 and must be obtained before the OWNER items:
 
 SAFE items, in order (done items are marked):
 1. M21 and L-B7 (CI): done, group 1 (local commit after `05aae35`).
-2. H5 and M22 (the time-out class), then I-5: in progress, group 2.
+2. H5, M22 and I-5 (the time-out class): done, group 2 (the local commit
+   after group 1).
+   New for the owner: M33 (needs approval) and L-E12 (see group 2).
 3. M17 and M18
 4. the SAFE file-name items (M20, L-E9, I-T3)
 
