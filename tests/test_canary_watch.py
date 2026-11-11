@@ -9,6 +9,7 @@ import pytest
 
 from core.canary import CanaryManager
 from core.canary_watch import WATCHDOG_AVAILABLE, CanaryWatcher
+from tests.helpers import wait_for
 
 needs_watchdog = pytest.mark.skipif(not WATCHDOG_AVAILABLE, reason="watchdog not installed")
 
@@ -56,11 +57,10 @@ def test_bursts_are_coalesced_and_errors_do_not_escape(tmp_path):
     w = CanaryWatcher(mgr, boom, debounce=0.2)
     for _ in range(50):
         w.poke()
-    time.sleep(0.6)
+    assert wait_for(lambda: w.fired >= 1)             # S-T1: poll, do not sleep
     assert calls == [1] and w.fired == 1
     w.poke()
-    time.sleep(0.6)
-    assert w.fired == 2
+    assert wait_for(lambda: w.fired >= 2) and w.fired == 2
 
 
 @needs_watchdog

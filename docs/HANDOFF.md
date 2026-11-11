@@ -619,6 +619,25 @@
   that `APP_DIR` is outside the real home. Run with the real `HOME`: "ALL
   SMOKE TESTS PASSED".
 
+### Group 9: I-T2 and S-T1 (rank 9)
+
+- **I-T2.** Cause: `core/cache.py:54` is the only SQLite connection, and test
+  scanners never close their result cache. `tests/test_scanner_integration.py`
+  with `-W default::ResourceWarning` gave "18 passed, 15 warnings" (all
+  "unclosed database"). Fix: an autouse fixture in `tests/conftest.py` closes
+  every `ResultCache` a test opened at teardown; caches of module or session
+  fixtures are opened before it and left alone. After: "18 passed", no
+  warning. The full-run count is in the next evidence entry.
+- **S-T1.** Most sleeps in the three files check that nothing more happens (a
+  quiet period), which a poll cannot replace and which does not fail on a slow
+  runner; they stay. The two sleeps that gated a positive assertion now poll
+  with a deadline (`tests/helpers.wait_for`):
+  - `test_bursts_are_coalesced_and_errors_do_not_escape` (canary debounce);
+  - `test_lockout_expires` (the lockout check does not extend the lock,
+    `api/limits.py`).
+  Three consecutive runs of both files: 19 passed each.
+  `test_mail_html_linear.py`'s 15 s bound is a time limit, not a gate: kept.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

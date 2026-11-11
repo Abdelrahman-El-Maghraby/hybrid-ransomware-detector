@@ -16,6 +16,15 @@ import docx
 from docx.shared import Pt, RGBColor
 
 
+def wait_for(cond, seconds: float = 10, step: float = 0.05) -> bool:
+    """S-T1: poll `cond` until it holds or `seconds` pass (no fixed sleeps)."""
+    import time
+    end = time.monotonic() + seconds
+    while not cond() and time.monotonic() < end:
+        time.sleep(step)
+    return bool(cond())
+
+
 def make_docx(path: Path, paragraphs=("Quarterly report", "All figures are final."),
               hidden: Optional[str] = None, white: Optional[str] = None,
               tiny: Optional[str] = None) -> Path:

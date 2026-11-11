@@ -3,12 +3,12 @@ rotating wrong tokens gave a fresh bucket every time. Now: a per-IP limit before
 authentication, a failed-attempt lockout per IP checked before the compare, and the
 per-token quota only for valid tokens."""
 
-import time
 
 import pytest
 
 from api.limits import AuthGuard, client_ip
 from engine.metrics import METRICS
+from tests.helpers import wait_for
 from tests.test_scanner_integration import _config
 
 TOKEN = "a" * 32
@@ -119,8 +119,7 @@ def test_lockout_expires(make_api):
     _get(api, token="wrong-token-aaaaaaaaaaaa")
     _get(api, token="wrong-token-bbbbbbbbbbbb")
     assert _get(api, token=TOKEN).status_code == 429
-    time.sleep(1.2)
-    assert _get(api, token=TOKEN).status_code == 200
+    assert wait_for(lambda: _get(api, token=TOKEN).status_code == 200, step=0.2)  # S-T1
 
 
 def test_missing_token_counts_as_a_failure(make_api):

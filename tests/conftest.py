@@ -31,3 +31,26 @@ for _name in _SECRET_NAMES + _SERVICES:
 os.environ["LLM_PROVIDER"] = "none"               # never call a real LLM in tests
 # Tests never read or write the developer's real OS keyring.
 os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
+
+
+import pytest  # noqa: E402  (after the environment is set)
+
+
+@pytest.fixture(autouse=True)
+def _close_result_caches(monkeypatch):
+    """I-T2: close every result cache (one SQLite connection) a test opened.
+    Production builds one scanner per process; tests build hundreds and never
+    closed them. Caches of module or session fixtures are opened before this
+    fixture and are left to their owner."""
+    from core.cache import ResultCache
+    opened = []
+    real_init = ResultCache.__init__
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        opened.append(self)
+
+    monkeypatch.setattr(ResultCache, "__init__", init)
+    yield
+    for cache in opened:
+        cache.close()
