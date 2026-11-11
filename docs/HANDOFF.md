@@ -1289,6 +1289,12 @@ Notes:
   the owner's.
 - README: the CHM paragraph names the 1,000-page limit and the partial
   report.
+- Full safe run at `50d715d` (clean worktree, the same command as at
+  `04f396e`): **1,510 passed, 0 failed, 23 skipped, 4 deselected, 13
+  warnings**, 297 s; 0 "unclosed database"; `test_smoke.py` passed.
+  Focused: CHM cap, embedded, scan status, partial evidence, report files,
+  alerts and LLM-skip tests, 138 passed before the alert pin; the CHM file
+  then had 10 passed. ruff, mypy and bandit clean.
 
 ## Exact next action
 
