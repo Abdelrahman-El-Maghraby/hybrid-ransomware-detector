@@ -1139,6 +1139,31 @@ Each statement was checked against the code before it was written.
 - Docs-reading tests (background reliability, closed limits, operations,
   printable names, deployment, CI workflows, locks): 59 passed.
 
+### L-D7: options for the owner (prepared 2026-11-11, not changed)
+
+Today `_chm` starts one `7z e -so` per page or file in the help file. It reads
+every one (to look for the HTML Help ShortCut object) and keeps at most 25
+(`MAX_MEMBERS`) as members. Measured here: starting `7zz` costs about 4.2 ms
+(30 starts of `7zz i`, macOS arm64). Each page read also reopens the CHM index,
+so the real cost per page is higher and grows with the file. 7-Zip is not in
+the server image, so this is a desktop and analysis-VM question.
+
+| Option | Detection coverage | Resources | `scan_status` |
+|---|---|---|---|
+| (a) Stop reading at the member limit (the review's fix) | A ShortCut page that sorts after the 25th kept member is no longer seen, so `chm_shortcut` and its points can be lost | Bounded by the number of pages up to the 25th member, often under 100 processes | `partial` with a `skipped` note when pages were left unread, so the loss is visible |
+| (b) A separate, higher read cap for the ShortCut check (for example 500 pages) | Unchanged for help files up to the cap; beyond it, as (a) | At most cap processes: 500 x (4 ms + index read), a few seconds | `partial` only beyond the cap |
+| (c) Keep reading every page (today) | Full | Unbounded by count; a file with thousands of tiny pages starts thousands of processes until `SCAN_TIMEOUT_SECONDS` (300) stops the worker | A timeout gives `failed`, which replaces the findings (H6) |
+
+Notes:
+- (b) keeps today's coverage for ordinary help files and bounds the cost.
+  The cap is a coverage decision, which is why it is the owner's.
+- A fourth design, one 7-Zip run that extracts all pages into the sandbox,
+  would change the "7-Zip never writes a file" rule (`container_extractor`)
+  and is not proposed.
+- Whichever option is chosen, the test is a stand-in page list of 100
+  members, counting the reads; and, for (a) or (b), a ShortCut page past the
+  cap gives `partial`.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
