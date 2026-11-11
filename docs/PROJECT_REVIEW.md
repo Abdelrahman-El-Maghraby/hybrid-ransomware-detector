@@ -4821,3 +4821,215 @@ gates afterwards (pytest, ruff, mypy, bandit, pip-audit).
 - The project is not production ready. Open: the findings above, M21 and L-B7,
   the section 29 findings, the deferred section 28 items, 27.5, CI on this
   branch, real-sample evaluation and the owner checks.
+
+## 32. Remaining components after section 31 (Claude, 2026-11-11)
+
+Review only, from commit `6cde91e`. No application code, test, CI, dependency or
+detection change; only this section and `docs/HANDOFF.md` were edited. Nothing
+was pushed. The baseline is unchanged (section 30); no suite or tool was rerun.
+Scope: the components 31.12 lists as unread or partly read. Components covered
+in sections 29 to 31 were not reviewed again. The project is **not** production
+ready.
+
+### 32.1 Coverage of the 31.12 list
+
+| Component | Coverage now |
+|---|---|
+| `engine/report.py`, `readiness.py`, `metrics.py`, `logs.py`, `fsutil.py` | REVIEWED |
+| `core/cache.py`, `core/mailbox.py` | REVIEWED |
+| `detectors/signals.py` | PARTIALLY REVIEWED (helpers and the `Signals` class; the field lists only as used by 31) |
+| `detectors/tlsh_py.py`, `detectors/cfb_writer.py` | REVIEWED |
+| `detectors/llm_backends.py` | not repeated: covered end to end in 29.7 |
+| `api/probe.py`, `api/scan_result.schema.json` | REVIEWED |
+| `scanner.spec`; `build.py` (lines 88-215) | REVIEWED |
+| `deploy/isolation_check.py` | REVIEWED (read; not run, no Docker daemon) |
+| `tools/evaluate.py`, `calibrate_weights.py`, `build_fuzzy_db.py`, `mbox_to_eml.py`, `profile_layers.py`, `splits.py` | REVIEWED |
+| GUI: `state.py`, `detail.py` (actions), `formatting.py` (helpers), pages `database`, `logs`, `monitoring`, `outputs`, `protection` (actions), `reports`, `scan` | REVIEWED as far as named; never run on a display |
+| GUI: `pages/dashboard.py`, `widgets.py`, `common.py`, the first 180 lines of `app.py` | NOT REVIEWED (layout code; searched only) |
+| `prompt_guard.py`, `relationship_scanner.py` inspectors | NOT REVIEWED beyond 28 and 29 (their diffs) |
+| `secret_store.py`, `outbox.py` (lines 1-119) | NOT REVIEWED beyond 28 and 29 (their diffs) |
+| `rules/*.yar` | PARTIALLY REVIEWED: every rule name, severity and condition read; one rule tested (32.3, M29); string lists not reviewed one by one |
+| Tests | PARTIALLY REVIEWED (searched per finding, as in 31) |
+| `docs/DATA_POLICY.md`, `SUPPORT.md` | REVIEWED |
+| `docs/THIRD_PARTY.md`, `DATASET_PLAN.md` | PARTIALLY REVIEWED (introduction and method; tables not checked row by row) |
+| `docs/DETECTION_v3.md`, `DETECTION_v4.md`, `docs/tasks/*` | NOT REVIEWED in detail: dated design notes and task briefs that state their version; not product documentation |
+
+No new finding in: `fsutil.py`, `readiness.py`, `cache.py`, `probe.py`, the
+result schema, `signals.py`, `tlsh_py.py`, `cfb_writer.py`, `scanner.spec`,
+`build.py`, `splits.py`, and the GUI files named above apart from the additions
+in 32.4.
+
+### 32.2 New findings
+
+IDs continue the series; none exists elsewhere in this document. Fix class as in
+31.1.
+
+| ID | Severity | Confidence | Finding | Fix class |
+|---|---|---|---|---|
+| M28 | Medium | CONFIRMED (code path) | The folders and file types chosen in the GUI are not used by the background service the GUI installs at login; the CLI has no setting for them at all | SAFE |
+| M29 | Medium | CONFIRMED (check 21) | The `critical` YARA rule `Ransomware_Shadow_Copy_Deletion` matches listing commands and prose: a benign admin script and a web page that quotes the command score `Critical` (90) | NEEDS APPROVAL (detection content) |
+| L-E9 | Low | CONFIRMED (code path) | File names with line breaks forge lines in the text log and the text report | SAFE |
+| L-E10 | Low | CONFIRMED (code path); not reproduced | `/metrics?format=prometheus` iterates a counter outside its lock | SAFE |
+| L-C6 | Low | CONFIRMED (code path) | The report's "LLM posture" says `disabled` whenever the LLM runs through the intel service | SAFE |
+| L-C7 | Low | CONFIRMED (code path) | An IMAP message whose size the server does not report is fetched whole, cut at `IMAP_MAX_MB` and scanned and marked seen as if complete | NEEDS APPROVAL (`scan_status`) |
+| L-C8 | Low | CONFIRMED (code path) | `tools/mbox_to_eml.py` overwrites messages of two mailboxes with the same file stem | SAFE |
+| L-C9 | Low | CONFIRMED (code path) | The evaluation tools scan in-process: `evaluate.py` has no memory limit, `calibrate_weights.py` neither a time nor a memory limit | SAFE |
+| L-C10 | Low | CONFIRMED (code path) | Calibration rates are not comparable with the engine: no de-duplication, and proposed scores ignore the category caps and the semantic-only clamp | SAFE |
+| L-C11 | Low | CONFIRMED (code path) | The fuzzy database that "may leave the VM" holds benign file paths | SAFE |
+| I-B3 | Info | CONFIRMED (read) | The deployment check never exercises the configured LLM or sandbox sessions | SAFE |
+| I-B4 | Info | CONFIRMED (code path) | `tools/profile_layers.py` counts container time twice and leaves its temporary folder | SAFE |
+
+**M28. GUI folder choices do not reach the background service.**
+- *Where.* The GUI keeps scan folders, file types and the interval in
+  `gui_settings.json` (`aegis_gui/common.py:44`, `aegis_gui/state.py:12-59`) and
+  changes only its own scanner (`aegis_gui/pages/scan.py:117-131`). The switch
+  "Run the background scanner automatically at login"
+  (`aegis_gui/pages/settings.py:71-85`, `:203-216`) installs
+  `RansomwareScanner.py --background` (`RansomwareScanner.py:117-266`), which
+  scans `CONFIG["scan_directories"]`: `~/Downloads` only, fixed in
+  `engine/config.py:143-146` with no environment variable (no
+  `SCAN_DIRECTORIES` exists anywhere in the code), with the default extensions.
+- *Effect.* A user who picks `Documents` and `Desktop` in the GUI and turns on
+  "start at login" gets scheduled scans of `Downloads` only. The GUI's own
+  schedule runs only while the window is open (`settings.py:46`). README line
+  667 says GUI and CLI "share the same configuration"; line 595 says scan
+  folders "come from `.env`".
+- *Fix.* A `SCAN_DIRECTORIES` (and `FILE_EXTENSIONS`) setting read by
+  `engine/config.py`, written by the GUI's Scan page like its other settings,
+  validated by `engine/validation.py`.
+- *Verification.* A test that the GUI's folder change is visible to a freshly
+  built `CONFIG`; a validation test for a missing folder.
+
+**M29. The shadow-copy rule fires on listing commands and prose.**
+- *Where.* `rules/recovery_inhibition.yar:13-31`: severity `critical`
+  (90 points, `Critical` alone), `any of them` over plain strings that include
+  `Get-WmiObject Win32_Shadowcopy`, `Get-CimInstance Win32_ShadowCopy` and
+  `vssadmin resize shadowstorage`, with no file-type or argument condition. The
+  PE layer avoids this on purpose (`detectors/pe_analysis.py:21-25`: "The
+  patterns need the arguments an attacker types").
+- *Effect.* Check 21: a two-line `.ps1` that lists restore points
+  (`Get-WmiObject Win32_ShadowCopy | Select-Object ID, InstallDate`) and an
+  `.html` page that quotes `vssadmin delete shadows /all /quiet` in a sentence
+  both score `Critical` 90 (`yara_match`, `Ransomware_Shadow_Copy_Deletion`).
+  At the defaults they alert, and with `AUTO_QUARANTINE` set they are
+  quarantined. The 3,713-file benign benchmark (README line 867) may not hold
+  this kind of file.
+- *Fix (owner decision; detection content).* Require deletion verbs for the WMI
+  strings (`.Delete()`, `Remove-CimInstance`), keep `resize shadowstorage` with
+  its `/maxsize=` argument, and either lower the severity for text formats or
+  add a condition such as the PE layer's. Ship it as a signed rule pack and
+  check it on the benign corpus first.
+- *Verification.* The two files of check 21 below `High`; every existing
+  positive test and the regression corpus unchanged.
+
+**Low and informational items.**
+
+| ID | Where | Trigger and effect | Fix | Verification |
+|---|---|---|---|---|
+| L-E9 | `engine/staging.py:45`, `:79-85` (paths in log messages); `engine/report.py:166`, `:300` (paths in the text report); `engine/logs.py:28` (text format) | A POSIX file name may contain a line break. In the text log and the text report the rest of the name starts a new line that reads like a real entry (for example a forged "Verdict: Clean" or "scan_completed" line). JSON logs and the JSON report are not affected. Archive member names are already cleaned (`visible_name`) | Escape control characters in file paths before they reach text output (`visible_name` exists) | A file named with `\n` produces one log line and one report entry |
+| L-E10 | `engine/metrics.py:172-173` reads `self.alerts` after `snapshot()` released the lock | An alert outcome recorded with a new key while `/metrics?format=prometheus` iterates the counter raises `RuntimeError: dictionary changed size during iteration`; the request fails with 500. Not reproduced | Use the snapshot's copy (`s["alerts"]`, keyed as in `snapshot`) | A test that records alerts from a second thread while formatting |
+| L-C6 | `engine/report.py:205-215` decides by class name (`Ollama`, `OpenAI`) | With `AEGIS_INTEL_SOCKET` the backend is `IntelLLMBackend` (`core/intel_client.py:145`), so the report always says `disabled`, even when intel sends text to a cloud LLM. Results' `provenance` is correct | Use `backend.available` and `backend.is_local` | A report built with a stand-in intel backend that is available and not local says CLOUD |
+| L-C7 | `core/mailbox.py:208-221` | When the size answer has no `RFC822.SIZE`, the whole message is read into memory (imaplib reads the literal before `:220` cuts it), then cut at `IMAP_MAX_MB`, scanned and marked seen (`:177-188`). A cut message loses its attachments' tails; nothing marks the scan partial. (I-x already notes that fetch failures are labelled too large) | Skip and report the message when its size is unknown, or mark the result partial when it was cut | A stand-in server without `RFC822.SIZE` and a message over the limit: the result is partial, or the UID stays unseen |
+| L-C8 | `tools/mbox_to_eml.py:30`, `:50` | `a/inbox.mbox` and `b/inbox.mbox` both write `inbox_00001.eml` and up; the second overwrites the first and both are counted as written. The evaluation corpus loses messages silently | Add a per-mailbox index or refuse an existing file | Two mailboxes with one stem give twice the files |
+| L-C9 | `tools/evaluate.py:94-97`, `:177-187`; `tools/calibrate_weights.py:67-91` | Both call `scan_file` in their own process, not in an isolated worker. Evaluation has a per-file time limit but no memory limit, so one sample can exhaust the VM's memory (the 27.5 class); calibration has neither, so one file such as the H5 script stops the whole run. Their results also differ from the product, which reports a time-out as H6 | Use `scan_isolated` with the product's limits, or `scan_one` | A stand-in hanging scanner: calibration finishes with an error row |
+| L-C10 | `tools/calibrate_weights.py:255` (no `dedupe`, unlike `tools/evaluate.py:163`), `:130-132` (proposed score = plain sum, at most 100), `:169-170` (current score = the engine's capped score) | Duplicates count twice and conflicting labels stay; the proposed rates skip the caps (technical 100, semantic 24, statistical 20) and the clamp at 49 that the engine applies, so "current" and "proposed" rates are measured differently | Reuse `tools/splits.dedupe` and score proposals with `ScoringMatrix` and a weights override | A semantic-only row never scores above 49 in the proposed rates |
+| L-C11 | `tools/build_fuzzy_db.py:136`, `:145`, docstring `:5-7` | The output keeps a `dropped` list with each benign file's relative path; the docstring says the JSON holds "digests, SHA-256 and family labels only" and "may leave the VM". Benign corpus file names can be private | Keep the paths in a separate local report | The output holds no `benign_file` key |
+| I-B3 | `deploy/isolation_check.py:181-186` (skips sessions that are not configured); `deploy/check-deployment.sh:29-32` (every external secret empty) | The egress allowlist of the LLM, sandbox and VirusTotal sessions is never tested in a running deployment; only a fresh session built by the check itself is | Configure a stand-in LLM and sandbox URL in the check | The check reports the three sessions |
+| I-B4 | `tools/profile_layers.py:48-56`, `:56` | A container's layer time includes its members, whose layers are added again, so per-layer totals exceed the wall time; the `hrd-profile-` folder is never removed | Time only depth-0 layers; remove the folder | Totals do not exceed the wall time |
+
+### 32.3 Evidence
+
+Same isolation as 31.4 (clean environment, `HOME` and `TMPDIR` in a scratch
+folder, synthetic files there, hard time limit).
+
+**Check 21 (M29).** Two files written for the check and scanned with
+`RansomwareScanner(_config(..., isolate_scans=False, qr_scan_enabled=False)).scan_file()`:
+
+```
+list_shadows.ps1:  "# list existing restore points for the backup report"
+                   "Get-WmiObject Win32_ShadowCopy | Select-Object ID, InstallDate"
+                   -> Critical 90 ['yara_match'], rule Ransomware_Shadow_Copy_Deletion
+article.html:      a page whose paragraph quotes `vssadmin delete shadows /all /quiet`
+                   -> Critical 90 ['yara_match'], rule Ransomware_Shadow_Copy_Deletion
+```
+
+All other items in 32.2 come from reading the code at the lines given; none was
+reproduced. `git status --porcelain` showed only `.arena/` and this document
+afterwards.
+
+### 32.4 Additions to earlier findings
+
+- **L-E7** (concurrent scans share `last_not_scanned`; suspected): reachable in
+  the GUI. The folder monitor (`aegis_gui/app.py:442-445`, which calls
+  `scanner._scan_targets` from its own thread) and a manual scan
+  (`aegis_gui/state.py:116-118`) use one scanner object at the same time, so
+  one can read the other's isolation failure (`aegis_gui/state.py:127`,
+  `core/folder_watch.py:337`).
+- **L-C1** (database replaced before it is checked): in the GUI
+  (`aegis_gui/pages/database.py:80-89`) a failed import shows "Import failed"
+  while the bad file is already the database on disk; the GUI keeps its old
+  in-memory set, but every isolated worker loads the new file, so the local-DB
+  layer is empty in scans while the Database page shows the old count.
+- **I-1** (types the layers read but folder scans skip): `tools/evaluate.py`
+  picks files by the same list (`:337-342`, apart from formats recognised by
+  content), so those types are not measured either.
+- **L-A7** (webhook path in logs): `docs/DATA_POLICY.md:102-104` says secrets
+  never reach logs; a webhook URL whose path is the credential does (D39 below).
+
+### 32.5 Documentation corrections (continuing 31.7)
+
+| # | File and line | Now says | Correction |
+|---|---|---|---|
+| D38 | `README.md:595`, `:667` | scan folders come from `.env`; GUI and CLI share the same configuration | There is no setting for scan folders or file types; the GUI keeps its own (M28) |
+| D39 | `docs/DATA_POLICY.md:102-104` | secrets never in logs | Except a webhook URL that carries its credential in the path (L-A7) |
+| D40 | `docs/SUPPORT.md:22-23` | "the rest of the result does not contain document content" | Results can hold content: `prompt_guard.hidden_text_snippets` (`detectors/prompt_guard.py:127`, `:139`), the e-mail subject, QR and script URLs, and the LLM's quoted elements. Ask users to check these fields too |
+| D41 | `docs/DATASET_PLAN.md:3-4`, `:11-12` | inspection list taken from v4.7.0; evaluation picks files by extension | Update to 4.8; `tools/evaluate.py` also picks PE, ELF, shortcut and embedded-content files by content (`tools/evaluate.py:116-135`) |
+| D42 | `tools/build_fuzzy_db.py:5-7` | output holds digests, hashes and labels only | It also holds benign file paths (L-C11) |
+
+### 32.6 Ranked fix list (all of sections 29 to 32)
+
+Nothing here was started. Each item with its regression test and the full gates
+afterwards (pytest, ruff, mypy, bandit, pip-audit). SAFE items need no owner
+decision; NEEDS APPROVAL items wait for one.
+
+1. **M21, L-B7** (section 30): CI fails without them.
+2. **H5** (31): two script patterns.
+3. **H6 (a)** (31, approval): alerts for failed scans.
+4. **M22** (31): seven slow paths, before any fuzz campaign restarts.
+5. **M27 compose part, M26 start-up check** (31).
+6. **M28** (32): a scan-folder setting shared by GUI and background service.
+7. **M17, M18** (29), then **H6 (b)** (approval).
+8. **Approval batch:** M23, M24, M25, M29, the M26 wait cap, the M27 empty-key
+   rule, L-D5, L-C7, and M19, L-L1 (29).
+9. **Low items, code:** L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, L-C6,
+   L-E9, L-E10, I-B1, I-B2, and M20, L-E8, L-G1, L-A4, I-T2 (29).
+10. **Tools:** L-C8, L-C9, L-C10, L-C11, I-B4, and L-C4 (28).
+11. **Documentation:** D1 to D42, with L-B6, after the code they describe.
+12. **Evidence:** CI on the branch (30.7), I-B3 in the deployment check, the
+    Windows, Docker and VM items of 30.11, improvement I-5.
+
+### 32.7 Still to validate on a platform or with the owner
+
+- Owner decisions: H6, M23, M24, M25, M29, the M26 wait cap, the M27 empty-key
+  rule, L-D5, L-C7, M19, L-L1, M18's direction, the section 28 deferred items,
+  documentation questions D22, D23, D26, and improvements I-1, I-2, I-6.
+- Platform: no CI run exists for any commit after `3e5a3f2`; Windows (M2 lock,
+  M9 encoding, M20, M24 delivery, L-E6, toasts, containment, autostart, the
+  GUI), Docker (M27, I-B3, the deploy scripts), Linux ARM64, Windows ARM64 and
+  macOS Intel (no runner), a display for the GUI, the VM for 27.5, L-D1, L-E4,
+  the M21 advisories and real-sample evaluation (M1/X1), M29 on the benign
+  corpus.
+
+### 32.8 Limitations
+
+- With this section, every component in the repository has been read at least
+  in part. Not reviewed in detail: GUI layout files (`pages/dashboard.py`,
+  `widgets.py`, `common.py`, the start of `app.py`), the hidden-content and
+  relationship inspectors beyond their 28/29 diffs, the first 119 lines of
+  `core/outbox.py` and the body of `engine/secret_store.py` beyond their
+  diffs, the YARA string lists, the dated design notes and task briefs, and the
+  tests one by one. This is still not a complete line-by-line review.
+- Only M29 was reproduced in this section; the rest is from reading at the
+  lines given.
+- The project is not production ready: the open findings of sections 28 to 32,
+  27.5, CI on this branch, real-sample evaluation and the owner checks remain.

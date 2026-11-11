@@ -1,8 +1,9 @@
 # Current task handoff
 
 - Status: production-engineering review and staged fixes; not ready for merge and
-  not production ready. Latest step: Claude's whole-repository review (findings
-  and plan only, 2026-11-10 to 2026-11-11), PROJECT_REVIEW section 31.
+  not production ready. Latest step: Claude's review of the components section
+  31 left unread (findings only, 2026-11-11), PROJECT_REVIEW section 32, after
+  the whole-repository review of section 31 (commit `6cde91e`).
 - Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
@@ -239,6 +240,37 @@
   Python 3.14.2 and not the lock. Linux ARM64, Windows ARM64 and macOS Intel:
   unverified, no runner.
 
+## Claude review of the remaining components (2026-11-11): findings only
+
+- Scope: the components 31.12 listed as unread or partly read, from commit
+  `6cde91e`. Only `docs/PROJECT_REVIEW.md` (new section 32) and this file were
+  edited. No code, test, CI, dependency or detection change; nothing pushed;
+  `.arena/` untouched; no Arena run, no subagent, no suite rerun (baseline:
+  section 30).
+- Reviewed (32.1): `engine/report.py`, `readiness.py`, `metrics.py`, `logs.py`,
+  `fsutil.py`; `core/cache.py`, `core/mailbox.py`; `detectors/tlsh_py.py`,
+  `cfb_writer.py`, `signals.py` (helpers); `api/probe.py` and the result schema;
+  `scanner.spec`, `build.py`; `deploy/isolation_check.py`; every tool in
+  `tools/`; the GUI state, actions and the database, logs, monitoring, outputs,
+  protection, reports and scan pages; the rule names, severities and
+  conditions; `DATA_POLICY`, `SUPPORT`, and in part `THIRD_PARTY` and
+  `DATASET_PLAN`. `llm_backends.py` was not repeated (29.7).
+- Still not reviewed in detail (32.8): GUI layout files (`pages/dashboard.py`,
+  `widgets.py`, `common.py`, the start of `app.py`); the hidden-content and
+  relationship inspectors and the bodies of `secret_store.py` and the first 119
+  lines of `outbox.py` beyond their 28/29 diffs; the YARA string lists; the
+  dated design notes (`DETECTION_v3/v4`) and task briefs; the tests one by one.
+- Check run: check 21 only (a two-line admin `.ps1` and an `.html` page that
+  quotes the command, scanned in-process under a scratch `HOME`). Everything
+  else in section 32 is from reading the code at the lines given.
+- New findings (32.2): **M28** (the GUI's scan folders and file types are not
+  used by the background service it installs at login; no setting exists),
+  **M29** (the `critical` shadow-copy YARA rule scores a benign listing script
+  and a page quoting the command `Critical` 90; needs approval), and low or
+  informational L-E9, L-E10, L-C6, L-C7 (needs approval), L-C8, L-C9, L-C10,
+  L-C11, I-B3, I-B4. Additions to L-E7, L-C1, I-1 and L-A7 (32.4). Five more
+  documentation corrections, D38 to D42 (32.5).
+
 ## Exact next action
 
 Owner decisions first:
@@ -246,7 +278,8 @@ Owner decisions first:
 1. Fix M21 (lock update) and L-B7 (test only) before anything else? Both make CI
    fail whatever else is on the branch (unchanged from section 30).
 2. H6: alerts for failed scans, partial evidence kept, or both?
-3. M23, M24, M25, the M26 wait cap, the M27 empty-key rule and L-D5 change
+3. M23, M24, M25, M29, the M26 wait cap, the M27 empty-key rule, L-D5 and
+   L-C7 change
    inspection behaviour, `scan_status` or a response action: approve, defer or
    reject each. Unchanged from before: M19 and L-L1 (29.14), the direction for
    M18, and the section 28 deferred items (M4, H-04, low items, I-T1, M15
@@ -256,28 +289,33 @@ Owner decisions first:
 5. How to get CI on HEAD without restarting the Atheris campaigns (a push plus
    a manual dispatch of `tests.yml`, `quality.yml` and `docker.yml`, 30.7).
 
-Then a separate fix session, each item with its regression test and the full
-gates afterwards (pytest, ruff, mypy, bandit, pip-audit), in this order (31.10):
+Then the fix stage, each item with its regression test and the full gates
+afterwards (pytest, ruff, mypy, bandit, pip-audit), in the order of 32.6:
 
 1. M21 and L-B7.
 2. H5.
 3. H6 (a), if approved.
 4. M22, before any fuzz campaign is restarted.
 5. The compose part of M27 and the start-up check of M26.
-6. M17 and M18 (section 29), then H6 (b) if approved.
-7. The approved items of decision 3.
-8. The low items: L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, I-B1, I-B2,
-   with M20, L-E8, L-G1, L-A4 and I-T2 from section 29.
-9. The documentation corrections D1 to D37, with L-B6.
-10. CI on the branch, then the Windows, Docker and VM items of 30.11.
+6. M28.
+7. M17 and M18 (section 29), then H6 (b) if approved.
+8. The approved items: M23, M24, M25, M29, the M26 wait cap, the M27 empty-key
+   rule, L-D5, L-C7, M19, L-L1.
+9. Low items in code: L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, L-C6,
+   L-E9, L-E10, I-B1, I-B2, with M20, L-E8, L-G1, L-A4 and I-T2.
+10. Tools: L-C8, L-C9, L-C10, L-C11, I-B4 and L-C4.
+11. Documentation corrections D1 to D42, with L-B6.
+12. CI on the branch, I-B3, then the Windows, Docker and VM items of 30.11.
 
-Commit state: section 31 and this handoff are meant to go into one local
-documentation commit on top of `eb1d96f`; its ID is reported in chat and is
-visible in `git log` (a commit cannot record its own ID). Until that commit
-exists, both files are uncommitted changes. Pushed: nothing on this branch,
-ever. The untracked `.arena/` folder is unrelated and preserved.
-Still unverified: everything listed in 30.11 and 31.12, the release gate job
+Commit state: section 31 is in local commit `6cde91e`. Section 32 and this
+update are meant to go into one local documentation commit on top of it; its
+ID is reported in chat and visible in `git log` (a commit cannot record its own
+ID). Until that commit exists, both files are uncommitted changes. Pushed:
+nothing on this branch, ever. The untracked `.arena/` folder is unrelated and
+preserved.
+
+Still unverified: everything listed in 30.11, 31.12 and 32.7, the release gate job
 (tag only), the deploy scripts against real Docker, the Windows behaviour of the
 outbox lock (`msvcrt.locking`) and of the UTF-8 report fix, the delivery step of
-M24, the Docker part of M27, and every Windows, ARM64 and Intel statement in
-29.10, 30.7 and 31.8.
+M24, the Docker part of M27, M29 on the benign corpus, and every Windows, ARM64
+and Intel statement in 29.10, 30.7 and 31.8.
