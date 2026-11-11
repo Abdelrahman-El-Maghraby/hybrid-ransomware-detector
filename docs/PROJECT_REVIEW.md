@@ -4009,3 +4009,815 @@ Not tested, and where each must run:
 - The project is not production ready. Open: M21 and L-B7 (new), the section 29
   findings, the deferred section 28 items, 27.5, CI on this branch, real-sample
   evaluation and the owner checks.
+
+## 31. Whole-repository review at `eb1d96f` (Claude, 2026-11-10 to 2026-11-11)
+
+Review and improvement plan only. No application code, test, CI, dependency,
+lock-file or detection change was made and no finding was fixed. Only this
+section and `docs/HANDOFF.md` were edited. Nothing was pushed, merged, tagged,
+released or deployed. No malware, real sample, OOM artifact, fuzz campaign or
+memory-spike test was run; no Arena run and no subagent was used. The project
+is **not** production ready.
+
+This is **not** a complete review of every file: 31.2 says, component by
+component, what was read in full, what in part and what not at all. The parts
+that section 29.15 listed as not reviewed were read first.
+
+Headline results:
+
+- Two regular expressions in the script layer let a script of about 165 bytes
+  hold a scan worker until the time limit (**H5**), and seven more patterns or
+  decoders do the same at a few hundred kilobytes (**M22**).
+- Any scan that times out or loses its worker is reported as
+  `Medium (failed scan)` with 25 points, whatever the worker had already found.
+  That is below the default alert floor (`High`), so one such member inside an
+  archive or e-mail removes a `Critical` verdict and its alert (**H6**). A slow
+  sandbox report has the same effect with default settings (**M26**).
+- Four ways to lose a finding without a trace: a certificate-table entry that
+  hides a program appended to a program (**M23**), a trailing dot in a member
+  or attachment name (**M24**), a lost canary registry (**M25**) and a rule
+  pack whose signing key was removed, or never passed to the Docker services
+  (**M27**).
+- Eleven low or informational items (31.3) and 37 documentation corrections
+  (31.7).
+- No workflow run exists for this commit; every platform statement in 31.8 is
+  either historical or unverified.
+
+### 31.1 Baseline and method
+
+| Item | State |
+|---|---|
+| Branch and HEAD | `review/production-hardening` at `eb1d96f`. Last implementation commit `33fd895`; `git diff --stat 33fd895..eb1d96f` lists only `docs/HANDOFF.md` and `docs/PROJECT_REVIEW.md` |
+| Working tree at the start | clean except the untracked `.arena/` folder, which was not staged, moved, deleted or modified |
+| Remote | no upstream configured. `git ls-remote --heads origin` shows `validation/v4.8-remaining` at `3e5a3f2` (draft PR #46) and no `review/production-hardening`. The branch is 8 commits ahead of that base and 77 ahead of `main` / `origin/main` (`bd46fff`). Nothing on it has been pushed |
+| Tracked files | 269, of which 197 are Python (95 under `tests/`) |
+| Host | macOS 27.2.1 (Darwin 27.2.0), arm64 (Apple Silicon), 8 GiB RAM; CPython 3.14.2 in the project `.venv`. The installed packages are not the lock (30.1) |
+| Test and tool baseline | section 30, at `bfc58ff`. The only difference to `eb1d96f` is documentation, so it was not repeated: no pytest, ruff, mypy, bandit or pip-audit run in this session |
+
+Method: the code was read file by file (31.2), with section 29.15 as the
+starting list, then the documentation was compared with the code and the
+workflows. A finding was checked with a small synthetic input only where
+reading alone did not settle it (31.4). Existing IDs are referenced, not
+repeated: H1-H4 and H4-b, M1-M21, the `L-` and `I-` items, PR-01 to PR-17,
+S-01 to S-04, H-04, OOM-H, B1-B5 and the RELEASE_READINESS items. New IDs
+continue those series: H5, H6, M22-M27, L-A5 to L-A8, L-C5, L-D4 to L-D7,
+I-B1, I-B2. Fix class as in section 29: **SAFE** needs no change to detection
+weights, thresholds, inspection coverage, `scan_status` or the result schema;
+**NEEDS APPROVAL** changes one of them, or a response action.
+
+### 31.2 Components and coverage
+
+REVIEWED = read in full in this session (or from the line given). PARTIALLY
+REVIEWED = the stated part only. NOT REVIEWED = not read in this session; an
+earlier section may have covered a diff, as noted.
+
+| # | Component | Files | Coverage |
+|---|---|---|---|
+| 1 | Scan pipeline | `engine/scanner.py`, `staging.py`, `layers.py`, `containers.py`, `completeness.py` | REVIEWED |
+| 2 | Isolation workers | `engine/workers.py`; `engine/fsutil.py` | REVIEWED; `fsutil.py` NOT REVIEWED here (H1 diff in 29.2) |
+| 3 | Archives and installers | `detectors/container_extractor.py`, `macos_packages.py` | REVIEWED |
+| 4 | E-mail | `detectors/mail_analyzer.py`; `cfb_writer.py`; `core/mailbox.py` | REVIEWED; `cfb_writer.py` and `mailbox.py` NOT REVIEWED here (M8 diff in 29.5) |
+| 5 | Scripts and web pages | `detectors/script_analysis.py`, `web_content.py` | REVIEWED |
+| 6 | Embedded content | `detectors/embedded_content.py` | REVIEWED |
+| 7 | Executables | `detectors/pe_analysis.py`, `elf_analysis.py` | REVIEWED |
+| 8 | Office and PDF content | `detectors/macro_analysis.py`, `file_integrity.py`, `engine/text.py`; `prompt_guard.py`, `relationship_scanner.py` | REVIEWED; the last two PARTIALLY REVIEWED (patterns and entry points; the inspectors only as diffs in 28 and 29) |
+| 9 | YARA and fuzzy hashing | `detectors/yara_engine.py`, `fuzzy_hash.py`; `tlsh_py.py`; `rules/*.yar` | REVIEWED; `tlsh_py.py` NOT REVIEWED; rule content NOT REVIEWED (counted only) |
+| 10 | QR, emulation, ML | `detectors/qr_scanner.py`, `emulation.py`, `ml_classifier.py` | REVIEWED |
+| 11 | Scoring | `detectors/scoring.py`, `indicators.yaml`, `registry.py`, `entropy.py`; `signals.py` | REVIEWED; `signals.py` NOT REVIEWED |
+| 12 | LLM layer | `engine/external.py`; `detectors/llm_backends.py` | REVIEWED; `llm_backends.py` NOT REVIEWED here (covered in 29.7) |
+| 13 | Intel service and its clients | `api/intel.py`, `core/intel_client.py`, `core/http.py`, `core/sandbox.py` | REVIEWED |
+| 14 | REST API | `api/server.py`, `api/limits.py`; `api/probe.py`, `api/scan_result.schema.json` | REVIEWED; the last two NOT REVIEWED |
+| 15 | Containment and response | `core/containment.py`, `core/response.py` | REVIEWED (read only; no process was signalled and no network setting touched) |
+| 16 | Canaries | `core/canary.py`, `canary_watch.py`, `engine/protection.py` | REVIEWED |
+| 17 | Quarantine | `core/quarantine.py` | REVIEWED |
+| 18 | Configuration and state | `engine/config.py`, `validation.py`, `capabilities.py`, `provenance.py`; `secret_store.py`; `readiness.py`, `metrics.py`, `logs.py`, `core/cache.py` | REVIEWED; `secret_store.py` PARTIALLY REVIEWED (names and entry points); the last four NOT REVIEWED |
+| 19 | Alerts and outputs | `core/outputs.py`, `core/mailer.py`; `core/outbox.py` | REVIEWED; `outbox.py` PARTIALLY REVIEWED (from line 120) |
+| 20 | Cloud upload | `core/cloud.py` | REVIEWED |
+| 21 | Folder monitoring | `core/folder_watch.py` | REVIEWED |
+| 22 | Rule packs and allowlist | `core/rulepack.py`, `tools/rulepack.py`, `core/allowlist.py`, `core/tools.py` | REVIEWED |
+| 23 | Reports | `engine/report.py` | NOT REVIEWED here (M9, M10 diffs in 28 and 29) |
+| 24 | CLI | `RansomwareScanner.py` | REVIEWED (from line 60) |
+| 25 | GUI | `aegis_gui/` | PARTIALLY REVIEWED: `app.py` (from line 180), `integration.py`, `pages/settings.py` read; `state.py`, `formatting.py`, `detail.py` only as far as 29.4 and 29.7; the other pages and widgets only searched. Never run on a display |
+| 26 | Packaging | `pyproject.toml`, `requirements*.txt`, lock headers; `build.py`; `scanner.spec` | REVIEWED; `build.py` PARTIALLY REVIEWED (outline); `scanner.spec` NOT REVIEWED |
+| 27 | Deployment | `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `deploy/Caddyfile`, `backup.sh`, `restore.sh`, `check-deployment.sh`; `deploy/isolation_check.py` | REVIEWED (read only; no Docker daemon here); `isolation_check.py` NOT REVIEWED |
+| 28 | Tools | `tools/evaluate.py`, `calibrate_weights.py`, `build_fuzzy_db.py`, `mbox_to_eml.py`, `profile_layers.py`, `splits.py` | NOT REVIEWED |
+| 29 | Fuzz harnesses | `fuzz/*.py`, `fuzz/README.md` | REVIEWED (read; no campaign run) |
+| 30 | Tests | `tests/`, `test_smoke.py` | PARTIALLY REVIEWED: searched for a test of each new finding; helpers read where a check used them; not reviewed test by test |
+| 31 | CI | `.github/workflows/*.yml`, `.github/dependabot.yml` | REVIEWED |
+| 32 | Documentation | `README.md`, `docs/THREAT_MODEL.md`, `DEPLOYMENT.md`, `OPERATIONS.md`, `RULE_PACKS.md`, `RELEASING.md`, `RELEASE_SCOPE.md`, `ARCHITECTURE.md`, `RELEASE_READINESS.md`, `HANDOFF.md`, `AI_WORKFLOW.md`, `AGENTS.md`, `CLAUDE.md`; `RUNBOOKS.md`, `.env.example`, `CHANGELOG.md`; `DATA_POLICY.md`, `SUPPORT.md`, `THIRD_PARTY.md`, `DATASET_PLAN.md`, `DETECTION_v3.md`, `DETECTION_v4.md`, `docs/tasks/*` | REVIEWED; the second group PARTIALLY REVIEWED (searched; changelog head only); the third group NOT REVIEWED |
+
+### 31.3 New findings
+
+Severity as in sections 28 and 29. CONFIRMED means reproduced by a check in
+31.4 or shown by an unambiguous code path (stated); SUSPECTED means not
+demonstrated. No existing test covers any of these unless a row says so.
+
+| ID | Severity | Confidence | Finding | Fix class |
+|---|---|---|---|---|
+| H5 | High | CONFIRMED (check 1) | Script-layer patterns `_PSCHAR_RUN` and `_CHR_RUN` backtrack catastrophically: about 165 bytes reach the worker time limit | SAFE |
+| H6 | High | CONFIRMED (check 2) | A worker time-out or death replaces every finding of the file and its members with `Medium (failed scan)`, below the default alert floor | NEEDS APPROVAL |
+| M22 | Medium | CONFIRMED (check 3) | Seven more quadratic paths: mail password and display-name patterns, embedded-content type sniffing, Script Encoder and string-literal patterns, a `punycode` body charset | SAFE |
+| M23 | Medium | CONFIRMED (check 4) | A security-directory entry over an appended program removes `pe_overlay_executable` and marks the file as signed | NEEDS APPROVAL |
+| M24 | Medium | CONFIRMED in the scanner (check 5); SUSPECTED for delivery on Windows | A trailing dot in a member or attachment name removes the executable and double-extension findings and the script layer | NEEDS APPROVAL |
+| M25 | Medium | CONFIRMED (check 7) | An overwritten or deleted canary registry reads as "No canaries deployed": no tripwire, no alert | NEEDS APPROVAL (it can start response actions) |
+| M26 | Medium | CONFIRMED (check 8) | Default `SANDBOX_WAIT_SECONDS` (600) is above default `SCAN_TIMEOUT_SECONDS` (300): a slow sandbox report turns the static verdict into H6 | SAFE for the start-up check; NEEDS APPROVAL for the wait cap |
+| M27 | Medium | CONFIRMED (check 13); the Docker part read from the compose file, not run | Rule-pack trust without a key: the Docker services never receive `RULEPACK_PUBLIC_KEYS`, and removing the only key leaves its pack in use | SAFE for compose; NEEDS APPROVAL for the empty-key rule |
+| L-A5 | Low | CONFIRMED (check 9) | `lock_folders` changes permissions before its undo record is saved, and reports success when the record cannot be saved | SAFE |
+| L-A6 | Low | CONFIRMED in one process (check 14) | The cloud spool has no lock shared between objects or processes: an item can be uploaded twice | SAFE |
+| L-A7 | Low | CONFIRMED (check 15) | A failed webhook delivery writes the URL path into the log and the outbox file | SAFE |
+| L-A8 | Low | CONFIRMED (check 19) | The e-mail cap counts attempts, not sent messages | SAFE |
+| L-C5 | Low | CONFIRMED (check 20, with a stand-in for `launchctl`) | macOS autostart: the launchd file is built without XML escaping, and success is printed when `launchctl load` fails | SAFE |
+| L-D4 | Low | CONFIRMED (check 6) | The OneNote reader adds one `skipped` entry per marker with no cap: a result 2.7 times the input | SAFE |
+| L-D5 | Low | CONFIRMED for emulation (check 10); by reading for QR | Emulation failures and the QR layer's limits and errors leave the scan `complete` | NEEDS APPROVAL (`scan_status`) |
+| L-D6 | Low | CONFIRMED (check 11) | Two rule files with the same stem: one is dropped, both are counted | SAFE |
+| L-D7 | Low | CONFIRMED (code path); not measured | The CHM reader starts a 7-Zip process for every member, also past the member limit | SAFE |
+| I-B1 | Info | CONFIRMED (read) | Three different stale versions in the HTTP `User-Agent` | SAFE |
+| I-B2 | Info | CONFIRMED (read) | `release.yml` installs the SBOM tool by version, without hashes | SAFE |
+
+**H5. Catastrophic backtracking in script deobfuscation.**
+- *Where.* `detectors/script_analysis.py:174` (`_PSCHAR_RUN`), `:170`
+  (`_CHR_RUN`), used in `_t_char_codes` (`:221`, `:224`) for the script text
+  and for every decoded fragment (`deobfuscate`, `:250-274`), from
+  `ScriptAnalyzer.analyze_bytes` (`:355`) and the script layer
+  (`engine/layers.py:283-294`).
+- *Trigger.* A `.js`, `.jse`, `.vbs`, `.vbe`, `.wsf`, `.wsh`, `.hta`, `.ps1`,
+  `.psm1`, `.bat` or `.cmd` file, alone or as an archive member or attachment,
+  that contains `[char]65`, a run of spaces, three times, then any other
+  character (or the same with `chr(65)`). In each pattern a run of white space
+  can be split between two or three adjacent `\s*`, so three repetitions
+  followed by a failure try every combination.
+- *Effect.* Check 1: 109 bytes take 14.1 s in `analyze_bytes`; the time grows
+  with about the sixth power of the run length (`chr()`: fourth power). From
+  the curve, about 165 bytes (`chr()`: about 1.2 KB) reach the default 300 s
+  limit; this was not run to the limit. The worker is then killed and the file,
+  or the whole archive or e-mail it sits in, becomes H6. Each such file holds
+  one worker for the full limit: one of the two API scan slots
+  (`api/server.py:308`), or the folder monitor's thread, so a file that arrives
+  a second later waits (`core/folder_watch.py:364-367`). With
+  `ISOLATE_SCANS=0` the process itself hangs.
+- *Fix.* Give every white-space run one owner. The same strings are matched by
+  `(?:chrw?\s*\(\s*\d{1,5}\s*\)\s*(?:[&+]\s*)?(?:_\s*\r?\n\s*)?){4,}` and
+  `(?:\[char\]\s*(?:\(\s*)?\d{1,5}\s*(?:\)\s*)?(?:\+\s*)?){4,}`.
+- *Verification.* A timing test in the style of
+  `tests/test_mail_html_linear.py`: each shape at 100 KB finishes in under two
+  seconds; and a comparison of the old and new patterns on random token strings
+  (as H2 did) that finds no difference.
+
+**H6. A failed scan replaces the evidence.**
+- *Where.* `engine/workers.py:493-533` (`failure_result` builds the result from
+  `scan_failed` alone), `:684-697` (time-out, memory limit or a dead worker),
+  `detectors/indicators.yaml:126` (`W_SCAN_FAILED: 25.0`),
+  `core/outbox.py:347-360` (`channels_for`) with the default floors in
+  `engine/config.py:188` and `:199`, and `engine/protection.py:56-59`
+  (automatic quarantine).
+- *Trigger.* Anything that makes a worker run past the limit or die while it
+  scans a file with findings: H5, M22, M26, H-04+ (deferred), the `pypdf`
+  advisories of M21, the memory limit. The worker scans a container and all its
+  members before it answers (`_serve`, `:355-377`), so one such member is
+  enough.
+- *Effect.* Check 2: a ZIP that scores `Critical` (95) with alerts on both
+  channels becomes `Medium (failed scan)` (25) with no alert at the default
+  `WEBHOOK_MIN_VERDICT` and `ALERT_EMAIL_MIN_VERDICT`. By reading,
+  `AUTO_QUARANTINE=high` or `critical` does not act on it either. The documents describe
+  `scan_failed` as Medium (THREAT_MODEL section 1, ARCHITECTURE, RUNBOOKS);
+  none says that it replaces a higher verdict, and the threat model rates the
+  slow-file case Low.
+- *Fix (owner decision).* (a) Alerting: send failed scans (other than
+  `isolation_unavailable`) to every configured channel whatever the floor, as
+  canary alerts are. (b) Evidence: let the worker send its partial result after
+  each finished member and layer on the pipe that already carries the log
+  records, and let the parent build the failure result from the last one, with
+  the higher score and status `failed`. (a) is small; (b) also keeps automatic
+  quarantine working.
+- *Verification.* A fake scanner (as `tests/worker_fakes.py`) that reports a
+  `High` member and then sleeps past the limit: the result keeps at least
+  `High`, its status is `failed`, and `channels_for` returns the channels.
+
+**M22. Seven more quadratic paths** (measurements in check 3; six places,
+the type guess has two slow patterns).
+
+| Path | File and line | Fix |
+|---|---|---|
+| "Password: ..." in a mail subject or body | `detectors/mail_analyzer.py:355-357` (`_PASSWORD_RX`), called at `:637` on the subject (no length cap) and the body (200,000 characters, newlines kept, `:636`) | `(?:\s*[:=：\-–])?\s*` in place of `\s*[:=：\-–]?\s*`; cap the subject |
+| Domain in the `From:` display name | `:755` (`_DOMAIN_IN_TEXT.search`, the pattern H2 replaced for the body) | use `_first_domain()` |
+| Type guess for an embedded block | `detectors/embedded_content.py:80-87`, `:126-133`, called for every OneNote block before the member limit (`:261`) and for MSI streams (`:315-317`) | line-local white space in the `.bat` pattern; linear helpers for the `.js` and `.wsf` patterns |
+| Script Encoder block | `detectors/script_analysis.py:134` (`_SE_BLOCK`), also `detectors/emulation.py:84` | find the end marker with `str.find`; stop when none is left |
+| Quoted string before `.split(...)` / `.replace(...)` | `:166`, `:179-181` (`_REVERSE_JS`, `_REPLACE_DOT`, `_REPLACE_VB`) | scan string literals once |
+| Body charset | `detectors/mail_analyzer.py:711-719` (`_decode_text` passes any charset to `bytes.decode`; `punycode` is quadratic in this Python) | accept text codecs from a list; otherwise UTF-8 with replacement |
+
+Effect and verification as for H5 (then H6), at 165 KB to 2.4 MB instead of
+165 bytes. H-04+ (web content, deferred) is the same class and stays tracked
+there.
+
+**M23. A certificate-table entry hides an appended program.**
+- *Where.* `detectors/pe_analysis.py:402-411`: the security directory counts
+  as a signature when its offset and size are non-zero and the offset is in the
+  file (`:403`), and its bytes are then removed from the overlay. `:462` and
+  `:467-468` also switch off `pe_ransomware_imports` and
+  `pe_overlay_encrypted`.
+- *Trigger.* A program with another program appended and data-directory entry
+  4 set to cover it (eight bytes of header). The loader does not need a valid
+  signature to run a program.
+- *Effect.* Check 4: `Medium` (25, `pe_overlay_executable`) becomes `Clean`
+  (0), reported as "Authenticode signature present (not verified)". The module
+  text (`:30-32`) says presence switches off only "the two weakest checks".
+- *Fix (owner decision).* Accept the directory as a signature only when it is
+  at the end of the file and starts with a plausible `WIN_CERTIFICATE` header
+  (length, revision, type, DER sequence byte); search its bytes for a program
+  header either way.
+- *Verification.* `make_pe(cert=make_pe())` keeps `overlay_executable`; a
+  well-formed certificate stub keeps today's result; regression corpus
+  unchanged.
+
+**M24. A trailing dot removes the name-based findings.**
+- *Where.* `detectors/container_extractor.py:1084-1094` (`_classify_name`
+  takes the extension from `PurePosixPath(...).suffixes`, which is empty for a
+  name that ends with a dot), `:541-550` (`_target` keeps the dot),
+  `detectors/mail_analyzer.py:645-653` (attachments),
+  `detectors/script_analysis.py:302-303` (`is_script`), `api/server.py:384`
+  (upload extension).
+- *Trigger.* A member or attachment named `invoice.pdf.exe.` or
+  `invoice.pdf.js.`. Windows removes trailing dots and spaces when a file is
+  created through its normal file API, so the saved file is `invoice.pdf.exe`.
+- *Effect.* Check 5: no `archive_executable`, `archive_double_extension`,
+  `mail_risky_attachment` or `mail_double_extension`, and the script layer does
+  not run on the member. Programs are still found by their first bytes in
+  archives (`:567-572`); scripts have none. A trailing space is handled.
+  Whether a given mail client or archive tool on Windows creates the file this
+  way was not tested: SUSPECTED for the delivery, CONFIRMED for the scanner.
+- *Fix (owner decision).* Strip trailing dots and spaces before the name is
+  classified and before the sandbox name is chosen, in all five places.
+- *Verification.* Members and attachments named `invoice.pdf.exe.` and
+  `invoice.pdf.js. .` get the findings of `invoice.pdf.exe` and
+  `invoice.pdf.js`; a Windows CI job extracts both to regular files.
+
+**M25. A lost canary registry silences the tripwire.**
+- *Where.* `core/canary.py:189-198` (`_load` returns an empty list for a
+  missing or unreadable registry), `:252-255` (`verify`),
+  `engine/scanner.py:490` (the canary check is skipped when there are no
+  entries), `core/canary_watch.py:92-98` (the watcher stops itself),
+  `aegis_gui/app.py:360`.
+- *Trigger.* The registry (`~/RansomwareScanner/data/canaries.json`) is a user
+  file like the documents the canaries stand for. Ransomware that encrypts or
+  deletes it, before or after a canary, removes the list.
+- *Effect.* Check 7: with one canary already overwritten, the next check says
+  "No canaries deployed", not triggered. No alert file, notification, webhook,
+  e-mail or response action; one error line in the log, none when the file was
+  deleted.
+- *Fix (owner decision, because it can start `CANARY_RESPONSE` actions).* Treat
+  a registry that existed and is now missing or unreadable as a finding of its
+  own (`registry`), keep the last good list in memory for the running service
+  and watcher, and keep a second copy next to the reports.
+- *Verification.* Check 7 as a test: after a deploy, an overwritten or deleted
+  registry gives a triggered report; a new installation without a registry
+  still gives "No canaries deployed".
+
+**M26. The sandbox wait is longer than the scan limit.**
+- *Where.* `engine/config.py:165` (600) and `:182` (300);
+  `engine/validation.py:37`, `:42` check each range only;
+  `engine/layers.py:414-445` runs the sandbox layer inside the worker;
+  `core/sandbox.py:94-109` and `core/intel_client.py:196-218` wait;
+  `docker-compose.yml:100` passes `SCAN_TIMEOUT_SECONDS` only.
+- *Trigger.* `SANDBOX_URL` set (desktop or the intel service), a file the
+  static layers rate Medium or worse (those are the ones submitted), and a
+  report that takes longer than the rest of the 300 s.
+- *Effect.* Check 8: `Critical` (95) becomes `Medium (failed scan)` (25); see
+  H6. An opt-in VirusTotal upload waits in the same budget: up to ten
+  15-second pauses plus its requests (`engine/external.py:237-272`).
+- *Fix.* SAFE: a start-up warning (an error in the production profile) when a
+  sandbox is configured and the wait is not below the scan limit, and the
+  setting passed through compose. NEEDS APPROVAL: give the layer a deadline
+  from the worker's remaining time, so it ends as `sandbox timeout` (partial)
+  with the static verdict kept.
+- *Verification.* Check 8 as a test with a stub client and a fake clock.
+
+**M27. Rule-pack trust without a key.**
+- *Where.* `core/rulepack.py:252-258` (`keys and signer and ...`: an empty key
+  list skips the signer check); `docker-compose.yml:35-59`, `:86-103`,
+  `:157-158` (no service receives `RULEPACK_PUBLIC_KEYS`; `.env` is not in the
+  image, `.dockerignore`).
+- *Trigger and effect.* Check 13. (a) Docker: `--update-rules` in the `content`
+  tool is refused ("no trusted public key configured") with every command the
+  documents give (`docs/DEPLOYMENT.md:116`, `docs/RUNBOOKS.md:94`,
+  `docs/RULE_PACKS.md:8-9`), and the analysis service can never distrust a
+  signer. Read from the compose file; not run in a container. (b) Anywhere: an
+  installation with one configured key that removes it after a compromise, as
+  `docs/RULE_PACKS.md:68-71` and THREAT_MODEL section 5 describe, keeps using
+  the pack that key signed.
+- *Fix.* SAFE: pass the variable to `content` and `analysis`, document it, and
+  install one signed pack in `deploy/check-deployment.sh`. NEEDS APPROVAL: do
+  not use a pack with a recorded signer when no key is configured (packs from
+  before 4.7 have no signer and stay as they are).
+- *Verification.* A deployment test that both services receive the variable;
+  check 13 as a unit test.
+
+**Low and informational items.**
+
+| ID | Where | Trigger and effect | Fix | Verification |
+|---|---|---|---|---|
+| L-A5 | `core/containment.py:447-477` (state saved after `_posix_lock`), `:550-555` (a failed save is only logged), `:481-489` (the walk stops at 50,000 entries without a note) | A crash, a kill or a full disk between the permission change and the save (check 9): files stay read-only, `--unlock-folders` restores nothing and reports no problem | Save the record before the first change and after each folder; return a problem when it cannot be saved or the cap cut the walk | Check 9 as a test: with an unwritable state path nothing is changed |
+| L-A6 | `core/cloud.py:213`, `:423-426` (`spool_for` builds a new `Spool`, each with its own lock), `:305-338` | The GUI and the background service, or two threads, upload the same item (check 14); `state.json` updates can be lost. Same class as M2 | The outbox's folder lock and lock file for `add`, `upload_due`, `cleanup` | Check 14 as a test (one upload); a two-process test as in `tests/test_locks.py` |
+| L-A7 | `core/outbox.py:298-300`, `core/outputs.py:92-106`; `WEBHOOK_URL` is kept in `.env` (`aegis_gui/integration.py:26`, `:78`), not in the secret store (`engine/secret_store.py:33-37`) | A connection error text carries the URL path (check 15) into the log, the outbox file and the GUI status. For chat-service webhooks the path is the credential | Record the error type and host only; say in the documents that the URL can be a secret | Check 15 as a test: no path in the stored text |
+| L-A8 | `core/mailer.py:190` (`_take()` before the connection), `:178-186` | During an SMTP outage every failed attempt counts against the hourly (20) and daily (100) caps (check 19), so alerts stay queued after the server is back although nothing was sent | Count a message after it was sent | 25 failing sends, then a working server: the next alert is sent |
+| L-C5 | `RansomwareScanner.py:145-168` (paths pasted into XML), `:170-176` | A home or install path with `&` or `<` gives a file that does not parse, and "Configured to run at macOS login" is printed although `launchctl load` failed (check 20) | `plistlib.dumps`; report the `launchctl` result | A path with `&` parses with `plistlib.loads`; a failing `launchctl` stand-in returns False |
+| L-D4 | `detectors/embedded_content.py:256-259`, `:116-123` | One 41-character entry per 16 input bytes (check 6). At that ratio a 50 MB upload would give a result of about 135 MB (not run), which the API returns, the report stores and the GUI loads at start (`aegis_gui/app.py:188-200`) | Cap the list and count the rest | Check 6 as a test with a size bound |
+| L-D5 | `detectors/emulation.py:78-81`, `:100-101`, `:119`; `engine/completeness.py:124-132`. QR: `detectors/qr_scanner.py:184-188` with `engine/layers.py:353-354`, limits at `:167-168` | A script that outlasts box-js, or is over 2 MB, reads `complete` (check 10). A QR code on PDF page 11, in the 21st image, or in an image over 8 MiB or 25 megapixels is not decoded and nothing says so. Same class as H4 and L-L1 | A `status` the completeness check already understands; a `not_checked` text for QR | Check 10 as a test; an 11-page PDF names the pages not checked |
+| L-D6 | `detectors/yara_engine.py:120` (`p.stem` as namespace; `core/rulepack.py:295` uses `p.name`) | `a.yar` and `a.yara` (check 11): the rules of one file are not loaded, two files are reported | Namespace by file name; report the number of compiled rules | Check 11 as a test: both rules match |
+| L-D7 | `detectors/embedded_content.py:277-295` | A help file with thousands of small pages starts that many 7-Zip processes before the member limit applies (where 7-Zip is installed; not in the server image). Not measured | Stop reading after the member limit, as the disk-image path does | A stand-in list of 100 members: at most 25 reads |
+| I-B1 | `api/intel.py:146` (`aegis-sentinel/4.7`), `core/sandbox.py:89` (`4.4`), `core/http.py:77` (`hybrid-ransomware-detector/4.0`) | External services see three wrong versions | `ENGINE_VERSION` | An assertion on the session header |
+| I-B2 | `.github/workflows/release.yml:112`, `:150` | `cyclonedx-bom==7.5.0` is installed without hashes in the jobs that hold the artifacts before they are signed; everything else in the release is hash-pinned (PR-12) | A small hash-pinned requirements file | `tests/test_ci_workflows.py` checks every install line of the release workflow |
+
+### 31.4 Evidence: checks run in this session
+
+Every check ran from the repository root with `.venv/bin/python -B` (no
+bytecode written), a clean environment (`env -i`), `HOME`, `USERPROFILE` and
+`TMPDIR` pointing into a scratch folder outside the repository (`$S`),
+`LLM_PROVIDER=none`, an empty `VIRUSTOTAL_API_KEY` and the null keyring backend.
+Inputs are short ASCII strings, inert stubs from `tests/helpers.py` and files
+written under `$S`. Each timing ran in its own child process with a hard limit
+of 20 to 25 s, so a runaway call was killed; no check was allowed to reach a
+product time limit. `git status --porcelain` showed only `.arena/` and this
+document, before and after each batch. Times are from this host (Apple Silicon, Python 3.14.2) and will
+differ elsewhere; the growth rates are the evidence.
+
+**Check 1 (H5): two script-deobfuscation patterns backtrack catastrophically.**
+
+```python
+import time
+from detectors.script_analysis import ScriptAnalyzer, ScriptResult, _CHR_RUN, _PSCHAR_RUN
+def shape(token, n):                      # token, n spaces, three times, then a letter
+    return (token + " " * n) * 3 + "x"
+for n in (16, 20, 24, 28):
+    raw = shape("[char]65", n).encode()
+    t = time.perf_counter()
+    ScriptAnalyzer().analyze_bytes(raw, ScriptResult(is_script=True, language="PowerShell"))
+    print(len(raw), "bytes:", round(time.perf_counter() - t, 2), "s")
+# 73 bytes: 0.42 s / 85 bytes: 1.67 s / 97 bytes: 5.21 s / 109 bytes: 14.11 s
+#   _PSCHAR_RUN.finditer alone: 0.41, 1.62, 5.14, 13.66 s  (about n to the power 6)
+#   _CHR_RUN.finditer on shape("chr(65)", n): 172 bytes 0.11 s, 322 bytes 1.69 s,
+#   622 bytes killed at the 20 s limit              (about n to the power 4)
+```
+
+Projection from the measured curve (not run): about 165 bytes for the
+`[char]` shape and about 1.2 KB for the `chr()` shape reach the default 300 s
+worker limit.
+
+**Check 2 (H6): a worker time-out replaces the findings of the whole file.**
+A ZIP with an inert stub named `invoice.pdf.exe` and a text file, scanned with
+`scan_one()` in an isolated worker and `scan_timeout_seconds=6`, then the same
+ZIP with the 109-byte file of check 1 added as `notes.ps1`:
+
+```
+without the script:        verdict 'Critical (unsupported scan)', risk 95, status unsupported,
+                           indicators [archive_double_extension, archive_executable],
+                           alert channels at the default floor: [webhook, email]
+with a 109-byte notes.ps1: verdict 'Medium (failed scan)', risk 25, status failed,
+                           indicators [scan_failed], alert channels at the default floor: []
+```
+
+The alert channels are what `core.outbox.channels_for(verdict_alert(result),
+{"webhook_url": ...}, email_available=True)` returns with the default
+`WEBHOOK_MIN_VERDICT` and `ALERT_EMAIL_MIN_VERDICT` (`High`).
+
+**Check 3 (M22): other patterns with quadratic time on crafted text.**
+
+| Path | Input shape | Measured | Projected size for 300 s |
+|---|---|---|---|
+| `archive_passwords()` (`_PASSWORD_RX`), mail subject or body | `pw`, n spaces or newlines, `ab` | 4 KB 0.18 s, 8 KB 0.70 s, 16 KB 2.80 s (the same through `MailAnalyzer.analyze` with the shape in `Subject:`) | about 170 KB |
+| `_display_name_spoof()` (`_DOMAIN_IN_TEXT.search`), `From:` display name | `a.` repeated, then `1` | 8 KB 0.46 s, 16 KB 1.85 s, 32 KB 7.45 s (the same through `MailAnalyzer.analyze`) | about 200 KB |
+| `_guess_text_extension()` (`.bat` pattern), each OneNote or MSI embedded block | newlines only | 8 KB 1.55 s, 16 KB 6.17 s, 32 KB killed at 25 s; a 16 KB `.one` file with one such block: 6.34 s | one 64 KB block about 100 s; three or four blocks |
+| the same function, `.js` pattern | `function` repeated | 16 KB 0.20 s, 32 KB 0.80 s, 64 KB 3.18 s per block | many blocks |
+| `_SE_BLOCK` (Script Encoder), script text | `#@~^AAAAAA==` repeated, no end marker | 8 KB 0.04 s, 16 KB 0.16 s, 32 KB 0.65 s | about 700 KB |
+| `_REVERSE_JS` (and `_REPLACE_DOT`), script text | `"` then `\"` repeated | 4 KB 0.06 s, 8 KB 0.26 s, 16 KB 1.01 s (linear above 40 KB) | about 0.5 to 1 MB |
+| `_decode_text()` with `charset=punycode`, mail text part | `a` repeated | 40 KB 0.04 s, 80 KB 0.14 s, 160 KB 0.65 s (the same through `MailAnalyzer.analyze`) | about 2.4 MB (weak projection) |
+
+Checked and linear: the ELF string patterns (1 MB of `curl http://x ` in 0.14 s).
+
+**Check 4 (M23): a certificate-table entry hides an appended program.**
+
+```python
+from detectors.pe_analysis import PeAnalyzer
+from tests.helpers import make_pe
+inner = make_pe()                                    # NOP-only stub
+for data in (make_pe(overlay=inner), make_pe(cert=inner)):   # same bytes after the sections
+    r = PeAnalyzer().analyze_bytes(data)
+    print(r.overlay_executable, r.overlay_size, r.signature_present)
+# True 1536 False   -> scored Medium (25, pe_overlay_executable)
+# False 0 True      -> scored Clean (0)
+```
+
+**Check 5 (M24): a trailing dot removes the name-based findings.**
+
+```
+zip member 'invoice.pdf.js':    executable True,  double_extension True,  script layer applies True
+zip member 'invoice.pdf.js.':   executable False, double_extension False, script layer applies False
+zip member 'invoice.pdf.exe':   executable True,  double_extension True
+zip member 'invoice.pdf.exe.':  executable False, double_extension False
+zip member 'invoice.pdf.exe ':  executable True,  double_extension True
+mail attachment 'invoice.pdf.exe':  executable and double_extension listed
+mail attachment 'invoice.pdf.exe.': neither listed
+```
+
+From `ContainerExtractor().open()`, `MailAnalyzer().analyze()` and
+`script_analysis.is_script()` on the name each member is saved under.
+
+**Check 6 (L-D4): the OneNote result grows without a cap.** A file of the
+OneNote signature followed by 4,000 copies of the 16-byte embedded-file marker
+(64,052 bytes): `EmbeddedContentAnalyzer().analyze()` returns 4,000 `skipped`
+entries and `json.dumps(result.as_dict())` is 172,379 bytes, 2.7 times the
+input (1,000 copies: 43,379 bytes, the same ratio).
+
+**Check 7 (M25): losing the canary registry silences the tripwire.** Three
+canaries deployed in a scratch folder with a scratch registry
+(`CanaryManager(registry).deploy([folder])`), then `verify().summary()`:
+
+```
+after deploy:                     3/3 canaries intact.
+one canary overwritten:           TRIPWIRE TRIGGERED - 1 finding(s) (encrypted); 2/3 canaries intact.
+registry overwritten with noise:  No canaries deployed.   (triggered False; entries() == [])
+registry deleted:                 No canaries deployed.   (triggered False)
+```
+
+The overwritten canary is still on disk in the last two lines. The only trace
+is one `Canary registry unreadable` log line (none when the file is deleted).
+
+**Check 8 (M26): a slow sandbox report replaces the static verdict.** The ZIP of
+check 2 (without the script), `scan_one()` in an isolated worker with
+`scan_timeout_seconds=8` and the default `sandbox_wait_seconds=600`, against a
+stand-in sandbox on loopback that accepts the task and always answers
+`running`:
+
+```
+sandbox off:                               'Critical (unsupported scan)', risk 95
+sandbox on, report slower than the limit:  'Medium (failed scan)', risk 25, "timed out after 8s"
+```
+
+The defaults have the same order: `SANDBOX_WAIT_SECONDS=600`,
+`SCAN_TIMEOUT_SECONDS=300` (`engine/config.py:165`, `:182`).
+
+**Check 9 (L-A5): the folder lock changes permissions before its undo record
+exists.** `lock_folders([folder], state_file, system="Linux")` with a state file
+whose parent cannot be created: the file mode goes from 644 to 444, the result
+is `locked=1, problems=[]`, no state file exists, and `unlock_folders()` returns
+`restored=0, problems=[]` with the file still 444. (The scratch files were
+restored by hand.)
+
+**Check 10 (L-D5): a failed emulation leaves the scan complete.** A `.js` file
+scanned with a stand-in emulator that returns the three failure results of
+`detectors/emulation.py`:
+
+```
+'emulation timed out'          -> ran False, scan_status complete, incomplete_reasons []
+'box-js produced no results'   -> ran False, scan_status complete, incomplete_reasons []
+'script too large to emulate'  -> ran False, scan_status complete, incomplete_reasons []
+```
+
+**Check 11 (L-D6): two rule files with the same stem.** A folder with `a.yar`
+(rule `first`) and `a.yara` (rule `second`) and a sample that contains both
+markers: `YaraEngine` reports 2 rule files loaded and only `second` matches.
+
+**Check 12 (improvement I-1): file types a layer reads but folder scans never
+offer it.** Extension sets of the layers compared with
+`engine.config.SUPPORTED_EXTENSIONS` (the list folder scans, the folder monitor
+and the GUI choose from):
+
+```
+macro layer (18 extensions), not listed:  .dot .potm .ppam .ppsm .xlam .xlm .xlsb .xltm
+script layer (11), not listed:            .psm1 .wsh
+web layer (6), not listed:                .shtml .xhtml
+hidden-content layer (17), not listed:    .dotx .potm .potx .ppsm .ppsx .xla .xlt .xltm .xltx
+integrity layer (34), not listed:         .dot .dotx .pot .potm .potx .pps .ppsm .ppsx .xlsb .xlt .xltm .xltx
+archives (8) and mail (2):                all listed
+all layers together, not listed (20):     .dot .dotx .pot .potm .potx .ppam .pps .ppsm .ppsx .psm1
+                                          .shtml .wsh .xhtml .xla .xlam .xlm .xlsb .xlt .xltm .xltx
+```
+
+**Check 13 (M27): rule-pack trust with no key configured.** A pack built from
+the bundled rules, signed with a scratch key and installed into a scratch data
+folder (`core.rulepack`), then `active_pack(data_dir, keys)`:
+
+```
+keys = [the signing key]      -> pack in use
+keys = [another key only]     -> not used (bundled rules), "no longer trusted" logged
+keys = []  (the key removed)  -> pack in use
+install_pack(..., keys = [])  -> refused: no trusted public key configured (RULEPACK_PUBLIC_KEYS)
+docker-compose.yml: RULEPACK_PUBLIC_KEYS is in the environment of none of content, analysis, intel
+```
+
+The last line is read from the compose file with a YAML parser; no container
+was started (no Docker daemon on this host).
+
+**Check 14 (L-A6): the cloud spool lock is per object.** Two objects from
+`core.cloud.spool_for(config)` for one folder, one queued item, and an upload
+function that lets the second object run `upload_due()` while the first is in
+its own: the item is uploaded twice (`['first run', 'second run']`).
+
+**Check 15 (L-A7): a failed webhook delivery records the URL path.**
+`core.outputs.post_alert()` to a closed loopback port with the path
+`/services/T000/B000/EXAMPLE-NOT-A-REAL-TOKEN`; the text the outbox stores and
+logs (`clean_text(f"{type(e).__name__}: {e}", 200)`) is
+`ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=9): Max retries
+exceeded with url: /services/T000/B000/EXAMPLE-NOT-A-REAL-TOKEN (Caused by ...`.
+
+**Check 16 (documentation): rule count.** `yara.compile()` over the five files in
+`rules/` gives 25 rules (8, 4, 6, 5 and 2 per file). The README says 23 in three
+places.
+
+**Check 17 (documentation): outputs of an API scan.** `create_app()` with
+`JSONL_PATH`, `WEBHOOK_URL` and the SMTP settings set, one ZIP uploaded through
+`TestClient`: `POST /scan` answers 200 with verdict Critical, no JSON Lines file
+is written, and the alert is queued for `['email']` only with the webhook URL
+removed from the configuration the alert sees (`api/server.py:231`). This check
+made one DNS lookup for the reserved name `smtp.example.org` (the stand-in SMTP
+host; it did not resolve and no connection was made).
+
+**Check 18 (documentation): setting names.** Every upper-case name with an
+underscore in `README.md`, `.env.example` and ten documents under `docs/`
+(ARCHITECTURE, THREAT_MODEL, DEPLOYMENT, OPERATIONS, RUNBOOKS, RELEASING,
+RULE_PACKS, DATA_POLICY, SUPPORT, RELEASE_SCOPE) was searched for in the tracked
+code, deployment files, workflows and tests. Six names are not there: two
+Linux capability names, a placeholder, two document names and
+`ARCHIVE_MAX_TOTAL_MB` (D16).
+
+**Check 19 (L-A8): the e-mail cap counts failed attempts.** `SmtpMailer` with
+the default caps and a stand-in for `smtplib.SMTP_SSL` that refuses every
+connection, 22 calls of `send()`: 20 connection attempts, no message sent, then
+2 calls refused by the cap (`RateLimited`).
+
+**Check 20 (L-C5): the macOS autostart file.** `setup_macos_autostart()` under
+the redirected `HOME`, with `subprocess.run` replaced by a stand-in that answers
+like a failing `launchctl`, and an interpreter path that contains `&` and a
+script path that contains `<`: the function returns True and prints
+"Configured to run at macOS login"; the file it wrote does not parse
+(`plistlib.loads` raises `ExpatError`). The real `launchctl` was not called and
+the file was removed.
+
+### 31.5 Interactions between components
+
+Each finding above sits where two parts meet. The five that matter most:
+
+1. **Time limit, container recursion and alert floor (H5, M22, M26 into H6).**
+   The limit is per top-level file; a container and all its members are one
+   unit of work; the failure result is built by the parent from nothing; alerts
+   start at `High`. Each rule is reasonable alone. Together, the cheapest
+   member decides the verdict of the whole container.
+2. **Dispatch by extension, name cleaning and Windows name rules (M24, M20).**
+   Which layers run is decided from the extension (`engine/layers.py`,
+   `engine/completeness.py:76-96`, `api/server.py:384`), the extension comes
+   from an attacker-chosen name, and the cleaned name keeps characters that
+   Windows drops or reserves. M12 fixed one case of this; two remain.
+3. **Compose environment and rule-pack trust (M27).** The trust decision reads
+   a setting that the deployment never passes, and "no key" means "do not
+   check". The unit tests pass keys directly, and the deployment check installs
+   no pack, so nothing exercises the two together.
+4. **Per-object locks and several entry points (L-A6, as M2).** The CLI
+   background service and the GUI are separate processes on the same data
+   folder. The outbox got a shared lock in stage 2; the cloud spool, written at
+   the same time, did not.
+5. **Result size and its consumers (L-D4).** A detector's list is returned by
+   the worker pipe, the API response, the JSON report, JSON Lines and the GUI's
+   start-up load. `ContainerResult.as_dict` and `MailResult.as_dict` cap their
+   lists; `EmbeddedResult.as_dict` does not.
+
+Hardening commits, seen from the rest of the code:
+
+- **H2** (linear mail helpers): the same file still applies the old domain
+  pattern to the display name and a second quadratic pattern to the subject and
+  body (M22).
+- **M2** (outbox lock): sound; the same pattern is missing in the cloud spool
+  (L-A6).
+- **M12** (member names): sound for dots; device names (M20) and trailing dots
+  (M24) remain, and the attachment path (`detectors/mail_analyzer.py:656`) has
+  its own copy of the rule.
+- **H3** (GUI delivery) and **M17**: the API never calls `deliver()` (check
+  17), so M17 does not apply there, and API scans have no JSON Lines or webhook
+  output at all (31.7, D22).
+- **M6** (worker log records): H6 fix (b) would add a message type on the same
+  pickle channel, so M18 should be decided first or with it.
+- **H1, H4, H4-b, M3, M13**: nothing new found in their callers.
+
+### 31.6 Additions to earlier findings
+
+- **M20** (suspected, Windows only): add `detectors/mail_analyzer.py:656`.
+  Attachment names keep device names too, and a name made only of spaces would
+  make the write fail on Windows and end the analysis of that message (the M12
+  class). Not run on Windows.
+- **OOM-H and 27.5** (reading only; nothing was executed, 27.5 stays
+  restricted and unresolved). Two leads to check in the VM:
+  - `detectors/macos_packages.py:91` creates `lzma.LZMADecompressor()` without
+    `memlimit`. An xz stream declares its own dictionary size; the output
+    budget does not bound the decoder's memory. The path is reached from
+    package payloads (`stream_decompress`, `pbzx_decompress`), which the
+    general parser harness feeds (`fuzz/fuzz_parsers.py:57-58`). Check:
+    a decoder with `memlimit` raises `LZMAError` on such a stream.
+  - `detectors/qr_scanner.py:244-255` calls `list(page.images)`, which decodes
+    every image of a PDF page before the 20-image, 8 MiB and 25-megapixel
+    limits apply. Not a harness target; a product path.
+
+  Neither is shown to be the cause: the B4 harness has neither target and
+  failed as well.
+- **Fuzz harness and H5, M22.** `fuzz/fuzz_parsers.py:45-58` includes the
+  script, e-mail and OneNote targets and CI runs it with `-timeout=90`. From
+  check 3, a 64 KB OneNote block (about 100 s) or a 90 KB subject would stop a
+  campaign on a time-out. H5 and M22 should be fixed before any campaign is
+  restarted, so that new time-outs do not mix with the open memory failures.
+- **M15.** If the packaging change is taken: the wheel installs top-level
+  packages named `engine`, `core`, `api`, `tools` and `detectors`
+  (`pyproject.toml:65-66`), which any other distribution in the same
+  environment can collide with.
+- **PR-10 class (stale comments in code).** `engine/config.py:283` (lists
+  `critical` and `high`; `medium` and `off` are accepted too), `:304` (lists
+  two of five response actions), the CLI banner (`RansomwareScanner.py:709-738`:
+  thirteen layers and the earlier product name), and the key warning
+  (`:1075-1077`), shown whenever no cloud key is set, also with
+  `LLM_PROVIDER=ollama` or `none`.
+- **Unchanged:** M4, M17, M18, M19, M21, H-04+, L-B6, L-B7, L-L1, L-G1, L-A4,
+  L-E8, I-T1, I-T2 and the open low items of section 28. S-03 and L-E7 matter
+  for improvement I-4 below.
+
+### 31.7 Documentation review
+
+Every correction below was checked against the code or a workflow at
+`eb1d96f`. Nothing was rewritten in this session.
+
+**README.md**
+
+| # | Line | Now says | Correction |
+|---|---|---|---|
+| D1 | 203, 249, 813 | 23 YARA rules | 25 (check 16) |
+| D2 | 722 | "Every push and pull request runs the suite" | Pull requests, pushes to `main` and manual dispatch (`.github/workflows/tests.yml:3-7`). A push to any other branch starts nothing |
+| D3 | 10, 14, 847 (L-B6); `requirements.txt:1-4`; `requirements-ml.txt:5` | wheels for x86_64 and ARM64 on three systems, "no source compilation required" | Contradicts `README.md:394` (`python-tlsh` is source-only). State the tested targets: Linux x64, Windows x64, macOS arm64 |
+| D4 | 459 | five secret names | Add `SMTP_PASSWORD`, `CLOUD_SECRET_ACCESS_KEY`, `CLOUD_PSEUDONYM_KEY` (`engine/secret_store.py:33-37`) |
+| D5 | 361 | desktop notification "on macOS/Linux" | Windows too since 4.7 (`core/canary.py:366-373`) |
+| D6 | 372, 478 | `AUTO_QUARANTINE`: `high` or `critical` | The code also accepts `medium` and `off` (`engine/validation.py:72`); document or remove |
+| D7 | 834; `docs/ARCHITECTURE.md:54` | "Folder and API scans run each file in a worker" | Every scan since 4.8, as `README.md:497` says |
+| D8 | 762-823 | project tree | Missing: `engine/completeness.py`, `provenance.py`, `capabilities.py`, `readiness.py`, `secret_store.py`, `fsutil.py`; `core/folder_watch.py`, `outbox.py`, `mailer.py`, `cloud.py`, `intel_client.py`; `api/intel.py`; `deploy/`, `Dockerfile`, `docker-compose.yml`; the newer documents |
+| D9 | 818 | workflows: tests, quality, release | Add `docker` and `parser-fuzz` |
+| D10 | 16, 873 | history ends at 4.7; "delivered" list ends at 4.6 | Add 4.7 and 4.8 |
+| D11 | 866; `detectors/pe_analysis.py:30-32` | signature "reported, not verified" | Also say what its presence changes (M23) |
+| D12 | 261; `docs/THREAT_MODEL.md:54` | limit on "per-member" decompressed size | There is one total budget and a ratio check; no separate per-member limit |
+| D13 | 425 | install from `requirements.txt` | Unpinned. Say that the tested, audited set is `requirements.lock` (Python 3.12 and later), as line 710 does for tests |
+| D14 | 6; `docs/OPERATIONS.md:20`, `:28` | version badge 4.8.0, `git checkout v4.8.0`, the 4.8.0 image archive | No such tag or release exists (`git tag -l` ends at `v4.7.0`; the changelog says "pending release"). True only after the release |
+
+**Threat model, architecture and scope**
+
+| # | File and line | Now says | Correction |
+|---|---|---|---|
+| D15 | `docs/THREAT_MODEL.md:53` | the layer guard is in `engine/scanner.py` | `engine/staging.py` (`_run_layer`) |
+| D16 | `docs/THREAT_MODEL.md:91` | budget `ARCHIVE_MAX_TOTAL_MB` | Not a setting: `archive_max_total_mb` is fixed at 100 in `engine/config.py:255`. The only setting name in the reviewed documents that the code does not read |
+| D17 | `docs/THREAT_MODEL.md:41`, `:70-71`, `:391` | a hung file is `scan_failed` (Medium); slow-file risk Low | Add that the failure replaces the file's other findings and is below the default alert floor (H6), and rate it again |
+| D18 | `docs/THREAT_MODEL.md:176` | four kinds of secret | Add the SMTP password and the cloud keys |
+| D19 | `docs/THREAT_MODEL.md:132-134`; `docs/RULE_PACKS.md:68-71` | removing a compromised key stops its pack | Only while another key stays configured, and never in Docker today (M27) |
+| D20 | `docs/THREAT_MODEL.md:260-261` | a compromised worker forges only its own file's result | M18 (existing) |
+| D21 | `docs/ARCHITECTURE.md:92-101` | interfaces of 4.6 | Add the intel service, folder monitoring, the alert outbox and e-mail, cloud upload |
+| D22 | `docs/RELEASE_SCOPE.md:24`; `docs/ARCHITECTURE.md:97` | JSON Lines and signed webhooks are part of the edition | Not for API scans in the Docker edition (check 17; `api/server.py:231`; the analysis service has no network). Change the document or the product (owner) |
+| D23 | `docs/RELEASE_SCOPE.md:23`, `:25` against `docs/OPERATIONS.md:162` | quarantine is in the edition / "The server deployment does not quarantine files" | The two contradict each other |
+| D24 | `docs/RELEASE_SCOPE.md:62` | "No Dockerfile yet (Phase 2)" | The Dockerfile exists since 4.7 |
+| D25 | `docs/RELEASE_SCOPE.md:66-67` | the lock is resolved for Python 3.13; it does not install on 3.14 (B3) | The lock header says 3.12 and later; B3 is fixed; neither version runs in CI |
+| D26 | `docs/RELEASE_SCOPE.md:163` (D6) against `pyproject.toml:12`, `.github/workflows/tests.yml:21`, the README badge | "drop it [Python 3.9] in the next release" | 4.8 still declares and tests 3.9. Apply the decision or record a new one (owner) |
+
+**Deployment, operations and release**
+
+| # | File and line | Now says | Correction |
+|---|---|---|---|
+| D27 | `docs/DEPLOYMENT.md:116`; `docker-compose.yml:108`, `:147` | `--update-rules /import/aegis-rules-2026.11.zip` | A pack is a `.tar.gz` with its `.sig` next to it (`docs/RUNBOOKS.md:94` is right), and the command needs the key (M27) |
+| D28 | `docs/DEPLOYMENT.md:99`; `docs/RUNBOOKS.md:54-56` | memory = (scans + spares) x `WORKER_MEMORY_MB` | The defaults do not meet it: (2 + 2) x 2,048 MB against `AEGIS_ANALYSIS_MEMORY` 6g. Give the intended rule (an idle spare is about 200 MB) or change a default |
+| D29 | `docs/DEPLOYMENT.md:100`; `docs/OPERATIONS.md:92`; `docker-compose.yml:80-82` | a stop lets scans in progress finish (120 s) | A scan may take 300 s. Say "scans that end within 120 s", or raise `AEGIS_STOP_GRACE` |
+| D30 | `docs/DEPLOYMENT.md:71`; `docs/OPERATIONS.md:62` against `deploy/Caddyfile:11` | `AEGIS_API_MAX_UPLOAD_MB` is a setting | The bundled proxy stops at 52 MB whatever the setting |
+| D31 | `README.md:486`; `docs/DEPLOYMENT.md:70-75` | sandbox settings | Say that the wait must stay below `SCAN_TIMEOUT_SECONDS` (M26) |
+| D32 | `docs/DEPLOYMENT.md:143` | installs the desktop lock on a server | L-B2 (existing) |
+| D33 | `docs/OPERATIONS.md:18` | copy in the compose file, the Caddyfile and the archive | Sections 3 and 6 use `deploy/check-deployment.sh`, `isolation_check.py`, `backup.sh` and `restore.sh`, which are in the source tree only |
+| D34 | `docs/OPERATIONS.md:133` | copy installed packs with a mount of `.../data/rulepacks` | Installed packs are folders, not signed archives, so `--update-rules` cannot read them; and the 4.6 service kept its data under the service user's home (`docs/DEPLOYMENT.md:276`). Keep "install the current pack" |
+| D35 | `docs/OPERATIONS.md:140-141` | rollback "within 4.7" | Nothing about going back from 4.8 (other compose file, a new secret file) |
+| D36 | `docs/RELEASING.md:23-24`, `:41-42`, `:48-49`, `:70`; `:14-15`; `:29-34` | examples for 4.7.0; the changelog heading is listed with the versions; the gate row | Use the current version or a placeholder; the gate compares the tag with `pyproject.toml` and `ENGINE_VERSION` only (M16), not the changelog |
+| D37 | `docs/RELEASING.md:16` against `docs/RELEASE_READINESS.md:1` | the readiness matrix has no open blocker "for this release" | The matrix is the 4.7 one. The 4.8 state is in sections 24 to 31 of this document and in the handoff |
+
+Contradictions between the README, the handoff, the release criteria and CI:
+
+- README D2 and D9 against the workflows.
+- RELEASE_READINESS S1 ("pip-audit clean") against today's audit: M21
+  (existing).
+- RELEASE_SCOPE D26 (Python 3.9), D22 (outputs) and D23 (quarantine) against
+  the code and OPERATIONS.
+- RELEASING D37: its release condition points at a matrix that does not cover
+  the release being prepared.
+- The handoff and this document agree with each other and with `git`.
+
+Checked and correct: the scoring table (`README.md:299-336`) against
+`detectors/indicators.yaml`; the configuration table defaults against
+`engine/config.py`; the pipeline order in `docs/ARCHITECTURE.md` against
+`default_pipeline()`; the CLI flags under Usage; the autostart table; the API
+limits table in `docs/DEPLOYMENT.md`; the compose hardening table; the cloud
+upload description in `docs/OPERATIONS.md` against `core/cloud.py`; "about 1,300
+tests" (1,330 collected in 30.3).
+
+### 31.8 Platform readiness
+
+No target is ready. `eb1d96f` is not on the remote, so no workflow run can
+exist for it; the newest runs are on `3e5a3f2` (30.7) and are historical.
+Section 30 ran the suite on this Mac at `bfc58ff`, which differs from
+`eb1d96f` in documentation only; this session added targeted checks, not a
+suite run. "Unverified" means not tested on that target at this commit.
+
+| Target | Evidence at `eb1d96f` | Historical evidence (`3e5a3f2`) | Build and packaging | Target-specific points | State |
+|---|---|---|---|---|---|
+| Linux x86_64 | none | tests 40977056829 (ubuntu-24.04, x64; Python 3.9 and 3.12), quality 40977056790, docker 40977056845 | desktop build and server image last built at `v4.7.0` (release run 40728338890); none for 4.8 | the only target with a deployment check; M27 and M26 concern the Docker edition; whether box-js starts under the worker's address-space limit is not known; O1 and M2 on a clean host are open | UNVERIFIED at this commit; `quality` is expected to fail (M21, L-B7) |
+| Linux ARM64 | none | none | no runner in any workflow; no image (D5); `python-tlsh` needs a compiler | everything | UNVERIFIED |
+| Windows x86_64 | none | tests 40977056829 (windows-2025, x64; Python 3.9 and 3.12) | desktop build at `v4.7.0` only | the hardening code for Windows (M2 `msvcrt` lock, M9 encoding) and M20, M24, L-E6, the Job Object limit, toasts, Restart Manager containment and registry autostart have no run at this commit; the GUI was never tested on Windows (owner check) | UNVERIFIED at this commit; `tests` is expected to fail (L-B7) |
+| Windows ARM64 | none | none | none | native wheels not checked | UNVERIFIED |
+| macOS Intel | none | none | none (`macos-latest` is arm64) | everything | UNVERIFIED |
+| macOS Apple Silicon | this session: the checks of 31.4 only. Section 30 at `bfc58ff`: 1,296 passed without a QR decoder, 1 failed with one (L-B7); Python 3.14.2, not the lock | tests 40977056829 (macos-26-arm64; Python 3.9 and 3.12) | desktop build at `v4.7.0`; a wheel builds locally (30.8) | launchd autostart (L-C5), the 0.25 s memory watchdog and `lsof` containment were not exercised; the GUI was not run | PARTLY EXERCISED LOCALLY; not on the lock, not in CI at this commit |
+
+Across targets: the hash-pinned lock installs on Python 3.12 and later only;
+the Python 3.9 jobs test the latest releases instead (S-04), and D26 asks
+whether 3.9 stays. Python 3.13 and 3.14 run in no workflow. The steps that
+would produce evidence are the ones in 30.7 and 30.11: push, manual dispatch of
+`tests`, `quality` and `docker`, a Windows desktop session, ARM64 and Intel
+runners or narrower claims.
+
+### 31.9 Optional improvements
+
+Not defects. Each is listed with what it would measurably change and what it
+costs.
+
+| ID | Improvement | Measurable benefit | Cost and compatibility risk | Class |
+|---|---|---|---|---|
+| I-1 | Offer folder scans the 20 extensions a layer already reads (check 12), at least the eight macro-capable ones (`.dot`, `.potm`, `.ppam`, `.ppsm`, `.xlam`, `.xlm`, `.xlsb`, `.xltm`) | Those types become reachable by folder scans, the folder monitor and the GUI; today only `--scan-file`, the API and containers reach them | More files per folder (time, VirusTotal look-ups); verdict counts on existing folders change | NEEDS APPROVAL (coverage) |
+| I-2 | Give the 25-member deep-scan budget to the risky members first, with the `_priority_name` order that exists for archives over 500 members (`detectors/container_extractor.py:329-332`; `engine/containers.py:101-104`) | An archive with 26 or more members scans its programs, scripts and nested containers wherever they are listed; today the first 25 in archive order are scanned and the rest only named (`partial`) | Scores of large archives can change; member order in reports changes | NEEDS APPROVAL |
+| I-3 | Run the `dependency-audit` job on a schedule and open an issue when it fails; add the lock files to `.github/dependabot.yml` or an equivalent job | M21 was found by hand eleven days after the last audit run (2026-10-30); a daily run reports such an advisory within a day | A daily job and its notifications; an automatic update may not regenerate a hash-pinned universal lock, so the update itself can stay manual | SAFE (CI only) |
+| I-4 | Run scheduled scans of `--background` on a worker thread (`RansomwareScanner.py:1004`, `:1034-1043`) | Canary interval checks, alert retries, cloud uploads and mailbox checks keep their one- and five-minute cadence during a long scan; today they wait for it (without `watchdog`, that includes the canary check) | Two scans on one scanner object: L-E7 and S-03 must be fixed first | SAFE with those two |
+| I-5 | One test that times every compiled pattern of `detectors/` on a small set of hostile shapes (long runs of one class, repeated prefixes, unclosed delimiters) | The class was found by hand three times (H2, H-04, this section); the test makes the fourth a CI failure | A few seconds of test time; the shapes need care when patterns change | SAFE (tests only) |
+| I-6 | Pass the worker's remaining time to the slow layers (sandbox, VirusTotal upload wait, LLM) | No external wait can outlast the worker; a slow service costs that layer, not the file (M26 and its relatives) | Touches every external layer; affected results change from `failed` to `partial` | NEEDS APPROVAL (`scan_status`) |
+
+### 31.10 Ranked fix plan
+
+Nothing here was started. Each item needs its regression test and the full
+gates afterwards (pytest, ruff, mypy, bandit, pip-audit).
+
+1. **M21 and L-B7** (unchanged from section 30): without them CI fails
+   whatever else is on the branch.
+2. **H5** (SAFE): two patterns, a timing test and an equivalence test. The
+   smallest change with the largest effect.
+3. **H6 (a)**, if the owner approves: alerts for failed scans. It removes the
+   alerting consequence of every time-out, including the deferred H-04+.
+4. **M22** (SAFE): the seven paths, same tests as H5. Before any fuzz campaign
+   is restarted.
+5. **M27 compose part and M26 start-up check** (SAFE): two deployment settings
+   and one validation rule; a signed-pack install in the deployment check.
+6. **M17 and M18** (section 29, SAFE), then **H6 (b)** if approved (it uses
+   the channel M18 changes).
+7. **Owner decisions:** M23, M24, M25, the M26 wait cap, the M27 empty-key
+   rule, L-D5, and from section 29 M19 and L-L1.
+8. **Low items** (SAFE): L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, I-B1,
+   I-B2, with M20 (now three places), L-E8, L-G1, L-A4, I-T2.
+9. **Documentation:** D1 to D37 in one commit, after the code they describe;
+   L-B6 with D3.
+10. **Evidence:** push and dispatch the three workflows on this branch (30.7);
+    the Windows, Docker and VM items of 30.11; improvement I-5 so the regex
+    class stays closed.
+
+### 31.11 Questions for the owner
+
+1. H6: alerts for failed scans (a), partial evidence kept (b), or both?
+2. M23, M24, M25, the M26 wait cap, the M27 empty-key rule and L-D5 change
+   inspection behaviour, `scan_status` or a response: approve, defer or reject
+   each.
+3. D26: does Python 3.9 stay in 4.8, against decision D6?
+4. D22 and D23: should API scans in the Docker edition produce JSON Lines and
+   webhooks, and is quarantine part of that edition, or do the scope documents
+   change?
+5. I-1 and I-2 change inspection coverage: wanted?
+6. Unchanged from 29.14 and 30: M19, L-L1, M18, CI on this branch, the platform
+   claims (L-B6), and the deferred items of section 28.
+
+### 31.12 Limitations and what remains
+
+- This is not a complete review. Not read in this session: `engine/report.py`,
+  `readiness.py`, `metrics.py`, `logs.py`, `fsutil.py`; `core/cache.py`,
+  `mailbox.py`; `detectors/signals.py`, `tlsh_py.py`, `cfb_writer.py`,
+  `llm_backends.py`; `api/probe.py` and the result schema; `scanner.spec`;
+  `deploy/isolation_check.py`; all of `tools/` except `rulepack.py`; most GUI
+  pages; the rule content; the tests one by one; and the documents in the last
+  group of row 32 in 31.2. Read in part: `prompt_guard.py`,
+  `relationship_scanner.py`, `secret_store.py`, `outbox.py`, `build.py`,
+  `aegis_gui/app.py`.
+- No test suite, linter, type checker or audit ran here; section 30 is the
+  baseline. Nothing ran on Linux, Windows, in Docker or on a display.
+- The timings are from one host with Python 3.14.2 and packages that are not
+  the lock. The sizes "for 300 s" are projections from measured curves; no
+  check ran to a product limit. Other Python versions may differ, in
+  particular for the `punycode` decoder (the weakest projection).
+- M24's delivery step (what a mail client or archive tool on Windows does with
+  a trailing dot), M20 and the Docker part of M27 were not run on their
+  targets. M23 was shown on a test-helper stub, not against the Windows loader.
+- L-A6 was shown with two objects in one process, not two processes. L-C5 was
+  shown with a stand-in for `launchctl`. L-D7 and the QR part of L-D5 are from
+  reading only.
+- The checks used inert stubs, plain text and scratch files outside the
+  repository; `git status` showed only this document and `.arena/` afterwards.
+  One check made a DNS lookup for a reserved example name (check 17).
+- Section 27.5 is unchanged: nothing was replayed, and the two leads in 31.6
+  are hypotheses.
+- The project is not production ready. Open: the findings above, M21 and L-B7,
+  the section 29 findings, the deferred section 28 items, 27.5, CI on this
+  branch, real-sample evaluation and the owner checks.

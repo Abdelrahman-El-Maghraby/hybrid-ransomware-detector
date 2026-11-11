@@ -1,12 +1,12 @@
 # Current task handoff
 
 - Status: production-engineering review and staged fixes; not ready for merge and
-  not production ready. Latest step: Claude's validation of the section 29 review
-  (evidence only, 2026-11-10), PROJECT_REVIEW section 30.
-- Active agent: Claude (2026-11-10). The owner confirmed the previous Codex
-  session was stopped; no concurrent changes were seen during the review or the
-  validation (HEAD and a listing of the files were compared before and after
-  each group of checks). One editing agent.
+  not production ready. Latest step: Claude's whole-repository review (findings
+  and plan only, 2026-11-10 to 2026-11-11), PROJECT_REVIEW section 31.
+- Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
+  session was stopped; no concurrent changes were seen during the reviews or the
+  validation (HEAD and `git status` were compared before and after each group
+  of checks). One editing agent.
 - Branch: `review/production-hardening`, **local only**, cut from `3e5a3f2`
   (head of `validation/v4.8-remaining`, draft PR
   [#46](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/pull/46)).
@@ -152,23 +152,132 @@
   27.5 forbids. The alternative is a push followed by a manual dispatch of
   `tests.yml`, `quality.yml` and `docker.yml` on this branch.
 
+## Claude whole-repository review (2026-11-10 to 2026-11-11): findings and plan only
+
+- Scope: a review of the repository at `eb1d96f` (last implementation commit
+  `33fd895`) and an improvement plan. Only `docs/PROJECT_REVIEW.md` (new section
+  31) and this file were edited. No application code, test, CI, dependency,
+  lock-file, configuration or detection change; no finding fixed; nothing
+  pushed, merged, tagged, released or deployed; `.arena/` untouched; no Arena
+  run and no subagent.
+- Baseline: section 30 (pytest, ruff, mypy, bandit and pip-audit at `bfc58ff`).
+  `git diff 33fd895..eb1d96f` is documentation only, so no suite or tool was
+  run again. This is not a full-suite pass and not a complete review.
+- Completed coverage (31.2, read in full): the scan pipeline and the isolation
+  workers; the archive, mail, script, web, embedded-content, PE, ELF, macro,
+  integrity, YARA, fuzzy, QR, emulation and ML detectors; scoring and the
+  indicator registry; `engine/external.py` and `engine/text.py`; the intel
+  service and its clients; the REST API and its limits; containment, response,
+  canaries and quarantine; rule packs and the allowlist; cloud upload, folder
+  monitoring, outputs and the mailer; configuration, validation, capabilities
+  and provenance; the CLI; packaging and deployment files; the fuzz harnesses;
+  every workflow; and thirteen documents (README, threat model, deployment,
+  operations, rule packs, releasing, release scope, architecture, readiness,
+  handoff, workflow and the two instruction files).
+- Remaining gaps (31.12, not read in this session): `engine/report.py`,
+  `readiness.py`, `metrics.py`, `logs.py`, `fsutil.py`; `core/cache.py`,
+  `core/mailbox.py`; `detectors/signals.py`, `tlsh_py.py`, `cfb_writer.py`,
+  `llm_backends.py`; `api/probe.py` and the result schema; `scanner.spec`;
+  `deploy/isolation_check.py`; `tools/` except `rulepack.py`; most GUI pages
+  (the GUI was never run on a display); the rule content; the tests one by one;
+  and `DATA_POLICY`, `SUPPORT`, `THIRD_PARTY`, `DATASET_PLAN`, `DETECTION_v3`,
+  `DETECTION_v4`, `docs/tasks/*`. Read in part: `prompt_guard.py`,
+  `relationship_scanner.py`, `secret_store.py`, `outbox.py`, `build.py`,
+  `aegis_gui/app.py`, `RUNBOOKS`, `.env.example`, `CHANGELOG`.
+- Checks run (31.4, twenty). All used `.venv/bin/python -B`, a clean
+  environment, `HOME` and `TMPDIR` in a scratch folder outside the repository,
+  synthetic inputs and a hard time limit per timing; none reached a product
+  limit:
+  1. timing of the two script patterns and of `ScriptAnalyzer.analyze_bytes`;
+  2. an isolated `scan_one()` of a ZIP with and without a 109-byte script, 6 s
+     limit;
+  3. timing of seven more paths (mail, embedded content, script, charset);
+  4. `PeAnalyzer` on `make_pe(overlay=...)` and `make_pe(cert=...)`;
+  5. member and attachment names with a trailing dot;
+  6. a OneNote marker file and the size of its result;
+  7. a canary registry overwritten and deleted;
+  8. an isolated scan against a stand-in sandbox on loopback, 8 s limit;
+  9. `lock_folders` with a state path that cannot be written;
+  10. a stand-in emulator's three failure results and `scan_status`;
+  11. two rule files with the same stem;
+  12. the layers' extension sets against `SUPPORTED_EXTENSIONS`;
+  13. a signed pack with different key lists; the compose file parsed;
+  14. two cloud spool objects on one folder;
+  15. the error text of a failed webhook delivery;
+  16. the number of compiled YARA rules;
+  17. the outputs of an API scan through `TestClient` (this one made a DNS
+      lookup for a reserved example name; nothing connected);
+  18. setting names in the documents against the code;
+  19. the e-mail cap with a stand-in SMTP server that refuses connections;
+  20. the macOS autostart file with a stand-in for `launchctl`.
+  Plus a read-only `git ls-remote --heads origin`. `git status` showed only the
+  two documentation files and `.arena/` afterwards.
+- New findings (31.3). High: **H5** (two script-layer regular expressions: a
+  script of about 165 bytes holds a worker until the time limit), **H6** (a
+  time-out or a dead worker replaces every finding of the file and its members
+  with `Medium (failed scan)`, below the default alert floor; needs approval).
+  Medium: **M22** (seven more quadratic paths), **M23** (a certificate-table
+  entry hides a program appended to a program; needs approval), **M24** (a
+  trailing dot in a name removes the executable and double-extension findings;
+  needs approval; the Windows delivery step is suspected only), **M25** (a lost
+  canary registry silences the tripwire; needs approval), **M26** (the default
+  sandbox wait is longer than the scan limit), **M27** (the Docker services
+  never receive `RULEPACK_PUBLIC_KEYS`, and removing the only key leaves its
+  pack in use). Low and informational: L-A5, L-A6, L-A7, L-A8, L-C5, L-D4,
+  L-D5 (needs approval), L-D6, L-D7, I-B1, I-B2. M20 gains a third place
+  (attachment names). Two leads for 27.5 from reading only (31.6); 27.5 and B4
+  stay unresolved and restricted.
+- Documentation (31.7): 37 corrections, D1 to D37, none applied. Among them:
+  25 YARA rules, not 23; the suite runs on pull requests and pushes to `main`,
+  not on every push; `ARCHIVE_MAX_TOTAL_MB` is not a setting; the rule-pack
+  commands for Docker; the memory and stop-grace defaults against the rules the
+  documents give; JSON Lines, webhooks and quarantine in the Docker edition;
+  Python 3.9 against owner decision D6; release examples still for 4.7.0.
+- Platform (31.8): `eb1d96f` is not on the remote, so no workflow run exists
+  for it. Linux x64 and Windows x64: historical runs on `3e5a3f2` only. macOS
+  Apple Silicon: the local runs of section 30 and the checks of 31.4, on
+  Python 3.14.2 and not the lock. Linux ARM64, Windows ARM64 and macOS Intel:
+  unverified, no runner.
+
 ## Exact next action
 
 Owner decisions first:
 
 1. Fix M21 (lock update) and L-B7 (test only) before anything else? Both make CI
-   fail whatever else is on the branch.
-2. How to get CI on HEAD without restarting the Atheris campaigns (a push plus a
-   manual dispatch, see above).
-3. Unchanged from before: M19 and L-L1 (29.14), the direction for M18, and the
-   section 28 deferred items (M4, H-04, low items, I-T1, M15 packaging).
+   fail whatever else is on the branch (unchanged from section 30).
+2. H6: alerts for failed scans, partial evidence kept, or both?
+3. M23, M24, M25, the M26 wait cap, the M27 empty-key rule and L-D5 change
+   inspection behaviour, `scan_status` or a response action: approve, defer or
+   reject each. Unchanged from before: M19 and L-L1 (29.14), the direction for
+   M18, and the section 28 deferred items (M4, H-04, low items, I-T1, M15
+   packaging).
+4. Documentation questions D22, D23 and D26 (31.11): outputs and quarantine in
+   the Docker edition; Python 3.9 in 4.8.
+5. How to get CI on HEAD without restarting the Atheris campaigns (a push plus
+   a manual dispatch of `tests.yml`, `quality.yml` and `docker.yml`, 30.7).
 
 Then a separate fix session, each item with its regression test and the full
-gates afterwards (pytest, ruff, mypy, bandit, pip-audit): M21 and L-B7 first,
-then the SAFE findings of section 29 (M17, M18, M20, L-E8 with the corrected
-trigger, L-G1, L-A4, L-B6, I-T2).
+gates afterwards (pytest, ruff, mypy, bandit, pip-audit), in this order (31.10):
 
-Nothing on this branch has been pushed. Still unverified: everything listed in
-30.11, the release gate job (tag only), the deploy scripts against real Docker,
-the Windows behaviour of the outbox lock (`msvcrt.locking`) and of the UTF-8
-report fix, and every Windows, ARM64 and Intel statement in 29.10 and 30.7.
+1. M21 and L-B7.
+2. H5.
+3. H6 (a), if approved.
+4. M22, before any fuzz campaign is restarted.
+5. The compose part of M27 and the start-up check of M26.
+6. M17 and M18 (section 29), then H6 (b) if approved.
+7. The approved items of decision 3.
+8. The low items: L-D4, L-D6, L-D7, L-A5, L-A6, L-A7, L-A8, L-C5, I-B1, I-B2,
+   with M20, L-E8, L-G1, L-A4 and I-T2 from section 29.
+9. The documentation corrections D1 to D37, with L-B6.
+10. CI on the branch, then the Windows, Docker and VM items of 30.11.
+
+Commit state: section 31 and this handoff are meant to go into one local
+documentation commit on top of `eb1d96f`; its ID is reported in chat and is
+visible in `git log` (a commit cannot record its own ID). Until that commit
+exists, both files are uncommitted changes. Pushed: nothing on this branch,
+ever. The untracked `.arena/` folder is unrelated and preserved.
+Still unverified: everything listed in 30.11 and 31.12, the release gate job
+(tag only), the deploy scripts against real Docker, the Windows behaviour of the
+outbox lock (`msvcrt.locking`) and of the UTF-8 report fix, the delivery step of
+M24, the Docker part of M27, and every Windows, ARM64 and Intel statement in
+29.10, 30.7 and 31.8.
