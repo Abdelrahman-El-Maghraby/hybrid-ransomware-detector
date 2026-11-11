@@ -700,6 +700,31 @@
     `tests/test_evaluation_tools.py:110`.
   These are new test-hygiene notes, not fixed here.
 
+### Group 12: L-E11, I-B5 and L-G1 (rank 10)
+
+- **L-E11.** `engine/secret_store.apply`: a secret set in the process
+  environment, even empty, now wins over the keyring with source
+  `environment`. So `VIRUSTOTAL_API_KEY=` switches VirusTotal off for a run,
+  as the Settings page says. A value `load_dotenv` copied from `.env` is still
+  not "the environment" (`PROCESS_ENV`).
+  - Test `test_an_empty_environment_variable_overrides_a_stored_key`: before
+    the fix 1 failed, after it passes.
+  - `test_environment_and_docker_secrets_win` relied on `WEBHOOK_SECRET` and
+    `IMAP_PASSWORD` being unset, which group 8's conftest no longer gives (it
+    exports them empty). It now removes them itself.
+- **I-B5.** `core/outbox.verdict_alert` sends a container indicator by its
+  base name (`archive_member:external_relationship` gives
+  `external_relationship`), without duplicates; the character filter is
+  unchanged. Test in `tests/test_alerts.py`: before 1 failed, after 56 passed
+  with the M17 tests.
+- **L-G1.** `aegis_gui/formatting.llm_skipped` returns False for an answer
+  the model gave (`analyzed` True, or flagged). The text markers still apply
+  to results without `analyzed`. Test: `tests/test_llm_skipped.py` (4 tests):
+  before 1 failed, after 4 passed; with the GUI delivery and integration
+  tests, 20 passed. Not shown on a display.
+- Related runs: secret store, config, env isolation, GUI integration, intel,
+  API, alerts, cloud and mailbox tests, 177 passed. ruff and mypy clean.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of

@@ -221,6 +221,10 @@ _LLM_SKIP_MARKERS = ("not configured", "layer skipped", "no llm backend",
 
 
 def llm_skipped(ai: dict) -> bool:
+    # L-G1: the model's own text may contain a marker; an answer it gave is never
+    # "skipped". The markers remain for results saved before `analyzed` existed.
+    if ai.get("analyzed") is True or ai.get("is_malicious"):
+        return False
     detail = str(ai.get("details", "")).lower()
     return any(marker in detail for marker in _LLM_SKIP_MARKERS)
 

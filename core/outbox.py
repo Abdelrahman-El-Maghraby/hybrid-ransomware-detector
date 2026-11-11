@@ -63,7 +63,10 @@ def verdict_alert(result: Mapping[str, Any]) -> Dict[str, Any]:
     alert_id = _alert_id("verdict", sha, scan_time, path)
     contribs = sorted((result.get("score_breakdown") or {}).get("contributions") or [],
                       key=lambda c: -float(c.get("points", 0) or 0))
-    codes = [str(c.get("indicator")) for c in contribs if c.get("indicator")][:8]
+    # I-B5: a container indicator ("archive_member:external_relationship") is sent
+    # by its base name; the character filter below would drop the whole code.
+    bases = [str(c.get("indicator")).rsplit(":", 1)[-1] for c in contribs if c.get("indicator")]
+    codes = list(dict.fromkeys(bases))[:8]
     if (result.get("quarantine") or {}).get("id"):         # F3: the alert says it was vaulted
         codes = codes[:7] + ["quarantined"]
     name = clean_text(result.get("file_name") or os.path.basename(path), 120)

@@ -126,7 +126,8 @@ def test_environment_and_docker_secrets_win(tmp_path, monkeypatch):
     monkeypatch.setenv("VIRUSTOTAL_API_KEY_FILE", str(secret))
     monkeypatch.setenv("OPENAI_API_KEY", "from-environment")
     monkeypatch.setattr(S, "PROCESS_ENV", S.PROCESS_ENV | {"OPENAI_API_KEY"})
-    monkeypatch.delenv("SANDBOX_TOKEN", raising=False)
+    for unset in ("SANDBOX_TOKEN", "WEBHOOK_SECRET", "IMAP_PASSWORD"):   # conftest sets ""
+        monkeypatch.delenv(unset, raising=False)
     kr = FakeKeyring()
     for name in ("OPENAI_API_KEY", "VIRUSTOTAL_API_KEY", "SANDBOX_TOKEN"):
         kr.set_password(S.SERVICE, name, f"from-keyring-{name}")
@@ -231,3 +232,18 @@ def test_gui_saves_keys_to_the_keyring_not_to_disk(tmp_path, monkeypatch):
     settings.SettingsPage._save_keys(page)
     assert "Nothing was written to disk" in page.keys_label.kw["text"]
     assert KEY not in page.keys_label.kw["text"] and not (tmp_path / ".env").exists()
+
+
+def test_an_empty_environment_variable_overrides_a_stored_key(monkeypatch):
+    """L-E11: exporting VIRUSTOTAL_API_KEY= for one run switches VirusTotal off;
+    before the fix the empty value was falsy and the keyring key was used."""
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", "")
+    monkeypatch.setattr(S, "PROCESS_ENV", S.PROCESS_ENV | {"VIRUSTOTAL_API_KEY"})
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    kr = FakeKeyring()
+    for name in ("VIRUSTOTAL_API_KEY", "OPENAI_API_KEY"):
+        kr.set_password(S.SERVICE, name, f"from-keyring-{name}")
+    cfg = {}
+    sources = S.apply(cfg, kr)
+    assert cfg["virustotal_api_key"] == "" and sources["VIRUSTOTAL_API_KEY"] == "environment"
+    assert cfg["chatgpt_api_key"] == "from-keyring-OPENAI_API_KEY"     # unset: keyring

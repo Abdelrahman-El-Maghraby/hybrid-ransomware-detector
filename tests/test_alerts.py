@@ -644,3 +644,19 @@ def test_a_flush_in_another_process_is_waited_for_not_duplicated(tmp_path, clock
         holder.stdin.close()
         holder.wait(10)
     assert box.flush({"webhook": hook})["sent"] == 1 and len(hook.got) == 1
+
+
+def test_email_keeps_member_indicators_by_their_base_name():
+    """I-B5: reason codes made from container indicators such as
+    archive_member:external_relationship were dropped by the character filter, so
+    an e-mail about a Critical archive could list only "-"."""
+    from core.outbox import verdict_alert
+    r = _result("Critical")
+    r["score_breakdown"] = {"contributions": [
+        {"indicator": "archive_member:external_relationship", "points": 40},
+        {"indicator": "mail_attachment:archive_member:macro_autoexec", "points": 30},
+        {"indicator": "archive_member:external_relationship", "points": 20},
+        {"indicator": "yara_match", "points": 10},
+        {"indicator": "Not A Code:x y", "points": 5}]}
+    assert verdict_alert(r)["email"]["reason_codes"] == [
+        "external_relationship", "macro_autoexec", "yara_match"]

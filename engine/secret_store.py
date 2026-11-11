@@ -117,6 +117,11 @@ def apply(config: MutableMapping[str, Any], backend: Optional[Any] = None) -> Di
     sources: Dict[str, str] = {}
     for name, key in SECRETS:
         env = from_environment(name)
+        if env is not None and not env.strip():
+            # L-E11: set in the process environment, even empty, it wins: an empty
+            # value switches the service off for this run.
+            config[key], sources[name] = "", "environment"
+            continue
         stored = None if env else (load(name, kr) if kr is not None else None)
         candidates = [(env, "environment"), (stored, "keyring"), (config.get(key), ".env")]
         placeholder_from = next((src for v, src in candidates if is_placeholder(v)), "")
