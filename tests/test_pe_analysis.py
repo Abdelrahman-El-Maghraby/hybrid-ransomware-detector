@@ -123,7 +123,7 @@ RANSOM = {"ADVAPI32.dll": ["CryptEncrypt"],
 def test_ransomware_imports_only_when_unsigned():
     r = analyze(make_pe(imports=RANSOM))
     assert r.ransomware_apis == ["CryptEncrypt", "FindFirstFileW", "MoveFileExW"]
-    signed = analyze(make_pe(imports=RANSOM, cert=b"\x00" * 8 + b"cert" * 64))
+    signed = analyze(make_pe(imports=RANSOM, cert=win_certificate(b"cert" * 64)))
     assert signed.signature_present and not signed.ransomware_apis
     no_walk = analyze(make_pe(imports={"bcrypt.dll": ["BCryptEncrypt"], K32: ["WriteFile"]}))
     assert not no_walk.ransomware_apis
@@ -218,17 +218,69 @@ def test_near_random_overlay():
     assert not analyze(make_pe(overlay=b"7z\xbc\xaf\x27\x1c" + blob)).overlay_encrypted
     nsis = make_pe(overlay=blob, strings=b"Nullsoft Install System v3.10\x00")
     assert not analyze(nsis).overlay_encrypted
-    signed = analyze(make_pe(overlay=blob, cert=b"\x00" * 8 + b"c" * 1000))
+    signed = analyze(make_pe(overlay=blob, cert=win_certificate(b"c" * 1000)))
     assert signed.signature_present and not signed.overlay_encrypted
 
 
 def test_certificate_is_not_overlay():
-    cert = b"\x00\x02\x02\x00" + os.urandom(4000)
+    cert = win_certificate(os.urandom(4000))
     r = analyze(make_pe(cert=cert))
     assert r.signature_present and r.overlay_size == 0 and not r.overlay_encrypted
     assert "signature present (not verified)" in r.detail
     assert r.as_dict()["signature_verified"] is False
     assert not analyze(make_pe(cert=cert, overlay=b"")).overlay_executable
+
+
+def win_certificate(body: bytes) -> bytes:
+    """A well-formed WIN_CERTIFICATE stub: dwLength, revision 2.0, PKCS#7 signed
+    data, then a DER SEQUENCE (the signature itself is not real), padded to 8."""
+    der = b"\x30\x82" + struct.pack(">H", len(body)) + body
+    cert = struct.pack("<IHH", 8 + len(der), 0x0200, 0x0002) + der
+    return cert + b"\x00" * (-len(cert) % 8)
+
+
+def test_a_certificate_entry_over_an_appended_program_does_not_hide_it():
+    """M23 (owner-approved 2026-11-12), check 4: the security directory pointed at
+    an appended program counted as a signature, so the program was cut out of
+    the overlay and the file read Clean. Only a plausible WIN_CERTIFICATE at the
+    end of the file is a signature now, and its bytes are searched for a program
+    either way."""
+    inner = make_pe()
+    appended = analyze(make_pe(overlay=inner))
+    assert appended.overlay_executable and not appended.signature_present
+    fake = analyze(make_pe(cert=inner))                  # same bytes, as "certificate"
+    assert fake.overlay_executable and not fake.signature_present
+    hidden = analyze(make_pe(cert=win_certificate(b"\x00" * 64 + inner)))
+    assert hidden.signature_present and hidden.overlay_executable
+    trailing = analyze(make_pe(cert=win_certificate(b"c" * 100)) + b"\x00" * 16)
+    assert not trailing.signature_present                # not at the end of the file
+
+
+@pytest.mark.parametrize("header", [
+    struct.pack("<IHH", 4, 0x0200, 2),                   # length below the header
+    struct.pack("<IHH", 1 << 20, 0x0200, 2),             # length over the directory
+    struct.pack("<IHH", 64, 0x0300, 2),                  # unknown revision
+    struct.pack("<IHH", 64, 0x0200, 9),                  # unknown certificate type
+])
+def test_an_implausible_certificate_header_is_not_a_signature(header):
+    cert = header + b"\x30" + b"c" * 55
+    assert not analyze(make_pe(cert=cert)).signature_present
+    assert not analyze(make_pe(cert=win_certificate(b"c" * 56)[:8] + b"\x31" + b"c" * 55)
+                       ).signature_present                      # not a DER SEQUENCE
+
+
+def test_a_well_formed_certificate_keeps_the_signed_result():
+    r = analyze(make_pe(imports=RANSOM, cert=win_certificate(b"c" * 512)))
+    assert r.signature_present and r.overlay_size == 0 and not r.overlay_executable
+    assert not r.ransomware_apis
+
+
+def test_m23_scores_the_hidden_program_again():
+    from detectors.scoring import ScoringMatrix
+    inner = make_pe()
+    for data, verdict in ((make_pe(overlay=inner), "Medium"), (make_pe(cert=inner), "Medium"),
+                          (make_pe(cert=win_certificate(b"c" * 512)), "Clean")):
+        assert ScoringMatrix().score({"pe": _signals(analyze(data))}).verdict == verdict
 
 
 def test_embedded_pe_search_is_bounded():

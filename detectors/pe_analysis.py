@@ -27,9 +27,11 @@ without third-party libraries (pefile is not needed):
   Authenticode certificate. An overlay that is itself a program (a binder or
   dropper) is flagged; so is a large, near-random overlay in an unsigned file
   that is not a known installer or archive format.
-* **Authenticode** - whether a signature directory is present. The signature
-  is NOT verified (that needs the Windows trust store); the report says so.
-  Presence only switches off the two weakest checks above.
+* **Authenticode** - whether a signature directory is present: a plausible
+  WIN_CERTIFICATE header at the end of the file (M23). The signature is NOT
+  verified (that needs the Windows trust store); the report says so. Presence
+  switches off the encrypted-overlay check and the unsigned ransomware-imports
+  check; a program hidden inside the certificate bytes is still flagged.
 
 Everything is bounded (bytes read, sections, DLLs, imported names, string
 text) and a malformed header is a finding, never an exception.
@@ -400,20 +402,26 @@ class PeAnalyzer:
     @staticmethod
     def _overlay(data: bytes, dirs: Sequence[Tuple[int, int]], res: PeResult) -> None:
         sig_off, sig_size = dirs[DIR_SECURITY] if len(dirs) > DIR_SECURITY else (0, 0)
-        res.signature_present = bool(sig_off and sig_size and sig_off + 8 <= len(data))
         end = max((s.raw_pointer + s.raw_size for s in res.sections if s.raw_size), default=0)
+        res.signature_present = _plausible_certificate(data, sig_off, sig_size, end)
         if not end or end >= len(data) or res.truncated:
             return
         overlay = data[end:]
-        if res.signature_present and sig_off >= end:      # the certificate is not overlay
+        cert = b""
+        if res.signature_present:                         # the certificate is not overlay
             cut = sig_off - end
+            cert = overlay[cut:cut + sig_size]
             overlay = overlay[:cut] + overlay[cut + sig_size:]
         res.overlay_size = len(overlay)
+        # M23: a program inside the certificate's bytes is still an appended program
+        hidden = bool(cert) and _embedded_pe(cert)
+        if not overlay and not hidden:
+            return
+        res.overlay_entropy = shannon_entropy(overlay[:_ENTROPY_SAMPLE]) if overlay else 0.0
+        res.overlay_executable = (hidden or pe_header_offset(overlay[:4096]) is not None
+                                  or _embedded_pe(overlay))
         if not overlay:
             return
-        res.overlay_entropy = shannon_entropy(overlay[:_ENTROPY_SAMPLE])
-        res.overlay_executable = (pe_header_offset(overlay[:4096]) is not None
-                                  or _embedded_pe(overlay))
         head = overlay[:4096]
         known = (any(m in head for m in _INSTALLER_MARKERS)
                  or any(m in data[:end] for m in _INSTALLER_NAMES))
@@ -485,6 +493,24 @@ def _cstring(data: bytes, off: Optional[int], limit: int = 256) -> str:
         return ""
     raw = data[off:off + limit].split(b"\x00", 1)[0]
     return raw.decode("ascii") if _PRINTABLE.fullmatch(raw) else ""
+
+
+# WIN_CERTIFICATE: dwLength, wRevision (1.0 or 2.0), wCertificateType (X.509,
+# PKCS#7 signed data, reserved, TS stack), then the certificate (DER for PKCS#7).
+_CERT_REVISIONS = (0x0100, 0x0200)
+_CERT_TYPES = (1, 2, 3, 4)
+
+
+def _plausible_certificate(data: bytes, offset: int, size: int, sections_end: int) -> bool:
+    """M23: the security directory counts as an Authenticode signature only when it
+    sits after the sections, ends the file (padded to 8 bytes) and starts with a
+    plausible WIN_CERTIFICATE header. The signature itself is not verified."""
+    if not (offset and size >= 9 and offset >= sections_end
+            and offset + size == len(data)):
+        return False
+    length, revision, kind = struct.unpack_from("<IHH", data, offset)
+    return (8 < length <= size and revision in _CERT_REVISIONS and kind in _CERT_TYPES
+            and data[offset + 8] == 0x30)
 
 
 def _embedded_pe(overlay: bytes, window: int = 1024 * 1024, limit: int = 64) -> bool:
