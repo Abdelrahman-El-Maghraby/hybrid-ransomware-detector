@@ -13,7 +13,8 @@ VM.
 and `tools/evaluate.py` pick files by these; `evaluate.py` also takes, whatever
 their name, Windows shortcuts, ELF and PE files, and OneNote, CHM, MSI, XLL and
 encrypted Office files, which it recognises by content):
-`.pdf .docx .doc .docm .dotm .xlsx .xlsm .xls .pptx .pptm .ppt .rtf .zip .7z .rar
+`.pdf .docx .doc .docm .dotm .xlsx .xlsm .xls .pptx .pptm .ppt .rtf .dot .xlsb
+.xltm .xlam .xlm .potm .ppam .ppsm .zip .7z .rar
 .iso .img .pkg .mpkg .dmg .eml .msg .html .htm .svg .js .jse .vbs .vbe .wsf .hta
 .ps1 .bat .cmd .one .chm .msi .xll .exe .dll .scr .cpl .sys .jpg .jpeg .png .gif
 .bmp .webp`. Images are left out of folder scans by default but are scanned when

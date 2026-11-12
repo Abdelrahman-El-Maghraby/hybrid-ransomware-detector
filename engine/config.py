@@ -154,8 +154,13 @@ def split_extension_list(raw: str) -> List[str]:
 
 
 # Every file type the engine understands. The GUI lets you pick a subset.
+# I-1 (owner-approved 2026-11-12): the eight macro-capable types the macro layer
+# reads (.dot .xlsb .xltm .xlam .xlm .potm .ppam .ppsm) were only reachable by
+# --scan-file, the API and containers; folder scans, the monitor and the GUI
+# now offer them too.
 SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".doc", ".docm", ".dotm", ".xlsx", ".xlsm",
-                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
+                        ".xls", ".pptx", ".pptm", ".ppt", ".rtf",
+                        ".dot", ".xlsb", ".xltm", ".xlam", ".xlm", ".potm", ".ppam", ".ppsm", ".zip", ".7z", ".rar", ".iso", ".img", ".pkg", ".mpkg", ".dmg",
                         ".eml", ".msg", ".html", ".htm", ".svg",
                         ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta", ".ps1", ".bat", ".cmd",
                         ".one", ".chm", ".msi", ".xll",

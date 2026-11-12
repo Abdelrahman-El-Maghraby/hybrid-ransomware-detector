@@ -601,7 +601,7 @@ aegis-api                                         # optional REST API (pip insta
 python RansomwareScanner.py --version
 ```
 
-Scan directories, file types and the scan interval come from `SCAN_DIRECTORIES`, `FILE_EXTENSIONS` and `SCAN_INTERVAL_HOURS` (environment or `.env`), else the defaults in `engine/config.py`. The GUI's Scan and Settings pages save their choices to the same `.env` file, so the background service started at login scans the same folders; a running service picks up a change at its next start. All paths are derived from the user's home directory via `pathlib`, so they adapt to the host OS.
+Scan directories, file types and the scan interval come from `SCAN_DIRECTORIES`, `FILE_EXTENSIONS` and `SCAN_INTERVAL_HOURS` (environment or `.env`), else the defaults in `engine/config.py`. Since 4.8 the defaults include the macro-capable `.dot .xlsb .xltm .xlam .xlm .potm .ppam .ppsm`; a `FILE_EXTENSIONS` you set yourself (or saved from the GUI) is kept as it is, so add them there. The GUI's Scan and Settings pages save their choices to the same `.env` file, so the background service started at login scans the same folders; a running service picks up a change at its next start. All paths are derived from the user's home directory via `pathlib`, so they adapt to the host OS.
 
 ### Example report (excerpt, recorded with 4.6.0)
 
