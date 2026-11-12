@@ -94,12 +94,14 @@ class ProtectionMixin:
     def _canary_alert(self, report: Any, touched: Iterable[str], notify: bool) -> None:
         """Run the containment actions, then write the alert file and notify."""
         from core.response import respond
+        # M25: a lost registry alone is an alert, never a containment action.
+        tripped = [f for f in report.findings if f.status != "registry"]
         actions = respond(self.config, {"summary": report.summary(),
                                         "checked_at": report.checked_at,
                                         "touched": sorted(set(touched)),
                                         "findings": [{"path": f.path, "status": f.status,
                                                       "evidence": f.evidence}
-                                                     for f in report.findings]})
+                                                     for f in tripped]}) if tripped else []
         lines = ["RANSOMWARE CANARY TRIPWIRE - rapid containment & damage mitigation",
                  "=" * 68,
                  f"Time:    {report.checked_at}", f"Summary: {report.summary()}", ""]

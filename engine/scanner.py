@@ -111,7 +111,9 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
 
         # Host-side protection (engine/protection.py).
         self.canaries = CanaryManager(config.get("canary_registry",
-                                                 str(DATA_DIR / "canaries.json")))
+                                                 str(DATA_DIR / "canaries.json")),
+                                      copy_path=os.path.join(self.report_dir,      # M25
+                                                             ".canary_registry_copy.json"))
         self._vault: Optional[QuarantineVault] = None
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None

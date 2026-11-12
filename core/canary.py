@@ -19,6 +19,15 @@ hours" into a near-real-time tripwire.
 
 Canaries are never scanned as regular files, and `remove()` cleans them up.
 If you delete one yourself, the next verify reports it - re-run deploy.
+
+M25 (owner-approved 2026-11-12): the registry is a user file that ransomware
+can encrypt or delete, which used to read as "No canaries deployed". A second
+copy is kept in another folder (the reports folder) and the last good list in
+memory. A registry that is missing or unreadable while either of them still
+lists canaries is a finding of its own ("registry", an alert only: it never
+starts the containment response), and the remembered list is checked instead.
+A first installation has neither, so it still reads as "No canaries deployed".
+Removing canaries goes through `remove()`, which empties both copies.
 """
 
 from __future__ import annotations
@@ -35,7 +44,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from core.tools import trusted_which
 from detectors.file_integrity import (
@@ -144,7 +153,7 @@ _GENERATORS = {"docx": _make_docx, "pdf": _make_pdf, "csv": _make_csv}
 @dataclass
 class CanaryFinding:
     path: str
-    status: str            # deleted | modified | encrypted | renamed | ransom_note
+    status: str            # deleted | modified | encrypted | renamed | ransom_note | registry
     evidence: str
 
     def as_dict(self) -> Dict[str, str]:
@@ -182,27 +191,66 @@ class CanaryReport:
 class CanaryManager:
     """Deploys, verifies and removes canary files; state lives in a JSON registry."""
 
-    def __init__(self, registry_path: PathLike):
+    def __init__(self, registry_path: PathLike, copy_path: Optional[PathLike] = None):
         self.registry_path = Path(registry_path)
+        self.copy_path = Path(copy_path) if copy_path else None     # M25: in another folder
+        self._last_good: List[Dict[str, Any]] = []
 
     # -- registry ------------------------------------------------------------
-    def _load(self) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _read(path: Path) -> List[Dict[str, Any]]:
+        """The entries of a registry file; raises when it is missing or damaged."""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("canaries"), list):
+            raise ValueError("not a canary registry")
+        return [e for e in data["canaries"] if isinstance(e, dict) and e.get("path")]
+
+    def _load_checked(self) -> Tuple[List[Dict[str, Any]], str]:
+        """(entries, problem). problem is "" unless the registry is missing or
+        unreadable while the last good list or the copy still names canaries;
+        those entries are returned instead."""
         try:
-            data = json.loads(self.registry_path.read_text(encoding="utf-8"))
-            entries = data.get("canaries", []) if isinstance(data, dict) else []
-            return [e for e in entries if isinstance(e, dict) and e.get("path")]
+            entries = self._read(self.registry_path)
+        except FileNotFoundError:
+            problem = "is missing"
+        except Exception as e:
+            logger.error("Canary registry unreadable (%s): %s", self.registry_path, e)
+            problem = f"is unreadable ({type(e).__name__})"
+        else:
+            self._last_good = entries
+            return entries, ""
+        known = self._last_good or self._read_copy()
+        return known, (problem if known else "")
+
+    def _read_copy(self) -> List[Dict[str, Any]]:
+        if self.copy_path is None:
+            return []
+        try:
+            return self._read(self.copy_path)
         except FileNotFoundError:
             return []
         except Exception as e:
-            logger.error("Canary registry unreadable (%s): %s", self.registry_path, e)
+            logger.error("Canary registry copy unreadable (%s): %s", self.copy_path, e)
             return []
 
+    def _load(self) -> List[Dict[str, Any]]:
+        return self._load_checked()[0]
+
     def _save(self, entries: List[Dict[str, Any]]) -> None:
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.registry_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"version": 1, "canaries": entries}, indent=2),
-                       encoding="utf-8")
-        os.replace(tmp, self.registry_path)
+        text = json.dumps({"version": 1, "canaries": entries}, indent=2)
+        for path in (self.registry_path, self.copy_path):
+            if path is None:
+                continue
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(text, encoding="utf-8")
+                os.replace(tmp, path)
+            except OSError:
+                if path == self.registry_path:
+                    raise
+                logger.error("Could not write the canary registry copy %s", path)
+        self._last_good = list(entries)
 
     def entries(self) -> List[Dict[str, Any]]:
         return self._load()
@@ -250,9 +298,15 @@ class CanaryManager:
 
     # -- verify ----------------------------------------------------------------
     def verify(self) -> CanaryReport:
-        entries = self._load()
+        entries, problem = self._load_checked()
         report = CanaryReport(deployed=len(entries),
                               checked_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+        if problem:
+            report.findings.append(CanaryFinding(
+                str(self.registry_path), "registry",
+                f"The canary registry {problem}, but {len(entries)} canaries were deployed: "
+                f"it may have been encrypted or deleted. The last known list was checked. "
+                f"Remove canaries with --remove-canaries, never by deleting the registry."))
         note_dirs: Set[str] = set()
         for e in entries:
             path = Path(e["path"])
