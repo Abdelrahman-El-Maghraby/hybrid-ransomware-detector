@@ -21,6 +21,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Tuple
 
+from detectors.container_extractor import _priority_name
 from detectors.signals import ArchiveSignal, EmbeddedSignal, MailSignal, WebSignal, WorstMember
 
 from .completeness import PARTIAL
@@ -72,6 +73,11 @@ class ContainerHandler:
         """Yield (sandbox path, display name, log label) for each scannable member."""
         raise NotImplementedError
 
+    def first(self, view, items: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+        """I-2: the order in which members get the scan budget when there are more
+        members than places; by default the container's own order."""
+        return items
+
     def member_context(self, scanner: RansomwareScanner, view):
         """Context in which the members are scanned (e.g. extra archive passwords)."""
         return contextlib.nullcontext()
@@ -104,8 +110,11 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                 logger.debug("container evidence not reported: %s", e)
         if ctx.depth < scanner.max_nesting:
             budget = handler.budget(scanner)
+            items = list(handler.items(view, ctx))
+            if len(items) > budget:
+                items = handler.first(view, items)
             with handler.member_context(scanner, view):
-                for member_path, display_name, label in handler.items(view, ctx):
+                for member_path, display_name, label in items:
                     if len(member_results) >= budget:
                         skipped_for_budget += 1
                         continue
@@ -176,6 +185,12 @@ class ArchiveHandler(ContainerHandler):
             if member.nested:
                 continue       # nested archives are already expanded
             yield member.path, member.name.replace(prefix, ctx.display + "!", 1), member.name
+
+    def first(self, view, items):
+        # I-2: programs, scripts, containers and RTLO names take the scan budget
+        # first; the sort is stable, so archive order holds inside each group.
+        risky = {m.path for m in view.members if m.executable or _priority_name(m.name)}
+        return sorted(items, key=lambda it: 0 if it[0] in risky else 1)
 
     def decorate(self, view_dict, summaries):
         # Archive-level findings about a member (lure names, executables) are
