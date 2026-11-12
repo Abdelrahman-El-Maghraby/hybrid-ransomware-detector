@@ -1400,10 +1400,10 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M19, M24, M25, M29, M30, M32, S-Y1 to S-Y4, L-L1, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | M24, M25, M29, M30, M32, S-Y1 to S-Y4, the M26 wait cap (I-6), the M27 empty-key rule, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
@@ -1722,6 +1722,48 @@ smallest fix, focused tests on benign synthetic files, ruff and mypy.
   - Warning (1): the Starlette `httpx` deprecation (third party).
 - Not verified here: real Office, PE, package and mailbox samples; 7-Zip,
   box-js and OpenCV paths (skipped); Windows and Linux.
+
+### Group 33: M19, L-L1, L-A2 and the release pip upgrade (owner-approved 2026-11-12)
+
+- **M19** (`c074243`, `detectors/mail_analyzer.py`). With several `href`
+  attributes in one `<a>` tag, `_anchors` used the last one that formed a
+  complete link (the original greedy pattern); HTML keeps the first, so a
+  harmless second `href` hid a deceptive first one. It now takes the first
+  that forms a complete link (the pattern with a lazy `[^>]*?`), still linear
+  (the H2 hostile-input tests pass). The equivalence tests use that reference.
+  The general token soup was not sensitive to the change (it passed before
+  too); a new random test built from link parts (most tags with several
+  hrefs) and the review's example fail before and pass after (14 passed).
+- **L-L1** (`7b40b9e`, `detectors/llm_backends.py`). An empty reply, prose or
+  JSON that is not an object now carries `error`, which the completeness
+  check reports as a partial LLM gap; the verdict is unchanged (no opinion),
+  errors are not cached (only `analyzed` results are), and the intel service
+  passes the field through. Tests: 6 (5 failed before); prompt-guard,
+  coverage, scan-status, intel and GUI integration tests 111 passed.
+- **L-A2** (`a23cc2c`, `deploy/backup.sh`). `umask 077` at the top. Test with
+  a stand-in `docker` under `umask 022`: the backup and volumes folders 700,
+  `BACKUP_INFO` and `config.tar.gz` 600 (were 755, 755, 644, and the config
+  archive readable until its chmod). The volume archives written inside the
+  container land in the 0700 volumes folder. ShellCheck is not installed
+  here (not run); `bash -n` passes. Deploy tests 31 passed.
+- **Release pip upgrade** (`109df77`, `.github/workflows/release.yml`). The
+  unhashed `python -m pip install --upgrade pip` is removed from the build
+  job; setup-python's pip installs the locks with `--require-hashes`. The I-B2
+  test allows no exception now (it failed before the edit). `quality.yml` and
+  `tests.yml` still upgrade pip (not part of the approval).
+- ruff, mypy (68 files) and bandit (`-ll`) clean.
+- **Full safe run at `109df77`** (clean worktree, the documented command with
+  `-rs`): **1,629 passed, 0 failed, 23 skipped, 4 deselected, 1 warning**,
+  327 s; 0 "unclosed database"; `test_smoke.py`: "ALL SMOKE TESTS PASSED".
+  The 23 skips are those of group 32 (7-Zip 12, RAR 3, Windows 2, Linux 1,
+  libproc 1, ELF 1, box-js 1, OpenCV 1, GUI 1); the warning is Starlette's
+  `httpx` deprecation (third party). Skipped and deselected tests are not
+  counted as passed.
+- **Needs a real platform:** the release job on a tag (the build with
+  setup-python's pip; CI has not run since `3e5a3f2`); `backup.sh` against a
+  Docker deployment (real volumes, the container's archives); the LLM layer
+  with a real model that answers in prose; real phishing mail with duplicate
+  `href` attributes.
 
 ## Exact next action
 
