@@ -131,3 +131,11 @@ def test_local_data_secrets_and_tool_caches_stay_out_of_the_image():
     .gitignore keeps out of the repository (keys, hash CSVs, vault items)."""
     ignored = set((ROOT / ".dockerignore").read_text().splitlines())
     assert [p for p in LOCAL_ONLY if p not in ignored] == []
+
+
+def test_the_non_docker_server_install_uses_the_server_lock():
+    """L-B2 (owner-approved 2026-11-12): DEPLOYMENT.md installed the desktop lock
+    (with the GUI toolkit) on a server, and without --require-hashes."""
+    doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    installs = [line.strip() for line in doc.splitlines() if "pip install" in line and "-r " in line]
+    assert installs == ["/opt/aegis/venv/bin/pip install --require-hashes -r requirements-server.lock"]

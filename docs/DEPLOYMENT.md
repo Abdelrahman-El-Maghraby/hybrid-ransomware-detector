@@ -149,10 +149,15 @@ compromised signing key: `docs/RULE_PACKS.md`.
 ## 1. Install (without Docker)
 
 ```bash
-python -m venv /opt/aegis/venv
-/opt/aegis/venv/bin/pip install -r requirements.lock
+python3.12 -m venv /opt/aegis/venv
+/opt/aegis/venv/bin/pip install --require-hashes -r requirements-server.lock
 /opt/aegis/venv/bin/pip install -e ".[api]" --no-deps
 ```
+
+`requirements-server.lock` is the server set the Docker image installs (the
+scanning layers and the API; no GUI, ML training or cloud uploads), hash-pinned
+for Python 3.12 and later. `requirements.lock` is the desktop set and pulls in
+the GUI toolkit a server does not need (L-B2).
 
 Create a dedicated, unprivileged user (`aegis`) and keep the configuration in
 `/etc/aegis/aegis.env` (owner `root`, mode `0640`, group `aegis`). The settings
