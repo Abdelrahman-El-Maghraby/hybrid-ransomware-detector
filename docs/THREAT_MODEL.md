@@ -273,6 +273,12 @@ security boundary. In the Docker deployment the boundary is the container:
   written only from the real service's reply under a key intel derives itself
   (the requested hash, the hash of the bytes it received, the hash of the text it
   was given). Verdicts are never cached anywhere.
+- Its messages reach the parent as JSON of at most 16 MiB, checked for shape before
+  any field is used, never as a pickle (M18 in `docs/PROJECT_REVIEW.md`), so a forged
+  message cannot run code in the long-lived parent; a malformed, oversized or
+  unexpected one fails that file (`scan_failed`) and stops the worker. Worker and
+  parent still run as the same user in the same container, so the pool is not a
+  full security boundary (see DEPLOYMENT).
 - With the intel token it can spend the configured quotas: hash look-ups, LLM calls
   and - only when the operator switched them on - VirusTotal uploads and sandbox
   submissions, each limited per minute. Data it sends this way goes only to the

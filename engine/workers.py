@@ -40,6 +40,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import ctypes.util
+import json
 import logging
 import multiprocessing as mp
 import multiprocessing.connection
@@ -52,7 +53,8 @@ import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from engine.metrics import METRICS
+from engine.completeness import PRECEDENCE
+from engine.metrics import METRICS, VERDICTS
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -256,6 +258,108 @@ LOG_RECORDS_PER_FILE = 200
 LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer file's)
 
 
+# M18: what a worker sends its parent. A message is JSON bytes, read with a size
+# limit and checked before any field is used; the parent never unpickles worker
+# data, so a worker taken over by a parser exploit cannot run code in the
+# long-lived parent (the API process holds every client's uploads). The parent
+# still pickles the paths it sends: the worker trusts its parent, not the reverse.
+MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
+MAX_ERROR_CHARS = 2000
+REPLY_KINDS = ("ready", "log", "ok", "error")
+# Record keys that would replace a LogRecord method (getMessage, ...) when replayed.
+_LOG_KEYS_REFUSED = frozenset(k for k in dir(logging.LogRecord)
+                              if callable(getattr(logging.LogRecord, k)))
+# Result fields the parent and its outputs read, with the types they must have.
+_NUMBER = (int, float)
+_RESULT_FIELDS: Dict[str, Tuple[Any, bool]] = {   # name: (types, required)
+    "file_path": (str, True), "verdict": (str, True), "risk_score": (_NUMBER, True),
+    "scan_status": (str, True), "scan_results": (dict, True),
+    "file_name": (str, False), "file_size": (int, False), "scan_time": (str, False),
+    "md5_hash": (str, False), "sha256_hash": (str, False), "is_malicious": (bool, False),
+    "severity_score": (_NUMBER, False), "score_breakdown": (dict, False),
+    "incomplete_reasons": (list, False), "provenance": (dict, False),
+    "verdict_label": (str, False), "engine_version": (str, False),
+}
+
+
+class InvalidReply(ValueError):
+    """A worker message that is too large, not JSON, or not of the expected shape."""
+
+
+def send_reply(conn, kind: str, payload: Any) -> bool:
+    """Worker side (M18): send one message as JSON bytes. Values JSON cannot hold
+    are sent as text, as the JSON Lines output writes them. A result over the
+    limit becomes an error; log records over it are dropped. False when nothing
+    was sent."""
+    data = json.dumps([kind, payload], default=str).encode("utf-8")
+    if len(data) > MAX_REPLY_BYTES:
+        if kind != "ok":
+            return False
+        data = json.dumps(["error", f"the scan result was too large to return "
+                                    f"({len(data)} bytes, limit {MAX_REPLY_BYTES})"]).encode()
+    conn.send_bytes(data)
+    return True
+
+
+def read_reply(conn) -> Tuple[str, Any]:
+    """Parent side (M18): read one worker message: at most MAX_REPLY_BYTES, JSON,
+    then checked by check_reply. Raises InvalidReply for a bad message, and the
+    connection's own errors (EOFError, OSError) for a closed pipe."""
+    try:
+        data = conn.recv_bytes(MAX_REPLY_BYTES)
+    except OSError as e:
+        if "bad message length" in str(e):   # over the limit; nothing was read into memory
+            raise InvalidReply(f"a message over {MAX_REPLY_BYTES} bytes") from None
+        raise
+    try:
+        msg = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as e:
+        raise InvalidReply(f"not JSON ({type(e).__name__})") from None
+    return check_reply(msg)
+
+
+def check_reply(msg: Any) -> Tuple[str, Any]:
+    """The shape a worker message must have before the parent uses any field."""
+    if not (isinstance(msg, list) and len(msg) == 2 and msg[0] in REPLY_KINDS):
+        raise InvalidReply("not a [kind, payload] pair of a known kind")
+    kind, payload = msg
+    if kind == "ready":
+        if payload is not None:
+            raise InvalidReply("a ready message with a payload")
+    elif kind == "error":
+        if not isinstance(payload, str):
+            raise InvalidReply("an error message that is not text")
+        payload = payload[:MAX_ERROR_CHARS]
+    elif kind == "log":
+        if not (isinstance(payload, list) and len(payload) <= LOG_RECORDS_PER_FILE + 1):
+            raise InvalidReply("log records that are not a list within the limit")
+        for rec in payload:
+            if not isinstance(rec, dict) or any(
+                    k in _LOG_KEYS_REFUSED or k.startswith("__") for k in rec) or (
+                    rec.get("args") is not None or rec.get("exc_info")):
+                raise InvalidReply("a log record that is not a plain record")
+    else:
+        _check_result(payload)
+    return kind, payload
+
+
+def _check_result(result: Any) -> None:
+    if not isinstance(result, dict):
+        raise InvalidReply("a result that is not an object")
+    for name, (types, required) in _RESULT_FIELDS.items():
+        if name not in result:
+            if required:
+                raise InvalidReply(f"a result without {name}")
+            continue
+        value = result[name]
+        if not isinstance(value, types) or (types is not bool and isinstance(value, bool)):
+            raise InvalidReply(f"a result whose {name} is a {type(value).__name__}")
+    if result["verdict"] not in VERDICTS or result["scan_status"] not in PRECEDENCE:
+        raise InvalidReply("a result with an unknown verdict or scan status")
+    if not all(isinstance(r, dict) for r in result.get("incomplete_reasons") or []):
+        raise InvalidReply("incomplete reasons that are not objects")
+
+
 def _plain(value: Any, depth: int = 0) -> bool:
     if isinstance(value, (str, int, float, bool, type(None))):
         return True
@@ -357,7 +461,7 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
     scan_logger.propagate = False
     scan_logger.setLevel(log_level)
     try:
-        conn.send(("ready", None))
+        send_reply(conn, "ready", None)
         _serve(_SCANNER, conn, buffer)
     finally:                                 # matters only when run in-process (tests)
         scan_logger.removeHandler(buffer)
@@ -383,10 +487,14 @@ def _serve(scanner: Any, conn, buffer: _WorkerLogBuffer) -> None:
         records = buffer.take()
         if records:
             try:
-                conn.send(("log", records))
+                send_reply(conn, "log", records)
             except Exception:
                 pass                         # never lose the result over its log lines
-        conn.send(reply)
+        try:
+            send_reply(conn, *reply)
+        except (TypeError, ValueError) as e:     # not encodable (a circular value)
+            send_reply(conn, "error", f"the scan result could not be returned: "
+                                      f"{type(e).__name__}: {e}")
 
 
 @contextlib.contextmanager
@@ -560,13 +668,16 @@ def wait_ready(w: _Worker, timeout: float) -> bool:
         remaining = deadline - time.monotonic()
         try:
             if w.parent.poll(max(0.0, min(remaining, 0.5))):
-                kind, _ = w.parent.recv()
+                kind, _ = read_reply(w.parent)
                 if kind == "ready":
                     w.ready = True
                     METRICS.worker_start(True, time.monotonic() - w.created)
                     return True
                 why = f"unexpected first message {kind!r}"
                 break
+        except InvalidReply as e:
+            why = f"invalid first message: {e}"
+            break
         except Exception:
             why = f"the worker process ended (exit code {w.proc.exitcode})"
             break
@@ -691,7 +802,8 @@ class _IsolatedScan:
                 else:
                     self._fail(path, payload or "scan error")
             return True
-        dead = (kind == "dead" or not w.proc.is_alive()
+        invalid = kind == "invalid"
+        dead = (invalid or kind == "dead" or not w.proc.is_alive()
                 or (not w.ready and time.monotonic() - w.created > self.START_SECONDS))
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
         over_memory = not (dead or overdue) and self._over_memory(w)
@@ -699,7 +811,10 @@ class _IsolatedScan:
             return True
         if w.path is not None:
             path, w.path = w.path, None
-            if over_memory:
+            if invalid:
+                reason = (f"the worker sent an invalid reply ({payload}) and was stopped; "
+                          f"nothing in it was used")
+            elif over_memory:
                 reason = (f"MemoryError: the worker used {over_memory // (1024 * 1024)} MB, "
                           f"over the {self.memory_mb} MB limit, and was stopped")
             elif overdue and not dead:
@@ -736,7 +851,9 @@ class _IsolatedScan:
         if not has:
             return "", None
         try:
-            return w.parent.recv()
+            return read_reply(w.parent)
+        except InvalidReply as e:
+            return "invalid", str(e)
         except Exception:
             return "dead", None
 

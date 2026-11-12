@@ -3,6 +3,7 @@ Object, macOS watchdog) and the worker loop, tested in-process with fakes where
 the real call would limit the test run itself, and for real where it is safe."""
 
 import ctypes
+import json
 import os
 import subprocess
 import sys
@@ -196,8 +197,8 @@ class FakeConn:
             raise EOFError
         return self.incoming.pop(0)
 
-    def send(self, msg):
-        self.sent.append(msg)
+    def send_bytes(self, data):                         # M18: the worker sends JSON bytes
+        self.sent.append(tuple(json.loads(data)))
 
 
 class ScriptedScanner:

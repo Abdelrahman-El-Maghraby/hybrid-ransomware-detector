@@ -25,7 +25,8 @@ host kernel you control.
 
 **Why no network for analysis.** The analysis service runs the parsers on hostile
 input, and the worker pool limits crashes but is not a security boundary: a parser
-exploit runs with the service's rights. With `network_mode: none` that code finds no
+exploit runs with the service's rights (its messages to the parent are checked JSON,
+not pickles, so they cannot run code there; it still runs as the same user). With `network_mode: none` that code finds no
 interface but loopback - no route to the internet, the LAN, the cloud metadata
 address, the proxy or Docker's DNS. It can reach intel only through intel's Unix
 socket. An internal Docker network shared with intel (the other option) would
