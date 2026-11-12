@@ -1401,9 +1401,9 @@ tests are not counted as passed.
 | State | Findings |
 |---|---|
 | Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`) |
-| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
+| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
@@ -1611,6 +1611,31 @@ tests are not counted as passed.
 - Not verified here: Windows and Linux workers, the API under load (one
   message per direct member; up to 500 per archive by default), real
   samples, and automatic quarantine of a failed-scan file on a real host.
+
+### Group 31: test warnings and D20 (2026-11-12)
+
+- **SAFE re-check.** The 2026-11-11 reconciliation still holds: no confirmed
+  SAFE code finding is open. D20 (THREAT_MODEL: a compromised worker forges
+  only its own file's result) is now true and stated, with the M18 bullet
+  added in group 29; D11 still waits on M23.
+- **The 13 warnings at `eb04d82`:** 12 came from our tests, 1 from a third
+  party.
+  - Fixed in `b11590c` (tests only):
+    - `test_cloud.py` `https_s3`: the TLS stand-in server was shut down but
+      its listening socket was never closed (3 warnings);
+    - `test_containment.py` and `test_alerts.py`: the stdout pipes of the
+      helper processes were left open (3);
+    - `test_archive_formats.py`, `test_embedded_content.py`,
+      `test_evaluation_tools.py`: `open(...).read()` without a close (6).
+  - Third party, left as is: `StarletteDeprecationWarning` from
+    `fastapi/testclient.py` ("Using `httpx` with `starlette.testclient` is
+    deprecated; install `httpx2` instead"). It comes from FastAPI's test
+    client import; changing it is a dependency change (owner).
+  - No warning came from product code.
+- **Full safe run at `b11590c`** (clean worktree, the command of the
+  `04f396e` run): **1,588 passed, 0 failed, 23 skipped, 4 deselected, 1
+  warning** (the Starlette one), 327 s; 0 "unclosed database";
+  `test_smoke.py`: "ALL SMOKE TESTS PASSED". ruff clean.
 
 ## Exact next action
 
