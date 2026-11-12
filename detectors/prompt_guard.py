@@ -263,8 +263,12 @@ class PromptGuard:
                         found.add("hidden_columns", text)
                     for why in styles.get(cell.get("s") or "0", ()):
                         found.add(why, text)
+            if budget[0] < 0:
+                found.limit(f"cells after the first {_MAX_CELLS} not checked for hidden "
+                            "content")
 
     # ----------------------------------------------------------- legacy Excel
+
     def _inspect_xls(self, path: Path, found: _Findings) -> None:
         """Hidden and "very hidden" sheets in a binary (BIFF8) workbook. A very
         hidden sheet cannot be shown from Excel's menus - the classic place for
@@ -347,7 +351,7 @@ class PromptGuard:
                 return
         pages: List[int] = []
         try:
-            self._pdf_invisible_pages(PdfReader, path, pages)
+            self._pdf_invisible_pages(PdfReader, path, pages, found)
         finally:                 # pages found before an error are still reported
             if pages:
                 shown = ", ".join(map(str, pages[:8]))
@@ -355,9 +359,13 @@ class PromptGuard:
                           f"Invisible text (render mode 3) on page(s) {shown}")
 
     @staticmethod
-    def _pdf_invisible_pages(PdfReader, path: Path, pages: List[int]) -> None:
+    def _pdf_invisible_pages(PdfReader, path: Path, pages: List[int], found: _Findings) -> None:
         with path.open("rb") as fh:
             reader = PdfReader(fh, strict=False)
+            total = len(reader.pages)
+            if total > _MAX_PDF_PAGES:            # L-D8: named, not silently dropped
+                found.limit(f"pages {_MAX_PDF_PAGES + 1}-{total} not checked for invisible "
+                            f"text (limit {_MAX_PDF_PAGES})")
             for number, page in enumerate(reader.pages[:_MAX_PDF_PAGES], start=1):
                 contents = page.get_contents()
                 if contents is None:
@@ -420,6 +428,7 @@ class _Findings:
         self.reasons: List[str] = []
         self.snippets: List[str] = []
         self.skipped: List[str] = []          # XML parts over _MAX_XML_BYTES, not read
+        self.limits: List[str] = []           # L-D8: what the cell and page limits left out
 
     def add(self, reason: str, text: str) -> None:
         text = (text or "").strip()
@@ -453,6 +462,11 @@ class _Findings:
         if name not in self.skipped:
             self.skipped.append(name)
 
+    def limit(self, text: str) -> None:
+        """Content a limit left unread: named in not_checked (scan_status partial)."""
+        if text not in self.limits:
+            self.limits.append(text)
+
     def clear(self) -> None:
         """Drop what was found; a part that could not be read is still reported
         (an oversized workbook.xml is why the workbook could not be checked)."""
@@ -460,15 +474,16 @@ class _Findings:
         self.snippets = []
 
     def result(self) -> HiddenTextResult:
-        not_checked = ""
+        notes = []
         if self.skipped:
             shown = ", ".join(self.skipped[:3]) + (f" and {len(self.skipped) - 3} more"
                                                    if len(self.skipped) > 3 else "")
-            not_checked = (f"{len(self.skipped)} XML part(s) over "
-                           f"{_MAX_XML_BYTES // (1024 * 1024)} MiB not checked for hidden "
-                           f"content: {shown}")
+            notes.append(f"{len(self.skipped)} XML part(s) over "
+                         f"{_MAX_XML_BYTES // (1024 * 1024)} MiB not checked for hidden "
+                         f"content: {shown}")
+        notes.extend(self.limits)
         return HiddenTextResult(bool(self.snippets), sorted(self.reasons), self.snippets,
-                                not_checked=not_checked)
+                                not_checked="; ".join(notes))
 
 
 def _coordinate(value) -> Optional[int]:
@@ -584,6 +599,7 @@ def _cells(sheet_root, shared: List[str], budget: List[int]):
     """Yield (cell element, text) for every cell holding text (bounded)."""
     for cell in sheet_root.iter(f"{_S}c"):
         if budget[0] <= 0:
+            budget[0] = -1                    # L-D8: a cell was left unread
             return
         budget[0] -= 1
         kind = cell.get("t")

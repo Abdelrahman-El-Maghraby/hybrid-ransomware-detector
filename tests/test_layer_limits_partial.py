@@ -118,3 +118,53 @@ def test_a_qr_limit_makes_the_scan_partial_and_a_normal_image_does_not(scanner, 
     assert r["scan_status"] == "partial"
     assert any(g["layer"] == "qr" for g in r["incomplete_reasons"])
     assert r["scan_results"]["qr_codes"]["not_checked"]
+
+
+# ------------------------------------------------------- L-D8: hidden content
+# Owner-approved 2026-11-12: the hidden-content check stopped after 200,000 cells
+# and 50 PDF pages without saying so. The limits stay (lowered here to keep the
+# files small) and what they leave out is named; the scan is then partial.
+import detectors.prompt_guard as pg  # noqa: E402
+from detectors.prompt_guard import PromptGuard  # noqa: E402
+from tests.helpers import make_pdf  # noqa: E402
+from tests.test_office_hidden import INJECTION, make_xlsx  # noqa: E402
+
+
+def _workbook(path, n):
+    return make_xlsx(path, [
+        {"name": "Data", "cells": {f"A{i}": (f"row {i}", 0) for i in range(1, n + 1)}},
+        {"name": "Secret", "state": "hidden", "cells": {"A1": (INJECTION, 0)}}])
+
+
+def test_cells_over_the_limit_are_named(tmp_path, monkeypatch):
+    monkeypatch.setattr(pg, "_MAX_CELLS", 5)
+    over = PromptGuard().inspect_hidden_content(_workbook(tmp_path / "big.xlsx", 8))
+    assert "cells after the first 5" in over.not_checked
+    assert not over.found                                 # the hidden sheet was not reached
+    exact = PromptGuard().inspect_hidden_content(_workbook(tmp_path / "ok.xlsx", 2))
+    assert exact.not_checked == "" and exact.found        # within the limit: as before
+
+
+def test_pdf_pages_over_the_limit_are_named(tmp_path, monkeypatch):
+    monkeypatch.setattr(pg, "_MAX_PDF_PAGES", 2)
+    p = tmp_path / "long.pdf"
+    from pypdf import PdfReader, PdfWriter
+    page = PdfReader(io.BytesIO(make_pdf("Quarterly figures"))).pages[0]
+    w = PdfWriter()
+    for _ in range(3):
+        w.add_page(page)
+    with open(p, "wb") as fh:
+        w.write(fh)
+    res = PromptGuard().inspect_hidden_content(p)
+    assert "pages 3-3 not checked for invisible text (limit 2)" in res.not_checked
+    one = tmp_path / "one.pdf"
+    one.write_bytes(make_pdf("Quarterly figures"))
+    assert PromptGuard().inspect_hidden_content(one).not_checked == ""
+
+
+def test_a_hidden_content_limit_makes_the_scan_partial(scanner, tmp_path, monkeypatch):
+    monkeypatch.setattr(pg, "_MAX_CELLS", 5)
+    r = scanner.scan_file(str(_workbook(tmp_path / "scan" / "big.xlsx", 8)))
+    assert r["scan_status"] == "partial"
+    assert any(g["layer"] == "prompt-guard" and "cells after the first 5" in g["reason"]
+               for g in r["incomplete_reasons"])
