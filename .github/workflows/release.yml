@@ -90,8 +90,9 @@ jobs:
         # The lock carries platform markers (python-tlsh is skipped on Windows), so the
         # whole file installs on each OS; whether every required layer is up is still
         # decided by build.py (preflight and --capabilities cli on the packaged program).
+        # The pip that setup-python ships is used as is: upgrading it here would put an
+        # unhashed, unchecked download in the build (owner, 2026-11-12).
         run: |
-          python -m pip install --upgrade pip
           python -m pip install --require-hashes -r requirements.lock
           python -m pip install --require-hashes -r requirements-build.lock
       - name: Build, smoke-test and package

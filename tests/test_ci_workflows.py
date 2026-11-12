@@ -50,16 +50,14 @@ def test_release_builds_and_publishes_only_after_the_gate():
 
 def test_every_release_install_is_hash_pinned():
     """I-B2: the SBOM tool was installed without hashes in the jobs that hold the
-    artifacts before they are signed. `pip install --upgrade pip` is the one
-    recorded exception (the handoff names it for the owner)."""
+    artifacts before they are signed. The unhashed `pip install --upgrade pip` of
+    the build job was removed too (owner-approved 2026-11-12): no exception."""
     import re
     text = (WF / "release.yml").read_text(encoding="utf-8")
     installs = [line.strip() for line in text.splitlines()
                 if re.search(r"\bpip\"?\s+install\b", line)]
     assert installs
-    unpinned = [line for line in installs
-                if "--require-hashes -r requirements" not in line
-                and line != "python -m pip install --upgrade pip"]
+    unpinned = [line for line in installs if "--require-hashes -r requirements" not in line]
     assert unpinned == []
     root = WF.parent.parent
     lock = (root / "requirements-sbom.lock").read_text(encoding="utf-8")
