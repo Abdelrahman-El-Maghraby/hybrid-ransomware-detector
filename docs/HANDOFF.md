@@ -1400,10 +1400,10 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | H6 (b), M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
@@ -1525,12 +1525,99 @@ tests are not counted as passed.
   `recv_bytes` limit by the standard library's code), Linux and the Docker
   API service under load.
 
+### Group 30: H6 option (b), findings kept when a scan fails (owner-approved 2026-11-12)
+
+- Owner decisions (2026-11-12): H6 (b); score rule "the higher of the two";
+  evidence in a new `scan_results.partial_evidence` key; automatic quarantine
+  may act on the result; scope "members + container listing" (asked after the
+  probe below showed members alone miss the review's own example).
+- **What reached the parent before a failure (after M18): nothing.** Per file
+  the worker sent `log` then `ok`/`error`, both after `scan_file` returned; a
+  time-out or death lost every finding and the buffered log lines.
+- **Protocol now** (`engine/workers.py`, `engine/containers.py`,
+  `engine/scanner.py`):
+  - For the outer file only (depth 0), `scan_container` calls
+    `scanner.member_listener`, which a worker sets:
+    - `("container", kind, signal)` once the container is opened: the signal
+      the container layer builds from the opened container (`handler.signals`),
+      without a worst member;
+    - `("member", kind, result)` for each direct member whose scan finished.
+  - The worker sends them as `container` and `member` messages. A member is
+    sent trimmed to what the parent uses (paths, verdict, score, status,
+    hashes, contributions, the archive password flag).
+  - `check_reply` validates them as M18 does: a known container kind, signal
+    fields the signal class accepts and no `worst`; a member passes the result
+    check, plus contributions (a list of at most 200 plain items with finite
+    numeric points) and a finite risk score. An invalid one fails the file as
+    any invalid reply.
+  - The parent keeps per file an `Evidence`: the container signals, the count
+    of finished members and the ten highest-risk ones.
+- **On a failure** (time-out, death, memory limit, a worker `error`):
+  `failure_result(..., evidence=)` scores the evidence with the existing
+  scorer (each container's signal with its worst finished member as
+  `WorstMember`, as `scan_container` does) and keeps the higher of that and
+  the failed-scan Medium. `scan_status` stays `failed`;
+  `scan_results.scan_failed` (reason, code) is unchanged, so metrics and the
+  H6 (a) notice are unchanged. The incomplete reason adds "; the findings made
+  before the failure are kept (partial evidence: the container's own findings
+  and N member(s) scanned)". `scan_results.partial_evidence` = `members_scanned`,
+  `containers`, `indicators` (up to 20) and `members` (summaries with findings,
+  with their container). No evidence, or evidence that scores 0, or a signal
+  that breaks the scorer (logged): the result is exactly as before.
+  `isolation_unavailable` ignores evidence.
+- **Not kept:** findings of the outer file's other layers (its own YARA, PE,
+  script analysis), and anything of a member that did not finish. Nothing is
+  reconstructed.
+- **Probes (real isolated workers, the stand-in scanner):**
+  - the review's check 2 shape (`invoice.pdf.exe`, `readme.txt`, a hanging
+    member) gives "Critical (failed scan)", 95, `archive_double_extension`
+    and `archive_executable` (was Medium 25);
+  - a malicious `.ps1` member, then a dead worker, gives Critical 100 with
+    `archive_member:script_behaviour`;
+  - clean members, then a hang, stays Medium 25 with no `partial_evidence`.
+  - In-process: a mail (`.eml` with a `.ps1` attachment) and an HTML smuggling
+    page report their container signals, and the evidence score equals the
+    full scan's (Critical 100 and Low 15).
+- **Alerts:** at the default High floor a retained Critical sends the verdict
+  alert and the scan-failed notice; a failed scan without evidence sends the
+  notice only (tested). Automatic quarantine acts on the verdict as for any
+  result (rule unchanged; owner approved).
+- **Tests:** `tests/test_failed_scan_evidence.py` (23). 21 failed before the
+  change; the two that passed are the no-evidence checks, which must behave
+  as before. They cover:
+  - a time-out and a worker death in real isolated workers;
+  - no evidence (the result is identical to the old failure result);
+  - a completed container scan unchanged against an in-process scan;
+  - alerts at the default floor, and text and JSON reports;
+  - only the outer file's container and direct members are reported;
+  - 5 malformed container reports and 8 malformed member reports;
+  - a signal that breaks the scorer, the ten-member bound, and
+    `isolation_unavailable`.
+- **Docs.** README (isolation), THREAT_MODEL (worker bullet and the slow-file
+  row), RUNBOOKS section 2, ARCHITECTURE (the hang row).
+- **Checks.** Related suites (evidence, protocol, failed-scan notice,
+  workers, limits, logs, isolation, partial evidence, folder monitor, scan
+  status, outputs, alerts, metrics, regression corpus, scanner, archive
+  formats, background reliability): 329 passed, 3 skipped, 1 deselected.
+  ruff, mypy (68 files) and bandit (`-ll`) clean. pip-audit not run: no
+  dependency changed.
+- **Full safe run at `8978c68`:** 1,588 passed, 0 failed, 23 skipped, 4
+  deselected, 13 warnings, but 1 "unclosed database": the new module-scoped
+  fixture did not close its scanner's cache. Fixed in `eb04d82` (test only).
+- **Full safe run at `eb04d82`** (clean worktree, the command of the
+  `04f396e` run): **1,588 passed, 0 failed, 23 skipped, 4 deselected, 13
+  warnings**, 340 s; 0 "unclosed database"; `test_smoke.py`: "ALL SMOKE TESTS
+  PASSED". Skipped and deselected tests are not counted as passed.
+- Not verified here: Windows and Linux workers, the API under load (one
+  message per direct member; up to 500 per archive by default), real
+  samples, and automatic quarantine of a failed-scan file on a real host.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
 PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
 in 33.7 and must be obtained before the OWNER items:
-- H6 (b) (H6 (a) done, group 28; M18 done, group 29)
+- H6 and M18: done (groups 28 to 30)
 - M23, M24, M25, M30, M31
 - L-D5, L-C7, L-D8
 - the M26 wait cap and the M27 empty-key rule
