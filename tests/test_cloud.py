@@ -335,6 +335,7 @@ def https_s3(tmp_path):
     t.start()
     yield f"https://localhost:{server.server_address[1]}", cert
     server.shutdown()
+    server.server_close()                  # the listening socket too
 
 
 @pytest.mark.parametrize("echo_checksum", [True, False])

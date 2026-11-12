@@ -643,6 +643,7 @@ def test_a_flush_in_another_process_is_waited_for_not_duplicated(tmp_path, clock
     finally:
         holder.stdin.close()
         holder.wait(10)
+        holder.stdout.close()
     assert box.flush({"webhook": hook})["sent"] == 1 and len(hook.got) == 1
 
 

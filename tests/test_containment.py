@@ -223,6 +223,7 @@ def test_real_writer_is_suspended_and_reader_left_alone(tmp_path):
         for p in (writer, reader):
             p.kill()
             p.wait()
+            p.stdout.close()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Restart Manager")
@@ -239,6 +240,8 @@ def test_real_windows_holder_is_found_and_terminated(tmp_path):
         writer.wait(timeout=20)
     finally:
         writer.kill()
+        writer.wait()
+        writer.stdout.close()
 
 
 # ------------------------------------------------------------- folder lock

@@ -5,6 +5,7 @@ the "add-in" is a bare MZ/PE header with an export name, and nothing is run."""
 
 import os
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -71,7 +72,7 @@ def test_onenote_embedded_files_are_carved(tmp_path):
     with EmbeddedContentAnalyzer().open(onenote(tmp_path / "n.one", [BATCH, _pe_bytes(2048)])) as r:
         assert [m.name for m in r.members] == ["embedded1.bat", "embedded2.exe"]
         assert r.risky_members == ["embedded1.bat", "embedded2.exe"]
-        assert all(open(m.path, "rb").read() for m in r.members)
+        assert all(Path(m.path).read_bytes() for m in r.members)
 
 
 def test_onenote_with_impossible_length_is_a_finding_not_a_crash(tmp_path):
@@ -138,7 +139,7 @@ def test_encrypted_docx_opens_with_a_default_password(tmp_path):
     assert sniff(p) == "office-encrypted"
     with EmbeddedContentAnalyzer().open(p) as r:
         assert r.decrypted_with == "VelvetSweatshop" and r.members
-        assert open(r.members[0].path, "rb").read(2) == b"PK"
+        assert Path(r.members[0].path).read_bytes()[:2] == b"PK"
 
 
 @needs_crypto

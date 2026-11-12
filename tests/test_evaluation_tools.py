@@ -100,7 +100,7 @@ def test_evaluate_end_to_end_reports_dedupe_split_and_completeness(tmp_path, fol
     assert "Duplicates (same SHA-256) counted once: 1" in summary
     assert "labelled both malicious and benign, left out: 1" in summary
     assert "## Scan completeness" in summary and "Split: **all**" in summary
-    rows = list(csv.DictReader(open(out / "results.csv", encoding="utf-8")))
+    rows = list(csv.DictReader((out / "results.csv").read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 4 and {r["label"] for r in rows} == {"malicious", "benign"}
     assert all(r["split"] in ("calibration", "test") and r["scan_status"] for r in rows)
 
@@ -108,7 +108,8 @@ def test_evaluate_end_to_end_reports_dedupe_split_and_completeness(tmp_path, fol
     E.main(["--malicious", str(mal), "--benign", str(ben), "--out", str(only_test),
             "--jobs", "1", "--timeout", "120", "--split", "test"])
     if (only_test / "results.csv").exists():
-        test_rows = list(csv.DictReader(open(only_test / "results.csv", encoding="utf-8")))
+        test_rows = list(csv.DictReader(
+            (only_test / "results.csv").read_text(encoding="utf-8").splitlines()))
         assert all(r["split"] == "test" for r in test_rows)
 
 

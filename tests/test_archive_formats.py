@@ -3,6 +3,7 @@ images, through the extractor and through the full scanner."""
 
 import io
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -115,7 +116,7 @@ def test_7z_members_are_extracted_and_classified(tmp_path):
         assert all(m.extracted for m in res.members)
         assert res.double_extension_members == ["docs.7z!/invoice.pdf.exe"]
         exe = next(m for m in res.members if m.name.endswith(".exe"))
-        assert open(exe.path, "rb").read(2) == b"MZ"
+        assert Path(exe.path).read_bytes()[:2] == b"MZ"
 
 
 @needs_7z
