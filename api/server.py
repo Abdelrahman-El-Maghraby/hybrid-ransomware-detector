@@ -77,6 +77,13 @@ _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 logger = logging.getLogger("RansomwareScanner")
 
 
+def upload_extension(name: str) -> str:
+    """The upload's extension, kept only when plain. M24: taken from the name
+    Windows saves, so "invoice.pdf.js." is scanned as a script."""
+    ext = Path(name.rstrip(". ") or ".").suffix
+    return ext.lower() if _SAFE_EXT.match(ext) else ""
+
+
 
 def _without_work_path(value: Any, path: str, display: str) -> Any:
     """L-A1: the upload is scanned under a temporary work folder; member names,
@@ -397,7 +404,7 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
             raise HTTPException(status_code=503, detail="scanner busy, retry shortly",
                                 headers={"Retry-After": "5"})
         name = Path(file.filename or "upload").name[:200] or "upload"
-        ext = Path(name).suffix if _SAFE_EXT.match(Path(name).suffix or "") else ""
+        ext = upload_extension(name)
         work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
         try:
             target = work / f"upload{ext.lower()}"

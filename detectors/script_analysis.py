@@ -400,8 +400,13 @@ class ScriptResult:
                 "urls": self.urls[:10], "truncated": self.truncated, "detail": self.detail}
 
 
+def _suffix(path: PathLike) -> str:
+    """M24: the extension of the name Windows saves (trailing dots and spaces dropped)."""
+    return Path(Path(path).name.rstrip(". ") or ".").suffix.lower()
+
+
 def is_script(path: PathLike) -> bool:
-    return Path(path).suffix.lower() in SCRIPT_EXTENSIONS
+    return _suffix(path) in SCRIPT_EXTENSIONS
 
 
 def _decode_b64_text(blob: str, utf16: bool) -> str:
@@ -427,7 +432,7 @@ class ScriptAnalyzer:
 
     def analyze_file(self, path: PathLike, data: Optional[bytes] = None) -> ScriptResult:
         p = Path(path)
-        res = ScriptResult(is_script=is_script(p), language=_LANG.get(p.suffix.lower(), ""))
+        res = ScriptResult(is_script=is_script(p), language=_LANG.get(_suffix(p), ""))
         if not res.is_script:
             res.detail = "Not a script file."
             return res

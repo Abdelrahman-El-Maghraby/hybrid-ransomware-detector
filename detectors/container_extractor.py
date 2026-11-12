@@ -335,6 +335,12 @@ _WINDOWS_DEVICE = re.compile(r"(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt
                              re.I)
 
 
+def windows_name(name: str) -> str:
+    """M24: the name Windows saves. Its file API drops trailing dots and spaces,
+    so "invoice.pdf.exe." lands on disk as "invoice.pdf.exe"."""
+    return name.rstrip(". ")
+
+
 def not_a_device(name: str) -> str:
     """A sandbox file name that is never a Windows device name ("_NUL.exe")."""
     return "_" + name if _WINDOWS_DEVICE.match(name) else name
@@ -342,7 +348,7 @@ def not_a_device(name: str) -> str:
 
 def _priority_name(name: str) -> bool:
     """Unpack these first when an archive has more entries than the member limit."""
-    suffix = PurePosixPath(name.replace("\\", "/").replace(RTLO, "")).suffix.lower()
+    suffix = PurePosixPath(windows_name(name.replace("\\", "/").replace(RTLO, ""))).suffix.lower()
     return RTLO in name or suffix in EXECUTABLE_EXTENSIONS or suffix in _CONTAINER_SUFFIXES
 
 
@@ -556,8 +562,8 @@ class ContainerExtractor:
         base = PurePosixPath(name.replace("\\", "/")).name or "member"
         target_dir = sandbox / f"m{len(res.members):04d}"
         target_dir.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:]
-        if not safe.strip(". "):
+        safe = windows_name(re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:])
+        if not safe:
             # "", ".", ".." (e.g. ".<RTLO>.") or only dots and spaces would name the
             # member folder or the sandbox itself; Windows also drops trailing dots.
             safe = "member"
@@ -1120,7 +1126,7 @@ class ContainerExtractor:
     @staticmethod
     def _classify_name(base: str, shown: str, member: ArchiveMember,
                        res: ContainerResult) -> None:
-        clean = base.replace(RTLO, "")
+        clean = windows_name(base.replace(RTLO, ""))
         suffixes = [s.strip().lower() for s in PurePosixPath(clean).suffixes]
         if RTLO in base:
             res.rtlo_members.append(shown)

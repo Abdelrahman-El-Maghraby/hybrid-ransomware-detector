@@ -69,7 +69,14 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from .cfb_writer import MAX_TREE_BYTES, write_cfb
-from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, not_a_device, visible_name
+from .container_extractor import (
+    EXECUTABLE_EXTENSIONS,
+    LURE_EXTENSIONS,
+    RTLO,
+    not_a_device,
+    visible_name,
+    windows_name,
+)
 
 logger = logging.getLogger("RansomwareScanner.mail")
 
@@ -645,7 +652,7 @@ class MailAnalyzer:
             res.attachments_skipped += 1
             return
         base = PurePosixPath(name.replace("\\", "/")).name or "attachment.bin"
-        clean = base.replace(RTLO, "")
+        clean = windows_name(base.replace(RTLO, ""))           # M24: as Windows saves it
         suffixes = [s.strip().lower() for s in PurePosixPath(clean).suffixes]
         info = AttachmentInfo(
             filename=visible_name(base), content_type=ctype, size=len(data),
