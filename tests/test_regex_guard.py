@@ -23,8 +23,8 @@ SIZE = 20_000
 PER_CALL = 0.5          # seconds; linear patterns need about a millisecond here
 TOTAL = 240             # seconds for the child process
 
-# Patterns the child skips, with the reason. Remove an H-04+ entry when that
-# finding is fixed, and the test then guards the pattern too.
+# Patterns the child skips, with the reason (H-04+ entries removed when it was
+# fixed, so the guard covers the web-content patterns too).
 _ANCHORED = ("used only with match() at positions its caller bounds; the caller "
              "has its own linear-time test")
 KNOWN_SLOW = {
@@ -36,9 +36,6 @@ KNOWN_SLOW = {
     "script_analysis._REPLACE_DOT_MID": _ANCHORED,        # _literal_matches
     "script_analysis._REPLACE_DOT_TAIL": _ANCHORED,       # _literal_matches
     "script_analysis._REVERSE_JS_TAIL": _ANCHORED,        # _literal_matches
-    "web_content._DATA_DOWNLOAD_ANCHOR": "H-04+ (quadratic on '<a' runs; deferred by the owner)",
-    "web_content._SMUGGLE_DOWNLOAD": "H-04+ (quadratic on '<a' runs; deferred by the owner)",
-    "web_content._SVG_ACTIVE[1][1]": "H-04+ (quadratic on '<a' runs; deferred by the owner)",
 }
 
 GENERIC = [" ", "\n", "\t", "a", "A", "1", ".", "a.", "-", "_", "/", "\\", "=", ":", "<", ">",
