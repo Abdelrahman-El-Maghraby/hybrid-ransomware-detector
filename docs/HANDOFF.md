@@ -53,8 +53,8 @@
   operations, worker logs, special files, mail, reports, GUI delivery and cloud:
   157 passed. Ruff passed on the application packages and CLI. One test emitted
   a Starlette TestClient deprecation warning; there were no test failures.
-- Deferred by the owner (not started): M4, H-04, the low items, I-T1 and the
-  M15 packaging change.
+- Deferred by the owner (not started): M4 and the M15 packaging change.
+  H-04+ and I-T1 were approved and done in group 34.
 
 ## Unresolved items carried forward
 
@@ -1400,11 +1400,11 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33) |
-| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33), H-04+, M30, M25 (alert only), the M27 empty-key rule, I-1 (eight macro types), I-3 (daily audit; Dependabot not added), I-T1 (group 34) |
+| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets), the L-B2 lock choice (D32), D22, D23 (group 34) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M24, M25, M29, M30, M32, S-Y1 to S-Y4, the M26 wait cap (I-6), the M27 empty-key rule, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry |
-| Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
+| Owner decision | M24, M29, M32, S-Y1 to S-Y4, the M26 wait cap (I-6), M4, M15 packaging, D26, the Starlette `httpx` deprecation (dependency), I-2, I-4, the other twelve I-1 types, Dependabot for the locks (I-3), exit code 2 (keep), IMAP fetch retry (keep) |
+| Real-environment check needed | CI (nothing since `3e5a3f2`; the new daily audit, I-3); Docker (deployment check, M27 signed pack and the empty-key fallback, D22/D23, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9, M30 in the table); a running service and GUI (M25 copy and memory); a Linux server (L-B2); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
 
@@ -1765,20 +1765,122 @@ smallest fix, focused tests on benign synthetic files, ruff and mypy.
   with a real model that answers in prose; real phishing mail with duplicate
   `href` attributes.
 
+### Group 34: rows 1, 2, 4, 7, 9, 11, 13, 15 and 17 of the decision table (owner-approved 2026-11-12)
+
+The owner approved nine rows of the ranked owner-decision table; every other
+owner and deferred item is unchanged (M24, M29, M32, S-Y1 to S-Y4, the M26
+wait cap / I-6, I-2, I-4, M4, M15 packaging, `httpx2`, D26, exit code 2, the
+IMAP fetch retry).
+
+- **H-04+** (`804b96b`, `detectors/web_content.py`). Measured first: the
+  data: download link and the meta refresh were cubic (2,000 to 4,000
+  characters: 8 times slower), the `<a … download`, `<x … on…=`, `<input`,
+  `<form` checks and `visible_text` quadratic, and `_JS_CONCAT` quadratic in
+  the white space after `+` (8,000 newlines 0.45 s). A match cannot cross a
+  `>`, and a later tag start before the same `>` sees a suffix of the first
+  one's text, so the helpers check the first start per tag (`_tags`), and the
+  greedy `[^>]+` choices (last `action=`, last `url=` with a refresh before
+  it) are found from the right. `visible_text` reuses the H2 mail helpers
+  (same patterns). `_JS_CONCAT` drops `(?:\r?\n\s*)?`, which `\s*` already
+  covers. The old patterns are the reference in
+  `tests/test_web_content_linear.py`: known pages, 30,000 random pages from
+  tag parts (each check matches hundreds to thousands of times) and 20,000
+  random `_JS_CONCAT` inputs give identical results; two wrong variants (form
+  takes the first action, meta without the refresh check) are caught. 200 KB
+  of each crafted shape runs in under 2 s; `visible_text` on 128 KB of `<`
+  went from 7 s to 0.002 s (2 MiB: 0.04 s). The regex guard no longer skips
+  the three web-content patterns. Related tests 83 passed.
+- **M30** (`2282119`). The integrity layer records a right-to-left override
+  in a top-level file's own name (`file_integrity.rtlo_name`, shown with
+  `[RTLO]`); new indicator `file_rtlo_spoof`, weight `W_FILE_RTLO` 60 (the
+  archive member's). Members stay scored once, by their container. Check 22:
+  the stub that scored Clean 0 is High 60; the ZIP is Critical 95 as before.
+  `tests/test_top_level_rtlo_name.py` (1 of 3 fails before); registry,
+  calibration, regression corpus, signals and integration 122 passed.
+- **M25** (`cabf3db`, alert only). `CanaryManager` keeps a second copy of the
+  registry in the reports folder (`.canary_registry_copy.json`) and the last
+  good list in memory. A registry that is missing or unreadable while either
+  still lists canaries gives a `registry` finding, and the known canaries are
+  still checked. That finding writes the alert file, notifies and queues the
+  outbox alert (`canary_registry`), but `respond()` is not called for it; a
+  real trip beside it still responds. **First installation vs tampering:** a
+  new installation has no registry, no copy and nothing in memory, so it
+  still reads "No canaries deployed"; `remove()` empties both copies, so a
+  removal is not a loss. Limit: if both copies are gone before a process
+  starts, the loss looks like a new installation (README). A registry that is
+  not a `{"canaries": [...]}` object now counts as unreadable.
+  `tests/test_canary_registry_loss.py` (8; all fail before); canary,
+  containment, alert, background and GUI suites 136 passed, 2 skipped.
+- **M27 empty-key rule** (`c0b33e3`). With `RULEPACK_PUBLIC_KEYS` empty, a
+  pack that records its signer is not used: `rulepack_no_key` warning, the
+  bundled rules instead, `provenance.rules` no longer names the pack. Nothing
+  is deleted; setting the key again puts it back. Packs from before 4.7 (no
+  signer) stay in use. **Deployment impact** (docs/RULE_PACKS.md "No key
+  configured", RUNBOOKS, THREAT_MODEL): an installation that used a pack but
+  has no key configured (a Docker `.env` without the variable, a desktop
+  whose key was set only in an old shell) scans with the bundled rules until
+  the key is set. Four existing tests read the active pack without a key and
+  one scanner test had no key: they now pass the key (that is the change).
+  Check 13 is a test; rule-pack, deployment and provenance tests 84 passed.
+- **I-1** (`d95e5e5`). Added to `SUPPORTED_EXTENSIONS` (so to the default
+  folder-scan, monitor and GUI list), exactly these eight macro-capable
+  types: **`.dot`, `.xlsb`, `.xltm`, `.xlam`, `.xlm`, `.potm`, `.ppam`,
+  `.ppsm`**. All are in the macro layer's set. A `FILE_EXTENSIONS` the user
+  set (or saved from the GUI) is kept as it is (README). The other twelve
+  types of check 12 are not added. Test fails before; settings, corpus,
+  pipeline, evaluation, GUI, monitor, PE and archive suites 169 passed.
+- **I-3** (`4c68756`). `.github/workflows/dependency-audit.yml`: the same
+  pip-audit over the four locks daily (05:17 UTC) and on demand; on a failed
+  scheduled run a second job (`issues: write` only there) opens an issue or
+  comments on the open one. A test keeps the audit step identical to
+  `quality.yml`. **Not done: Dependabot for the locks.** They are hash-pinned
+  `uv pip compile` outputs named `*.lock`; Dependabot's pip support reads
+  requirements `.txt`/`.in`/`pyproject.toml` and its uv support `uv.lock`,
+  so it would not regenerate them (a pyproject entry would propose range
+  bumps that leave the locks stale). actionlint is not installed here.
+- **L-B2 lock choice** (`30e09c4`). DEPLOYMENT.md's non-Docker install uses
+  `requirements-server.lock` with `--require-hashes` on Python 3.12 (it had
+  the desktop lock, with the GUI toolkit, and no hash check); the server lock
+  holds every base and `[api]` dependency (checked). A test keeps the command.
+- **I-T1** (`cf82df4`, tests only). An autouse fixture in
+  `tests/test_evaluation_tools.py` restores `logging.disable`. The leak was
+  still there but hidden by order: only the file's last test reset it. With
+  that test deselected, the review's probe failed ("left at level 50") before
+  and passes after.
+- **D22, D23** (`dbd4e76`, docs). RELEASE_SCOPE: JSON Lines and signed
+  webhooks and the quarantine vault are "No (desktop and CLI only)" for the
+  Docker edition, a row for the e-mail alerts it does send, and "quarantine
+  management" removed from the container CLI row; ARCHITECTURE and
+  `.env.example` say the same. The product is unchanged.
+- ruff (tracked files), mypy (68 files) and bandit (`-ll`) clean. No bidi
+  characters in any staged diff.
+- **Full safe run at `dbd4e76`** (clean worktree, the documented command):
+  **1,650 passed, 0 failed, 23 skipped, 4 deselected, 1 warning**, 324 s;
+  `test_smoke.py`: "ALL SMOKE TESTS PASSED". Skips as before (7-Zip 12, RAR 3,
+  Windows 2, Linux 1, libproc 1, ELF 1, box-js 1, OpenCV 1, GUI 1); the
+  warning is Starlette's `httpx` deprecation (third party). Skipped and
+  deselected tests are not counted as passed.
+- **Needs a real platform:** M25 with a running background service and the
+  GUI (the copy and memory across restarts, real notifications); M27 in
+  Docker (the `.env` key reaching `analysis` and `content`, a signed pack
+  installed and dropped); I-3 on GitHub (the schedule, `gh` with the
+  workflow token, the issue); L-B2 on a clean Linux server with Python 3.12;
+  I-1 and M30 on Windows (names with U+202E, GUI checkboxes); M30's name in
+  the GUI table on a display; H-04+ against real phishing and smuggling
+  pages; D22/D23 against a running Docker edition.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
 PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
 in 33.7 and must be obtained before the OWNER items:
-- H6 and M18: done (groups 28 to 30)
-- M23, M24, M25, M30, M31
-- L-D5, L-C7, L-D8
-- the M26 wait cap and the M27 empty-key rule
-- M29, M32 and S-Y1 to S-Y4
-- M19 and L-L1
-- the section 28 deferred items
-- D22, D23 and D26
-- I-1, I-2 and I-6
+- Done: H6 and M18 (groups 28 to 30); M23, M31, L-D5, L-C7, L-D8 (group 32);
+  M19, L-L1 (group 33); H-04+, M30, M25, the M27 empty-key rule, I-1 (eight
+  types), I-3 (without Dependabot), L-B2, I-T1, D22, D23 (group 34)
+- Still open, unchanged: M24 (Windows), M29, M32 and S-Y1 to S-Y4 (benign
+  corpus), the M26 wait cap / I-6 (Docker and a sandbox), I-2, I-4 (after
+  S-03), M4, M15 packaging, D26, `httpx2`; exit code 2 and the IMAP fetch
+  retry were recommended to stay as they are
 
 SAFE items, in order (done items are marked):
 1. M21 and L-B7 (CI): done, group 1 (local commit after `05aae35`).
@@ -1833,7 +1935,10 @@ Commit state:
 Still unverified (33.7 lists the platform checks):
 - CI on this branch
 - the Windows items: M2, M9, M20, M24, L-E6, toasts, containment, autostart
-- Docker: M27, I-B3 and the deploy scripts
+- Docker: M27 (signed pack and the empty-key fallback), I-B3, the deploy
+  scripts, D22/D23 against the running edition
+- GitHub: the daily dependency audit and its issue (I-3)
+- a running background service and GUI: the M25 registry copy and memory
 - Linux ARM64, Windows ARM64 and macOS Intel
 - the GUI on a display
 - the VM items: 27.5, L-D1, L-E4, OOM-H, real-sample evaluation
