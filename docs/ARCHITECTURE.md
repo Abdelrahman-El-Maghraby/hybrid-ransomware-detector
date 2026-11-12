@@ -95,7 +95,8 @@ CLI (`RansomwareScanner.py`), desktop app (`aegis_gui/`), background scheduler w
 canary tripwires and containment (`core/response.py`, `core/containment.py`: stop
 the writing process, lock folders, cut the network), IMAP mailbox scanning
 (`core/mailbox.py`, read-only), folder monitoring (`core/folder_watch.py`), JSON Lines
-and signed webhooks for SIEM/SOAR, a persistent alert outbox with e-mail alerts
+and signed webhooks for SIEM/SOAR (desktop and CLI; API scans send e-mail alerts
+only, D22), a persistent alert outbox with e-mail alerts
 (`core/outbox.py`, `core/mailer.py`), optional report and log upload to
 S3-compatible storage (`core/cloud.py`), and an optional REST API with abuse limits
 (`api/limits.py`). In the Docker edition the analysis service has no network; the
