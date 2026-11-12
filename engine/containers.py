@@ -94,7 +94,14 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
     """Unpack, scan every member through the pipeline, record result + signals."""
     member_results: List[Dict] = []
     skipped_for_budget = 0
+    # H6 (b): in a worker, the outer file's findings are reported as they are made
+    listener = getattr(scanner, "member_listener", None) if ctx.depth == 0 else None
     with handler.open(scanner, ctx.path) as view:
+        if listener is not None:
+            try:
+                listener("container", handler.signal_key, handler.signals(view.as_dict()))
+            except Exception as e:
+                logger.debug("container evidence not reported: %s", e)
         if ctx.depth < scanner.max_nesting:
             budget = handler.budget(scanner)
             with handler.member_context(scanner, view):
@@ -111,6 +118,8 @@ def scan_container(scanner: RansomwareScanner, handler: ContainerHandler,
                             PARTIAL, display_name, handler.result_key,
                             f"member scan failed: {type(e).__name__}"))
                         continue
+                    if listener is not None:
+                        listener("member", handler.signal_key, member_results[-1])
                     ctx.member_reasons.extend(member_results[-1].get("incomplete_reasons") or [])
                     ctx.member_shared.extend(
                         dict(s, member_path=s.get("member_path") or display_name)

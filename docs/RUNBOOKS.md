@@ -41,7 +41,8 @@ and `docker compose run --rm --entrypoint python content RansomwareScanner.py --
 ## 2. Scans fail (worker timeout, crash, memory)
 
 **Notice.** `aegis_scan_failures_total` rises; results have `scan_status: failed`,
-verdict at least Medium (`scan_failed` indicator), and the reason `timed out after Ns`,
+verdict at least Medium (`scan_failed`), or higher when findings reported before the
+failure are kept (`scan_results.partial_evidence`), and the reason `timed out after Ns`,
 `the worker process died (exit code N)`, `MemoryError: the worker used N MB`, or
 `the worker sent an invalid reply (...)` (a malformed or oversized message; nothing in it is used).
 With a webhook or e-mail configured, each such file also sends a scan-failed notice

@@ -139,6 +139,6 @@ the source contains no raw bidirectional control characters.
 | Why not one ML model? | No labelled data for most file types; explainability matters to an analyst; ML is one capped layer. |
 | Why can't the LLM decide? | It reads attacker-controlled text. It is spotlighted, capped, and cannot clear technical findings. |
 | How do you avoid false positives on compressed files? | Randomness is only tested after the format signature is already missing. |
-| What if a parser hangs? | Worker timeout → `scan_failed` (Medium), the scan continues. |
+| What if a parser hangs? | Worker timeout → `scan_failed` (Medium, or higher from the container findings and finished members kept in `partial_evidence`), the scan continues. |
 | How are weights justified? | Registry + regression corpus now; calibration from labelled data next. |
 | What does it not catch? | Run-time-only behaviour without the sandbox; detection rate on real samples is not yet measured. |

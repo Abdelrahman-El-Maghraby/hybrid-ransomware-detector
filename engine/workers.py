@@ -42,6 +42,7 @@ import ctypes
 import ctypes.util
 import json
 import logging
+import math
 import multiprocessing as mp
 import multiprocessing.connection
 import os
@@ -265,7 +266,13 @@ LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer
 # still pickles the paths it sends: the worker trusts its parent, not the reverse.
 MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
 MAX_ERROR_CHARS = 2000
-REPLY_KINDS = ("ready", "log", "ok", "error")
+REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member")
+# H6 (b): while the outer file is still being scanned, the worker reports its
+# container's own findings once the container is opened ("container") and each
+# direct member whose scan finished ("member"), so a time-out or a dead worker
+# does not lose them. Nothing else of the unfinished file is sent.
+MEMBER_CONTAINERS = ("archive", "mail", "web", "embedded")
+MAX_KEPT_MEMBERS = 10                   # highest-risk members kept per file
 # Record keys that would replace a LogRecord method (getMessage, ...) when replayed.
 _LOG_KEYS_REFUSED = frozenset(k for k in dir(logging.LogRecord)
                               if callable(getattr(logging.LogRecord, k)))
@@ -338,9 +345,75 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
                     k in _LOG_KEYS_REFUSED or k.startswith("__") for k in rec) or (
                     rec.get("args") is not None or rec.get("exc_info")):
                 raise InvalidReply("a log record that is not a plain record")
+    elif kind == "container":
+        if not (isinstance(payload, dict) and set(payload) == {"container", "signal"}
+                and payload["container"] in MEMBER_CONTAINERS
+                and isinstance(payload["signal"], dict)
+                and payload["signal"].get("worst") is None):
+            raise InvalidReply("a container report that is not {container, signal}")
+        try:
+            _signal_class(payload["container"])(**payload["signal"])
+        except (TypeError, ValueError):
+            raise InvalidReply("a container signal with unknown fields") from None
+    elif kind == "member":
+        if not (isinstance(payload, dict) and set(payload) == {"container", "result"}
+                and payload["container"] in MEMBER_CONTAINERS):
+            raise InvalidReply("a member report that is not {container, result}")
+        _check_result(payload["result"])
+        _check_contributions(payload["result"])
     else:
         _check_result(payload)
     return kind, payload
+
+
+def _check_contributions(result: Dict[str, Any]) -> None:
+    """A member's contributions are scored again in the parent (H6 b)."""
+    contribs = (result.get("score_breakdown") or {}).get("contributions", [])
+    if not isinstance(contribs, list) or len(contribs) > 200:
+        raise InvalidReply("member contributions that are not a list within the limit")
+    for c in contribs:
+        if not (isinstance(c, dict) and isinstance(c.get("indicator"), str)
+                and isinstance(c.get("category", "technical"), str)
+                and isinstance(c.get("detail", ""), str)
+                and isinstance(c.get("points", 0), (int, float))
+                and not isinstance(c.get("points", 0), bool)
+                and math.isfinite(c.get("points", 0))):
+            raise InvalidReply("a member contribution that is not plain")
+    if not math.isfinite(result["risk_score"]):
+        raise InvalidReply("a member risk score that is not finite")
+
+
+def _signal_class(container: str):
+    from detectors.signals import ArchiveSignal, EmbeddedSignal, MailSignal, WebSignal
+    return {"archive": ArchiveSignal, "mail": MailSignal, "web": WebSignal,
+            "embedded": EmbeddedSignal}[container]
+
+
+def container_evidence(container: str, signal: Any) -> Optional[Dict[str, Any]]:
+    """Worker side (H6 b): the container's own signal as its layer computed it from
+    the opened container, before any member is scanned (no worst member yet)."""
+    import dataclasses
+    if container not in MEMBER_CONTAINERS or not isinstance(signal, _signal_class(container)):
+        return None
+    data = dataclasses.asdict(signal)
+    data.pop("worst", None)
+    return {"container": container, "signal": data}
+
+
+def member_evidence(container: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Worker side (H6 b): the part of a finished member's result the parent keeps,
+    as the worker scored it; nothing is added."""
+    keep = ("file_path", "file_name", "verdict", "risk_score", "scan_status",
+            "md5_hash", "sha256_hash")
+    out = {k: result[k] for k in keep if k in result}
+    out["scan_results"] = {}
+    password = ((result.get("scan_results") or {}).get("archive") or {}).get("password_used")
+    if password:
+        out["scan_results"]["archive"] = {"password_used": password}
+    out["score_breakdown"] = {"contributions": [
+        {k: c.get(k) for k in ("indicator", "category", "points", "detail") if k in c}
+        for c in (result.get("score_breakdown") or {}).get("contributions") or []]}
+    return {"container": container, "result": out}
 
 
 def _check_result(result: Any) -> None:
@@ -460,6 +533,17 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
     scan_logger.addHandler(buffer)
     scan_logger.propagate = False
     scan_logger.setLevel(log_level)
+    def report_member(event: str, container: str, data: Any) -> None:
+        try:
+            if event == "container":
+                report = container_evidence(container, data)
+                if report is not None:
+                    send_reply(conn, "container", report)
+            else:
+                send_reply(conn, "member", member_evidence(container, data))
+        except Exception:
+            pass                             # never stop a scan over a progress report
+    _SCANNER.member_listener = report_member   # read by engine/containers.py
     try:
         send_reply(conn, "ready", None)
         _serve(_SCANNER, conn, buffer)
@@ -593,6 +677,7 @@ class _Worker:
         self.watched = 0.0
         self.ready = False
         self.retired = False                 # killed and not replaced (workers cannot start)
+        self.evidence = Evidence()           # H6 (b): members finished for self.path
 
     def kill(self) -> None:
         try:
@@ -611,7 +696,7 @@ class _Worker:
 
 
 def failure_result(scanner, path: str, reason: str, code: str = "",
-                   isolation: str = "worker") -> Dict:
+                   isolation: str = "worker", evidence: Optional[Evidence] = None) -> Dict:
     """A result for a file whose scan timed out or crashed the worker, or (code
     ISOLATION_UNAVAILABLE, isolation "unavailable") that was never scanned because
     no isolated worker could start. That file was not opened, so it gets no
@@ -628,7 +713,16 @@ def failure_result(scanner, path: str, reason: str, code: str = "",
     score = scanner.scoring.score({} if unscanned else {"scan_failed": reason})
     from api import SCHEMA_VERSION
     from engine.completeness import failed, verdict_label
-    status, reasons = failed(path, reason, "isolation" if unscanned else "worker")
+    from engine.containers import member_summary
+    kept = None if unscanned or evidence is None else evidence.score(scanner, path)
+    why = reason
+    if kept is not None and evidence is not None:   # H6 (b): findings made before the failure
+        if kept.risk_score > score.risk_score:
+            score = kept                      # the higher of the two (owner, 2026-11-12)
+        why = (f"{reason}; the findings made before the failure are kept (partial "
+               f"evidence: the container's own findings and {evidence.seen} member(s) "
+               f"scanned)")
+    status, reasons = failed(path, why, "isolation" if unscanned else "worker")
     failure: Dict[str, str] = {"reason": reason}
     if code:
         failure["code"] = code
@@ -639,7 +733,13 @@ def failure_result(scanner, path: str, reason: str, code: str = "",
         "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "engine_version": ENGINE_VERSION,
         "md5_hash": hashes.get("md5", ""), "sha256_hash": hashes.get("sha256", ""),
-        "scan_results": {"scan_failed": failure},
+        "scan_results": {"scan_failed": failure, **({"partial_evidence": {
+            "members_scanned": evidence.seen,
+            "containers": sorted(evidence.containers),
+            "indicators": [c.indicator for c in kept.contributions][:20],
+            "members": [dict(member_summary(r), container=c)
+                        for c, r in evidence.findings()]}}
+            if kept is not None and evidence is not None else {})},
         "is_malicious": score.is_malicious, "severity_score": score.severity_score,
         "risk_score": score.risk_score, "verdict": score.verdict,
         "score_breakdown": score.as_dict(),
@@ -651,6 +751,54 @@ def failure_result(scanner, path: str, reason: str, code: str = "",
     }
     result["verdict_label"] = verdict_label(result)
     return result
+
+
+class Evidence:
+    """H6 (b): what a worker reported for the file it is scanning before it
+    finished: the container's own signal and its direct members that finished
+    (how many, and the highest-risk ones, at most MAX_KEPT_MEMBERS)."""
+
+    def __init__(self) -> None:
+        self.seen = 0
+        self.containers: Dict[str, Dict[str, Any]] = {}
+        self.kept: List[Tuple[str, Dict[str, Any]]] = []
+
+    def add_container(self, report: Dict[str, Any]) -> None:
+        self.containers[report["container"]] = report["signal"]
+
+    def add(self, report: Dict[str, Any]) -> None:
+        self.seen += 1
+        self.kept.append((report["container"], report["result"]))
+        self.kept.sort(key=lambda e: -float(e[1]["risk_score"]))
+        del self.kept[MAX_KEPT_MEMBERS:]
+
+    def findings(self) -> List[Tuple[str, Dict[str, Any]]]:
+        """Members with findings, highest risk first."""
+        return [e for e in self.kept if float(e[1]["risk_score"]) > 0]
+
+    def score(self, scanner, path: str):
+        """The score the container layer would give from this evidence alone: each
+        container's own signal with its worst finished member (WorstMember), as
+        engine/containers.py builds it. None when that finds nothing (or fails)."""
+        from detectors.signals import Signals, WorstMember
+        kinds = set(self.containers) | {c for c, _ in self.kept}
+        if not kinds:
+            return None
+        signals: Dict[str, Any] = {}
+        try:
+            for kind in kinds:
+                worst = next((r for c, r in self.findings() if c == kind), None)
+                member = None if worst is None else WorstMember(
+                    name=str(worst.get("file_name") or os.path.basename(path)),
+                    contributions=list((worst.get("score_breakdown") or {})
+                                       .get("contributions") or []))
+                signals[kind] = _signal_class(kind)(**self.containers.get(kind, {}),
+                                                    worst=member)
+            result = scanner.scoring.score(Signals(**signals))
+        except Exception as e:               # a forged signal must not break the failure path
+            logger.warning("Partial evidence of %s could not be scored: %s", path, e)
+            return None
+        return result if result.risk_score > 0 else None
 
 
 def start_worker(scanner, memory_mb: int) -> _Worker:
@@ -794,13 +942,17 @@ class _IsolatedScan:
             w.ready = True
             METRICS.worker_start(True, time.monotonic() - w.created)
             return True
+        if kind in ("container", "member"):
+            if w.path is not None:
+                (w.evidence.add_container if kind == "container" else w.evidence.add)(payload)
+            return True
         if kind in ("ok", "error"):
             path, w.path = w.path, None
             if path is not None:
                 if kind == "ok" and isinstance(payload, dict):
                     self._finish(path, payload)
                 else:
-                    self._fail(path, payload or "scan error")
+                    self._fail(path, payload or "scan error", w.evidence)
             return True
         invalid = kind == "invalid"
         dead = (invalid or kind == "dead" or not w.proc.is_alive()
@@ -821,7 +973,7 @@ class _IsolatedScan:
                 reason = f"timed out after {int(self.timeout)}s"
             else:
                 reason = f"the worker process died (exit code {w.proc.exitcode})"
-            self._fail(path, reason)
+            self._fail(path, reason, w.evidence)
         return self._replace(i)
 
     def _over_memory(self, w: _Worker) -> int:
@@ -838,6 +990,7 @@ class _IsolatedScan:
     # ---------------------------------------------------------------- helpers
     def _dispatch(self, w: _Worker) -> None:
         w.path, w.started = self.pending.pop(0), time.monotonic()
+        w.evidence = Evidence()
         try:
             w.parent.send(w.path)
         except Exception:
@@ -861,9 +1014,9 @@ class _IsolatedScan:
         self.done += 1
         self.on_result(self.done, path, result)
 
-    def _fail(self, path: str, reason: str) -> None:
+    def _fail(self, path: str, reason: str, evidence: Optional[Evidence] = None) -> None:
         logger.warning("Scan of %s failed: %s", path, reason)
-        self._finish(path, failure_result(self.scanner, path, reason))
+        self._finish(path, failure_result(self.scanner, path, reason, evidence=evidence))
 
     def _start(self) -> Optional[_Worker]:
         try:

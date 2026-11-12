@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core import (
     CanaryManager,
@@ -74,6 +74,11 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     folders and runs scans. Running the pipeline (engine/staging.py), host
     protection (engine/protection.py), reports, external lookups and text
     extraction come from mixins."""
+
+    # H6 (b): set in an isolated worker; called by engine/containers.py for the
+    # outer file with ("container", kind, its own signal) once a container is
+    # opened and ("member", kind, result) for each direct member that finished.
+    member_listener: Optional[Callable[[str, str, Any], None]] = None
 
     @property
     def last_not_scanned(self) -> int:
