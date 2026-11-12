@@ -59,7 +59,7 @@ _EXTERNAL_RESULTS = (("llm", "chatgpt_analysis"), ("virustotal", "virustotal"),
 _CONTAINER_RESULTS = ("archive", "mail", "web", "embedded")
 # core layers that report "could not analyse" as data (an `error` field)
 _ANALYSIS_RESULTS = (("yara", "yara"), ("macro", "macro_analysis"),
-                     ("relationships", "relationships"))
+                     ("relationships", "relationships"), ("qr", "qr_codes"))
 
 Reason = Dict[str, str]
 

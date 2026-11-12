@@ -350,7 +350,7 @@ class QRLayer(Layer):
                 or not scanner.qr_scanner.applies(ctx.path)):
             return
         res = scanner.qr_scanner.analyze_file(ctx.path)
-        if res.available and not res.images_checked:
+        if res.available and not (res.images_checked or res.not_checked or res.error):
             return                      # nothing that could hold a QR code
         ctx.scan_results["qr_codes"] = res.as_dict()
         ctx.signals.qr = QrSignal(
