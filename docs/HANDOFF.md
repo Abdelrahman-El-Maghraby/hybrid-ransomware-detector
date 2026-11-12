@@ -1400,10 +1400,10 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | H6 (b), M18, M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | H6 (b), M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D20, D22, D23, D26, the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
@@ -1461,12 +1461,76 @@ tests are not counted as passed.
 - Not verified here: delivery to a real webhook receiver or SMTP server, the
   notice through the Docker intel service, and Windows worker deaths.
 
+### Group 29: M18, checked JSON replies from workers (owner-approved 2026-11-12)
+
+- Owner decision: M18 only. H6 (b) and the other owner items are unchanged.
+- **Protocol before.** Worker to parent: `("ready", None)`, `("log", [records])`
+  before each result, then `("ok", result)` or `("error", text)`, all through
+  `Connection.send`, so the parent unpickled them (`wait_ready` and
+  `_IsolatedScan._receive`). Time-outs, the memory limit and worker death are
+  noticed by the parent (no message); a closed pipe reads as a dead worker.
+- **Protocol now** (`engine/workers.py`):
+  - `send_reply()` (worker): JSON bytes through `send_bytes`. Values JSON
+    cannot hold are sent as text (`default=str`, as the JSON Lines output);
+    a result over the limit is sent as an error, log records over it are
+    dropped (a file never loses its result over its log lines).
+  - `read_reply()` (parent): `recv_bytes(MAX_REPLY_BYTES)` (16 MiB; a longer
+    message is refused before its body is read), UTF-8, `json.loads`, then
+    `check_reply()`. Nothing is unpickled.
+  - `check_reply()`: a `[kind, payload]` pair of a known kind; `ready` with no
+    payload; `error` as text, cut to 2,000 characters; `log` a list of at most
+    201 plain records (no key that names a LogRecord method or starts with
+    `__`, no `args` or `exc_info`); `ok` an object with `file_path`, `verdict`
+    (one of the five), `risk_score` (a number, not a bool), `scan_status` (one
+    of the five) and `scan_results`, and the right types for the other fields
+    the parent and the outputs read.
+  - An invalid message fails that file as `scan_failed` with "the worker sent
+    an invalid reply (...) and was stopped; nothing in it was used", and the
+    worker is replaced, as for a dead worker. Before the first `ready` it is a
+    failed start. Metrics count it as `error`; the H6 (a) notice names it
+    `scan_error`.
+  - Unchanged: the parent still pickles the paths it sends (the worker trusts
+    its parent); results, errors, log replay, time-outs, the memory limit,
+    worker death and the result schema. A 500-member archive's result is about
+    50 KB and round-trips through JSON unchanged (probe).
+- **Review check 3** (the pickle that runs code in the receiver), before and
+  after: `('ok', None) | code ran in the receiver: True`, then `('invalid',
+  'not JSON (UnicodeDecodeError)') | code ran in the receiver: False`.
+- **Tests.** `tests/test_worker_reply_protocol.py` (31): a pickle with
+  `__reduce__` is refused and never loaded; an oversized message is refused
+  before reading; 23 malformed or unexpected shapes; valid `ready`, `log`, `ok`
+  and `error` round-trip (with a non-UTF-8 file name); long errors are cut; the
+  worker's own size handling; non-JSON values; an invalid first message is a
+  failed start; and real isolated workers (`tests/worker_fakes.py`: `evil*`
+  writes a crafted pickle, `huge*` a message over the limit) fail only their
+  own file, run no code in the parent, and the scan continues.
+  `tests/test_worker_limits.py`: the stand-in pipe takes JSON bytes now (the
+  assertions are unchanged).
+- **Docs.** THREAT_MODEL section 10 (residual), DEPLOYMENT (why no network),
+  RUNBOOKS section 2 (the new failure text). The pool is still described as
+  not a full security boundary: worker and parent run as the same user.
+- **Checks.** Worker, isolation, log, partial-evidence, folder-monitor, scan
+  status, outputs, failed-scan, metrics, regression-corpus and scanner
+  suites: 223 passed, 3 skipped, 1 deselected (runaway memory); after the log
+  record check was tightened, the worker suites again: 90 passed, 3 skipped,
+  1 deselected. ruff, mypy (68 files) and bandit (`-ll`) clean. pip-audit not
+  run: no dependency changed.
+- **Full safe run at `34c5e76`** (clean worktree, the command of the
+  `04f396e` run): **1,565 passed, 0 failed, 23 skipped, 4 deselected, 13
+  warnings**, 314 s; 0 "unclosed database"; `test_smoke.py`: "ALL SMOKE TESTS
+  PASSED". Skipped and deselected tests are not counted as passed. (A first
+  launch did not run: the shell did not split the command variable; it was
+  rerun with the command written out.)
+- Not verified here: Windows pipes (`PipeConnection`, the same
+  `recv_bytes` limit by the standard library's code), Linux and the Docker
+  API service under load.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
 PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
 in 33.7 and must be obtained before the OWNER items:
-- H6 (b) and M18's direction (H6 (a) done, group 28)
+- H6 (b) (H6 (a) done, group 28; M18 done, group 29)
 - M23, M24, M25, M30, M31
 - L-D5, L-C7, L-D8
 - the M26 wait cap and the M27 empty-key rule
