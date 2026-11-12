@@ -83,3 +83,37 @@ def test_hostile_xml_does_not_crash(tmp_path):
 
 def test_defang():
     assert defang("http://evil.example.com/a.dotm") == "hxxp://evil.example[.]com/a.dotm"
+
+
+def test_a_broken_part_keeps_the_findings_of_the_others(tmp_path):
+    """M31 (owner-approved 2026-11-12, the M13 (b) rule): one malformed .rels part,
+    in an order the attacker chooses, dropped what the other parts found and the
+    file read Clean (partial). The findings stay; the broken part is named."""
+    base = make_docx(tmp_path / "base.docx")
+    p = rewrite_zip(base, tmp_path / "bad.docx", {
+        "word/_rels/settings.xml.rels": rels_xml(
+            rel("rId1", "attachedTemplate", "http://203.0.113.5/t.dotm")),
+        "zz/_rels/x.xml.rels": b"<Relationships"})
+    res = S.scan_file(p)
+    assert res.kinds == ["remote_template"] and res.checked
+    assert "zz/_rels/x.xml.rels" in res.error
+    assert res.as_dict()["error"] and "error" in res.detail.lower()
+
+
+def test_a_broken_part_makes_the_scan_partial_and_keeps_the_verdict(tmp_path):
+    """Check 23 end to end: High 70 complete, and with the broken part High 70 partial
+    (it read Clean 0 partial before)."""
+    import RansomwareScanner as RS
+    from tests.test_scanner_integration import _config
+    s = RS.RansomwareScanner(_config(tmp_path, isolate_scans=False))
+    base = make_docx(tmp_path / "base.docx")
+    good = {"word/_rels/settings.xml.rels": rels_xml(
+        rel("rId1", "attachedTemplate", "http://203.0.113.5/t.dotm"))}
+    one = s.scan_file(str(rewrite_zip(base, tmp_path / "scan" / "remote.docx", good)))
+    two = s.scan_file(str(rewrite_zip(base, tmp_path / "scan" / "remote_bad.docx",
+                                      dict(good, **{"zz/_rels/x.xml.rels": b"<Relationships"}))))
+    assert (one["verdict"], one["risk_score"], one["scan_status"]) == ("High", 70, "complete")
+    assert (two["verdict"], two["risk_score"], two["scan_status"]) == ("High", 70, "partial")
+    assert "external_relationship" in [c["indicator"]
+                                       for c in two["score_breakdown"]["contributions"]]
+    assert any("zz/_rels/x.xml.rels" in g["reason"] for g in two["incomplete_reasons"])

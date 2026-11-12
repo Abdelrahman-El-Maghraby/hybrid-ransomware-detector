@@ -132,6 +132,7 @@ class RelationshipScanner:
             return RelationshipResult(checked=False, detail="Not a ZIP-based Office file.")
         findings: List[RelationshipFinding] = []
         skipped: List[str] = []
+        broken: List[str] = []
         with zipfile.ZipFile(path) as zf:
             for info in zf.infolist():
                 if not info.filename.lower().endswith(".rels"):
@@ -140,7 +141,12 @@ class RelationshipScanner:
                     logger.debug("Skipping oversized rels part %s", info.filename)
                     skipped.append(info.filename)
                     continue
-                root = _DET.fromstring(zf.read(info))
+                try:                          # M31: one broken part loses only itself
+                    root = _DET.fromstring(zf.read(info))
+                except Exception as e:
+                    logger.debug("Relationship part %s not parsed: %s", info.filename, e)
+                    broken.append(f"{info.filename} ({type(e).__name__})")
+                    continue
                 for rel in root.iter():
                     if not str(rel.tag).endswith("Relationship"):
                         continue
@@ -150,6 +156,13 @@ class RelationshipScanner:
                     if finding is not None:
                         findings.append(finding)
         result = self._result(findings)
+        if broken:
+            # The links in a part that could not be parsed are unknown (partial);
+            # what the other parts found is kept (M31, as M13 (b)).
+            shown = ", ".join(broken[:3]) + (f" and {len(broken) - 3} more"
+                                             if len(broken) > 3 else "")
+            result.error = f"{len(broken)} relationship part(s) not parsed: {shown}"[:300]
+            result.detail = f"{result.detail} Parse error in {shown}."
         if skipped:
             # The links in a skipped part are unknown: say so (scan_status partial)
             # instead of reporting "no external relationships".
