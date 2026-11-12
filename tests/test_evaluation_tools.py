@@ -4,6 +4,7 @@ calibration / test split or of a cross-validation fold, and incomplete scans and
 errors are visible. Synthetic files only (nothing here is malware)."""
 
 import csv
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -12,6 +13,16 @@ import pytest
 
 from tests.helpers import make_pe
 from tools import splits as S
+
+
+@pytest.fixture(autouse=True)
+def _logging_restored():
+    """I-T1 (owner-approved 2026-11-12): evaluate.main() and _init_worker() run
+    in this process here and call logging.disable(CRITICAL), as a pool worker
+    should. Without this, every later test in the run had logging switched off."""
+    level = logging.root.manager.disable
+    yield
+    logging.disable(level)
 
 
 def test_split_is_deterministic_and_keeps_families_together():
@@ -170,8 +181,6 @@ def test_the_tools_never_submit_to_a_sandbox(monkeypatch):
     """L-C4: evaluate.py and calibrate_weights.py had switches for VirusTotal and
     the LLM but none for the sandbox, so a configured SANDBOX_URL received every
     evaluation sample."""
-    import logging
-
     from engine import config
     from tools import calibrate_weights as CW
     from tools import evaluate as E
@@ -180,9 +189,6 @@ def test_the_tools_never_submit_to_a_sandbox(monkeypatch):
     for name in ("CACHE_ENABLED", "LLM_PROVIDER", "VIRUSTOTAL_API_KEY", "SANDBOX_URL"):
         monkeypatch.setenv(name, os.environ.get(name, ""))   # restored after the test
     monkeypatch.setattr(E, "_scanner", None)
-    try:
-        E._init_worker(False, False)                      # builds the pool worker's scanner
-        assert E._scanner.sandbox is None
-    finally:
-        logging.disable(logging.NOTSET)                   # _init_worker silences logging (I-T1)
+    E._init_worker(False, False)                          # builds the pool worker's scanner
+    assert E._scanner.sandbox is None
     assert CW._scanner().sandbox is None
