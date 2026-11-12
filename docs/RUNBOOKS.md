@@ -104,6 +104,9 @@ version, SHA-256).
 * `rulepack_untrusted` in the log: the active pack's signing key was removed from
   `RULEPACK_PUBLIC_KEYS`; the bundled rules are in use until a pack signed by a trusted
   key is installed.
+* `rulepack_no_key` in the log: a pack is installed but `RULEPACK_PUBLIC_KEYS` is
+  empty, so the bundled rules are in use (M27). Set the key that signed the pack
+  (in Docker, in the `.env` next to `docker-compose.yml`) and restart.
 
 ## 5. An update failed
 

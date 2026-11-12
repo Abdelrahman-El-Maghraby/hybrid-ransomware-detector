@@ -47,13 +47,14 @@ def test_round_trip_and_install(tmp_path, keys):
     checked = verify_pack(pack, [keys[1]])
     assert checked["manifest"]["version"] == "2026.10.21" and "rules/pack.yar" in checked["files"]
     info = install_pack(pack, tmp_path / "data", [keys[1]], "4.4.0-beta.2")
-    assert active_pack(tmp_path / "data")["version"] == info["version"]
+    assert active_pack(tmp_path / "data", [keys[1]])["version"] == info["version"]
     assert (Path(info["path"]) / "rules" / "pack.yar").is_file()
 
 
 def test_scanner_uses_the_installed_pack(tmp_path, keys):
     install_pack(make_pack(tmp_path, keys), tmp_path / "data", [keys[1]], "4.4.0")
-    cfg = _config(tmp_path, data_dir=str(tmp_path / "data"))
+    cfg = _config(tmp_path, data_dir=str(tmp_path / "data"),
+                  rulepack_public_keys=[keys[1]])                  # M27: the key is needed
     s = RS.RansomwareScanner(cfg)
     p = tmp_path / "scan" / "notes.txt"
     p.write_text("hello AEGIS-PACK-TEST-MARKER")
@@ -121,7 +122,7 @@ def test_versions_are_monotonic_and_older_content_is_never_installed(tmp_path, k
         install_pack(make_pack(tmp_path, keys, "2026.10.21"), tmp_path / "data", [keys[1]], "4.4.0")
     with pytest.raises(RulePackError, match="signed rollback"):
         install_pack(old, tmp_path / "data", [keys[1]], "4.4.0", allow_downgrade=True)
-    assert active_pack(tmp_path / "data")["version"] == "2026.10.21"
+    assert active_pack(tmp_path / "data", [keys[1]])["version"] == "2026.10.21"
 
 
 def test_a_signed_rollback_restores_the_previous_rules(tmp_path, keys):
@@ -309,7 +310,7 @@ def test_active_record_is_replaced_atomically(tmp_path, keys, monkeypatch):
     root = data / "rulepacks"
     assert replaced == [(root / ".active.json.tmp", root / "active.json")]
     assert not (root / ".active.json.tmp").exists()
-    assert active_pack(data)["version"] == "2026.10.22"
+    assert active_pack(data, [keys[1]])["version"] == "2026.10.22"
 
 
 def test_an_interrupted_record_write_keeps_the_previous_pack(tmp_path, keys, monkeypatch):
@@ -322,7 +323,7 @@ def test_an_interrupted_record_write_keeps_the_previous_pack(tmp_path, keys, mon
     monkeypatch.setattr(rp.os, "replace", crash)
     with pytest.raises(OSError):
         install_pack(make_pack(tmp_path, keys, "2026.10.22"), data, [keys[1]], "4.4.0")
-    assert active_pack(data)["version"] == "2026.10.21"
+    assert active_pack(data, [keys[1]])["version"] == "2026.10.21"
 
 
 @pytest.mark.parametrize("content", ["{not json", json.dumps({"version": "1"}), ""])
@@ -348,3 +349,26 @@ def test_no_record_means_no_pack_and_no_warning(tmp_path, caplog):
     with caplog.at_level("WARNING", logger="RansomwareScanner"):
         assert active_pack(tmp_path / "data") is None
     assert not caplog.records
+
+
+def test_with_no_key_configured_a_signed_pack_is_not_used(tmp_path, keys, caplog):
+    """M27 (owner-approved 2026-11-12), check 13 of the review: removing the only
+    key used to leave the pack it signed in use. Now the bundled rules are used,
+    with a warning, until a key is configured again."""
+    data = tmp_path / "data"
+    install_pack(make_pack(tmp_path, keys), data, [keys[1]], "4.4.0")
+    assert active_pack(data, [keys[1]])["version"] == "2026.10.21"
+    with caplog.at_level("WARNING", logger="RansomwareScanner"):
+        assert active_pack(data, []) is None and active_pack(data) is None
+    assert [r.event for r in caplog.records if hasattr(r, "event")] == ["rulepack_no_key"] * 2
+    scanner = RS.RansomwareScanner(_config(tmp_path, data_dir=str(data), rulepack_public_keys=[]))
+    assert scanner.rulepack is None and scanner.provenance["rules"]["source"] != "rule pack"
+    assert active_pack(data, [keys[1]])["version"] == "2026.10.21"     # the key back: in use
+
+
+def test_with_no_key_a_pack_from_before_the_signer_was_recorded_stays(tmp_path, keys):
+    info = install_pack(make_pack(tmp_path, keys), tmp_path / "data", [keys[1]], "4.4.0")
+    active = tmp_path / "data" / "rulepacks" / "active.json"
+    legacy = {k: v for k, v in json.loads(active.read_text()).items() if k != "signer"}
+    active.write_text(json.dumps(legacy))
+    assert active_pack(tmp_path / "data", [])["version"] == info["version"]

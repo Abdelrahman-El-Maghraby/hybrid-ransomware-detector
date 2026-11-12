@@ -23,8 +23,9 @@ whole archive (`<pack>.sig`). The scanner installs a pack only if
 Installed packs live in DATA_DIR/rulepacks/<version>/; `active.json` points at
 the one in use and records the key that signed it. A pack whose signing key is
 no longer trusted (removed from RULEPACK_PUBLIC_KEYS after a key compromise) is
-not used, and does not block installing a pack signed by a trusted key.
-See docs/RULE_PACKS.md.
+not used, and does not block installing a pack signed by a trusted key. With
+no key configured at all, a pack that records its signer is not used either
+(M27). See docs/RULE_PACKS.md.
 """
 
 from __future__ import annotations
@@ -231,10 +232,12 @@ def verify_pack(pack: PathLike, public_keys: Iterable[str],
 
 
 def active_pack(data_dir: PathLike, public_keys: Optional[Iterable[str]] = None) -> Optional[Dict]:
-    """The installed pack in use, or None. With `public_keys`, a pack whose signing
-    key is no longer among them is not used (key compromise: remove the key and
-    the content it signed is dropped at once). Packs installed before 4.7 did not
-    record their signer and are kept."""
+    """The installed pack in use, or None. A pack whose signing key is not among
+    `public_keys` is not used (key compromise: remove the key and the content it
+    signed is dropped at once). M27 (owner-approved 2026-11-12): that holds when
+    no key is configured at all, too; the bundled rules are used instead and a
+    warning is logged. Packs installed before 4.7 did not record their signer
+    and are kept."""
     f = Path(data_dir) / "rulepacks" / "active.json"
     if not f.exists():
         return None                                     # no pack installed
@@ -251,7 +254,13 @@ def active_pack(data_dir: PathLike, public_keys: Optional[Iterable[str]] = None)
         return None
     keys = [k for k in (public_keys or []) if str(k).strip()]
     signer = info.get("signer")
-    if keys and signer and signer not in trusted_fingerprints(keys):
+    if signer and not keys:
+        logger.warning("Rule pack %s was signed by key %s, but no key is configured "
+                       "(RULEPACK_PUBLIC_KEYS): not used (bundled rules instead). Set the "
+                       "key again to use the pack.", info.get("version"), signer,
+                       extra={"event": "rulepack_no_key"})
+        return None
+    if signer and signer not in trusted_fingerprints(keys):
         logger.warning("Rule pack %s was signed by key %s, which is no longer trusted: not "
                        "used (bundled rules instead).", info.get("version"), signer,
                        extra={"event": "rulepack_untrusted"})

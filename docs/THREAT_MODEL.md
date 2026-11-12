@@ -143,8 +143,8 @@ covers part of this; without it, this is the largest gap.
   records its signing key: removing a compromised key from RULEPACK_PUBLIC_KEYS
   stops the content it signed from being used and lets a pack signed by the new
   key install, even if the attacker published a huge version (`docs/RULE_PACKS.md`).
-  This holds only while another key stays configured: with no key configured, the
-  signer of the active pack is not checked (M27, an owner decision).
+  This also holds when no key is configured: a pack that records its signer is
+  then not used, and the bundled rules are (M27).
 - The allowlist holds **SHA-256 hashes** only (no names, paths or wildcards), so an
   attacker cannot reuse an entry without a byte-identical file; a hash in the
   malware database still wins.
