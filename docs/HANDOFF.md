@@ -1400,10 +1400,10 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`) |
-| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32) |
+| Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M19, M23, M24, M25, M29, M30, M31, M32, S-Y1 to S-Y4, L-L1, L-C7, L-D2, L-D5, L-D8, L-E12, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D11, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
+| Owner decision | M19, M24, M25, M29, M30, M32, S-Y1 to S-Y4, L-L1, the M26 wait cap (I-6), the M27 empty-key rule, L-A2, the L-B2 lock choice, M4, M15 packaging, H-04+, I-T1, D22, D23, D26, the Starlette `httpx` deprecation (dependency), the I-1 to I-4 and I-6 proposals, exit code 2, IMAP fetch retry, the unhashed `pip install --upgrade pip` |
 | Real-environment check needed | CI (nothing since `3e5a3f2`); Docker (deployment check, M27 signed pack, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
@@ -1636,6 +1636,92 @@ tests are not counted as passed.
   `04f396e` run): **1,588 passed, 0 failed, 23 skipped, 4 deselected, 1
   warning** (the Starlette one), 327 s; 0 "unclosed database";
   `test_smoke.py`: "ALL SMOKE TESTS PASSED". ruff clean.
+
+### Group 32: M31, M23, L-E12 and the partial-status items (owner-approved 2026-11-12)
+
+Each item: current behaviour confirmed by a test that failed first, the
+smallest fix, focused tests on benign synthetic files, ruff and mypy.
+
+- **M31** (`c825986`, `detectors/relationship_scanner.py`). Each `.rels`
+  part is parsed on its own; a part that cannot be parsed is named in the
+  result's `error` (partial) and `detail`, and the other parts' findings are
+  kept, as M13 (b). Check 23: High 70 complete; with the broken part High 70
+  partial (was Clean 0 partial). Tests: 2 (both failed before);
+  relationship, partial-evidence and scan-status tests 66 passed.
+- **M23 and D11** (`eccdde4`, `detectors/pe_analysis.py`). The security
+  directory counts as a signature only when it sits after the sections, ends
+  the file and starts with a plausible WIN_CERTIFICATE header (length,
+  revision 1.0 or 2.0, type 1 to 4, DER sequence byte); its bytes are searched
+  for a program either way. Check 4: `make_pe(cert=make_pe())` keeps
+  `pe_overlay_executable` (Medium 25, was Clean 0); a well-formed stub keeps
+  the signed result (Clean, no overlay, unsigned-imports check off). Three
+  existing tests used a zeroed fake header for "signed"; they use a
+  well-formed stub now. README states what presence changes (D11). Tests: 7
+  new (6 failed before); PE and regression-corpus tests 75 passed.
+- **L-E12** (`9b0af65`, `detectors/file_integrity.py`). `RANSOM_NOTE_RE` is
+  checked from the old pattern's parts in linear time, keeping
+  `.search(name)` for its callers. The old pattern is the reference in
+  `tests/test_ransom_note_name_linear.py`: 41 known names and 40,000 random
+  names built from its words match the same (including Unicode case folding,
+  Kelvin sign and long s, and `$` before a final newline); 80 KB names run
+  under 0.2 s (was 2.2 s). The regex guard's L-E12 exemption is removed, so
+  the new parts are guarded. Detection unchanged.
+- **L-D2** (`dda5936`, `detectors/macos_packages.py`,
+  `detectors/container_extractor.py`). `bounded_decompress` checks the
+  decompressor's `eof` and raises `Truncated` (a `FormatError`) carrying the
+  partial output; a pbzx stream keeps the chunks before a cut one;
+  `read_cpio` raises `FormatError` at the end when there is no `TRAILER!!!`,
+  after yielding the entries before it. A package entry or Scripts/Payload
+  stream cut short keeps the files read (scanned as usual) and adds a
+  `<name> (cut short)` member, so the scan is partial ("not unpacked: cut
+  short: N file(s) read before the cut"). Before, a cut payload lost every
+  file already read, and a payload without a trailer read complete. A file
+  past the cut loses its findings (as it must). Tests: 9 (all failed
+  before); macOS package, archive and scan-status tests 116 passed.
+- **L-D5** (`a8b1e03`). Emulation results carry `status` `timeout` or
+  `error` (no results, over 2 MB), which the completeness check already reads
+  as partial. The QR layer names what its limits leave out in
+  `qr_codes.not_checked` (image over the byte or pixel limit, images over the
+  image limit, PDF pages over the page limit, unreadable page images) and an
+  `error` when a real PDF's images cannot be read; `qr_codes` is recorded
+  then even with no image decoded and joins `_ANALYSIS_RESULTS`. A program
+  merely named `.pdf` stays complete (A2: the QR layer skips content without
+  a `%PDF` header; first found by two scan-status tests failing). Tests: 7
+  (all failed before).
+- **L-D8** (`3fd0164`, `detectors/prompt_guard.py`). A cell left unread past
+  200,000 and PDF pages over 50 are named in `prompt_guard.not_checked`
+  (with oversized XML parts), which already makes the scan partial. Limits
+  unchanged. Tests: 3 (all failed before, with lowered limits); hidden
+  content tests 94 passed.
+- **L-C7** (`7e5f4a6`, `core/mailbox.py`). A message cut at `IMAP_MAX_MB`
+  (no `RFC822.SIZE` answer) is scanned as before, but its result is partial
+  with a `mailbox` reason, `mailbox.truncated` is set and the verdict label
+  shows the partial scan; findings in the part read are kept. The whole
+  message is still read into memory before the cut (imaplib); not changed.
+  Test: 1 (failed before); mailbox and scan-status tests 34 passed.
+- **No change** to scores, weights, thresholds or verdict rules: M23 and M31
+  recover findings that were dropped, as approved; the other items change
+  `scan_status` only.
+- **Full safe run at `7e5f4a6`** (clean worktree, the command of the
+  `04f396e` run, plus `-rs` for skip reasons): **1,620 passed, 0 failed, 23
+  skipped, 4 deselected, 1 warning**, 326 s; 0 "unclosed database";
+  `test_smoke.py`: "ALL SMOKE TESTS PASSED". Skipped and deselected tests are
+  not counted as passed.
+  - Skipped (23):
+    - 7-Zip not installed: 12 (DMG streaming 8, macOS packages 4);
+    - no RAR tool that decrypts: 3;
+    - GUI opt-in (no display): 1;
+    - Windows only (Restart Manager, real Job Object): 2;
+    - Linux only (`/proc`): 1;
+    - libproc check: 1;
+    - no system ELF binary: 1;
+    - box-js not installed: 1;
+    - OpenCV not installed: 1.
+  - Deselected (4): the runaway-memory test and the three intel socket
+    tests.
+  - Warning (1): the Starlette `httpx` deprecation (third party).
+- Not verified here: real Office, PE, package and mailbox samples; 7-Zip,
+  box-js and OpenCV paths (skipped); Windows and Linux.
 
 ## Exact next action
 
