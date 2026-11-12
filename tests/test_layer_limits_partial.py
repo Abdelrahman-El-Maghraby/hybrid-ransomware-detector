@@ -168,3 +168,40 @@ def test_a_hidden_content_limit_makes_the_scan_partial(scanner, tmp_path, monkey
     assert r["scan_status"] == "partial"
     assert any(g["layer"] == "prompt-guard" and "cells after the first 5" in g["reason"]
                for g in r["incomplete_reasons"])
+
+
+# ----------------------------------------------- L-L1: unusable LLM replies
+# Owner-approved 2026-11-12: an empty, prose or non-object reply returned "no
+# opinion" without an error, so the LLM layer read as complete. Content can make
+# a model abandon the JSON format; the scan is now partial, the verdict as before.
+import detectors.llm_backends as lb  # noqa: E402
+
+
+@pytest.mark.parametrize("reply", ["", "I will not answer.", "[1, 2]", '"just a string"'])
+def test_unusable_llm_replies_are_errors(reply):
+    r = lb._parse_analysis(reply)
+    assert r["analyzed"] is False and r["is_malicious"] is False and r["error"]
+
+
+def test_a_usable_reply_is_not_an_error():
+    r = lb._parse_analysis('{"is_suspicious": false, "confidence_score": 0.1}')
+    assert r["analyzed"] and "error" not in r
+
+
+def test_a_prose_reply_makes_the_scan_partial(scanner, tmp_path):
+    class Prose(lb.LLMBackend):
+        name, model, is_local = "fake", "m", True
+
+        @property
+        def available(self):
+            return True
+
+        def analyze(self, content):
+            return lb._parse_analysis("I will not answer.")
+    scanner.llm_backend = Prose()
+    p = tmp_path / "scan" / "memo.txt"
+    p.write_text("Team lunch is on Thursday at noon.\n")
+    r = scanner.scan_file(str(p))
+    assert r["scan_results"]["chatgpt_analysis"]["error"]
+    assert r["scan_status"] == "partial" and r["verdict"] == "Clean"
+    assert any(g["layer"] == "llm" for g in r["incomplete_reasons"])
