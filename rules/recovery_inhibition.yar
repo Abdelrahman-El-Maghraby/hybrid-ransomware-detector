@@ -20,14 +20,21 @@ rule Ransomware_Shadow_Copy_Deletion
     strings:
         $vss1 = "vssadmin delete shadows"            nocase wide ascii
         $vss2 = "vssadmin.exe delete shadows"        nocase wide ascii
-        $vss3 = "vssadmin resize shadowstorage"      nocase wide ascii
+        // M29: resizing deletes copies only with a /maxsize= limit; the bare
+        // command (help, listing scripts) does not.
+        $vss3 = /vssadmin resize shadowstorage[^\r\n]{0,200}maxsize=/ nocase wide ascii
         $wmi1 = "shadowcopy delete"                  nocase wide ascii
-        $wmi2 = "Get-WmiObject Win32_Shadowcopy"     nocase wide ascii
-        $wmi3 = "Get-CimInstance Win32_ShadowCopy"   nocase wide ascii
         $wbad = "wbadmin delete catalog"             nocase wide ascii
         $wbs  = "wbadmin delete systemstatebackup"   nocase wide ascii
+        // M29: the WMI/CIM class names alone only list restore points; they
+        // count with a deletion verb.
+        $cls2 = "Get-WmiObject Win32_Shadowcopy"     nocase wide ascii
+        $cls3 = "Get-CimInstance Win32_ShadowCopy"   nocase wide ascii
+        $del1 = ".Delete("                           nocase wide ascii
+        $del2 = "Remove-WmiObject"                   nocase wide ascii
+        $del3 = "Remove-CimInstance"                 nocase wide ascii
     condition:
-        any of them
+        any of ($vss*, $wmi1, $wbad, $wbs) or (any of ($cls*) and any of ($del*))
 }
 
 rule Ransomware_Boot_Recovery_Tampering
