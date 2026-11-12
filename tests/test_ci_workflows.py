@@ -62,3 +62,22 @@ def test_every_release_install_is_hash_pinned():
     root = WF.parent.parent
     lock = (root / "requirements-sbom.lock").read_text(encoding="utf-8")
     assert "cyclonedx-bom==7.5.0" in lock and "--hash=sha256:" in lock
+
+
+def test_the_dependency_audit_also_runs_daily_and_reports_failures():
+    """I-3 (owner-approved 2026-11-12): the push-only audit missed advisories
+    published between runs. The scheduled run audits the same locks and opens
+    or updates an issue when it fails; only that job may write issues."""
+    wf = _load("dependency-audit.yml")
+    on = wf[True] if True in wf else wf["on"]           # YAML 1.1 reads `on` as True
+    assert on["schedule"][0]["cron"] and "workflow_dispatch" in on
+    assert wf["permissions"] == {"contents": "read"}
+    audit = _steps(wf["jobs"]["audit"])["Known vulnerabilities in the pinned dependencies"]["run"]
+    quality = _steps(_load("quality.yml")["jobs"]["dependency-audit"])[
+        "Known vulnerabilities in the pinned dependencies"]["run"]
+    assert audit == quality and "--require-hashes" in audit
+    report = wf["jobs"]["report"]
+    assert report["needs"] == "audit" and report["permissions"] == {"issues": "write"}
+    assert "failure()" in report["if"] and "schedule" in report["if"]
+    script = report["steps"][0]["run"]
+    assert "gh issue create" in script and "gh issue comment" in script
