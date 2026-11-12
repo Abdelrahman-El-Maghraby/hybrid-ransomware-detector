@@ -75,9 +75,11 @@ from core.tools import trusted_which
 from .macos_packages import (
     FS_IMAGE_SUFFIXES,
     BudgetExceeded,
+    CpioEntry,
     FormatError,
     SevenZipMember,
     TooManyEntries,
+    Truncated,
     dmg_kind,
     is_xar,
     read_cpio,
@@ -938,6 +940,9 @@ class ContainerExtractor:
             except BudgetExceeded:
                 self._too_large(shown, entry.size, res)
                 continue
+            except Truncated as e:                   # L-D2: keep what it held
+                self._cut_short(shown, f"{len(e.partial)} bytes read before the cut", res)
+                data = e.partial
             except Exception as e:
                 res.unreadable_members += 1
                 logger.debug("Package entry %s failed: %s", shown, e)
@@ -958,19 +963,31 @@ class ContainerExtractor:
                     res: ContainerResult, scripts: bool) -> None:
         """A component's Scripts or Payload: a compressed cpio archive."""
         budget = self.max_total_bytes - res.total_uncompressed
+        shown_stream = f"{display}!/{visible_name(stream)}"
+        cut = False
+        items: List[CpioEntry] = []
         try:
-            raw = stream_decompress(data, budget)
-            items = [c for c in read_cpio(raw, self.max_members) if c.is_file]
+            try:
+                raw = stream_decompress(data, budget)
+            except Truncated as e:                   # L-D2: a cut stream; keep what it held
+                raw, cut = e.partial, True
+            for c in read_cpio(raw, self.max_members):
+                if c.is_file:
+                    items.append(c)
         except TooManyEntries:
-            self._too_many(f"{display}!/{visible_name(stream)}", self.max_members + 1, res)
+            self._too_many(shown_stream, self.max_members + 1, res)
             return
         except BudgetExceeded:
-            self._too_large(f"{display}!/{visible_name(stream)}", len(data), res)
+            self._too_large(shown_stream, len(data), res)
             return
         except Exception as e:
-            res.unreadable_members += 1
             logger.debug("Package stream %s/%s unreadable: %s", display, stream, e)
-            return
+            if not items:
+                res.unreadable_members += 1
+                return
+            cut = True                               # members before the error are kept
+        if cut:
+            self._cut_short(shown_stream, f"{len(items)} file(s) read before the cut", res)
         if len(res.members) + len(items) > self.max_members:
             self._too_many(f"{display}!/{visible_name(stream)}", len(items), res)
             return
@@ -990,6 +1007,14 @@ class ContainerExtractor:
             res.total_uncompressed += len(item.data)
             member.extracted, member.path = True, str(target)
             self._finish(member, target, sandbox, depth, res)
+
+    @staticmethod
+    def _cut_short(shown: str, kept: str, res: ContainerResult) -> None:
+        """L-D2: a package stream or entry that ends early: what it held is scanned,
+        and it is listed as not fully unpacked (scan_status partial)."""
+        res.unreadable_members += 1
+        res.members.append(ArchiveMember(f"{shown} (cut short)",
+                                         skipped_reason=f"cut short: {kept}"))
 
     # ---------- macOS disk image (.dmg: UDIF -> HFS+/APFS, through 7-Zip)
     def _walk_dmg(self, archive: Path, display: str, sandbox: Path, depth: int,

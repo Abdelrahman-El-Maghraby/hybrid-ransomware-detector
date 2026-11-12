@@ -215,3 +215,100 @@ def test_cpio_invalid_numeric_fields_are_format_errors(magic, start, end, base, 
     data[start:end] = bad + b"0" * (end - start - 1)
     with pytest.raises(mp.FormatError, match="numeric"):
         list(mp.read_cpio(bytes(data)))
+
+
+# ------------------------------------------------------- L-D2: cut streams
+# Owner-approved 2026-11-12: a cut compressed stream and a cpio archive without
+# its TRAILER!!! record read as complete. What was read is kept and the scan is
+# partial. All inputs are synthetic and benign.
+import bz2  # noqa: E402
+import os  # noqa: E402
+import zlib  # noqa: E402
+
+
+@pytest.mark.parametrize("encoding,compress", [
+    ("application/x-gzip", lambda b: mp.gzip_bytes(b)),
+    ("zlib", zlib.compress),
+    ("application/x-bzip2", bz2.compress),
+    ("application/x-xz", lambda b: lzma.compress(b, format=lzma.FORMAT_XZ)),
+])
+def test_a_cut_stream_is_reported_with_what_it_held(encoding, compress):
+    data = os.urandom(3000) + b"x" * 4000
+    full = compress(data)
+    assert mp.bounded_decompress(full, encoding, 10_000) == data      # whole: as before
+    with pytest.raises(mp.Truncated) as cut:
+        mp.bounded_decompress(full[:len(full) * 3 // 4], encoding, 10_000)
+    assert data.startswith(cut.value.partial)
+    assert isinstance(cut.value, mp.FormatError)        # callers that catch it still do
+
+
+def test_a_cut_pbzx_chunk_keeps_the_chunks_before_it():
+    first, second = b"a" * 2000, os.urandom(2000)
+    c1 = lzma.compress(first, format=lzma.FORMAT_XZ)
+    c2 = lzma.compress(second, format=lzma.FORMAT_XZ)[:-40]
+    stream = (b"pbzx" + struct.pack(">Q", 1 << 24) + struct.pack(">QQ", 0, len(c1)) + c1
+              + struct.pack(">QQ", 0, len(c2)) + c2)
+    with pytest.raises(mp.Truncated) as cut:
+        mp.stream_decompress(stream, 10_000)
+    assert cut.value.partial.startswith(first)
+
+
+def test_a_cpio_archive_without_its_trailer_is_not_complete():
+    whole = cpio_odc([SCRIPT, APP_FILE])
+    no_trailer = whole[:whole.rindex(b"070707")]
+    got = []
+    with pytest.raises(mp.FormatError, match="trailer"):
+        for e in mp.read_cpio(no_trailer):
+            got.append(e.name)
+    assert got == ["postinstall", APP_FILE[0][2:]]                    # read before the error
+
+
+def _lure_payload():
+    return cpio_odc([("./Applications/invoice.pdf.exe", _pe_bytes(), 0o100644),
+                     ("./Applications/filler.bin", os.urandom(30000), 0o100644)])
+
+
+def test_a_cut_payload_keeps_the_members_read_and_is_partial(scanner, tmp_path):
+    whole = mp.gzip_bytes(_lure_payload())
+    cut = build_pkg(tmp_path / "scan" / "cut.pkg", payload_bytes=whole[:len(whole) * 2 // 3])
+    with X.open(cut) as res:
+        names = [m.name for m in res.members]
+        assert "cut.pkg!/app.pkg/Payload/Applications/invoice.pdf.exe" in names
+        assert any("cut short" in (m.skipped_reason or "") for m in res.members)
+    r = scanner.scan_file(str(cut))
+    assert r["scan_status"] == "partial"
+    assert any("cut short" in g["reason"] for g in r["incomplete_reasons"])
+    full = scanner.scan_file(str(build_pkg(tmp_path / "scan" / "full.pkg", payload_bytes=whole)))
+    assert full["scan_status"] != "partial"                         # unsupported: the .exe
+    # the executable read before the cut keeps its findings; the cut filler's are gone
+    assert "archive_double_extension" in _indicators(r) & _indicators(full)
+    assert r["verdict"] in ("High", "Critical"), r["verdict"]
+
+
+def test_a_payload_without_a_trailer_is_partial(scanner, tmp_path):
+    raw = cpio_odc([APP_FILE])
+    p = build_pkg(tmp_path / "scan" / "nt.pkg",
+                  payload_bytes=mp.gzip_bytes(raw[:raw.rindex(b"070707")]))
+    r = scanner.scan_file(str(p))
+    assert r["scan_status"] == "partial"
+    assert any("Payload" in g["member_path"] or "cut short" in g["reason"]
+               for g in r["incomplete_reasons"])
+    with X.open(p) as res:
+        assert any(m.name.endswith("Payload/Applications/Demo.app/Contents/Info.plist")
+                   and m.extracted for m in res.members)
+
+
+def test_a_cut_package_entry_keeps_its_bytes_and_is_partial(monkeypatch, tmp_path):
+    p = build_pkg(tmp_path / "e.pkg", extra=[("notes.txt", b"hello there")])
+    real = mp.xar_read_entry
+
+    def cut(path, heap, entry, budget):
+        data = real(path, heap, entry, budget)
+        if entry.name == "notes.txt":
+            raise mp.Truncated("cut", data[:5])
+        return data
+    monkeypatch.setattr(ce, "xar_read_entry", cut)
+    with X.open(p) as res:
+        notes = [m for m in res.members if m.name.endswith("!/notes.txt")]
+        assert notes and notes[0].extracted
+        assert any("cut short" in (m.skipped_reason or "") for m in res.members)

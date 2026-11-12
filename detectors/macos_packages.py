@@ -42,7 +42,7 @@ import threading
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Callable, Iterator, List, Optional, Tuple, cast
+from typing import IO, Any, Callable, Iterator, List, Optional, Tuple, cast
 
 from core.tools import trusted_which
 
@@ -75,6 +75,15 @@ class FormatError(Exception):
     """The bytes are not a well-formed package / image of the expected kind."""
 
 
+class Truncated(FormatError):
+    """L-D2: a compressed stream that ends before its end marker. `partial` is what
+    it held up to the cut; the caller keeps it and reports the stream as cut."""
+
+    def __init__(self, message: str, partial: bytes = b""):
+        super().__init__(message)
+        self.partial = partial
+
+
 # --------------------------------------------------------------- decompression
 def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
     """Decompress one XAR heap entry (or a whole stream) without passing `budget`."""
@@ -83,16 +92,20 @@ def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
         if len(data) > budget:
             raise BudgetExceeded()
         return data
+    decoder: Any
     if "gzip" in enc or "zlib" in enc:
-        out = zlib.decompressobj(zlib.MAX_WBITS | 32).decompress(data, budget + 1)  # zlib/gzip
+        decoder = zlib.decompressobj(zlib.MAX_WBITS | 32)                    # zlib/gzip
     elif "bzip2" in enc:
-        out = bz2.BZ2Decompressor().decompress(data, budget + 1)
+        decoder = bz2.BZ2Decompressor()
     elif "lzma" in enc or "xz" in enc:
-        out = lzma.LZMADecompressor().decompress(data, budget + 1)
+        decoder = lzma.LZMADecompressor()
     else:
         raise FormatError(f"unknown encoding {encoding!r}")
+    out = decoder.decompress(data, budget + 1)
     if len(out) > budget:
         raise BudgetExceeded()
+    if not decoder.eof:                      # L-D2: the stream was cut before its end
+        raise Truncated(f"{enc or 'compressed'} stream ends early", out)
     return out
 
 
@@ -123,8 +136,11 @@ def pbzx_decompress(data: bytes, budget: int) -> bytes:
         if len(chunk) != length:
             raise FormatError("truncated pbzx chunk")
         pos += length
-        part = (bounded_decompress(chunk, "xz", budget - len(out))
-                if chunk.startswith(b"\xfd7zXZ\x00") else chunk)
+        try:
+            part = (bounded_decompress(chunk, "xz", budget - len(out))
+                    if chunk.startswith(b"\xfd7zXZ\x00") else chunk)
+        except Truncated as e:
+            raise Truncated("pbzx chunk ends early", bytes(out) + e.partial) from None
         out += part
         if len(out) > budget:
             raise BudgetExceeded()
@@ -199,6 +215,8 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
         yield CpioEntry(name[2:] if name.startswith("./") else name, mode,
                         data[data_start:data_start + filesize])
         pos = nxt
+    # L-D2: every archive ends with a TRAILER!!! record; without it, it was cut
+    raise FormatError("cpio archive ends without its trailer")
 
 
 # ------------------------------------------------------------------------- XAR
