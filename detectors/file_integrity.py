@@ -107,14 +107,46 @@ RANSOM_EXTENSIONS = frozenset({
     ".rhysida", ".8base", ".lockfile", ".deadbolt", ".babuk", ".avos", ".nefilim",
 })
 _DHARMA_STYLE = re.compile(r"\.id[-_][a-z0-9]{6,}\.\[[^\]]+@[^\]]+\]", re.I)
-RANSOM_NOTE_RE = re.compile(
-    r"(?i)^(?:_readme\.txt"
-    r"|!+[^\\/]*read[_\-\s]?me[^\\/]*!+\.txt"
-    r"|[^\\/]*(?:decrypt|ransom|unlock[_\-\s]?files"
+# Ransom-note file names. L-E12: these used to be one regular expression,
+#   ^(?:_readme\.txt | !+[^\\/]*read[_\-\s]?me[^\\/]*!+\.txt
+#      | [^\\/]*(?:KEYWORDS)[^\\/]*\.(?:txt|html?|hta|rtf|url))$   (case-insensitive)
+# which took quadratic time on a long name. The same names are matched in linear
+# time from its parts (tests/test_ransom_note_name_linear.py checks the equivalence).
+_NOTE_PLAIN = re.compile(r"(?i)_readme\.txt")
+_NOTE_BANG_TAIL = re.compile(r"(?i)!\.txt")
+_NOTE_READ_ME = re.compile(r"(?i)read[_\-\s]?me")
+_NOTE_EXTENSION = re.compile(r"(?i)\.(?:txt|html?|hta|rtf|url)")
+_NOTE_WORDS = re.compile(
+    r"(?i)decrypt|ransom|unlock[_\-\s]?files"
     r"|(?:restore|recover)[_\-\s]?(?:my|your|all)?[_\-\s]?(?:files|data)"
     r"|how[_\-\s]?to[_\-\s]?(?:restore|recover|unlock|get[_\-\s]?back)"
-    r"|files[_\-\s]?(?:are|were|have[_\-\s]?been)[_\-\s]?encrypted)"
-    r"[^\\/]*\.(?:txt|html?|hta|rtf|url))$")
+    r"|files[_\-\s]?(?:are|were|have[_\-\s]?been)[_\-\s]?encrypted")
+
+
+def _note_name(name: str) -> bool:
+    """The whole of `name` is a ransom-note name (the old pattern with \\Z)."""
+    if _NOTE_PLAIN.fullmatch(name):
+        return True
+    if "/" in name or "\\" in name:
+        return False
+    if (name.startswith("!") and len(name) >= 6 and _NOTE_BANG_TAIL.fullmatch(name, len(name) - 5)
+            and _NOTE_READ_ME.search(name, 1, len(name) - 5)):
+        return True
+    dot = name.rfind(".")                    # no extension holds a dot: the last one
+    return (dot >= 0 and _NOTE_EXTENSION.fullmatch(name, dot) is not None
+            and _NOTE_WORDS.search(name, 0, dot) is not None)
+
+
+class _RansomNoteName:
+    """`RANSOM_NOTE_RE.search(name)`, as the callers used the old pattern."""
+
+    @staticmethod
+    def search(name: str) -> bool:
+        # "$" also matched before one final newline
+        return _note_name(name) or (name.endswith("\n") and _note_name(name[:-1]))
+
+
+RANSOM_NOTE_RE = _RansomNoteName()
 
 
 # ------------------------------------------------------------------ math

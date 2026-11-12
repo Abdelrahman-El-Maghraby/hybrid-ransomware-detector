@@ -33,7 +33,6 @@ KNOWN_SLOW = {
     "mail_analyzer._DOMAIN_IN_TEXT": _ANCHORED,           # _first_domain (H2)
     "mail_analyzer._TAG": "used only through _strip_tags (H2), which cuts the text after "
                           "the last '>', so every match runs to its own '>'",
-    "file_integrity.RANSOM_NOTE_RE": "L-E12 (quadratic on long file names; names only)",
     "script_analysis._REPLACE_DOT_MID": _ANCHORED,        # _literal_matches
     "script_analysis._REPLACE_DOT_TAIL": _ANCHORED,       # _literal_matches
     "script_analysis._REVERSE_JS_TAIL": _ANCHORED,        # _literal_matches
