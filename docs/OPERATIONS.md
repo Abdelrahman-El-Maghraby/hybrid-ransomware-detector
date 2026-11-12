@@ -159,7 +159,8 @@ deploy/restore.sh /var/backups/aegis-2026-11-02    # replaces the volumes, start
 ```
 
 The backup holds the API and intel tokens and any service keys: store it
-encrypted and offline. Restore keeps an existing `.env` and secrets folder and
+encrypted and offline. The script runs with `umask 077`: the folders and files it
+creates are readable by their owner only. Restore keeps an existing `.env` and secrets folder and
 fills in only what is missing. Tested end to end: data written to the content
 volume survived backup, `docker compose down -v` and restore, with its owner,
 and `/ready` answered 200 afterwards.

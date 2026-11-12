@@ -7,6 +7,7 @@
 #
 #   deploy/backup.sh BACKUP_DIR          (run next to docker-compose.yml; the stack may run)
 set -euo pipefail
+umask 077     # L-A2: the backup holds keys; every file and folder it makes is private
 cd "$(dirname "$0")/.."
 dest="${1:?usage: deploy/backup.sh BACKUP_DIR}"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
