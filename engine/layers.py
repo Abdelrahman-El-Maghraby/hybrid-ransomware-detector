@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from api import SCHEMA_VERSION
 from detectors import FUZZY_AVAILABLE
+from detectors.container_extractor import RTLO, visible_name
 from detectors.elf_analysis import is_elf
 from detectors.embedded_content import sniff as embedded_sniff
 from detectors.file_integrity import IMAGE_EXTENSIONS
@@ -240,10 +241,17 @@ class IntegrityLayer(Layer):
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         res = scanner.integrity.analyze_file(ctx.path)
         ctx.scan_results["file_integrity"] = res.as_dict()
+        # M30 (owner-approved 2026-11-12): a right-to-left override in the
+        # scanned file's own name ("invoice<RTLO>fdp.exe" shows as
+        # "invoiceexe.pdf"). Members are flagged by their container's layer.
+        name = str(ctx.result.get("file_name") or "")
+        rtlo_name = visible_name(name) if ctx.depth == 0 and RTLO in name else ""
+        if rtlo_name:
+            ctx.scan_results["file_integrity"]["rtlo_name"] = rtlo_name
         ctx.signals.integrity = IntegritySignal(
             disguised_executable=res.disguised_executable, encrypted_likely=res.encrypted_likely,
             format_mismatch=res.format_mismatch, appended_payload=res.appended_payload,
-            detail=res.detail)
+            detail=res.detail, rtlo_name=rtlo_name)
 
 
 class ElfLayer(Layer):

@@ -63,6 +63,7 @@ class IntegritySignal:
     format_mismatch: bool = False
     appended_payload: Optional[str] = None
     detail: str = ""
+    rtlo_name: str = ""          # M30: the file's own name holds a right-to-left override
 
 
 @dataclass
