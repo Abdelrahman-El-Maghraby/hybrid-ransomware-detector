@@ -79,6 +79,11 @@ class ImapSettings:
 _FETCH_FAILED = object()               # _fetch: the server did not return the message
 
 
+class _CutMessage(bytes):
+    """L-C7: a message cut at max_bytes because the server did not report its size
+    beforehand. It is scanned, and its result is marked partial."""
+
+
 @dataclass
 class MailboxRun:
     results: List[Dict] = field(default_factory=list)
@@ -152,6 +157,7 @@ class MailboxScanner:
 
             paths: List[str] = []
             labels: Dict[str, Tuple[int, str]] = {}
+            cut: Set[int] = set()
             for uid in uids:
                 raw = self._fetch(conn, uid)
                 if raw is None:
@@ -160,6 +166,8 @@ class MailboxScanner:
                 if raw is _FETCH_FAILED:              # I-x: not a size problem
                     out.fetch_failed.append(uid)
                     continue
+                if isinstance(raw, _CutMessage):
+                    cut.add(uid)
                 path = workdir / f"{uid}.eml"
                 path.write_bytes(raw)
                 paths.append(str(path))
@@ -175,6 +183,8 @@ class MailboxScanner:
                         result["file_name"] = f"{s.folder} UID {uid}"
                         result["mailbox"] = {"host": s.host, "user": s.user,
                                              "folder": s.folder, "uid": uid}
+                        if uid in cut:
+                            _mark_cut(result, label, s.max_bytes)
                         if isolation_unavailable(result):
                             unscanned.add(uid)
                     out.results.append(result)
@@ -226,9 +236,26 @@ class MailboxScanner:
             return _FETCH_FAILED
         for item in data or []:
             if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
-                return item[1][:self.settings.max_bytes]
+                if len(item[1]) > self.settings.max_bytes:       # L-C7: no size answer
+                    logger.warning("Mailbox: UID %d was cut at the %d-byte limit (the server "
+                                   "did not report its size); its scan is partial.",
+                                   uid, self.settings.max_bytes)
+                    return _CutMessage(item[1][:self.settings.max_bytes])
+                return item[1]
         logger.warning("Mailbox: the answer for UID %d held no message.", uid)
         return _FETCH_FAILED
+
+
+def _mark_cut(result: Dict[str, Any], label: str, max_bytes: int) -> None:
+    """L-C7: the scan of a cut message is partial; its findings are kept."""
+    from engine.completeness import PARTIAL, reason, verdict_label, worst
+    result["mailbox"]["truncated"] = True
+    result["incomplete_reasons"] = list(result.get("incomplete_reasons") or []) + [reason(
+        PARTIAL, label, "mailbox",
+        f"message cut at the {max_bytes}-byte limit (the server did not report its size): "
+        "the rest was not scanned")]
+    result["scan_status"] = worst([str(result.get("scan_status") or "complete"), PARTIAL])
+    result["verdict_label"] = verdict_label(result)
 
 
 def _quote(folder: str) -> str:

@@ -492,7 +492,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report. Keep the wait below `SCAN_TIMEOUT_SECONDS` (300): a longer one stops the scan, and start-up warns |
 | `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD` | empty (off) | mailbox for `--scan-imap` (use an app password) |
 | `IMAP_PORT`, `IMAP_STARTTLS`, `IMAP_FOLDER` | `993`, `false`, `INBOX` | connection and folder (TLS only) |
-| `IMAP_SINCE_DAYS`, `IMAP_MAX_MESSAGES`, `IMAP_MAX_MB` | `7`, `200`, `25` | first-run look-back, per-run and per-message limits |
+| `IMAP_SINCE_DAYS`, `IMAP_MAX_MESSAGES`, `IMAP_MAX_MB` | `7`, `200`, `25` | first-run look-back, per-run and per-message limits (a larger message is skipped; one whose size the server does not report is cut at the limit, scanned and marked partial) |
 | `IMAP_CHECK_MINUTES` | `0` (off) | check the mailbox on a schedule in `--background` |
 | `CANARY_RESPONSE`, `CANARY_RESPONSE_SCRIPT` | empty (alert only) | `stop_writers`, `lock_folders`, `controlled_folder_access`, `network_off`, `script`; absolute path of your response script |
 | `CANARY_CONTAIN_MODE`, `CANARY_CONTAIN_EXCLUDE`, `CANARY_LOCK_DIRS` | `suspend`, empty, canary folders | `terminate` to kill; extra process names never stopped; folders `lock_folders` makes read-only |
