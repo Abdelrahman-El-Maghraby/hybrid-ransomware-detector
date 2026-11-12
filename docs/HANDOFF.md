@@ -1400,11 +1400,11 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33), H-04+, M30, M25 (alert only), the M27 empty-key rule, I-1 (eight macro types), I-3 (daily audit; Dependabot not added), I-T1 (group 34) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33), H-04+, M30, M25 (alert only), the M27 empty-key rule, I-1 (eight macro types), I-3 (daily audit; Dependabot not added), I-T1 (group 34), M24, M29 (script part), the lock-refresh tool (I-3 option A) (group 35) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets), the L-B2 lock choice (D32), D22, D23 (group 34) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M24, M29, M32, S-Y1 to S-Y4, the M26 wait cap (I-6), M4, M15 packaging, D26, the Starlette `httpx` deprecation (dependency), I-2, I-4, the other twelve I-1 types, Dependabot for the locks (I-3), exit code 2 (keep), IMAP fetch retry (keep) |
-| Real-environment check needed | CI (nothing since `3e5a3f2`; the new daily audit, I-3); Docker (deployment check, M27 signed pack and the empty-key fallback, D22/D23, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9, M30 in the table); a running service and GUI (M25 copy and memory); a Linux server (L-B2); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29, M32, S-Y); Tesseract (L-E5) |
+| Owner decision | M29 web-page case (prose quoting the command), M32, S-Y1 to S-Y4, the M26 wait cap (I-6), M4, M15 packaging, D26, the Starlette `httpx` deprecation (dependency), I-2, I-4, the other twelve I-1 types, Dependabot for the locks (I-3; replaced by the manual `tools/refresh_locks.py`, option B, a workflow that opens a PR, not taken), exit code 2 (keep), IMAP fetch retry (keep) |
+| Real-environment check needed | CI (nothing since `3e5a3f2`; the new daily audit, I-3); Docker (deployment check, M27 signed pack and the empty-key fallback, D22/D23, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24 delivery by real mail clients and archive tools, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9, M30 in the table); a running service and GUI (M25 copy and memory); a Linux server (L-B2); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29 script part and web-page case, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
 
@@ -1869,6 +1869,65 @@ IMAP fetch retry).
   the GUI table on a display; H-04+ against real phishing and smuggling
   pages; D22/D23 against a running Docker edition.
 
+### Group 35: M24, M29 (script part) and the lock-refresh tool (owner-approved 2026-11-12)
+
+Start: HEAD `cc9161f`, tree clean apart from `.arena/`; none of the three
+existed. Each test failed before its fix and passes after.
+
+- **M24** (`72d6fcb`). New `windows_name()` in `container_extractor` (drops
+  trailing dots and spaces, as the Windows file API does), used for member
+  classification, the extracted file's name and the over-the-limit priority
+  order; mail attachments, `is_script` and the script language, and the API
+  upload extension (`upload_extension()`) use the same rule. Reports keep the
+  name as received. Each member and attachment keeps its own numbered folder,
+  so `a.exe`, `a.exe.` and `a.exe ` never overwrite each other (tested with
+  three members and two attachments). The `.venv` runs Python 3.14, where
+  `Path("a.js.").suffix` is `"."` (older: `""`); stripping first covers both.
+  Python's e-mail parser already drops trailing spaces from attachment names,
+  so only the dot reaches the mail code. Test: `tests/test_trailing_dot_names.py`
+  (24; before the fix 13 failed). A scan of a ZIP holding `invoice.pdf.exe.`
+  now scores as one holding `invoice.pdf.exe`.
+- **M29, script part** (`b34181b`). `Ransomware_Shadow_Copy_Deletion`: the
+  `Get-WmiObject`/`Get-CimInstance` `Win32_ShadowCopy` strings now count only
+  with `.Delete(`, `Remove-WmiObject` or `Remove-CimInstance`, and `vssadmin
+  resize shadowstorage` only with `maxsize=` on the same line (within 200
+  characters). `vssadmin delete shadows`, `wmic shadowcopy delete` and both
+  `wbadmin` strings are unchanged; the web-page case (prose quoting `vssadmin
+  delete shadows`) still matches, as approved; no other rule changed. Test:
+  `tests/test_shadow_copy_rule_scripts.py` (34; ASCII and UTF-16; before the
+  fix 9 failed): the check 21 listing script is no longer High or Critical, a
+  deleting script stays Critical. README rule list notes it. An installed
+  signed rule pack keeps the old rule until a new pack is signed. Not measured
+  on a benign corpus.
+- **Lock refresh, option A** (`42852d3`). `tools/refresh_locks.py` (Python,
+  so the test can read its command table): runs each lock header's `uv pip
+  compile` command in dependency order into an output folder (a new temporary
+  one by default; the repository is refused), keeps the headers, rewrites
+  uv's scratch constraint path in the `# via` notes back to
+  `requirements.lock`, audits each with `pip-audit --require-hashes
+  --disable-pip`, prints changed pins. No install, commit or PR. Test:
+  `tests/test_refresh_locks.py` (9): commands equal the four headers, a run
+  with stand-ins writes only the output folder, forbidden commands absent.
+  Real run without upgrades (network to PyPI and the advisory service): exit
+  0, all four locks regenerated **byte-identical** to the tracked ones, "No
+  known vulnerabilities found" for each; tracked lock checksums unchanged. A
+  first run printed uv's output and showed path-only differences in the
+  server and build `# via` notes; both fixed before the commit. README notes
+  the tool. Option B (a workflow that opens a PR) was not taken.
+- ruff (tracked files), mypy (68 files), bandit (CI scope, `-ll`) clean. No
+  bidi characters in any staged diff.
+- **Full safe run at `42852d3`** (clean worktree, the documented command with
+  the four deselects): **1,717 passed, 0 failed, 23 skipped, 4 deselected,
+  1 warning**, 318 s; `test_smoke.py`: "ALL SMOKE TESTS PASSED". Skips as
+  before (7-Zip 12, RAR 3, Windows 2, Linux 1, libproc 1, ELF 1, box-js 1,
+  OpenCV 1, GUI 1); the warning is Starlette's `httpx` deprecation (third
+  party). A first launch was stopped: its deselect list was built by a grep
+  that matched nothing; it was rerun with the four names written out.
+- **Needs a real platform:** M24 on Windows (what mail clients and archive
+  tools save for a trailing dot or space); M29 on a benign corpus and against
+  real droppers; the lock tool on a machine other than this Mac (only this
+  run, uv 0.13.7, pip-audit 2.10.1).
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1876,9 +1935,10 @@ PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
 in 33.7 and must be obtained before the OWNER items:
 - Done: H6 and M18 (groups 28 to 30); M23, M31, L-D5, L-C7, L-D8 (group 32);
   M19, L-L1 (group 33); H-04+, M30, M25, the M27 empty-key rule, I-1 (eight
-  types), I-3 (without Dependabot), L-B2, I-T1, D22, D23 (group 34)
-- Still open, unchanged: M24 (Windows), M29, M32 and S-Y1 to S-Y4 (benign
-  corpus), the M26 wait cap / I-6 (Docker and a sandbox), I-2, I-4 (after
+  types), I-3 (without Dependabot), L-B2, I-T1, D22, D23 (group 34); M24,
+  M29 (script part), the lock-refresh tool (group 35)
+- Still open, unchanged: M24 on Windows (delivery), the M29 web-page case,
+  M32 and S-Y1 to S-Y4 (benign corpus), the M26 wait cap / I-6 (Docker and a sandbox), I-2, I-4 (after
   S-03), M4, M15 packaging, D26, `httpx2`; exit code 2 and the IMAP fetch
   retry were recommended to stay as they are
 
@@ -1938,6 +1998,8 @@ Still unverified (33.7 lists the platform checks):
 - Docker: M27 (signed pack and the empty-key fallback), I-B3, the deploy
   scripts, D22/D23 against the running edition
 - GitHub: the daily dependency audit and its issue (I-3)
+- Windows: M24 (what mail clients and archive tools save for a trailing dot)
+- a benign corpus: the M29 rule change (only fixed test inputs were checked)
 - a running background service and GUI: the M25 registry copy and memory
 - Linux ARM64, Windows ARM64 and macOS Intel
 - the GUI on a display
