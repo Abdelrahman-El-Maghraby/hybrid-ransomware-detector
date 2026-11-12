@@ -61,12 +61,12 @@ import re
 import shutil
 import struct
 import tempfile
-from collections import deque
 from dataclasses import dataclass, field
 from email.message import Message
 from email.utils import getaddresses, parseaddr
+from itertools import islice
 from pathlib import Path, PurePosixPath
-from typing import Callable, Deque, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from .cfb_writer import MAX_TREE_BYTES, write_cfb
 from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, not_a_device, visible_name
@@ -163,11 +163,13 @@ def _anchors(body: str) -> Iterator[Tuple[str, str]]:
     """(href, inner HTML) of each link, as findall() with the "links" pattern
     above returns them.
 
-    Like the greedy pattern, a tag with several href attributes uses the last
-    one that leads to a complete link. Which one that is depends only on the
-    tag, so it is worked out once per tag (from at most the last
-    _MAX_HREF_RETRIES href attributes) and reused for a later "<a" that starts
-    inside the same tag."""
+    M19: a tag with several href attributes uses the first one that leads to a
+    complete link, as HTML parsing keeps the first of duplicate attributes (the
+    pattern with a lazy `[^>]*?` before `href`). The greedy pattern used the
+    last, so a second, harmless href hid a deceptive first one. Which href that
+    is depends only on the tag, so it is worked out once per tag (from at most
+    the first _MAX_HREF_RETRIES href attributes) and reused for a later "<a"
+    that starts inside the same tag."""
     next_gt = _Next(body, ">")
     # One finder chain per quote character: for each, the href attributes are
     # visited left to right, so every finder is asked non-decreasing positions.
@@ -195,12 +197,11 @@ def _anchors(body: str) -> Iterator[Tuple[str, str]]:
             return                               # no '>' left: no later link can match
         if gt[0] != tag_gt:                      # a new tag: find its working href once
             tag_gt, winner = gt[0], None
-            hrefs: Deque[re.Match[str]] = deque(_A_HREF.finditer(body, m.end(), gt[0]),
-                                                  maxlen=_MAX_HREF_RETRIES)
-            for href in hrefs:                   # keep the last one that works
-                found = link_for(href)
+            for href in islice(_A_HREF.finditer(body, m.end(), gt[0]), _MAX_HREF_RETRIES):
+                found = link_for(href)           # the first one that works (M19)
                 if found:
                     winner = (href, found)
+                    break
         if winner is None or winner[0].start() < m.end():
             pos = start + 1
             continue

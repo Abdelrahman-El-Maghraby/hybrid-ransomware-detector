@@ -15,8 +15,11 @@ import pytest
 from detectors import mail_analyzer as M
 from detectors.mail_analyzer import MailAnalyzer, MailResult
 
-# The exact patterns the analyser used before the change: the reference.
-OLD_ANCHOR = re.compile(r"<a\b[^>]*\bhref\s*=\s*([\"'])(.*?)\1[^>]*>(.*?)</a\s*>", re.I | re.S)
+# The exact patterns the analyser used before the change: the reference. M19
+# (owner-approved 2026-11-12): the link reference takes the FIRST href of a tag
+# that forms a complete link (lazy `[^>]*?`), as HTML keeps the first of
+# duplicate attributes; the original greedy pattern took the last.
+OLD_ANCHOR = re.compile(r"<a\b[^>]*?\bhref\s*=\s*([\"'])(.*?)\1[^>]*>(.*?)</a\s*>", re.I | re.S)
 OLD_DOMAIN = re.compile(r"\b((?:[a-z0-9-]+\.)+[a-z]{2,24})\b", re.I)
 OLD_SCRIPT = re.compile(r"(?is)<(script|style)\b.*?</\1\s*>")
 OLD_TAG = re.compile(r"<[^>]+>")
@@ -84,3 +87,31 @@ def test_hostile_html_is_analysed_in_linear_time(unit):
     start = time.perf_counter()
     MailAnalyzer()._judge_body("", body, MailResult())
     assert time.perf_counter() - start < 15
+
+
+def test_a_second_href_does_not_hide_a_deceptive_first_one():
+    """M19, review check 4 of section 29: the deceptive-link finding disappeared
+    when a harmless second href followed the first."""
+    two = '<a href="https://login.evil.example/x" href="https://paypal.com/">paypal.com</a>'
+    one = '<a href="https://login.evil.example/x">paypal.com</a>'
+    for body in (two, one):
+        res = MailResult()
+        MailAnalyzer()._judge_body("", "<html><body>" + body + "</body></html>", res)
+        assert res.deceptive_links == [
+            "text shows paypal.com -> link goes to login.evil.example"], body
+    harmless_first = '<a href="https://paypal.com/" href="https://login.evil.example/x">paypal.com</a>'
+    res = MailResult()
+    MailAnalyzer()._judge_body("", harmless_first, res)
+    assert res.deceptive_links == []                       # the browser follows the first
+    assert list(M._anchors(two)) == [("https://login.evil.example/x", "paypal.com")]
+
+
+def test_tags_with_several_hrefs_match_the_first_href_reference():
+    """M19: token soup made of link parts only, so most tags carry several href
+    attributes (the general soup above rarely does)."""
+    parts = ["<a", " href=", ' HREF = ', '"', "'", ">", "</a>", "x", "evil.org", "example.com",
+             " ", "a"]
+    rng = random.Random(1912)
+    for _ in range(20_000):
+        body = "".join(rng.choice(parts) for _ in range(rng.randint(4, 24)))
+        assert _new_judge(body)[0] == _old_judge(body)[0], repr(body)
