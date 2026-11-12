@@ -50,7 +50,9 @@ def scanned(tmp_path_factory):
     s = _setup(tmp, [], scan_timeout_seconds=5, scan_workers=2)
     for name, members in ZIPS.items():
         _zip(tmp / "scan" / name, members)
-    return s, {r["file_name"]: r for r in s.scan_all_directories()}, tmp
+    yield s, {r["file_name"]: r for r in s.scan_all_directories()}, tmp
+    if getattr(s, "cache", None) is not None:      # a module fixture closes its own (I-T2)
+        s.cache.close()
 
 
 def _cfg(s, tmp, **over):
