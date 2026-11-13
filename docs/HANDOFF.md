@@ -2207,7 +2207,44 @@ running (a zsh variable is not split into words: `${=L}` was used).
   S-01 (risk reduced by `600d8bc`), L-E5 (confirmed by reading; Tesseract absent),
   L-E6 (confirmed by reading; Windows only).
 
-### Final checkpoint (2026-11-13): paused for owner review
+### Groups 45 to 48: the remaining repairs (owner request, 2026-11-13)
+
+Start: HEAD `a10700b`, tree clean apart from `.arena/`. Same method as groups 38
+to 44 (each new test run on the previous commit in a temporary worktree first).
+
+- **Group 45, I-6 VirusTotal lookup and LLM** (`489ace5`). The provisional result
+  is extended to the slow-layer stage: before VirusTotal and the LLM run in a
+  worker, a provisional result names them in `scan_results.stopped_layers` (at
+  timeout), and an `external` message reports what each call is about to send
+  (hash, file, text, destination); sends from the layers' threads share a lock;
+  both kinds are checked like every worker message. On a stop at the scan limit
+  the parent keeps that result: static verdict kept, the stalled layer timeout,
+  possible transmission labelled in the entry and listed in `provenance.shared`.
+  Cooperatively (worker only): the time left per call, the quota pause counted, no
+  call under 1 s, the lookup without retries when the session is a real one.
+  Before: 11 of 13 failed (stalls ended as "timed out after 4s"); the crash and
+  outside-a-worker cases passed both times. Related suites 313 passed.
+- **Group 46, L-E5** (`9572a10`). OCR budget (180 s, capped by the worker's time
+  left), each poppler and tesseract call given the time left, a time-out recorded
+  (scan partial). POSIX workers lead their own process group, noted when ready and
+  killed when the parent stops the worker. Before: 7 of 7 failed; that run left two
+  inert helpers orphaned (the defect), stopped by PID after checking command line
+  and parent 1. Tested with inert Python helpers and OCR stand-ins; a bystander in
+  another group and a child of the test process survive.
+- **Group 47, L-E6** (`5984d05`). `_pid_alive_windows`: only
+  `ERROR_INVALID_PARAMETER` means dead; tested with a stand-in kernel32 (Windows
+  not run).
+- **Group 48, S-Y1 to S-Y4** (`88b2db1`). `tests/sy_examples.py`: 7 harmless and 11
+  harmful inert examples, shortcuts as real shell links. Before: Defender build
+  scripts Critical 100, admin shortcuts and a backup pre-freeze High 65, the log
+  reset Medium 40, a backup-tool string set High 65. Changed: S-Y2 (broad or
+  user-writable exclusion paths, or a download), S-Y3 (`/c` with another script
+  host), S-Y4 services (a process kill or an Office/security target). After: the
+  five harmless cases Medium 40 (the script layer still notes the exclusion) or
+  Clean; all harmful unchanged. Left as documented ambiguities: S-Y1 and the
+  encryptor strings. Before: 6 of 20 new tests failed.
+
+### Checkpoint at `db01796` (superseded by the final checkpoint below)
 
 - **State.** Branch `review/production-hardening`, local only, **never pushed**; no
   PR, merge, tag, release, deployment or version change (4.8.0 throughout). Last
@@ -2243,6 +2280,37 @@ running (a zsh variable is not split into words: `${=L}` was used).
 - **Evidence limits:** macOS on Apple Silicon, Python 3.14.2, synthetic inputs and
   local stand-ins only. The 1,771-pass run at `f6c0bab` and the 1,730-pass run at
   `bd9514e` validate only their own code.
+- **Paused.** No agent should continue without a new owner request.
+
+
+### Final checkpoint (2026-11-13): paused for owner review
+
+- **State.** Branch `review/production-hardening`, local only, **never pushed**; no
+  PR, merge, tag, release, deployment or version change (4.8.0). Last code commit
+  and last tested commit: `88b2db1`; the documentation commit after it changes no
+  code. No stash, no extra worktree; the only untracked path is the unrelated
+  `.arena/`, preserved; the local `.hypothesis/` folder is unchanged (300 files).
+- **Final safe run at `88b2db1`**, clean worktree, the same command and environment
+  as the `db01796` checkpoint below (the four deselects written out, the fuzz file
+  ignored). The selection was collected first: 1,892 of 1,896 items, none from the
+  fuzz file, the memory test or the three intel socket tests. Result: **1,870
+  passed, 0 failed, 23 skipped, 4 deselected, 1 warning**, 489 s; 0 "unclosed
+  database". Skips: 7-Zip 12, RAR decryption 3, Windows 2, Linux `/proc` 1, libproc
+  1, ELF binary 1, box-js 1, OpenCV 1, GUI 1. Warning: Starlette's `httpx`
+  deprecation (third party). `test_smoke.py`: "ALL SMOKE TESTS PASSED". No test
+  helper process was left running afterwards.
+- **Other checks at `88b2db1`:** ruff (tracked Python files, not `.arena/`) clean;
+  mypy 68 files, no issues; bandit (CI scope, `-ll`) clean; the worker protocol and
+  JSON schema checks, the regression corpus and the rule tests are in the suite;
+  the wheel check (group 40 method) on a clean export: 5 rule files compiled, the
+  probe matched, provenance "bundled". The diff `a10700b..88b2db1`: no secret
+  patterns, no bidirectional characters, no local paths.
+- **Not run:** pip-audit (no dependency changed), the coverage gate, CI, Docker,
+  Windows, Linux, real CAPE, VirusTotal, an LLM, Tesseract or poppler, the GUI on a
+  display, the excluded tests. The 1,823-pass run at `db01796` validates only that
+  code.
+- **Evidence limits:** macOS on Apple Silicon, Python 3.14.2, synthetic inputs and
+  local stand-ins only. Detection on real malware is not measured.
 - **Paused.** No agent should continue without a new owner request.
 
 

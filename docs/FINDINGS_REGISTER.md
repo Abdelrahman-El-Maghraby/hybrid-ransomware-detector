@@ -5,7 +5,7 @@ the status columns of older tables (PROJECT_REVIEW 28.1, 31.10, 32.6, 33.6 and t
 handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
-[HANDOFF](HANDOFF.md) (groups 1 to 44). Status as of HEAD `db01796`, 2026-11-13.
+[HANDOFF](HANDOFF.md) (groups 1 to 48). Status as of code commit `88b2db1`, 2026-11-13.
 
 **Categories:** *defect* (confirmed by a reproduction or an unambiguous code
 path), *suspicion* (not confirmed), *gap* (a check that needs another platform or
@@ -57,7 +57,10 @@ a regression test that failed before it and passes after it, on this Mac only.
 | I-1 (part) | Eight macro-capable Office types offered to folder scans | `d95e5e5` |
 | I-2 (archives) | Risky archive members take the 25-member budget first | `e3f1cd3` |
 | I-3 | Daily dependency audit; manual lock-refresh tool | `4c68756`, `42852d3` |
-| I-6 (part) | The sandbox wait (M26) and the VirusTotal upload wait end with the worker's limit | `bd9514e`, `f6c0bab`, `873fc0a` |
+| I-6 | The sandbox wait (M26), the VirusTotal upload wait, the VirusTotal lookup and the LLM request respect the worker's limit: cooperatively (time left per call), and if a call stalls past the limit the worker is stopped and the result it sent before the call is kept (`scan_results.stopped_layers`; possible transmissions labelled) | `bd9514e`, `f6c0bab`, `873fc0a`, `489ace5` |
+| L-E5 | OCR ran without a timeout; on macOS and Linux a stopped worker's helper programs kept running | `9572a10` |
+| L-E6 | On Windows, "access denied" made a live process count as dead (stale-folder sweep) | `5984d05` (stand-in kernel32 only; Windows unverified) |
+| S-Y2, S-Y3, S-Y4 (services) | A build agent's Defender folder exclusion scored Critical 100; `cmd.exe /c` admin shortcuts and a backup pre-freeze script scored High | `88b2db1` |
 | I-B1, I-B2, I-B4, I-B5 | User agent; hash-pinned SBOM tool; profiling tool; member indicators in alerts | `742a1cc`, `70ce04c`, `fbc65dd` |
 | I-x | Cache purge while running; IMAP fetch label; intel auth before JSON; unused `send_webhook`; evaluation errors counted as Clean | `9a1bd35`, `9892704`, `70ce04c` |
 | ML version (suspicion, now confirmed) | A model saved by another scikit-learn version was used silently | `15b6760` |
@@ -71,12 +74,25 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 
 | ID | Description | Why it stays open | Next action |
 |---|---|---|---|
-| I-6 (rest) | The VirusTotal hash lookup (with its retries) and the LLM request are bounded only by their own timeouts; a stall past the scan limit still fails the file and loses its static findings | A reliable bound needs the M26 provisional mechanism extended to the slow-layer stage, with per-service transmission progress (hash, file, text): a worker-protocol extension, not a focused fix | Owner decides whether to extend it |
-| L-E5 | OCR (`pdf2image`, `pytesseract`) runs with no timeout; on macOS and Linux a killed worker's helper processes are not killed with it | Tesseract is not installed here, and killing helpers needs process-group handling in the worker lifecycle | On a host with Tesseract: add timeouts and a process-group kill, with a stand-in OCR process |
-| L-E6 | Windows `_pid_alive` reads "access denied" as "dead" (stale-folder sweep) | Windows only; low impact (temp folders are per user) | Fix and test on Windows |
-| S-Y2 | `PowerShell_Defender_Tampering`: a build-agent setup script adding a Defender folder exclusion scores Critical 100 | Attackers run the same command (T1562.001); intent is not in the text | Owner decision with a benign admin-script corpus |
-| S-Y1 | `Event_Log_Clearing`: a log-reset script scores Medium 40 (below the alert floor) | Same command as the technique; low impact | As S-Y2 |
 | 27.5 / B4 | Long fuzz campaigns ended in out-of-memory failures | Restricted: replay only in the isolated VM | VM investigation, separately authorized |
+
+### Documented ambiguities (left unchanged on purpose)
+
+| ID | What matches | Why it is not changed |
+|---|---|---|
+| S-Y1 | `Event_Log_Clearing` scores a lab log reset (`Clear-EventLog -LogName Application`) Medium 40, the same as a script clearing every log | The command is the technique; it scores Medium (below the alert floor), and the log name alone does not separate maintenance from anti-forensics |
+| S-Y4 (encryptor strings) | `Ransomware_Encryptor_Target_Extensions` matches a program-shaped string set (user-data extensions, crypto and file-walk APIs, "readme", "decrypt") that a backup tool could also hold | The rule's inputs are identical for both; the harmless example was constructed here, not found |
+| S-Y4 (services, tradeoff) | After `88b2db1`, ransomware that only stops server services with `net stop` / `sc stop` no longer matches `Ransomware_Stops_Services_And_Processes` | The same commands are a backup window; such files can still match the shadow-copy and other rules |
+
+### Residuals of fixed items
+
+- **L-E5:** a helper that starts a session of its own leaves the worker's group; real
+  Tesseract and poppler, Linux and Windows are not verified (stand-ins on macOS).
+- **I-6, M26:** the cooperative bounds are best effort (a name lookup, a dripped
+  answer, redirects or a proxy can outlast them); the guarantee is the worker's scan
+  limit. A VirusTotal or LLM answer that finished before a stop is not kept (the
+  provisional result was sent before those calls); the intel service's own
+  requests continue after a worker stops waiting.
 
 ## 3. Suspicions, not confirmed
 
@@ -85,9 +101,7 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 | S-01 | A crafted DMG could make 7-Zip write outside the extraction folder | Risk reduced by an existing change: members are streamed with `7z e -so` (`600d8bc`); those tests skip here (no 7-Zip) |
 | S-03 | Concurrent canary checks race on the last signature | Not reproduced: the two-thread test (`af8deda`, `tests/test_alerts.py`) shows one alert; it relies on the GIL, no lock was added |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
-| S-Y3 | `LNK_Shortcut_Runs_Script_Host` may match ordinary admin shortcuts | Not checked: needs a shell-link file and a corpus |
-| S-Y4 | `Stops_Services` and `Encryptor_Target_Extensions` may match backup agents | Not reproduced on one synthetic backup-window script (Clean) |
-| H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only) |
+| H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
 
 ## 4. Deferred improvements (not started on purpose)
 
@@ -102,23 +116,28 @@ sample in a wheel (it matches nothing).
 - **CI:** no workflow has run on any commit after `3e5a3f2`; the daily audit (I-3)
   and the release job (M16, I-B2, the pip change) run only on GitHub.
 - **Windows:** M2, M9, M20, M24 (what mail clients and archive tools save), M30
-  names, L-A5 order, L-E6, worker pipes (M18), toasts, containment, autostart.
+  names, L-A5 order, L-E6 (only a stand-in kernel32 was used), the Job Object path for
+  L-E5, worker pipes (M18), toasts, containment, autostart.
+- **Linux:** the worker process groups (L-E5) and the rest of the suite (no CI run).
 - **Docker:** `deploy/check-deployment.sh`, M26 through intel (and intel's own CAPE
   requests, which continue after a worker stops waiting), M27, I-B3, the L-B4
   image, backup scripts on real volumes, D22/D23.
-- **Real services:** a real CAPE server (M26, M34), SMTP, webhook receivers, S3,
-  VirusTotal, a real LLM (L-L1); the GUI on a display (M28, L-C6, L-G1, L-E9, M30).
+- **Real services and programs:** a real CAPE server (M26, M34), VirusTotal and a real
+  LLM (I-6, L-L1), Tesseract and poppler (L-E5), SMTP, webhook receivers, S3; the GUI
+  on a display (M28, L-C6, L-G1, L-E9, M30).
 - **Hardware:** Linux and Windows ARM64, macOS Intel (no runner).
 - **Corpora:** a benign corpus for M29, M32 and S-Y1 to S-Y4 (only synthetic
-  examples were used); real-sample evaluation in the VM (detection rate unmeasured).
+  examples were used: `tests/fp_examples.py`, `tests/sy_examples.py`); real-sample
+  evaluation in the VM (detection rate unmeasured).
 
 ## 6. Owner decisions
 
 - The M26 "not enough time to submit" threshold: less than one 15 s poll left after
-  the margin. Implemented as a working default; **not yet confirmed by the owner**.
-- Whether to extend the provisional-result mechanism to VirusTotal and the LLM (I-6).
-- S-Y1 and S-Y2 rule conditions (needs a benign admin-script corpus).
+  the margin. **Retained behaviour; owner confirmation still pending.**
+- The documented ambiguities in section 2 (S-Y1, the encryptor strings, the S-Y4
+  service tradeoff): accept, or decide with a benign admin-script and backup-tool
+  corpus.
 - How CI should run on this branch (a pull request would also start the restricted
   Atheris campaigns; a push plus manual dispatch would not).
-- Exit code 2's three meanings and the IMAP fetch retry: recommended to keep.
+- Exit code 2's three meanings and the IMAP fetch retry: kept as they are.
 - When to drop Python 3.9 (kept for now).
