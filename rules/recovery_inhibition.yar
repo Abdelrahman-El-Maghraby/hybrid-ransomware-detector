@@ -33,8 +33,22 @@ rule Ransomware_Shadow_Copy_Deletion
         $del1 = ".Delete("                           nocase wide ascii
         $del2 = "Remove-WmiObject"                   nocase wide ascii
         $del3 = "Remove-CimInstance"                 nocase wide ascii
+        // M29: in a page or text that only shows a command, an API that runs it
+        $run1 = "ActiveXObject"                      nocase wide ascii
+        $run2 = "WScript.Shell"                      nocase wide ascii
+        $run3 = "Shell.Application"                  nocase wide ascii
+        $run4 = "ShellExecute"                       nocase wide ascii
+        $run5 = "CreateObject"                       nocase wide ascii
+        $run6 = "child_process"                      nocase wide ascii
     condition:
-        any of ($vss*, $wmi1, $wbad, $wbs) or (any of ($cls*) and any of ($del*))
+        (any of ($vss*, $wmi1, $wbad, $wbs) or (any of ($cls*) and any of ($del*)))
+        // M29: prose formats (an advisory, an article, a help page) quote the
+        // commands; there they count only next to an API that executes them.
+        // Scripts, HTAs, macros, programs and smuggled payloads (scanned under
+        // their own names) are unchanged.
+        and (not (file_ext == "html" or file_ext == "htm" or file_ext == "xhtml"
+                  or file_ext == "txt" or file_ext == "md")
+             or any of ($run*))
 }
 
 rule Ransomware_Boot_Recovery_Tampering
