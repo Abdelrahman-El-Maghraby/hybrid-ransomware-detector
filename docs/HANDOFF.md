@@ -1400,11 +1400,11 @@ tests are not counted as passed.
 
 | State | Findings |
 |---|---|
-| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33), H-04+, M30, M25 (alert only), the M27 empty-key rule, I-1 (eight macro types), I-3 (daily audit; Dependabot not added), I-T1 (group 34), M24, M29 (script part), the lock-refresh tool (I-3 option A) (group 35) |
+| Fixed, with a regression test passing locally | Sections 28 to 30: H1 to H4, H4-b, M1 to M3, M5 to M14, M15 docs, L-GUI, L-B1, L-B5, the L-B2 secrets. Groups 1 to 27: M21, L-B7, H5, M22, I-5, M17, M20, L-E9, I-T3, M33, L-C6, M28 (D38), L-T1, L-B3, I-T2, S-T1, the 33.4 rule tests, M26 start-up check, M27 compose part, L-E11, I-B5, L-G1, L-E10, I-B1, I-B2, L-D4, L-D6, L-A4 to L-A8, L-C5, L-E8, L-E1 to L-E3, L-E7, L-C1, L-C2 (exit 1), L-C3, L-C4, L-C8 to L-C11, L-A1, L-A3, L-D3, L-B4, I-B4, the I-x items (IMAP label, intel auth, evaluate errors, cache purge, `send_webhook`), L-D7 (read limit and notice), H6 (a) (group 28, `592e920`), M18 (group 29, `34c5e76`), H6 (b) (group 30, `8978c68`, `eb04d82`), M31, M23, L-E12, L-D2, L-D5, L-D8, L-C7 (group 32), M19, L-L1, L-A2, the release pip upgrade (group 33), H-04+, M30, M25 (alert only), the M27 empty-key rule, I-1 (eight macro types), I-3 (daily audit; Dependabot not added), I-T1 (group 34), M24, M29 (script part), the lock-refresh tool (I-3 option A) (group 35), I-2 (archive member order), the M26 wait cap (sandbox only) (group 36) |
 | Fixed, docs only | D1 to D9, D12, D13, D15 to D19, D11 (group 32), D20 (group 31), D21, D24, D25, D27 to D31, D33 to D42, L-B6 (claims narrowed to the tested targets), the L-B2 lock choice (D32), D22, D23 (group 34) |
 | SAFE, still open | none that can be done here |
-| Owner decision | M29 web-page case (prose quoting the command), M32, S-Y1 to S-Y4, the M26 wait cap (I-6), M4, M15 packaging, D26, the Starlette `httpx` deprecation (dependency), I-2, I-4, the other twelve I-1 types, Dependabot for the locks (I-3; replaced by the manual `tools/refresh_locks.py`, option B, a workflow that opens a PR, not taken), exit code 2 (keep), IMAP fetch retry (keep) |
-| Real-environment check needed | CI (nothing since `3e5a3f2`; the new daily audit, I-3); Docker (deployment check, M27 signed pack and the empty-key fallback, D22/D23, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24 delivery by real mail clients and archive tools, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9, M30 in the table); a running service and GUI (M25 copy and memory); a Linux server (L-B2); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29 script part and web-page case, M32, S-Y); Tesseract (L-E5) |
+| Owner decision | M29 web-page case (prose quoting the command), M32, S-Y1 to S-Y4, the rest of I-6 (VirusTotal upload wait and LLM; the sandbox part is done), M4, M15 packaging, D26, the Starlette `httpx` deprecation (dependency), I-2 for mail attachments (not asked), I-4, the other twelve I-1 types, Dependabot for the locks (I-3; replaced by the manual `tools/refresh_locks.py`, option B, a workflow that opens a PR, not taken), exit code 2 (keep), IMAP fetch retry (keep) |
+| Real-environment check needed | CI (nothing since `3e5a3f2`; the new daily audit, I-3); Docker (deployment check, M27 signed pack and the empty-key fallback, D22/D23, the M26 cap on the intel sandbox path, I-B3, the L-B4 image, M26 on intel, L-A4 scripts); Windows (M2, M9, M20, M24 delivery by real mail clients and archive tools, L-E6, toasts, containment, autostart, the L-A5 icacls order); the VM (L-D1, L-E4, OOM-H, 27.5, real samples, L-C9 on Linux); a display (M28, L-C6, L-G1, L-E9, M30 in the table); a running service and GUI (M25 copy and memory); a Linux server (L-B2); the release workflow on a tag (M16, I-B2); Linux and Windows ARM64, macOS Intel; a benign corpus (M29 script part and web-page case, M32, S-Y); Tesseract (L-E5) |
 | Suspected, not confirmed | S-01, S-03, the scikit-learn version check, L-E5, L-E6 |
 | Restricted | OOM-H (VM only) |
 
@@ -1928,6 +1928,63 @@ existed. Each test failed before its fix and passes after.
   real droppers; the lock tool on a machine other than this Mac (only this
   run, uv 0.13.7, pip-audit 2.10.1).
 
+### Group 36: I-2 and the M26 wait cap (owner-approved 2026-11-12, choices 2026-11-13)
+
+Start: HEAD `7a1d0b3`, tree clean apart from `.arena/`; neither existed. The
+reporting of members left out by the budget already existed (`_budget_gaps`:
+"N member(s) over the scan budget: listed, not scanned", scan `partial`).
+
+- **I-2** (`e3f1cd3`). `scan_container` lists the members, and only when there
+  are more than the budget asks the handler for its order
+  (`ContainerHandler.first`, default unchanged). `ArchiveHandler.first` puts
+  members named as programs, scripts or containers, with RTLO, or recognised
+  as programs by their first bytes (`member.executable`) ahead, by the
+  extractor's `_priority_name`; the sort is stable. Under the budget, and for
+  mail, web and embedded containers, the order is unchanged. The limit (25)
+  is unchanged. A nested archive is expanded by the extractor and never an
+  item itself, so its harmless members keep their archive position (pinned).
+  Test: `tests/test_archive_member_priority.py` (5; before the fix 3 failed):
+  a `.ps1` at position 31 is scanned and the archive is Critical, partial,
+  "6 member(s) over the scan budget"; a renamed PE at 28 goes first; archive
+  order inside the risky group; plain and small archives unchanged. README
+  notes the order. Related suites: 375 passed, 5 skipped.
+- **M26 wait cap** (`bd9514e`). Owner choices (asked before the change):
+  sandbox only (VirusTotal upload wait and LLM unchanged), margin 10 % of the
+  scan limit with at least 1 s, and no submission when no time is left. Made
+  here, stated to the owner: "no time left" = less than one poll interval
+  (15 s) after the margin.
+  - `engine/workers._serve` records `scan_deadline` = receipt +
+    `scan_timeout_seconds` (every caller passes that setting; the parent's
+    clock starts a few ms earlier, inside the margin); `time_left()` on the
+    scanner. Outside a worker it is None and nothing changes.
+  - `engine/layers._sandbox_deadline` gives the layer an absolute deadline;
+    `CapeClient.analyze` and `IntelSandbox.analyze` take an optional
+    `deadline` that ends the wait and also bounds request timeouts (at least
+    1 s) and the pause between polls. A cut wait says "(cut short by the scan
+    time limit)". Without a deadline both behave as before (tested).
+  - The start-up check (group 11) keeps its warning / production error; only
+    its text changed (the wait is cut short, slower reports are never used).
+    README and DEPLOYMENT updated.
+  - Test: `tests/test_external_deadline.py` (8; before the fix 7 failed, the
+    unchanged-client case passed). Check 8 as a test: a real isolated worker,
+    6 s limit, a loopback CAPE stand-in that never finishes, the stand-in
+    scanner polling every 0.5 s: before, `failed`, "timed out after 6s";
+    after, `partial`, Critical with the static score, sandbox `timeout` "cut
+    short", no `scan_failed`, and one webhook alert of kind `verdict`.
+    No-time-left: nothing posted, `timeout` "not submitted ...", `partial`.
+  - Related suites: 303 passed, 8 skipped; with config validation 213 passed.
+- ruff (tracked files), mypy (68 files), bandit (CI scope, `-ll`) clean. No
+  bidi characters in any staged diff.
+- **Full safe run at `bd9514e`** (clean worktree, the documented command with
+  the four deselects written out): **1,730 passed, 0 failed, 23 skipped,
+  4 deselected, 1 warning**, 325 s; `test_smoke.py`: "ALL SMOKE TESTS
+  PASSED". Skips as before (7-Zip 12, RAR 3, Windows 2, Linux 1, libproc 1,
+  ELF 1, box-js 1, OpenCV 1, GUI 1); the warning is Starlette's `httpx`
+  deprecation (third party).
+- **Needs a real platform:** M26 against a real CAPE server (submission and
+  report times, the 15 s poll) and in Docker (the `analysis` worker polling
+  `intel`; `intel`'s own wait); I-2 score shifts on real large archives.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -1936,9 +1993,10 @@ in 33.7 and must be obtained before the OWNER items:
 - Done: H6 and M18 (groups 28 to 30); M23, M31, L-D5, L-C7, L-D8 (group 32);
   M19, L-L1 (group 33); H-04+, M30, M25, the M27 empty-key rule, I-1 (eight
   types), I-3 (without Dependabot), L-B2, I-T1, D22, D23 (group 34); M24,
-  M29 (script part), the lock-refresh tool (group 35)
+  M29 (script part), the lock-refresh tool (group 35); I-2, the M26 wait cap
+  (sandbox only) (group 36)
 - Still open, unchanged: M24 on Windows (delivery), the M29 web-page case,
-  M32 and S-Y1 to S-Y4 (benign corpus), the M26 wait cap / I-6 (Docker and a sandbox), I-2, I-4 (after
+  M32 and S-Y1 to S-Y4 (benign corpus), the rest of I-6 (VirusTotal and LLM waits), I-2, I-4 (after
   S-03), M4, M15 packaging, D26, `httpx2`; exit code 2 and the IMAP fetch
   retry were recommended to stay as they are
 
@@ -2000,6 +2058,7 @@ Still unverified (33.7 lists the platform checks):
 - GitHub: the daily dependency audit and its issue (I-3)
 - Windows: M24 (what mail clients and archive tools save for a trailing dot)
 - a benign corpus: the M29 rule change (only fixed test inputs were checked)
+- a real CAPE server and Docker: the M26 cap (stand-ins only here)
 - a running background service and GUI: the M25 registry copy and memory
 - Linux ARM64, Windows ARM64 and macOS Intel
 - the GUI on a display
