@@ -268,7 +268,10 @@ LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer
 MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
 MAX_ERROR_CHARS = 2000
 REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member", "provisional", "settled",
-               "sandbox")
+               "sandbox", "external")
+# I-6: the layers a provisional result may name as stopped, with their result keys
+STOPPABLE = {"sandbox": "sandbox", "virustotal": "virustotal", "llm": "chatgpt_analysis"}
+EXTERNAL_SENT = ("sha256", "file", "text")
 # H6 (b): while the outer file is still being scanned, the worker reports its
 # container's own findings once the container is opened ("container") and each
 # direct member whose scan finished ("member"), so a time-out or a dead worker
@@ -301,6 +304,9 @@ _RESULT_FIELDS: Dict[str, Tuple[Any, bool]] = {   # name: (types, required)
 }
 
 
+_SEND_LOCK = threading.Lock()
+
+
 class InvalidReply(ValueError):
     """A worker message that is too large, not JSON, or not of the expected shape."""
 
@@ -316,7 +322,8 @@ def send_reply(conn, kind: str, payload: Any) -> bool:
             return False
         data = json.dumps(["error", f"the scan result was too large to return "
                                     f"({len(data)} bytes, limit {MAX_REPLY_BYTES})"]).encode()
-    conn.send_bytes(data)
+    with _SEND_LOCK:                # I-6: slow layers report from their own threads
+        conn.send_bytes(data)
     return True
 
 
@@ -367,7 +374,7 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
             _signal_class(payload["container"])(**payload["signal"])
         except (TypeError, ValueError):
             raise InvalidReply("a container signal with unknown fields") from None
-    elif kind in ("provisional", "settled", "sandbox"):
+    elif kind in ("provisional", "settled", "sandbox", "external"):
         _check_sandbox_message(kind, payload)
     elif kind == "member":
         if not (isinstance(payload, dict) and set(payload) == {"container", "result"}
@@ -383,6 +390,15 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
 def _check_sandbox_message(kind: str, payload: Any) -> None:
     """M26: the provisional result (sandbox at timeout, nothing submitted yet),
     the settled one (a sandbox outcome) and a submission-state report."""
+    if kind == "external":
+        if not (isinstance(payload, dict) and set(payload) == {"service", "sent", "destination"}
+                and payload["service"] in ("virustotal", "llm")
+                and isinstance(payload["sent"], list) and 0 < len(payload["sent"]) <= 3
+                and all(s in EXTERNAL_SENT for s in payload["sent"])
+                and payload["destination"] in (None, "local", "cloud")):
+            raise InvalidReply("an external-service report that is not {service, sent, "
+                               "destination}")
+        return
     if kind == "sandbox":
         task = payload.get("task_id") if isinstance(payload, dict) else None
         if not (isinstance(payload, dict) and set(payload) == {"submission", "task_id"}
@@ -393,19 +409,35 @@ def _check_sandbox_message(kind: str, payload: Any) -> None:
             raise InvalidReply("a sandbox progress report that is not {submission, task_id}")
         return
     _check_result(payload)
-    box = payload["scan_results"].get("sandbox")
     shared = payload.get("provenance", {}).get("shared", [])
-    if not (isinstance(box, dict) and isinstance(shared, list)
-            and all(isinstance(e, dict) for e in shared)):
-        raise InvalidReply(f"a {kind} result without its sandbox entry")
+    if not (isinstance(shared, list) and all(isinstance(e, dict) for e in shared)):
+        raise InvalidReply(f"a {kind} result whose shared list is not plain")
     if kind == "provisional":
-        if not (box.get("status") == "timeout" and box.get("submission") == "not_attempted"
-                and payload["scan_status"] != "complete"):
-            raise InvalidReply("a provisional result without its sandbox time-out")
-    elif not (box.get("status") in ("reported", "timeout", "error")
-              and box.get("submission") in SUBMISSION_STATES
-              and box.get("transmission") == TRANSMISSION[box["submission"]]):
+        _check_provisional(payload)
+        return
+    box = payload["scan_results"].get("sandbox")
+    if not (isinstance(box, dict) and box.get("status") in ("reported", "timeout", "error")
+            and box.get("submission") in SUBMISSION_STATES
+            and box.get("transmission") == TRANSMISSION[box["submission"]]):
         raise InvalidReply("a settled result without a sandbox outcome")
+
+
+def _check_provisional(payload: Dict[str, Any]) -> None:
+    """M26, I-6: a provisional result names the layers it stops
+    (`scan_results.stopped_layers`), each at `timeout`; a stopped sandbox has
+    submitted nothing yet; the scan is not complete."""
+    sr = payload["scan_results"]
+    stopped = sr.get("stopped_layers")
+    if not (isinstance(stopped, list) and stopped and len(set(stopped)) == len(stopped)
+            and all(name in STOPPABLE for name in stopped)
+            and payload["scan_status"] != "complete"):
+        raise InvalidReply("a provisional result without its stopped layers")
+    for name in stopped:
+        entry = sr.get(STOPPABLE[name])
+        if not (isinstance(entry, dict) and entry.get("status") == "timeout"):
+            raise InvalidReply(f"a provisional result whose {name} is not at timeout")
+    if "sandbox" in stopped and sr["sandbox"].get("submission") != "not_attempted":
+        raise InvalidReply("a provisional result whose sandbox already submitted")
 
 
 def _check_contributions(result: Dict[str, Any]) -> None:
@@ -587,6 +619,14 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
             pass                             # never stop a scan over a progress report
     _SCANNER.member_listener = report_member   # read by engine/containers.py
 
+    def report_external(service: str, sent: Any, destination: Any = None) -> None:
+        try:
+            send_reply(conn, "external", {"service": service, "sent": list(sent),
+                                          "destination": destination})
+        except Exception:
+            pass
+    _SCANNER.external_listener = report_external      # read by engine/external.py
+
     def report_provisional(result: Dict, settled: bool = False) -> None:
         try:                                     # over the size limit: not sent
             send_reply(conn, "settled" if settled else "provisional", result)
@@ -744,6 +784,7 @@ class _Worker:
         self.evidence = Evidence()           # H6 (b): members finished for self.path
         self.provisional: Optional[Dict] = None      # M26: checked, for self.path
         self.settled = False                         # ... and holding the sandbox outcome
+        self.external: Dict[str, Dict[str, Any]] = {}  # I-6: what may have left, per service
         self.sandbox_state: Optional[Dict] = None
 
     def kill(self) -> None:
@@ -820,21 +861,48 @@ def failure_result(scanner, path: str, reason: str, code: str = "",
     return result
 
 
+def stopped_result(provisional: Dict, state: Optional[Dict], external: Dict[str, Dict[str, Any]],
+                   timeout: float, elapsed: float) -> Dict:
+    """M26, I-6: the result of a file whose worker was stopped at the scan time
+    limit while a slow layer waited on its service: the checked provisional
+    result, each stopped layer completed from what the worker reported before
+    the stop (the sandbox's submission state; what VirusTotal and the LLM were
+    about to be sent). The other layers' findings, the score and the verdict are
+    the worker's; the scan stays partial."""
+    result = copy.deepcopy(provisional)
+    sr = result["scan_results"]
+    shared = result.setdefault("provenance", {}).setdefault("shared", [])
+    texts: Dict[str, str] = {}
+    for name in sr["stopped_layers"]:
+        if name == "sandbox":
+            texts[name] = _stop_sandbox(sr["sandbox"], state, timeout, shared)
+        else:
+            texts[name] = _stop_external(name, sr[STOPPABLE[name]], external.get(name),
+                                         timeout, shared)
+    for gap in result.get("incomplete_reasons") or []:
+        if gap.get("layer") in texts:
+            gap["reason"] = f"{gap['layer']} timeout: {texts[gap['layer']]}"
+    result["scan_duration_ms"] = int(elapsed * 1000)
+    return result
+
+
 def sandbox_stopped_result(provisional: Dict, state: Optional[Dict], timeout: float,
                            elapsed: float) -> Dict:
-    """M26: the result of a file whose worker was stopped at the scan time limit
-    during the sandbox wait: the checked provisional result, with the sandbox
-    entry completed from the last submission state the worker reported. The
-    file's other findings, score and verdict are the worker's; the scan stays
-    partial (the sandbox timed out)."""
-    result = copy.deepcopy(provisional)
+    """The M26 form of stopped_result (the sandbox only)."""
+    return stopped_result(provisional, state, {}, timeout, elapsed)
+
+
+def _stopped_text(what: str, timeout: float) -> str:
+    return (f"{what} did not answer before the scan time limit ({int(timeout)}s); the worker "
+            f"was stopped and the other layers' findings are kept")
+
+
+def _stop_sandbox(box: Dict[str, Any], state: Optional[Dict], timeout: float,
+                  shared: List[Dict[str, Any]]) -> str:
     submission = str((state or {}).get("submission") or "not_attempted")
     task = (state or {}).get("task_id") if submission == "confirmed" else None
     transmission = TRANSMISSION[submission]
-    box = result["scan_results"]["sandbox"]
-    detail = (f"the sandbox did not answer before the scan time limit ({int(timeout)}s); "
-              f"the worker was stopped during the sandbox wait and the other layers' "
-              f"findings are kept")
+    detail = _stopped_text("the sandbox", timeout)
     detail += {"none": "; the file was not sent",
                "possible": "; an upload had started: the file may have reached the sandbox "
                            "(not confirmed)",
@@ -845,14 +913,30 @@ def sandbox_stopped_result(provisional: Dict, state: Optional[Dict], timeout: fl
                submission=submission, transmission=transmission, detail=detail)
     if transmission != "none":
         box["sent"] = ["file"]
-        shared = result.setdefault("provenance", {}).setdefault("shared", [])
         if not any(e.get("service") == "sandbox" and "member_path" not in e for e in shared):
             shared.append({"service": "sandbox", "sent": ["file"]})
-    for gap in result.get("incomplete_reasons") or []:
-        if gap.get("layer") == "sandbox":
-            gap["reason"] = f"sandbox timeout: {detail}"
-    result["scan_duration_ms"] = int(elapsed * 1000)
-    return result
+    return detail
+
+
+def _stop_external(name: str, entry: Dict[str, Any], seen: Optional[Dict[str, Any]],
+                   timeout: float, shared: List[Dict[str, Any]]) -> str:
+    """I-6: VirusTotal or the LLM. What the worker reported it was about to send is
+    a possible transmission: it may or may not have arrived."""
+    detail = _stopped_text("VirusTotal" if name == "virustotal" else "the LLM", timeout)
+    sent = list((seen or {}).get("sent") or [])
+    if sent:
+        detail += f"; possibly sent before the stop: {', '.join(sent)} (not confirmed)"
+        entry.update(sent=sent, transmission="possible")
+        if not any(e.get("service") == name and "member_path" not in e for e in shared):
+            item: Dict[str, Any] = {"service": name, "sent": sent}
+            if (seen or {}).get("destination"):
+                item["destination"] = seen["destination"]  # type: ignore[index]
+            shared.append(item)
+    else:
+        detail += "; nothing was sent"
+        entry["transmission"] = "none"
+    entry.update(status="timeout", detail=detail, details=detail)
+    return detail
 
 
 class Evidence:
@@ -1044,7 +1128,7 @@ class _IsolatedScan:
             w.ready = True
             METRICS.worker_start(True, time.monotonic() - w.created)
             return True
-        if kind in ("container", "member", "provisional", "settled", "sandbox"):
+        if kind in ("container", "member", "provisional", "settled", "sandbox", "external"):
             if w.path is not None:
                 self._progress(w, kind, payload)
             return True
@@ -1083,12 +1167,14 @@ class _IsolatedScan:
                     result = dict(copy.deepcopy(w.provisional),
                                   scan_duration_ms=int(elapsed * 1000))
                 else:
-                    logger.warning("The sandbox did not answer for %s within the scan limit "
-                                   "(%ds); the worker was stopped and the other layers' "
-                                   "findings are kept.", path, int(self.timeout),
-                                   extra={"event": "sandbox_worker_stopped", "path": path})
-                    result = sandbox_stopped_result(w.provisional, w.sandbox_state,
-                                                    self.timeout, elapsed)
+                    stopped = ", ".join(w.provisional["scan_results"]["stopped_layers"])
+                    logger.warning("%s did not answer for %s within the scan limit (%ds); the "
+                                   "worker was stopped and the other layers' findings are kept.",
+                                   stopped, path, int(self.timeout),
+                                   extra={"event": "sandbox_worker_stopped", "path": path,
+                                          "layers": stopped})
+                    result = stopped_result(w.provisional, w.sandbox_state, w.external,
+                                            self.timeout, elapsed)
                 self._finish(path, result)
                 return self._replace(i)
             elif overdue and not dead:
@@ -1108,6 +1194,10 @@ class _IsolatedScan:
             w.evidence.add(payload)
         elif kind in ("provisional", "settled"):
             w.provisional, w.settled = payload, kind == "settled"
+        elif kind == "external":
+            seen = w.external.setdefault(payload["service"], {"sent": [], "destination": None})
+            seen["sent"] = sorted(set(seen["sent"]) | set(payload["sent"]))
+            seen["destination"] = payload["destination"] or seen["destination"]
         else:
             w.sandbox_state = payload
 
@@ -1127,6 +1217,7 @@ class _IsolatedScan:
         w.path, w.started = self.pending.pop(0), time.monotonic()
         w.evidence = Evidence()
         w.provisional, w.sandbox_state, w.settled = None, None, False
+        w.external = {}
         try:
             w.parent.send(w.path)
         except Exception:

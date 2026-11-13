@@ -145,6 +145,18 @@ class Layer:
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         raise NotImplementedError
 
+    def stopped_entry(self, scanner: RansomwareScanner,
+                      ctx: ScanContext) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """I-6: for a slow layer that may wait on an outside service, its result if
+        the worker is stopped during that wait: (result key, result). None for a
+        layer that does not wait on one here."""
+        return None
+
+
+# I-6, M26: the result of a slow layer whose wait the worker's limit cut short
+STOPPED_EXTERNAL = ("did not finish before the scan time limit; the worker was stopped "
+                    "and the other layers' findings are kept")
+
 
 # --------------------------------------------------------------------- layers
 class HashLayer(Layer):
@@ -388,6 +400,15 @@ class LLMLayer(Layer):
     name = "llm"
     heavy = True
 
+    def stopped_entry(self, scanner: RansomwareScanner, ctx: ScanContext):
+        backend = getattr(scanner, "llm_backend", None)
+        if (ctx.is_archive or not getattr(backend, "available", False)
+                or os.path.splitext(ctx.path)[1].lower() in IMAGE_EXTENSIONS):
+            return None
+        return "chatgpt_analysis", {"is_malicious": False, "confidence": 0,
+                                    "suspicious_elements": [], "status": "timeout",
+                                    "details": STOPPED_EXTERNAL, "detail": STOPPED_EXTERNAL}
+
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         llm: Dict[str, Any]
         if ctx.is_archive:
@@ -410,6 +431,12 @@ class VirusTotalLayer(Layer):
     """Multi-engine reputation by hash (uploads are opt-in; cached)."""
     name = "virustotal"
     heavy = True
+
+    def stopped_entry(self, scanner: RansomwareScanner, ctx: ScanContext):
+        if not scanner.vt_may_contact():
+            return None
+        return "virustotal", scanner._vt_empty(status="timeout", detail=STOPPED_EXTERNAL,
+                                               details=STOPPED_EXTERNAL)
 
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         vt = scanner.scan_file_with_virustotal(ctx.path, ctx.hashes)
@@ -487,7 +514,7 @@ class SandboxLayer(Layer):
         if deadline is not None and settle is not None and not cached and not no_time:
             # M26: the sandbox's outcome is known; if the worker is stopped before
             # its final reply, the parent keeps this result, not "did not answer"
-            settle(scanner.provisional_result(ctx, "sandbox", "sandbox", data), True)
+            settle(scanner.assembled_copy(ctx, {"sandbox": ("sandbox", data)}), True)
 
     @staticmethod
     def _analyze(scanner: RansomwareScanner, ctx: ScanContext, client: Any,
@@ -501,7 +528,7 @@ class SandboxLayer(Layer):
         if deadline is None or send is None or listen is None:
             return client.analyze(ctx.path, deadline=deadline).as_dict()
         stopped = SandboxResult(enabled=True, status="timeout", detail=STOPPED_DETAIL).as_dict()
-        send(scanner.provisional_result(ctx, "sandbox", "sandbox", stopped), False)
+        send(scanner.provisional_result(ctx, {"sandbox": ("sandbox", stopped)}), False)
         return client.analyze(ctx.path, deadline=deadline, progress=listen).as_dict()
 
 

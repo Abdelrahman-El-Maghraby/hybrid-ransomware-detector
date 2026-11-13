@@ -11,7 +11,7 @@ import copy
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, cast
 
 from .completeness import assess, verdict_label
 from .config import ENGINE_VERSION
@@ -29,6 +29,7 @@ class StagedPipelineMixin:
     pipeline: List[Layer]
     scoring: Any
     _heavy_pool: Optional[ThreadPoolExecutor]
+    provisional_listener: Optional[Callable[[Dict, bool], None]]   # set in a worker (M26)
 
     # ------------------------------------------------------------- scanning
     def scan_file(self, file_path: str, _depth: int = 0,
@@ -91,27 +92,53 @@ class StagedPipelineMixin:
         result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
         return result
 
-    def provisional_result(self, ctx: ScanContext, layer: str, key: str,
-                           entry: Dict[str, Any]) -> Dict:
-        """M26: the result the file would get if `layer` ended now with `entry` as
-        its result, assembled on a copy (ctx is not changed). The worker sends it
-        to its parent before the sandbox's network wait; the parent uses it only
-        if it has to stop the worker during that wait."""
+    def assembled_copy(self, ctx: ScanContext, entries: Dict[str, Tuple[str, Dict[str, Any]]]
+                       ) -> Dict:
+        """The result the file would get with `entries` ({layer: (result key,
+        result)}) added, assembled on a copy (ctx is not changed)."""
         sub = copy.copy(ctx)
-        sub.result = {**ctx.result, "scan_results": {**ctx.scan_results, key: entry}}
+        sub.result = {**ctx.result, "scan_results": {**ctx.scan_results,
+                                                     **{k: e for k, e in entries.values()}}}
         sub.signals = ctx.signals.copy()
-        sub.layer_log = list(ctx.layer_log) + [(layer, RAN)]
+        sub.layer_log = list(ctx.layer_log) + [(layer, RAN) for layer in entries]
         sub.member_reasons = list(ctx.member_reasons)
         sub.member_shared = list(ctx.member_shared)
         return self._assemble(sub)
+
+    def provisional_result(self, ctx: ScanContext,
+                           stopped: Dict[str, Tuple[str, Dict[str, Any]]]) -> Dict:
+        """M26, I-6: the result the file gets if the worker must be stopped while
+        the `stopped` layers (sandbox, VirusTotal, LLM) wait on their service:
+        those layers at `timeout`, named in `scan_results.stopped_layers`. The
+        worker sends it before that wait; the parent uses it only if it stops
+        the worker at the scan limit."""
+        result = self.assembled_copy(ctx, stopped)
+        result["scan_results"]["stopped_layers"] = sorted(stopped)
+        return result
+
+    def _in_worker(self, ctx: ScanContext) -> bool:
+        return (ctx.depth == 0 and getattr(self, "provisional_listener", None) is not None
+                and cast("RansomwareScanner", self).time_left() is not None)
+
+    def _send_stage_provisional(self, layers: List[Layer], ctx: ScanContext) -> None:
+        """I-6: before the slow layers that may wait on an outside service
+        (VirusTotal, the LLM) run in a worker, send the parent the result it
+        keeps if the worker is stopped during their wait."""
+        stopped = {}
+        for layer in layers:
+            entry = layer.stopped_entry(cast("RansomwareScanner", self), ctx)
+            if entry is not None:
+                stopped[layer.name] = entry
+        if stopped:
+            listen = self.provisional_listener
+            if listen is not None:
+                listen(self.provisional_result(ctx, stopped), False)
 
     def _sandbox_last(self, ctx: ScanContext) -> bool:
         """M26: in an isolated worker with a sandbox, the sandbox runs after the
         other slow layers, so the provisional result it sends first holds their
         findings. Elsewhere the slow layers run together as before."""
-        return (ctx.depth == 0 and getattr(self, "provisional_listener", None) is not None
-                and getattr(self, "sandbox", None) is not None
-                and cast("RansomwareScanner", self).time_left() is not None)
+        return self._in_worker(ctx) and getattr(self, "sandbox", None) is not None
 
     def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
         """Run one layer; a parser that raises on a hostile file costs that layer's
@@ -153,6 +180,8 @@ class StagedPipelineMixin:
             return
         last = [layer for layer in layers if layer.name == "sandbox"] \
             if self._sandbox_last(ctx) else []
+        if self._in_worker(ctx):                 # I-6: before VirusTotal and the LLM wait
+            self._send_stage_provisional([layer for layer in layers if layer not in last], ctx)
         if last:                                 # M26: the others first, then the sandbox
             self._run_together([layer for layer in layers if layer not in last], ctx)
             for layer in last:

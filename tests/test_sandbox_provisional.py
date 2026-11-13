@@ -769,7 +769,7 @@ def _provisional():
     box = SandboxResult(enabled=True, status="timeout", detail="stopped").as_dict()
     return {"file_path": "/x/a.zip", "verdict": "Critical", "risk_score": 95,
             "scan_status": "partial", "sha256_hash": "ab" * 32,
-            "scan_results": {"sandbox": box},
+            "scan_results": {"sandbox": box, "stopped_layers": ["sandbox"]},
             "incomplete_reasons": [{"member_path": "/x/a.zip", "layer": "sandbox",
                                     "reason": "sandbox timeout: stopped", "status": "partial"}],
             "provenance": {"shared": [{"service": "virustotal", "sent": ["sha256"]}]}}

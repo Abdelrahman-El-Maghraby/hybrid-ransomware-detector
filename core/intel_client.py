@@ -155,8 +155,10 @@ class IntelClient:
         return dict(caps.get(name) or {"enabled": False})
 
     # ------------------------------------------------------------ operations
-    def vt_lookup(self, sha256: str) -> Dict:
-        return self.call("POST", "/v1/virustotal/lookup", {"sha256": sha256})
+    def vt_lookup(self, sha256: str, timeout: Optional[float] = None) -> Dict:
+        """`timeout`: I-6, an isolated worker's time left (default: the client's)."""
+        return self.call("POST", "/v1/virustotal/lookup", {"sha256": sha256},
+                         timeout=None if timeout is None else max(0.01, timeout))
 
     def alert_email(self, fields: Dict) -> None:
         """Hand an e-mail alert (core/mailer.EMAIL_FIELDS, metadata only) to the
@@ -196,7 +198,7 @@ class IntelLLMBackend(LLMBackend):
     def available(self) -> bool:
         return bool(self.client.service("llm").get("enabled"))
 
-    def analyze(self, combined_content: str) -> Dict:
+    def analyze(self, combined_content: str, timeout: Optional[float] = None) -> Dict:
         if self.client.service("llm").get("unreachable"):
             return _empty_analysis("Intel service unreachable; semantic layer skipped.", error=True)
         if not self.available:
@@ -204,7 +206,7 @@ class IntelLLMBackend(LLMBackend):
                                    "skipped.")
         try:
             return self.client.call("POST", "/v1/llm/analyze", {"content": combined_content},
-                                    timeout=180)
+                                    timeout=180 if timeout is None else max(0.01, min(180, timeout)))
         except IntelError as e:
             logger.error("LLM analysis through the intel service failed: %s", e)
             return _empty_analysis("LLM analysis through the intel service failed.", error=True)

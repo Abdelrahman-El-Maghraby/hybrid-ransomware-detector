@@ -89,6 +89,9 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     # it changes (sandbox_listener(state, task_id)).
     provisional_listener: Optional[Callable[[Dict, bool], None]] = None
     sandbox_listener: Optional[Callable[..., None]] = None
+    # I-6: set in an isolated worker; told what VirusTotal or the LLM is about to
+    # be sent (external_listener(service, sent, destination)), before the call.
+    external_listener: Optional[Callable[..., None]] = None
 
     def time_left(self) -> Optional[float]:
         """Seconds before the worker's limit ends this scan, or None without one."""

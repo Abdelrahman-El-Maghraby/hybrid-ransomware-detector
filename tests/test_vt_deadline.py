@@ -80,18 +80,19 @@ def test_a_finished_analysis_is_used_in_a_worker(scanner, tmp_path):
 
 def test_the_upload_wait_ends_before_the_scan_limit(scanner, tmp_path):
     scanner.http = vt = FakeVT()
-    _in_worker(scanner, left=1.6, limit=5)                # 1.6 - 1 s margin = 0.6 s
+    _in_worker(scanner, left=2.5, limit=5)                # 2.5 - 1 s margin = 1.5 s
     started = time.monotonic()
     r = scanner.scan_file_with_virustotal(_file(tmp_path))
-    assert time.monotonic() - started < 0.7
+    assert time.monotonic() - started < 1.6
     assert 1 <= vt.checks < external.VT_POLLS
     assert r["status"] == "timeout" and "did not finish before the scan time limit" in r["details"]
     assert r["sent"] == ["sha256", "file"]                # the upload did leave the machine
 
 
-def test_no_upload_when_not_one_check_fits(scanner, tmp_path):
+def test_no_upload_when_not_one_check_fits(scanner, tmp_path, monkeypatch):
+    monkeypatch.setattr(external, "VT_POLL_SECONDS", 3.0)
     scanner.http = vt = FakeVT()
-    _in_worker(scanner, left=1.1, limit=5)                # 0.1 s usable < one 0.2 s check
+    _in_worker(scanner, left=2.5, limit=5)                # 1.5 s: a lookup, not a 3 s check
     r = scanner.scan_file_with_virustotal(_file(tmp_path))
     assert vt.posts == 0 and r["sent"] == ["sha256"]      # the hash only
     assert r["status"] == "timeout" and "not uploaded: no time left" in r["details"]
@@ -99,25 +100,34 @@ def test_no_upload_when_not_one_check_fits(scanner, tmp_path):
 
 def test_a_cut_wait_makes_the_scan_partial(scanner, tmp_path):
     scanner.http = FakeVT()
-    _in_worker(scanner, left=1.6, limit=5)
+    _in_worker(scanner, left=2.5, limit=5)
     r = scanner.scan_file(_file(tmp_path))
     assert r["scan_status"] == "partial"
     assert any(g["layer"] == "virustotal" for g in r["incomplete_reasons"])
     assert {"service": "virustotal", "sent": ["sha256", "file"]} in r["provenance"]["shared"]
 
 
-def test_through_intel_no_upload_without_time_and_a_bounded_call(scanner, tmp_path):
+def test_through_intel_no_upload_without_time_and_a_bounded_call(scanner, tmp_path,
+                                                                  monkeypatch):
+    monkeypatch.setattr(external, "VT_POLL_SECONDS", 3.0)
     calls = []
 
+    lookups = []
+
     class Intel(ScriptedIntel):
+        def vt_lookup(self, sha256, timeout=None):
+            lookups.append(timeout)
+            return super().vt_lookup(sha256)
+
         def vt_upload(self, path, timeout=None):
             calls.append(timeout)
             return {"not_found": True, "details": "queued", "sent": ["file"]}
     intel = Intel(CAPS, {"/v1/virustotal/lookup": {"not_found": True, "sent": ["sha256"]}})
     scanner.intel = intel
-    _in_worker(scanner, left=1.1, limit=5)
+    _in_worker(scanner, left=2.5, limit=5)                # a lookup fits, a 3 s check not
     r = scanner.scan_file_with_virustotal(_file(tmp_path))
     assert calls == [] and r["sent"] == ["sha256"] and r["status"] == "timeout"
+    assert 0 < lookups[0] <= 1.6                          # the lookup got the time left
     _in_worker(scanner, left=40, limit=20)
     scanner.scan_file_with_virustotal(_file(tmp_path))
     assert len(calls) == 1 and 30 < calls[0] <= 38       # the time left less the margin

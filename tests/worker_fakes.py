@@ -94,7 +94,9 @@ class SandboxProbeScanner(RansomwareScanner):
     `_hang_dns` makes every name lookup in this worker hang, `_crash_in_sandbox`
     ends the worker inside the sandbox wait, `_bad_provisional` sends a
     provisional result that fails the parent's check, `_poll_seconds` sets the
-    sandbox poll interval (0.3 s by default), `_slow_finish` stalls after the
+    sandbox poll interval (0.3 s by default), `_hang_vt`, `_hang_llm` and
+    `_crash_in_vt` make VirusTotal or the LLM stall past any timeout (or end the
+    worker), `_slow_llm` makes the LLM honour the timeout it is given, `_slow_finish` stalls after the
     scan has finished, before the worker replies."""
 
     def __init__(self, config):
@@ -111,6 +113,31 @@ class SandboxProbeScanner(RansomwareScanner):
             def crash(path, deadline=None, progress=None):
                 os._exit(3)
             self.sandbox.analyze = crash
+        if config.get("_hang_vt") or config.get("_crash_in_vt"):
+            crash = bool(config.get("_crash_in_vt"))
+
+            class StalledVT:                       # ignores its timeout: a dripped answer
+                def get(self, url, headers=None, timeout=None):
+                    if crash:
+                        os._exit(3)
+                    time.sleep(600)
+
+                def post(self, *a, **k):
+                    time.sleep(600)
+            self.http = StalledVT()
+        if config.get("_hang_llm") or config.get("_slow_llm"):
+            honour = bool(config.get("_slow_llm"))
+            from detectors.llm_backends import LLMBackend, _empty_analysis
+
+            class StalledLLM(LLMBackend):
+                name, model, is_local = "stand-in", "m", False
+
+                def analyze(self, combined_content, timeout=None):
+                    if honour and timeout is not None:   # a server that times out properly
+                        time.sleep(timeout)
+                        return _empty_analysis("stand-in LLM timed out", error=True)
+                    time.sleep(600)
+            self.llm_backend = StalledLLM()
         slow = float(config.get("_slow_vt_seconds") or 0)
         if slow:
             original = self.scan_file_with_virustotal
@@ -121,9 +148,9 @@ class SandboxProbeScanner(RansomwareScanner):
                 return original(path, *a, **k)
             self.scan_file_with_virustotal = slow_vt
 
-    def provisional_result(self, ctx, layer, key, entry):
-        result = super().provisional_result(ctx, layer, key, entry)
-        if self.config.get("_bad_provisional"):
+    def provisional_result(self, ctx, stopped):
+        result = super().provisional_result(ctx, stopped)
+        if self.config.get("_bad_provisional") and "sandbox" in result["scan_results"]:
             result["scan_results"]["sandbox"]["status"] = "reported"
             hang = getattr(self.sandbox, "analyze", None)
             if hang is not None:

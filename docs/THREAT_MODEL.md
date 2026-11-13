@@ -284,7 +284,8 @@ security boundary. In the Docker deployment the boundary is the container:
   any field is used, never as a pickle (M18 in `docs/PROJECT_REVIEW.md`), so a forged
   message cannot run code in the long-lived parent; a malformed, oversized or
   unexpected one fails that file (`scan_failed`) and stops the worker. The results a
-  worker sends before its sandbox wait and once the sandbox has answered (M26) are
+  worker sends before its sandbox, VirusTotal and LLM waits and once the sandbox has
+  answered (M26, I-6), and its reports of what those calls are about to send, are
   checked the same way and used only when the parent stops that worker at the scan
   time limit; it concerns the worker's
   own file, which a compromised worker could already misreport. Worker and

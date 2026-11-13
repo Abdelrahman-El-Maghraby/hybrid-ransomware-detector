@@ -113,6 +113,13 @@ class RateLimiter:
         self._next_allowed = 0.0
         self._lock = threading.Lock()
 
+    def delay(self) -> float:
+        """Seconds a call made now would wait (without reserving the slot)."""
+        if self.interval <= 0:
+            return 0.0
+        with self._lock:
+            return max(0.0, self._next_allowed - self._clock())
+
     def wait(self) -> float:
         """Block until the next call is allowed; returns the seconds waited."""
         if self.interval <= 0:

@@ -10,6 +10,7 @@ from .text import extract_suspicious_strings
 logger = logging.getLogger("RansomwareScanner")
 
 VT_POLL_SECONDS = 15.0          # between status checks of an uploaded file
+MIN_CALL_SECONDS = 1.0          # I-6: in a worker, no call starts with less time left
 VT_POLLS = 10
 _VT_CUT = object()              # the upload wait ended at the scan time limit
 
@@ -97,7 +98,19 @@ class ExternalLookupsMixin:
                 f"{embedded_strings[:2000]}"
             )
 
-            result = self.llm_backend.analyze(combined)
+            end = self._vt_end()                     # I-6: None outside a worker
+            if end is None:
+                result = self.llm_backend.analyze(combined)
+            elif self._no_time_for_a_call(end):
+                return {"is_malicious": False, "confidence": 0, "suspicious_elements": [],
+                        "status": "timeout",
+                        "details": "LLM not asked: no time left in the scan limit.",
+                        "detail": "not asked: no time left in the scan limit"}
+            else:
+                self._note_external("llm", ["text"],
+                                    "local" if self.llm_backend.is_local else "cloud")
+                result = self.llm_backend.analyze(combined,
+                                                  timeout=self._call_timeout(180, end))
             if sha256 and self.cache is not None and result.get("analyzed"):
                 self.cache.put(sha256, cache_layer, result)
             if not result.get("cached"):             # intel may have answered from its cache
@@ -119,7 +132,7 @@ class ExternalLookupsMixin:
         return self.analyze_with_llm(file_path)
 
     def _vt_end(self) -> Optional[float]:
-        """I-6 (VirusTotal): in an isolated worker, when the upload wait must end:
+        """I-6: in an isolated worker, when the VirusTotal and LLM waits must end:
         the scan's limit less the M26 margin (10 %, at least 1 s). None outside a
         worker, where nothing changes."""
         time_left = getattr(self, "time_left", None)
@@ -131,6 +144,39 @@ class ExternalLookupsMixin:
 
     def _vt_no_time(self, end: Optional[float]) -> bool:
         return end is not None and end - time.monotonic() < VT_POLL_SECONDS
+
+    def _no_time_for_a_call(self, end: Optional[float], wait: float = 0.0) -> bool:
+        return end is not None and end - time.monotonic() - wait < MIN_CALL_SECONDS
+
+    def _call_timeout(self, normal: float, end: Optional[float]) -> float:
+        """A request's timeout: `normal`, or in a worker the time left (at most
+        `normal`); MIN_CALL_SECONDS was checked before the call."""
+        return normal if end is None else max(0.01, min(normal, end - time.monotonic()))
+
+    def _note_external(self, service: str, sent: List[str],
+                       destination: Optional[str] = None) -> None:
+        """I-6: tell a worker's parent what is about to leave the machine, before
+        the call; it is reported as a possible transmission if the worker must be
+        stopped during that call. Nothing outside a worker."""
+        listen = getattr(self, "external_listener", None)
+        if listen is not None:
+            listen(service, sent, destination)
+
+    def vt_may_contact(self) -> bool:
+        """Whether the VirusTotal layer would contact VirusTotal (or intel for it)."""
+        if self.intel is not None:
+            return bool(self.intel.service("virustotal").get("enabled"))
+        return bool(self.config.get("virustotal_api_key"))
+
+    def _vt_session(self, end: Optional[float]):
+        """(session, owned): in a worker a session of this call without automatic
+        retries (a retry and its back-off would not see the deadline), closed by
+        the caller; else the shared session, as before."""
+        import requests
+        if end is None or not isinstance(self.http, requests.Session):
+            return self.http, False                  # outside a worker, or a stand-in
+        from core.http import build_session
+        return build_session(total_retries=0), True
 
     def _vt_not_uploaded(self) -> Dict:
         return self._vt_empty(not_found=True, status="timeout",
@@ -173,9 +219,30 @@ class ExternalLookupsMixin:
 
             headers = {"x-apikey": self.config["virustotal_api_key"]}
             check_url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
+            end = self._vt_end()
+            pace = getattr(self.vt_limiter, "delay", None) if end is not None else None
+            if self._no_time_for_a_call(end, pace() if callable(pace) else 0.0):
+                return self._vt_empty(status="timeout",
+                                      details="VirusTotal not asked: no time left in the scan "
+                                              "limit.")
+            http, owned = self._vt_session(end)
+            try:
+                return self._vt_lookup(file_path, file_hash, headers, check_url, sent, http, end)
+            finally:
+                if owned:
+                    http.close()
+        except Exception as e:
+            logger.error("Error in VirusTotal scan for %s: %s", file_path, str(e))
+            return self._vt_empty(error=str(e))
+
+    def _vt_lookup(self, file_path: str, file_hash: str, headers: Dict, check_url: str,
+                   sent: List[str], http: Any, end: Optional[float]) -> Dict:
+        try:
             self.vt_limiter.wait()
             sent.append("sha256")
-            response = self.http.get(check_url, headers=headers, timeout=self.http_timeout)
+            self._note_external("virustotal", ["sha256"])
+            response = http.get(check_url, headers=headers,
+                                timeout=self._call_timeout(self.http_timeout, end))
 
             if response.status_code == 404:
                 if not self.config.get("virustotal_upload_unknown"):
@@ -187,11 +254,11 @@ class ExternalLookupsMixin:
                         self.cache.put(file_hash, self._vt_cache_layer(), result,
                                        ttl_seconds=6 * 3600)
                     return result
-                end = self._vt_end()
                 if self._vt_no_time(end):
                     return self._vt_not_uploaded()          # nothing more is sent
                 sent.append("file")
-                uploaded = self._vt_upload_and_wait(file_path, headers, check_url, end)
+                self._note_external("virustotal", ["file"])
+                uploaded = self._vt_upload_and_wait(file_path, headers, check_url, end, http)
                 if uploaded is _VT_CUT:
                     return self._vt_empty(
                         not_found=True, status="timeout",
@@ -250,13 +317,19 @@ class ExternalLookupsMixin:
             if cached is not None:
                 cached["cached"] = True
                 return cached
+        end = self._vt_end()
+        if self._no_time_for_a_call(end):
+            return self._vt_empty(status="timeout",
+                                  details="VirusTotal not asked: no time left in the scan limit.")
         try:
-            result = self.intel.vt_lookup(sha)
+            self._note_external("virustotal", ["sha256"])
+            result = (self.intel.vt_lookup(sha) if end is None else
+                      self.intel.vt_lookup(sha, timeout=self._call_timeout(60, end)))
             sent.extend(result.pop("sent", None) or [])
             if result.get("not_found") and info.get("upload"):
-                end = self._vt_end()
                 if self._vt_no_time(end):
                     return self._vt_not_uploaded()          # nothing more is sent
+                self._note_external("virustotal", ["file"])
                 result = (self.intel.vt_upload(file_path) if end is None else
                           self.intel.vt_upload(file_path, timeout=end - time.monotonic()))
                 sent.extend(s for s in result.pop("sent", None) or [] if s not in sent)
@@ -271,10 +344,11 @@ class ExternalLookupsMixin:
         return result
 
     def _vt_upload_and_wait(self, file_path: str, headers: Dict, check_url: str,
-                            end: Optional[float] = None):
+                            end: Optional[float] = None, http: Any = None):
         """Opt-in upload of an unknown file; returns the final file report response,
         None, or _VT_CUT when `end` (an isolated worker's limit, I-6) came first:
         the wait then stops instead of outlasting the scan."""
+        http = http or self.http
         logger.info("File %s not found in VirusTotal. Uploading (VT_UPLOAD_UNKNOWN=true)...", file_path)
         # VirusTotal: files < 32 MB use the standard /files endpoint;
         # larger files require a dedicated one-time upload URL.
@@ -283,8 +357,8 @@ class ExternalLookupsMixin:
         if file_size >= 32 * 1024 * 1024:
             logger.info("File >= 32 MB; requesting a dedicated upload URL...")
             self.vt_limiter.wait()
-            r = self.http.get("https://www.virustotal.com/api/v3/files/upload_url",
-                              headers=headers, timeout=self.http_timeout)
+            r = http.get("https://www.virustotal.com/api/v3/files/upload_url",
+                              headers=headers, timeout=self._call_timeout(self.http_timeout, end))
             if r.status_code != 200:
                 logger.error("Error getting VirusTotal upload URL: %s", r.status_code)
                 return None
@@ -292,8 +366,8 @@ class ExternalLookupsMixin:
         self.vt_limiter.wait()
         with open(file_path, "rb") as file:
             files = {"file": (os.path.basename(file_path), file)}
-            upload = self.http.post(upload_url, headers=headers, files=files,
-                                    timeout=max(120, self.http_timeout))
+            upload = http.post(upload_url, headers=headers, files=files,
+                                    timeout=self._call_timeout(max(120, self.http_timeout), end))
         if upload.status_code != 200:
             logger.error("Error uploading file to VirusTotal: %s", upload.status_code)
             return None
@@ -305,10 +379,10 @@ class ExternalLookupsMixin:
                 return _VT_CUT
             time.sleep(VT_POLL_SECONDS)  # Wait between status checks
             self.vt_limiter.wait()
-            status_resp = self.http.get(analysis_url, headers=headers, timeout=self.http_timeout)
+            status_resp = http.get(analysis_url, headers=headers, timeout=self._call_timeout(self.http_timeout, end))
             if status_resp.status_code == 200 and status_resp.json().get("data", {}) \
                     .get("attributes", {}).get("status") == "completed":
                 self.vt_limiter.wait()
-                return self.http.get(check_url, headers=headers, timeout=self.http_timeout)
+                return http.get(check_url, headers=headers, timeout=self._call_timeout(self.http_timeout, end))
         return None
 
