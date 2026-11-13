@@ -164,10 +164,12 @@ class IntelClient:
         outbox retries it."""
         self.call("POST", "/v1/alert/email", dict(fields), timeout=60)
 
-    def vt_upload(self, path: str) -> Dict:
+    def vt_upload(self, path: str, timeout: Optional[float] = None) -> Dict:
+        """`timeout`: I-6, the time an isolated worker has left (default 600 s)."""
         with open(path, "rb") as fh:
             data = fh.read()
-        return self.call("POST", "/v1/virustotal/upload", data=data, timeout=600)
+        return self.call("POST", "/v1/virustotal/upload", data=data,
+                         timeout=600 if timeout is None else max(1.0, min(600.0, timeout)))
 
 
 class IntelLLMBackend(LLMBackend):

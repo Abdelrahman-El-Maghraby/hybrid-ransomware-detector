@@ -9,6 +9,10 @@ from .text import extract_suspicious_strings
 
 logger = logging.getLogger("RansomwareScanner")
 
+VT_POLL_SECONDS = 15.0          # between status checks of an uploaded file
+VT_POLLS = 10
+_VT_CUT = object()              # the upload wait ended at the scan time limit
+
 
 class ExternalLookupsMixin:
     """LLM semantic analysis and VirusTotal reputation lookups."""
@@ -114,6 +118,25 @@ class ExternalLookupsMixin:
     def analyze_with_chatgpt(self, file_path: str) -> Dict:
         return self.analyze_with_llm(file_path)
 
+    def _vt_end(self) -> Optional[float]:
+        """I-6 (VirusTotal): in an isolated worker, when the upload wait must end:
+        the scan's limit less the M26 margin (10 %, at least 1 s). None outside a
+        worker, where nothing changes."""
+        time_left = getattr(self, "time_left", None)
+        left = time_left() if callable(time_left) else None
+        if left is None:
+            return None
+        limit = float(self.config.get("scan_timeout_seconds", 300) or 300)
+        return time.monotonic() + left - max(1.0, 0.1 * limit)
+
+    def _vt_no_time(self, end: Optional[float]) -> bool:
+        return end is not None and end - time.monotonic() < VT_POLL_SECONDS
+
+    def _vt_not_uploaded(self) -> Dict:
+        return self._vt_empty(not_found=True, status="timeout",
+                              details="Hash unknown to VirusTotal; not uploaded: no time left "
+                                      "in the scan limit.")
+
     def _vt_empty(self, **extra) -> Dict:
         result = {"is_malicious": False, "detection_ratio": 0, "malicious_detections": 0,
                   "suspicious_detections": 0, "total_engines": 0, "permalink": ""}
@@ -164,8 +187,17 @@ class ExternalLookupsMixin:
                         self.cache.put(file_hash, self._vt_cache_layer(), result,
                                        ttl_seconds=6 * 3600)
                     return result
+                end = self._vt_end()
+                if self._vt_no_time(end):
+                    return self._vt_not_uploaded()          # nothing more is sent
                 sent.append("file")
-                response = self._vt_upload_and_wait(file_path, headers, check_url) or response
+                uploaded = self._vt_upload_and_wait(file_path, headers, check_url, end)
+                if uploaded is _VT_CUT:
+                    return self._vt_empty(
+                        not_found=True, status="timeout",
+                        details="Uploaded to VirusTotal; its analysis did not finish before the "
+                                "scan time limit (look the file up later).")
+                response = uploaded or response
 
             # Process VirusTotal results
             if response.status_code == 200:
@@ -222,7 +254,11 @@ class ExternalLookupsMixin:
             result = self.intel.vt_lookup(sha)
             sent.extend(result.pop("sent", None) or [])
             if result.get("not_found") and info.get("upload"):
-                result = self.intel.vt_upload(file_path)
+                end = self._vt_end()
+                if self._vt_no_time(end):
+                    return self._vt_not_uploaded()          # nothing more is sent
+                result = (self.intel.vt_upload(file_path) if end is None else
+                          self.intel.vt_upload(file_path, timeout=end - time.monotonic()))
                 sent.extend(s for s in result.pop("sent", None) or [] if s not in sent)
         except (IntelError, OSError) as e:
             logger.error("VirusTotal via the intel service failed for %s: %s", file_path, e)
@@ -234,8 +270,11 @@ class ExternalLookupsMixin:
                 self.cache.put(sha, layer, result, ttl_seconds=6 * 3600)
         return result
 
-    def _vt_upload_and_wait(self, file_path: str, headers: Dict, check_url: str):
-        """Opt-in upload of an unknown file; returns the final file report response."""
+    def _vt_upload_and_wait(self, file_path: str, headers: Dict, check_url: str,
+                            end: Optional[float] = None):
+        """Opt-in upload of an unknown file; returns the final file report response,
+        None, or _VT_CUT when `end` (an isolated worker's limit, I-6) came first:
+        the wait then stops instead of outlasting the scan."""
         logger.info("File %s not found in VirusTotal. Uploading (VT_UPLOAD_UNKNOWN=true)...", file_path)
         # VirusTotal: files < 32 MB use the standard /files endpoint;
         # larger files require a dedicated one-time upload URL.
@@ -261,8 +300,10 @@ class ExternalLookupsMixin:
         analysis_id = upload.json().get("data", {}).get("id", "")
         logger.info("File uploaded to VirusTotal. Analysis ID: %s. Waiting for results...", analysis_id)
         analysis_url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
-        for _attempt in range(10):
-            time.sleep(15)  # Wait between status checks
+        for _attempt in range(VT_POLLS):
+            if self._vt_no_time(end):
+                return _VT_CUT
+            time.sleep(VT_POLL_SECONDS)  # Wait between status checks
             self.vt_limiter.wait()
             status_resp = self.http.get(analysis_url, headers=headers, timeout=self.http_timeout)
             if status_resp.status_code == 200 and status_resp.json().get("data", {}) \
