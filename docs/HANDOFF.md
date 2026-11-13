@@ -2023,6 +2023,119 @@ reporting of members left out by the budget already existed (`_budget_gaps`:
   and a scan against a stand-in or real CAPE through `intel`. No other item is
   in progress.
 
+### Group 37: M26 provisional result (owner-approved 2026-11-13)
+
+Start: HEAD `8060a5d`, tree clean apart from `.arena/`. Planning first (read
+only, four rounds with the owner); the approved approach and its limits are
+recorded here and in PROJECT_REVIEW 34.1.
+
+- **Problem confirmed** (reading, then a test on the old code): the group 36 cap
+  was enforced only between requests. Retries with back-off, `Retry-After`,
+  one timeout for two requests, a request started after the deadline (1 s
+  floor), a dripped answer, a slow name lookup, redirects and proxies could
+  outlast the scan limit; the worker was then stopped and the file's findings
+  lost. On `8060a5d` a CAPE stand-in whose status check never answers made all
+  four files of a scan fail with "timed out after 5s".
+- **Rejected:** a socket watcher. Registering the socket returned by urllib3's
+  `_new_conn()` misses the name lookup and connect loop
+  (`urllib3/util/connection.py:60-76`); `ssl.SSLSocket._create` detaches the raw
+  socket before the handshake; proxies and redirects open further connections.
+- **Repair** (`f6c0bab`):
+  - `engine/staging.py`: `_assemble()` (score, completeness, provenance; no
+    logging) is shared by `scan_file` and `provisional_result()`. In a worker
+    with a sandbox (`_sandbox_last`), the sandbox runs after the other slow
+    layers; elsewhere they still run together.
+  - `engine/layers.py`: before the sandbox's network wait in a worker, the layer
+    sends the provisional result (sandbox `timeout`, `submission:
+    not_attempted`), then the submission state as it changes.
+  - `engine/workers.py`: new message kinds `provisional` and `sandbox`, checked
+    under the M18 limits (16 MiB, shapes, states, task id an int). The parent
+    keeps the latest per file and uses them **only** when the file is overdue
+    and the worker is otherwise alive (`sandbox_stopped_result`); an invalid
+    message, a dead worker or the memory limit still fail the file as before.
+    The result is passed to `on_result` once; building and sending the
+    provisional result logs and delivers nothing (tested).
+  - `core/sandbox.py`, `core/intel_client.py`, with a deadline only: a per-call
+    session without retries (closed in `finally`), each request's timeout is
+    the time left, no request with less than 1 s left, transient failures
+    (no answer, 429, 5xx) count as pending, `Retry-After` only if it fits, a
+    report that is not a JSON object or answers with an error is not a finished
+    report (the M34 equivalent outside this path is recorded, not repaired:
+    PROJECT_REVIEW 34.2).
+  - Submission states (all scans): `not_attempted` (nothing sent: no time, no
+    upload, or the connection never opened), `possible` (an upload started;
+    arrival unknown), `refused` (CAPE answered without a task), `confirmed`
+    (task id, kept). `transmission` is `none`, `possible` or `sent`.
+    `provenance.shared` lists the file for `possible`, `refused` and
+    `confirmed`; the uncertainty is labelled in `scan_results.sandbox`
+    (`submission`, `transmission`, detail), not in `provenance.shared` (no
+    schema change). **Change outside deadline scans:** a refused upload is now
+    listed as sent (it was left out), and every sandbox result carries the two
+    new keys.
+  - README (`SANDBOX_WAIT_SECONDS` row), DEPLOYMENT (intel), THREAT_MODEL
+    (worker messages); the start-up warning lost a stray "a".
+- **Unchanged:** the 10 % margin (at least 1 s); the 15 s submission threshold
+  (**still pending owner confirmation**); VirusTotal, the LLM, rules, the
+  intel API, the result schema version.
+- **What is bounded how:**
+  - Cooperatively, inside the worker (best effort): the waits above. Observed
+    on this Mac (Python 3.14.2): a dripped TLS handshake ended at its own
+    timeout and the worker lived.
+  - Strictly, by stopping the worker at the existing scan limit (plus the stop
+    and replacement time): a slow name lookup, dripped answers, 30 slow
+    redirects and a stalled proxy, each tested; the static verdict is kept.
+  - Not bounded by either: nothing in the sandbox path after the provisional
+    result is sent. Before it, VirusTotal and the LLM (out of scope) can still
+    reach the limit, and then the file fails as before.
+- **Timing impact:** the sandbox now starts after VirusTotal, the LLM, ML and
+  emulation in a worker, so their time comes out of its wait; tested in process
+  (14.5 s left after a 2.5 s VirusTotal delay: not sent) and in a worker (limit
+  10 s, VirusTotal 6.3 s: not sent, `not_attempted`, nothing posted).
+- **Tests:** `tests/test_sandbox_provisional.py` (41), stand-ins only (a raw
+  loopback HTTP stand-in that answers, hangs, drips, redirects, acts as a proxy
+  or a TLS endpoint; a Unix-socket intel stand-in; a probe scanner in
+  `tests/worker_fakes.py`). On the old code, in a worktree at `8060a5d` with an
+  import made tolerant in that copy only: 40 failed, 1 passed (a worker that
+  dies in the sandbox wait, which must stay a failure). After: 41 passed
+  (104 s). Covered: drip on upload and status, redirects, name lookup, proxy,
+  TLS drip, worker replacement, repeated scans in one worker (same pid, thread
+  and descriptor counts not growing, stand-in sees every connection closed),
+  no late cache entry, invalid provisional and dead worker still failures, no
+  hidden retries, `Retry-After` that fits and that does not, a report that
+  hangs or errors, per-request timeouts, no request under 1 s, submission
+  states and privacy listing, intel states and transient retries, intel over a
+  real Unix socket, the message checks and the size limit.
+- **Checks:** related suites (alerts, background, deploy, external deadline,
+  failed-scan notice and evidence, folder monitor, intel, isolation, metrics,
+  outputs and API, partial evidence, provenance, regression corpus, sandbox,
+  scan status, scanner integration, sharing, worker limits, logs, protocol,
+  workers, and the new file): 427 passed, 3 skipped, 4 deselected. ruff
+  (tracked files), mypy (68 files), bandit (CI scope, `-ll`) clean. No bidi
+  characters in the diff.
+- **Full safe run at `f6c0bab`** (clean worktree, the documented command with
+  the four deselects written out, `-rs`): **1,771 passed, 0 failed, 23
+  skipped, 4 deselected, 1 warning**, 446 s (the new file adds about 104 s);
+  0 "unclosed database"; `test_smoke.py`: "ALL SMOKE TESTS PASSED". Skips as
+  before (7-Zip 12, RAR 3, Windows 2, Linux 1, libproc 1, ELF 1, box-js 1,
+  OpenCV 1, GUI 1); the warning is Starlette's `httpx` deprecation (third
+  party). The 1,730-pass run at `bd9514e` predates this repair and does not
+  validate it.
+- **Docs checks and a slip.** After the documentation edits, the tests that read
+  the README and the docs passed (91 passed, 3 skipped). That file list came
+  from a grep that also matched `tests/test_fuzz_parsers.py`, which the safe
+  selection excludes; its in-process Hypothesis tests ran for about 12 s, with
+  no failure. No Atheris campaign or memory test ran. The 12 example files it
+  added to the existing, untracked local `.hypothesis/` folder were removed (300
+  files remain, as before).
+- **Not verified:** a real CAPE server; the Docker path (analysis worker,
+  intel's own CAPE requests, which continue after the worker stops waiting);
+  Linux and Windows (the worker stop, socket behaviour, `/dev/fd` counts);
+  a dripped answer after a completed TLS handshake (needs a certificate);
+  the cost of replacing a stopped worker under load. A worker stopped after
+  its sandbox wait had already ended (only the final scoring left, inside the
+  margin) would also get the provisional result, whose sandbox entry then
+  says it did not answer; not observed, not tested.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
@@ -2032,9 +2145,11 @@ in 33.7 and must be obtained before the OWNER items:
   M19, L-L1 (group 33); H-04+, M30, M25, the M27 empty-key rule, I-1 (eight
   types), I-3 (without Dependabot), L-B2, I-T1, D22, D23 (group 34); M24,
   M29 (script part), the lock-refresh tool (group 35); I-2, the M26 wait cap
-  (sandbox only) (group 36)
-- Still open, unchanged: M24 on Windows (delivery), the M29 web-page case,
-  M32 and S-Y1 to S-Y4 (benign corpus), the rest of I-6 (VirusTotal and LLM waits), I-2, I-4 (after
+  (sandbox only) (group 36); the M26 provisional result (group 37)
+- Still open, unchanged: the M26 15 s submission threshold (owner
+  confirmation), M34 (recorded only), M24 on Windows (delivery), the M29 web-page case,
+  M32 and S-Y1 to S-Y4 (benign corpus), the rest of I-6 (VirusTotal and LLM waits), I-2 for
+  mail attachments (not asked), I-4 (after
   S-03), M4, M15 packaging, D26, `httpx2`; exit code 2 and the IMAP fetch
   retry were recommended to stay as they are
 

@@ -5449,3 +5449,43 @@ Nothing here has been started.
   repository.
 - The project is not production ready while the items in 33.6 and 33.7 are
   open.
+
+## 34. Found while repairing M26 (Claude, 2026-11-13)
+
+### 34.1 The M26 wait cap was bounded only between requests
+
+After `bd9514e` the sandbox wait ended 10 % of the scan limit before it, but
+only between requests: urllib3 retried a status check up to three times with
+back-off and honoured any `Retry-After` (`core/http.py:79-99`), one timeout
+served two requests (`core/sandbox.py`, `poll`), a request could start after
+the deadline with a 1 s floor, and a request's timeout limits each socket
+wait, not the whole answer. A CAPE status check that never answers made every
+file of a four-file stand-in scan fail with "timed out after 5s" on the code
+before the repair (`tests/test_sandbox_provisional.py`, run in a worktree at
+`8060a5d`). Repaired in `f6c0bab` (handoff group 37): a provisional result
+sent before the sandbox wait, used by the parent when it stops the worker at
+the scan limit, and a cooperative wait inside the worker. A socket watcher
+was considered and rejected: it could not cover the connect phase
+(`urllib3/util/connection.py:60-76`), the TLS socket that replaces the raw one
+(`ssl.py`, `SSLSocket._create`: `sock.detach()`), proxies or redirects.
+
+### 34.2 M34 (Low, recorded, not repaired): a report error read as a finished report
+
+- **Where.** `core/sandbox.py`, `CapeClient.poll` (no deadline: desktop and CLI
+  scans outside a worker, and the intel service's own polling, `api/intel.py`,
+  `sandbox_poll`).
+- **What.** When CAPE says a task is `reported` but the report request answers
+  with an error status (after urllib3's retries) or a body that is not a JSON
+  object, `safe_json` gives `{}` and the result is `reported` with malscore 0
+  and no signatures. The sandbox layer caches it (`engine/layers.py`,
+  `SandboxLayer.run`), so a re-scan within the cache's lifetime reuses the
+  empty report, and the scan reads `complete` for the sandbox.
+- **Evidence.** Reading the code. Not reproduced outside the deadline path.
+  Inside it (isolated workers, since `f6c0bab`) such a report counts as
+  pending and the wait ends at `timeout`
+  (`test_a_report_error_is_not_a_finished_report_within_the_deadline`).
+- **Impact.** No static finding is lost; a sandbox verdict is missing while the
+  result says the sandbox reported. Only with a sandbox configured.
+- **Proposed fix (not made).** The same check as the deadline path in `poll`;
+  the intel service would then answer `pending` and its caller would keep
+  waiting. Needs the owner (it changes results outside the M26 scope).
