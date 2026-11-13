@@ -215,7 +215,9 @@ the account.
   off.
 - Uploads over the limit are refused before they are parsed (declared length,
   then a streaming count), so a client cannot fill the disk through the
-  multipart spool; scans are isolated.
+  multipart spool; scans are isolated. `/scan` reads its body only after the token
+  check and a free scan slot (M4): a request without a valid token is answered
+  before any of its upload is read or spooled.
 - A per-IP token bucket applies before authentication. Failed bearer tokens are
   counted per IP address (not per token, so rotating guesses does not help): after
   `AEGIS_API_AUTH_FAILURES` failures within the window, the address is refused

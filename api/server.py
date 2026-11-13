@@ -54,8 +54,10 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile as FormFile
 
 from api import SCHEMA_VERSION, load_schema
 from api.limits import AuthGuard, BodyLimit, RateLimit, ScanSlots, TokenBuckets, client_ip, client_key
@@ -318,6 +320,52 @@ class _Auth:
         return None
 
 
+async def _scan_upload(request: Request, service: _ScanService, alerts: _Alerts) -> Dict:
+    """M4: parse the multipart body (after authentication), store the file in a
+    work folder of its own and scan it. Starlette's spooled copies are closed
+    and the work folder removed whatever happens."""
+    try:
+        form = await request.form(max_files=1, max_fields=10)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="the body is not a multipart form") from None
+    try:
+        upload = form.get("file")
+        if not isinstance(upload, FormFile):
+            raise HTTPException(status_code=422, detail="a file field named 'file' is required")
+        return await run_in_threadpool(_store_and_scan, upload, service, alerts)
+    finally:
+        await form.close()
+
+
+def _store_and_scan(upload: Any, service: _ScanService, alerts: _Alerts) -> Dict:
+    name = Path(upload.filename or "upload").name[:200] or "upload"
+    ext = upload_extension(name)
+    work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
+    try:
+        target = work / f"upload{ext.lower()}"
+        file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
+        written = 0
+        with open(target, "wb") as out:
+            while True:
+                chunk = upload.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > file_limit:
+                    METRICS.reject("too_large")
+                    raise HTTPException(status_code=413,
+                                        detail=f"file larger than {MAX_UPLOAD_MB:g} MB")
+                out.write(chunk)
+        result = _scan_or_503(service, str(target), name)
+        METRICS.record_result(result)
+        alerts.submit(result)
+        return result
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
                isolate: bool = True) -> FastAPI:
     from engine.config import CONFIG, ENGINE_VERSION
@@ -399,35 +447,18 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return METRICS.snapshot()
 
     @app.post("/scan", dependencies=[Depends(require_token)])
-    def scan(file: UploadFile = File(...)) -> Dict:
+    async def scan(request: Request) -> Dict:
+        """M4: the upload is parsed here, after require_token and the busy check. A
+        `File(...)` parameter would be read and spooled to disk by FastAPI before
+        the route's dependencies run, so an unauthenticated client could make the
+        server read up to the size limit."""
         if not slots.try_acquire():
             raise HTTPException(status_code=503, detail="scanner busy, retry shortly",
                                 headers={"Retry-After": "5"})
-        name = Path(file.filename or "upload").name[:200] or "upload"
-        ext = upload_extension(name)
-        work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
         try:
-            target = work / f"upload{ext.lower()}"
-            file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
-            written = 0
-            with open(target, "wb") as out:
-                while True:
-                    chunk = file.file.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    written += len(chunk)
-                    if written > file_limit:
-                        METRICS.reject("too_large")
-                        raise HTTPException(status_code=413,
-                                            detail=f"file larger than {MAX_UPLOAD_MB:g} MB")
-                    out.write(chunk)
-            result = _scan_or_503(service, str(target), name)
-            METRICS.record_result(result)
-            alerts.submit(result)
-            return result
+            return await _scan_upload(request, service, alerts)
         finally:
             slots.release()
-            shutil.rmtree(work, ignore_errors=True)
 
     return app
 
