@@ -2595,6 +2595,9 @@ Items already tracked elsewhere keep their IDs (H-04, B3, B4, §27.5).
 
 ### 28.1 Findings register
 
+*Status note (2026-11-13): the Status column below is as of section 28; many
+"Open" rows were fixed later. See [FINDINGS_REGISTER](FINDINGS_REGISTER.md).*
+
 | ID | Sev | V/S | Problem | Location | Status |
 |---|---|---|---|---|---|
 | H1 | High | V | FIFO, socket or link to a device in a scanned folder hung the main process (walk admitted it; after the worker timeout, `failure_result` hashed it in the parent). Same hang in the folder monitor's duplicate check and canary hashing | `engine/scanner.py` `_collect_target_files`, `calculate_hashes`; `engine/workers.py` `failure_result`; `core/folder_watch.py`; `core/canary.py` | Fixed (stage 1) |
@@ -5389,7 +5392,10 @@ implementation; the remaining depth is listed in 33.8.
 
 ### 33.6 Ranked repair plan (sections 28 to 33, deduplicated)
 
-Nothing here has been started.
+*Status note (2026-11-13): this plan is history. Most of it has been carried
+out since; the current status of every item is in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md).* At the time of writing: nothing here
+had been started.
 - Each item needs its regression test and the full gates afterwards: pytest,
   ruff, mypy, bandit and pip-audit.
 - **SAFE** items need no owner decision. **OWNER** items change detection,

@@ -1,9 +1,11 @@
 # Current task handoff
 
-- Status: production-engineering review and staged fixes; not ready for merge and
-  not production ready. The review stage ended with PROJECT_REVIEW section 33
-  and its ranked repair plan (33.6). Current stage: implementation of the SAFE
-  items of 33.6, in small groups (see "Implementation of the SAFE items" below).
+- Status: **paused for owner review** (2026-11-13). Production-engineering review and
+  staged fixes, finished for now; not ready for merge and not production ready.
+  Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
+  to resume) and [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
+  every finding). The sections below are the history of the work, in order; older
+  "still open" lists in them are superseded by the register.
 - Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
@@ -2136,7 +2138,124 @@ recorded here and in PROJECT_REVIEW 34.1.
   margin) would also get the provisional result, whose sandbox entry then
   says it did not answer; not observed, not tested.
 
+### Groups 38 to 44: the final hardening pass (owner request, 2026-11-13)
+
+Start: HEAD `170faf9`, tree clean apart from `.arena/`. Claude Code was the only
+editing agent. Each group: the defect confirmed by a test that fails on the code
+before it (run in a temporary worktree at the previous commit with only the new
+test copied in), the smallest fix, focused suites, ruff and mypy, a local commit.
+Test lists were built from explicit names and checked for excluded files before
+running (a zsh variable is not split into words: `${=L}` was used).
+
+- **Group 38, M34 and the M26 finalization gap** (`9ae8e64`). A CAPE report request
+  that fails, or a body that is not a JSON object, is no longer a finished
+  (empty, cached) report, on both the deadline and the plain path; an empty JSON
+  object still is. Once the sandbox has answered, the worker sends a checked
+  `settled` result; a worker stopped before its final reply keeps that outcome
+  instead of "did not answer". Before: 7 of 9 new tests failed (the two that passed
+  are the valid-empty-report and an initially non-discriminating test, rewritten to
+  stall after the scan: then it failed before, `timeout`, and passes after,
+  `reported`). Related suites: 211 passed, 4 deselected.
+- **Group 39, M4** (`23c0565`). `/scan` parses its upload inside the route, after the
+  token check and a free scan slot. ASGI-level test: without a valid token 0 of 33
+  body chunks are read and nothing is spooled (before: 33 of 33); with it, all 33
+  and one spool file. Missing file field 422, not a form 400; limits, lockout and
+  results unchanged. API suites: 42 passed.
+- **Group 40, M15** (`8bcbe10`). An explicit package list plus `aegis_sentinel_rules`
+  mapped to `rules/`; `engine/config.py` uses `rules/` beside the code first, else
+  the installed package; a missing rules folder is a warning. Check (script in the
+  session scratchpad, not in the repository): `git archive` of the commit, `pip
+  wheel --no-deps --no-build-isolation --no-index`, the wheel unpacked into a new
+  `venv --without-pip`, dependencies reached through one `.pth` path to `.venv`
+  site-packages (no `.pth` processing, so the old editable install there is not
+  active), run with `python -I` outside the tree. Before (`23c0565`): no rules
+  folder, 0 rules compiled, no YARA match on a probe script, provenance "bundled"
+  with 0 files. After: 5 rule files compiled, `Ransomware_Shadow_Copy_Deletion`
+  matched, provenance "bundled", 5 files. The wheel differs from the old one only
+  by the five rule files. The placeholder `fuzzy_signatures.sample.json` is not
+  shipped (it matches nothing). Tests: `tests/test_packaging.py`.
+- **Group 41, I-6 VirusTotal part** (`873fc0a`). In a worker, the opt-in upload wait
+  ends with the scan limit less the M26 margin; no upload when not one 15 s check
+  fits (the hash only was sent); both read `status: timeout` (scan partial); the
+  intel upload call's timeout is capped. Outside a worker unchanged. **Boundary
+  recorded, not repaired:** the hash lookup (with urllib3 retries) and the LLM
+  request are bounded only by their own timeouts; a stall past the limit still
+  fails the file. A reliable bound needs the provisional result extended to the
+  slow-layer stage with per-service transmission progress (register section 2).
+  The old wait was a literal `time.sleep(15)` x 10, so no before-run was made.
+- **Group 42, M29 prose and M32** (`724484d`). Documented examples:
+  `tests/fp_examples.py` (7 harmless, 7 harmful, all inert). Before: the article,
+  detection note and hardening page Critical 90; the advisory High 73; a helpdesk
+  and a payroll notice High 65; the harmful seven High or Critical. After: every
+  harmless example below High (the advisory Medium 40 from `Ransom_Note_Language`),
+  every harmful one unchanged. Shadow-copy rule: in `.html`, `.htm`, `.xhtml`,
+  `.txt`, `.md` the commands need an execution API. Extortion rule: also a wallet,
+  `.onion`, a victim/personal ID or a send-the-payment instruction; `pay` as a word.
+  Synthetic only; signed packs keep the old rules until re-signed. S-Y1 to S-Y4
+  investigated, not changed: S-Y1 Medium 40, S-Y2 Critical 100 on a build-agent
+  Defender exclusion (same command as the technique), S-Y4 not reproduced, S-Y3
+  not checked (needs a shell-link file).
+- **Group 43, scikit-learn version** (`15b6760`). Reproduced: a model pickled as
+  0.24.2 loaded under 1.9.1 and was used. Now refused (rule engine, logged reason).
+- **Group 44, L-D1 and L-E4** (`e68d50a`), and D26 (`db01796`, docs). XAR entry
+  numbers must be whole and non-negative, and a range outside the file is refused
+  before any read (a spy shows no read); `.docx` text through python-docx only for
+  a main part declared at most 20 MiB, cut at 200,000 characters. Before: 7 of 8
+  failed (the normal-document case passed, as it must). Small files only; no large
+  allocation.
+- **Investigated, not changed:** S-03 (not reproduced; the existing test `af8deda`),
+  S-01 (risk reduced by `600d8bc`), L-E5 (confirmed by reading; Tesseract absent),
+  L-E6 (confirmed by reading; Windows only).
+
+### Final checkpoint (2026-11-13): paused for owner review
+
+- **State.** Branch `review/production-hardening`, local only, **never pushed**; no
+  PR, merge, tag, release, deployment or version change (4.8.0 throughout). Last
+  implementation commit and last tested commit: `db01796` (the documents committed
+  after it change no code). `git stash list` empty; the only untracked path is the
+  unrelated `.arena/`, preserved. The local `.hypothesis/` folder (untracked,
+  ignored) is unchanged.
+- **Final safe run at `db01796`** (clean worktree, `env -i PATH=/usr/bin:/bin`,
+  scratch `HOME` and `TMPDIR`, `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`):
+  `.venv/bin/python -m pytest -p no:cacheprovider -q -rfE -rs --tb=short -W
+  default::ResourceWarning -o faulthandler_timeout=300 --ignore=tests/test_fuzz_parsers.py
+  --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation
+  --deselect tests/test_intel_service.py::test_scanner_uses_intel_over_the_socket
+  --deselect tests/test_intel_service.py::test_wrong_token_and_unreachable_intel_are_reported
+  --deselect tests/test_intel_service.py::test_probe_reports_health tests`.
+  The selection was collected first: 1,845 of 1,849 items, none from the fuzz file
+  or the memory test. Result: **1,823 passed, 0 failed, 23 skipped, 4 deselected,
+  1 warning**, 447 s; 0 "unclosed database". Skips: 7-Zip 12, RAR decryption 3,
+  Windows 2, Linux `/proc` 1, libproc 1, ELF binary 1, box-js 1, OpenCV 1, GUI 1.
+  Warning: Starlette's `httpx` deprecation (third party). `test_smoke.py`: "ALL
+  SMOKE TESTS PASSED".
+- **Other checks at `db01796`:** ruff on the tracked Python files (not `.arena/`):
+  clean. mypy: 68 files, no issues. bandit (CI scope, `-ll`): clean. The JSON schema
+  and the regression corpus are covered by the suite (`test_scan_endpoint`,
+  `test_regression_corpus.py`). Packaging: the group 40 wheel check on a clean
+  export of `db01796` found and compiled the 5 bundled rule files. The committed
+  diff `170faf9..db01796`: no secret patterns, no bidirectional characters, no
+  local paths.
+- **Not run:** pip-audit (no dependency changed in this pass), the coverage gate,
+  CI, Docker, Windows, real services, the GUI on a display, the excluded tests.
+- **Mistake in an earlier session, recorded in group 37:** one excluded file ran by
+  accident; this pass checked every file list before running it.
+- **Evidence limits:** macOS on Apple Silicon, Python 3.14.2, synthetic inputs and
+  local stand-ins only. The 1,771-pass run at `f6c0bab` and the 1,730-pass run at
+  `bd9514e` validate only their own code.
+- **Paused.** No agent should continue without a new owner request.
+
+
 ## Exact next action
+
+None: the work is paused for owner review, and no agent should continue without a
+new owner request. The owner decisions in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6 come first (the pending M26
+15 s submission threshold among them). The list that stood here before this
+checkpoint is kept below as history; the register supersedes it.
+
+### Superseded: the next-action list before the final pass
+
 
 The review stage is closed; the next stage is implementation in the order of
 PROJECT_REVIEW 33.6, which replaces 31.10 and 32.6. Owner decisions are listed
