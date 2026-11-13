@@ -294,16 +294,17 @@ def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
 
 
 def _sandbox_wait(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
-    """M26: the sandbox layer waits inside the scan worker; a wait that is not
-    below the worker's time limit stops the scan, and the file reads failed."""
+    """M26: the sandbox layer waits inside the scan worker, and the wait is cut
+    10 % of the worker's limit before it ends; a configured wait that is not below
+    that limit can never be reached."""
     wait, limit = cfg.get("sandbox_wait_seconds"), cfg.get("scan_timeout_seconds")
     if not (cfg.get("sandbox_url") and cfg.get("isolate_scans") is not False
             and isinstance(wait, (int, float)) and isinstance(limit, (int, float))
             and wait >= limit):
         return
     text = (f"SANDBOX_WAIT_SECONDS={wait:g} is not below SCAN_TIMEOUT_SECONDS={limit:g}: a "
-            "slow sandbox report stops the scan, and the file is reported as a failed scan "
-            "instead of its verdict")
+            "the sandbox wait is cut short before the scan limit, so slower reports are never "
+            "used (the sandbox layer reads timeout and the scan partial)")
     production = str(cfg.get("profile") or "").strip().lower() == "production"
     (errors if production else warnings).append(text)
 

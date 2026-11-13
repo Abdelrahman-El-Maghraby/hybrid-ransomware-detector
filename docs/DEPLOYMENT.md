@@ -75,8 +75,9 @@ bundled proxy also stops bodies at 52 MB, `deploy/Caddyfile`: raise both togethe
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
 back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL` and `SANDBOX_WAIT_SECONDS` (600; keep it
-below `SCAN_TIMEOUT_SECONDS`, which compose also passes to intel: a longer wait stops the
-scan and the file reads as a failed scan, so intel warns at start-up). What each scan actually sent - a
+below `SCAN_TIMEOUT_SECONDS`, which compose also passes to intel, so intel warns at start-up
+otherwise; the wait in the scan worker is cut 10 % of that limit before it ends, so a slow
+report leaves the sandbox at `timeout` and the scan `partial` with the static verdict kept). What each scan actually sent - a
 hash, a file, extracted text, to a local or a cloud LLM - is in every result's
 `provenance.shared`, the report's "Sent outside" line and the `external_share` log event. Putting an external-service key on the
 analysis side is a start-up error in the production profile.

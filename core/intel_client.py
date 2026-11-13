@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from detectors.llm_backends import LLMBackend, _empty_analysis
 
-from .sandbox import SandboxResult
+from .sandbox import SandboxResult, _late, _request_timeout, _wait_end
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -193,7 +193,8 @@ class IntelSandbox:
         self.wait_seconds, self.poll_seconds = wait_seconds, poll_seconds
         self.sleep, self.clock = sleep, clock
 
-    def analyze(self, path: str) -> SandboxResult:
+    def analyze(self, path: str, deadline: Optional[float] = None) -> SandboxResult:
+        """M26: `deadline` (on self.clock) bounds the wait as in CapeClient."""
         res = SandboxResult(enabled=True)
         try:
             ext = os.path.splitext(path)[1].lower()
@@ -201,21 +202,24 @@ class IntelSandbox:
                 data = fh.read()
             headers = {"X-Aegis-Extension": ext} if 1 < len(ext) <= 9 and ext[1:].isalnum() else {}
             submitted = self.client.call("POST", "/v1/sandbox/submit", data=data,
-                                         headers=headers, timeout=120)
+                                         headers=headers,
+                                         timeout=_request_timeout(120, deadline, self.clock))
             if submitted.get("status") == "cached" or not submitted.get("submitted"):
                 return _result(submitted)          # intel's cached report, or refused
             task_id = int(submitted["task_id"])
-            deadline = self.clock() + self.wait_seconds
+            end = _wait_end(self.clock() + self.wait_seconds, deadline)
             while True:
-                polled = self.client.call("POST", "/v1/sandbox/poll", {"task_id": task_id})
+                polled = self.client.call(
+                    "POST", "/v1/sandbox/poll", {"task_id": task_id},
+                    timeout=None if deadline is None else
+                    _request_timeout(self.client.timeout, deadline, self.clock))
                 if polled.get("status") != "pending":
                     return _result(polled)
-                if self.clock() >= deadline:
+                if self.clock() >= end:
                     res.submitted, res.task_id, res.status = True, task_id, "timeout"
-                    res.detail = (f"no report within {self.wait_seconds}s (task {task_id}; "
-                                  "look it up in CAPE later)")
+                    res.detail = _late(self.wait_seconds, deadline, task_id)
                     return res
-                self.sleep(self.poll_seconds)
+                self.sleep(min(self.poll_seconds, max(0.0, end - self.clock())))
         except (IntelError, OSError, KeyError, ValueError) as e:
             logger.warning("Sandbox through the intel service failed: %s", e)
             res.status, res.detail = "error", f"sandbox via intel failed ({e})"

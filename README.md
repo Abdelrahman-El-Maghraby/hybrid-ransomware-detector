@@ -491,7 +491,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 | `QR_SCAN_ENABLED` | `true` | decode QR codes (needs pyzbar or OpenCV) |
 | `ALLOWLIST_PATH` | `~/RansomwareScanner/data/allowlist.txt` | known-good SHA-256 hashes |
 | `SANDBOX_URL`, `SANDBOX_TOKEN` | empty (off) | your CAPEv2 server and API token |
-| `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report. Keep the wait below `SCAN_TIMEOUT_SECONDS` (300): a longer one stops the scan, and start-up warns |
+| `SANDBOX_SUBMIT`, `SANDBOX_WAIT_SECONDS` | `suspicious`, `600` | which files to detonate; how long to wait for a report. In an isolated scan the wait also ends 10 % of `SCAN_TIMEOUT_SECONDS` (300) before the scan limit, at least 1 s; a later report leaves the sandbox at `timeout` and the scan `partial` with the static verdict kept, and with less than one 15 s poll left the file is not sent. Start-up warns when the wait is not below the limit |
 | `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD` | empty (off) | mailbox for `--scan-imap` (use an app password) |
 | `IMAP_PORT`, `IMAP_STARTTLS`, `IMAP_FOLDER` | `993`, `false`, `INBOX` | connection and folder (TLS only) |
 | `IMAP_SINCE_DAYS`, `IMAP_MAX_MESSAGES`, `IMAP_MAX_MB` | `7`, `200`, `25` | first-run look-back, per-run and per-message limits (a larger message is skipped; one whose size the server does not report is cut at the limit, scanned and marked partial) |

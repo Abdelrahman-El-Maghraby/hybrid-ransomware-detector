@@ -560,6 +560,10 @@ def _serve(scanner: Any, conn, buffer: _WorkerLogBuffer) -> None:
             return
         if path is None:
             return
+        # M26: the parent stops waiting scan_timeout_seconds after it sent the path
+        # (every caller passes that setting); this clock starts just after it.
+        limit = float((getattr(scanner, "config", None) or {}).get("scan_timeout_seconds") or 0)
+        scanner.scan_deadline = time.monotonic() + limit if limit > 0 else None
         try:
             reply: Tuple[str, Any] = ("ok", scanner.scan_file(path))
         except MemoryError:

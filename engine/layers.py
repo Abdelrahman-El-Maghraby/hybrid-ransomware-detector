@@ -23,11 +23,13 @@ never raises for a hostile file (each detector degrades to "not checked").
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from api import SCHEMA_VERSION
+from core.sandbox import SandboxResult
 from detectors import FUZZY_AVAILABLE
 from detectors.container_extractor import RTLO, visible_name
 from detectors.elf_analysis import is_elf
@@ -419,6 +421,23 @@ class VirusTotalLayer(Layer):
             ratio=float(vt.get("detection_ratio", 0) or 0))
 
 
+def _sandbox_deadline(scanner: RansomwareScanner, client: Any) -> Tuple[Optional[float], str]:
+    """M26 (owner-approved 2026-11-12): in a worker, the sandbox wait ends 10 % of
+    the scan limit (at least 1 s) before the worker would be stopped, so a slow
+    report costs the sandbox layer (status timeout, scan partial), not the static
+    findings. With less than one poll interval left, the file is not submitted.
+    Returns (deadline on time.monotonic, or None; the reason it was not sent)."""
+    left = scanner.time_left()
+    if left is None:
+        return None, ""
+    limit = float(scanner.config.get("scan_timeout_seconds", 300))
+    usable = left - max(1.0, 0.1 * limit)
+    if usable < float(getattr(client, "poll_seconds", 15)):
+        return None, (f"not submitted: no time left in the scan limit "
+                      f"({max(0.0, left):.0f}s of {limit:.0f}s left)")
+    return time.monotonic() + usable, ""
+
+
 class SandboxLayer(Layer):
     """Optional dynamic analysis in a self-hosted CAPEv2 sandbox (off by default).
     Only top-level files are submitted, and with SANDBOX_SUBMIT=suspicious only those
@@ -438,10 +457,13 @@ class SandboxLayer(Layer):
         import hashlib
         key = "sandbox:" + hashlib.sha256(f"{client.url}|{client.options}".encode()).hexdigest()[:12]
         cached = scanner.cache.get(sha, key) if (scanner.cache and sha) else None
+        deadline, no_time = _sandbox_deadline(scanner, client)
         if cached:
             data = dict(cached, status="cached")
+        elif no_time:
+            data = SandboxResult(enabled=True, status="timeout", detail=no_time).as_dict()
         else:
-            data = client.analyze(ctx.path).as_dict()
+            data = client.analyze(ctx.path, deadline=deadline).as_dict()
             if scanner.cache and sha and data.get("status") == "reported":
                 scanner.cache.put(sha, key, data)
             if data.get("submitted") and data.get("status") != "cached":

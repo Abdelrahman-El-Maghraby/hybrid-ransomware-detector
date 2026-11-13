@@ -79,6 +79,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     # outer file with ("container", kind, its own signal) once a container is
     # opened and ("member", kind, result) for each direct member that finished.
     member_listener: Optional[Callable[[str, str, Any], None]] = None
+    # M26: in an isolated worker, the time.monotonic() at which the parent stops
+    # waiting for the current file (None outside a worker: no limit).
+    scan_deadline: Optional[float] = None
+
+    def time_left(self) -> Optional[float]:
+        """Seconds before the worker's limit ends this scan, or None without one."""
+        return None if self.scan_deadline is None else self.scan_deadline - time.monotonic()
 
     @property
     def last_not_scanned(self) -> int:

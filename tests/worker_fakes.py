@@ -33,6 +33,9 @@ class MisbehavingScanner(RansomwareScanner):
             time.sleep(600)
         if name.startswith(("evil", "huge")):       # M18: a worker taken over by a parser
             _write_to_parent(file_path, name)
+        if name.startswith("deadline"):          # M26: what the worker knows of its limit
+            with open(file_path + ".left", "w") as fh:
+                fh.write(repr(self.time_left()))
         if name.startswith("slow"):              # tells the test which worker has it
             with open(file_path + ".pid", "w") as fh:
                 fh.write(str(os.getpid()))
@@ -72,3 +75,11 @@ def make(config):
 def never_ready(config):
     """A worker whose scanner build never finishes (a start-up hang)."""
     time.sleep(600)
+
+
+def make_quick_poll(config):
+    """M26: a real scanner whose sandbox polls every 0.5 s (CAPE's 15 s would not
+    fit in a test-sized scan limit)."""
+    scanner = RansomwareScanner(config)
+    scanner.sandbox.poll_seconds = 0.5
+    return scanner

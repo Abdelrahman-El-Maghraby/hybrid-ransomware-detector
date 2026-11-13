@@ -29,6 +29,22 @@ from .http import DEFAULT_TIMEOUT, build_session, safe_json
 
 logger = logging.getLogger("RansomwareScanner.sandbox")
 
+def _wait_end(end: float, deadline: Optional[float]) -> float:
+    return end if deadline is None else min(end, deadline)
+
+
+def _request_timeout(normal: float, deadline: Optional[float],
+                     clock: Callable[[], float]) -> float:
+    """M26: a request never outlasts the deadline (at least 1 s, so it can run)."""
+    return normal if deadline is None else min(normal, max(1.0, deadline - clock()))
+
+
+def _late(wait_seconds: float, deadline: Optional[float], task_id) -> str:
+    cut = " (cut short by the scan time limit)" if deadline is not None else ""
+    return (f"no report within {wait_seconds}s{cut} (task {task_id}; "
+            "look it up in CAPE later)")
+
+
 # CAPE signature names / categories that mean ransomware behaviour specifically.
 RANSOM_HINTS = ("ransom", "deletes_shadow", "shadowcopy", "bcdedit", "wbadmin",
                 "encrypt", "mass_file_modification", "modifies_files_extension",
@@ -91,24 +107,26 @@ class CapeClient:
             self.session.headers["Authorization"] = f"Token {token}"
         self.sleep, self.clock = sleep, clock
 
-    def analyze(self, path: str) -> SandboxResult:
-        """Submit, wait for the report (up to wait_seconds), summarise it."""
-        res = self.submit(path)
+    def analyze(self, path: str, deadline: Optional[float] = None) -> SandboxResult:
+        """Submit, wait for the report (up to wait_seconds), summarise it. M26:
+        `deadline` (on self.clock) ends the wait, the requests and the pauses
+        earlier, so the scan's worker limit is never reached here."""
+        res = self.submit(path, timeout=_request_timeout(self.timeout, deadline, self.clock))
         if not res.submitted:
             return res
-        deadline = self.clock() + self.wait_seconds
+        end = _wait_end(self.clock() + self.wait_seconds, deadline)
         while True:
-            polled = self.poll(int(res.task_id or 0))
+            polled = self.poll(int(res.task_id or 0),
+                               timeout=_request_timeout(self.timeout, deadline, self.clock))
             if polled.status != "pending":
                 return polled
-            if self.clock() >= deadline:
+            if self.clock() >= end:
                 res.status = "timeout"
-                res.detail = (f"no report within {self.wait_seconds}s (task {res.task_id}; "
-                              "look it up in CAPE later)")
+                res.detail = _late(self.wait_seconds, deadline, res.task_id)
                 return res
-            self.sleep(self.poll_seconds)
+            self.sleep(min(self.poll_seconds, max(0.0, end - self.clock())))
 
-    def submit(self, path: str, name: str = "") -> SandboxResult:
+    def submit(self, path: str, name: str = "", timeout: Optional[float] = None) -> SandboxResult:
         """Hand the file to CAPE: status "submitted" with a task id, or "error"."""
         res = SandboxResult(enabled=True)
         try:
@@ -116,7 +134,7 @@ class CapeClient:
                 data = {"options": self.options} if self.options else {}
                 r = self.session.post(f"{self.url}/apiv2/tasks/create/file/",
                                       files={"file": (name or Path(path).name, fh)}, data=data,
-                                      timeout=self.timeout)
+                                      timeout=timeout or self.timeout)
             body = safe_json(r)
             ids = ((body.get("data") or {}).get("task_ids") or []) if not body.get("error") else []
             if not ids:
@@ -127,12 +145,13 @@ class CapeClient:
         except Exception as e:                       # network trouble never breaks a scan
             return self._unreachable(res, e)
 
-    def poll(self, task_id: int) -> SandboxResult:
+    def poll(self, task_id: int, timeout: Optional[float] = None) -> SandboxResult:
         """One status check: "pending", "reported" (with the summary) or "error"."""
         res = SandboxResult(enabled=True, submitted=True, task_id=task_id, status="pending")
+        timeout = timeout or self.timeout
         try:
             view = safe_json(self.session.get(f"{self.url}/apiv2/tasks/view/{task_id}/",
-                                              timeout=self.timeout))
+                                              timeout=timeout))
             status = str(((view.get("data") or {}).get("status")) or "")
             if status in ("failed_analysis", "failed_processing", "failed_reporting"):
                 res.status, res.detail = "error", f"sandbox task {status}"
@@ -140,7 +159,7 @@ class CapeClient:
             if status != "reported":
                 return res
             report = safe_json(self.session.get(
-                f"{self.url}/apiv2/tasks/get/report/{task_id}/", timeout=self.timeout))
+                f"{self.url}/apiv2/tasks/get/report/{task_id}/", timeout=timeout))
             summarise_report(report, res)
             res.status = "reported"
             res.detail = (f"CAPE task {task_id}: malscore {res.malscore:.1f}/10, "
