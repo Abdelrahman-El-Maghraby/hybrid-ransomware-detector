@@ -54,19 +54,7 @@ class StagedPipelineMixin:
             self._run_layer(layer, ctx)
         self._run_heavy(heavy, ctx)
 
-        # Fuse every signal through the weighted scoring matrix
-        score = self.scoring.score(ctx.signals)
-        result = ctx.result
-        result["is_malicious"] = score.is_malicious
-        result["severity_score"] = score.severity_score   # legacy 0-10 (DB hit => 10.0)
-        result["risk_score"] = score.risk_score            # 0-100
-        result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
-        result["score_breakdown"] = score.as_dict()        # full evidence trail
-        # How far the evidence goes; independent of the score and verdict above.
-        result["scan_status"], result["incomplete_reasons"] = assess(
-            cast("RansomwareScanner", self), ctx)
-        result["verdict_label"] = verdict_label(result)
-        result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
+        result = self._assemble(ctx)
         own = [s for s in result["provenance"]["shared"] if "member_path" not in s]
         if own:
             logger.info("Sent outside for %s: %s", display,
@@ -84,6 +72,46 @@ class StagedPipelineMixin:
                    "risk_score": result["risk_score"], "scan_status": result["scan_status"],
                    "duration_ms": result["scan_duration_ms"]})
         return result
+
+    def _assemble(self, ctx: ScanContext) -> Dict:
+        """Score the file and write the verdict, completeness and provenance into
+        ctx.result. No logging and no other side effect: the M26 provisional
+        result is built with it too."""
+        score = self.scoring.score(ctx.signals)     # every signal through the scoring matrix
+        result = ctx.result
+        result["is_malicious"] = score.is_malicious
+        result["severity_score"] = score.severity_score   # legacy 0-10 (DB hit => 10.0)
+        result["risk_score"] = score.risk_score            # 0-100
+        result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
+        result["score_breakdown"] = score.as_dict()        # full evidence trail
+        # How far the evidence goes; independent of the score and verdict above.
+        result["scan_status"], result["incomplete_reasons"] = assess(
+            cast("RansomwareScanner", self), ctx)
+        result["verdict_label"] = verdict_label(result)
+        result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
+        return result
+
+    def provisional_result(self, ctx: ScanContext, layer: str, key: str,
+                           entry: Dict[str, Any]) -> Dict:
+        """M26: the result the file would get if `layer` ended now with `entry` as
+        its result, assembled on a copy (ctx is not changed). The worker sends it
+        to its parent before the sandbox's network wait; the parent uses it only
+        if it has to stop the worker during that wait."""
+        sub = copy.copy(ctx)
+        sub.result = {**ctx.result, "scan_results": {**ctx.scan_results, key: entry}}
+        sub.signals = ctx.signals.copy()
+        sub.layer_log = list(ctx.layer_log) + [(layer, RAN)]
+        sub.member_reasons = list(ctx.member_reasons)
+        sub.member_shared = list(ctx.member_shared)
+        return self._assemble(sub)
+
+    def _sandbox_last(self, ctx: ScanContext) -> bool:
+        """M26: in an isolated worker with a sandbox, the sandbox runs after the
+        other slow layers, so the provisional result it sends first holds their
+        findings. Elsewhere the slow layers run together as before."""
+        return (ctx.depth == 0 and getattr(self, "provisional_listener", None) is not None
+                and getattr(self, "sandbox", None) is not None
+                and cast("RansomwareScanner", self).time_left() is not None)
 
     def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
         """Run one layer; a parser that raises on a hostile file costs that layer's
@@ -122,6 +150,18 @@ class StagedPipelineMixin:
                 "reason": "Earlier layers already scored 100/100; these layers cannot "
                           "change the verdict.",
             }
+            return
+        last = [layer for layer in layers if layer.name == "sandbox"] \
+            if self._sandbox_last(ctx) else []
+        if last:                                 # M26: the others first, then the sandbox
+            self._run_together([layer for layer in layers if layer not in last], ctx)
+            for layer in last:
+                self._run_layer(layer, ctx)
+            return
+        self._run_together(layers, ctx)
+
+    def _run_together(self, layers: List[Layer], ctx: ScanContext) -> None:
+        if not layers:
             return
         if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
             for layer in layers:

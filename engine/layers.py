@@ -421,6 +421,12 @@ class VirusTotalLayer(Layer):
             ratio=float(vt.get("detection_ratio", 0) or 0))
 
 
+# M26: the sandbox entry of a provisional result: what the file gets if the parent
+# has to stop the worker during the sandbox's network wait
+STOPPED_DETAIL = ("the sandbox did not answer before the scan time limit; the worker was "
+                  "stopped during the sandbox wait and the other layers' findings are kept")
+
+
 def _sandbox_deadline(scanner: RansomwareScanner, client: Any) -> Tuple[Optional[float], str]:
     """M26 (owner-approved 2026-11-12): in a worker, the sandbox wait ends 10 % of
     the scan limit (at least 1 s) before the worker would be stopped, so a slow
@@ -459,20 +465,39 @@ class SandboxLayer(Layer):
         cached = scanner.cache.get(sha, key) if (scanner.cache and sha) else None
         deadline, no_time = _sandbox_deadline(scanner, client)
         if cached:
-            data = dict(cached, status="cached")
+            # a report this cache already had: nothing was sent for this scan
+            data = dict(cached, status="cached", submission="not_attempted", transmission="none")
         elif no_time:
             data = SandboxResult(enabled=True, status="timeout", detail=no_time).as_dict()
         else:
-            data = client.analyze(ctx.path, deadline=deadline).as_dict()
+            data = self._analyze(scanner, ctx, client, deadline)
             if scanner.cache and sha and data.get("status") == "reported":
                 scanner.cache.put(sha, key, data)
-            if data.get("submitted") and data.get("status") != "cached":
+            # what left the machine: a possible transmission is listed too (the
+            # sandbox entry says whether it was confirmed); see core/sandbox.py
+            if data.get("transmission", "sent" if data.get("submitted") else "none") \
+                    in ("sent", "possible"):
                 data["sent"] = ["file"]
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),
                                                 ransomware=data.get("ransomware", []),
                                                 malscore=data.get("malscore", 0))
+
+    @staticmethod
+    def _analyze(scanner: RansomwareScanner, ctx: ScanContext, client: Any,
+                 deadline: Optional[float]) -> Dict:
+        """M26: inside an isolated worker (a deadline), first send the parent a
+        provisional result (the static findings, the sandbox at `timeout`), then
+        report the submission state as it changes; the parent uses them only if
+        it must stop the worker during this wait. Elsewhere: analyze() as before."""
+        send = getattr(scanner, "provisional_listener", None)
+        listen = getattr(scanner, "sandbox_listener", None)
+        if deadline is None or send is None or listen is None:
+            return client.analyze(ctx.path, deadline=deadline).as_dict()
+        stopped = SandboxResult(enabled=True, status="timeout", detail=STOPPED_DETAIL).as_dict()
+        send(scanner.provisional_result(ctx, "sandbox", "sandbox", stopped))
+        return client.analyze(ctx.path, deadline=deadline, progress=listen).as_dict()
 
 
 class EmulationLayer(Layer):

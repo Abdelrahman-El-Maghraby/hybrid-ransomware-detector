@@ -302,7 +302,7 @@ def _sandbox_wait(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]
             and isinstance(wait, (int, float)) and isinstance(limit, (int, float))
             and wait >= limit):
         return
-    text = (f"SANDBOX_WAIT_SECONDS={wait:g} is not below SCAN_TIMEOUT_SECONDS={limit:g}: a "
+    text = (f"SANDBOX_WAIT_SECONDS={wait:g} is not below SCAN_TIMEOUT_SECONDS={limit:g}: "
             "the sandbox wait is cut short before the scan limit, so slower reports are never "
             "used (the sandbox layer reads timeout and the scan partial)")
     production = str(cfg.get("profile") or "").strip().lower() == "production"

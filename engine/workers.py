@@ -38,6 +38,7 @@ per process, so with a VirusTotal key and pacing on, one worker is used.
 from __future__ import annotations
 
 import contextlib
+import copy
 import ctypes
 import ctypes.util
 import json
@@ -266,12 +267,21 @@ LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer
 # still pickles the paths it sends: the worker trusts its parent, not the reverse.
 MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
 MAX_ERROR_CHARS = 2000
-REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member")
+REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member", "provisional", "sandbox")
 # H6 (b): while the outer file is still being scanned, the worker reports its
 # container's own findings once the container is opened ("container") and each
 # direct member whose scan finished ("member"), so a time-out or a dead worker
 # does not lose them. Nothing else of the unfinished file is sent.
 MEMBER_CONTAINERS = ("archive", "mail", "web", "embedded")
+# M26: before the sandbox's network wait the worker sends the result the file
+# would get if that wait never ended ("provisional": every other layer's findings,
+# the sandbox at `timeout`), then the submission state as it changes ("sandbox":
+# {"submission", "task_id"}). The parent uses them only when it stops the worker
+# at the scan time limit during that wait; never for an invalid message, a dead
+# worker or the memory limit.
+SUBMISSION_STATES = ("not_attempted", "possible", "refused", "confirmed")
+TRANSMISSION = {"not_attempted": "none", "possible": "possible", "refused": "sent",
+                "confirmed": "sent"}
 MAX_KEPT_MEMBERS = 10                   # highest-risk members kept per file
 # Record keys that would replace a LogRecord method (getMessage, ...) when replayed.
 _LOG_KEYS_REFUSED = frozenset(k for k in dir(logging.LogRecord)
@@ -355,6 +365,23 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
             _signal_class(payload["container"])(**payload["signal"])
         except (TypeError, ValueError):
             raise InvalidReply("a container signal with unknown fields") from None
+    elif kind == "provisional":
+        _check_result(payload)
+        box = payload["scan_results"].get("sandbox")
+        shared = payload.get("provenance", {}).get("shared", [])
+        if not (isinstance(box, dict) and box.get("status") == "timeout"
+                and box.get("submission") == "not_attempted"
+                and payload["scan_status"] != "complete"
+                and isinstance(shared, list) and all(isinstance(e, dict) for e in shared)):
+            raise InvalidReply("a provisional result without its sandbox time-out")
+    elif kind == "sandbox":
+        task = payload.get("task_id") if isinstance(payload, dict) else None
+        if not (isinstance(payload, dict) and set(payload) == {"submission", "task_id"}
+                and payload["submission"] in SUBMISSION_STATES
+                and (task is None or (isinstance(task, int) and not isinstance(task, bool)
+                                      and 0 <= task < 2 ** 63))
+                and (task is None or payload["submission"] == "confirmed")):
+            raise InvalidReply("a sandbox progress report that is not {submission, task_id}")
     elif kind == "member":
         if not (isinstance(payload, dict) and set(payload) == {"container", "result"}
                 and payload["container"] in MEMBER_CONTAINERS):
@@ -544,6 +571,24 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
         except Exception:
             pass                             # never stop a scan over a progress report
     _SCANNER.member_listener = report_member   # read by engine/containers.py
+
+    def report_provisional(result: Dict) -> None:
+        try:
+            send_reply(conn, "provisional", result)   # over the size limit: not sent
+        except Exception:
+            pass
+
+    def report_sandbox(state: str, task_id: Any = None) -> None:
+        try:
+            task = int(task_id) if state == "confirmed" and task_id is not None else None
+        except (TypeError, ValueError):
+            task = None
+        try:
+            send_reply(conn, "sandbox", {"submission": state, "task_id": task})
+        except Exception:
+            pass
+    _SCANNER.provisional_listener = report_provisional   # read by the sandbox layer
+    _SCANNER.sandbox_listener = report_sandbox
     try:
         send_reply(conn, "ready", None)
         _serve(_SCANNER, conn, buffer)
@@ -682,6 +727,8 @@ class _Worker:
         self.ready = False
         self.retired = False                 # killed and not replaced (workers cannot start)
         self.evidence = Evidence()           # H6 (b): members finished for self.path
+        self.provisional: Optional[Dict] = None      # M26: checked, for self.path
+        self.sandbox_state: Optional[Dict] = None
 
     def kill(self) -> None:
         try:
@@ -754,6 +801,41 @@ def failure_result(scanner, path: str, reason: str, code: str = "",
                        "layers_skipped": [], "isolation": isolation},
     }
     result["verdict_label"] = verdict_label(result)
+    return result
+
+
+def sandbox_stopped_result(provisional: Dict, state: Optional[Dict], timeout: float,
+                           elapsed: float) -> Dict:
+    """M26: the result of a file whose worker was stopped at the scan time limit
+    during the sandbox wait: the checked provisional result, with the sandbox
+    entry completed from the last submission state the worker reported. The
+    file's other findings, score and verdict are the worker's; the scan stays
+    partial (the sandbox timed out)."""
+    result = copy.deepcopy(provisional)
+    submission = str((state or {}).get("submission") or "not_attempted")
+    task = (state or {}).get("task_id") if submission == "confirmed" else None
+    transmission = TRANSMISSION[submission]
+    box = result["scan_results"]["sandbox"]
+    detail = (f"the sandbox did not answer before the scan time limit ({int(timeout)}s); "
+              f"the worker was stopped during the sandbox wait and the other layers' "
+              f"findings are kept")
+    detail += {"none": "; the file was not sent",
+               "possible": "; an upload had started: the file may have reached the sandbox "
+                           "(not confirmed)",
+               "sent": "; the sandbox received the request"}[transmission]
+    if task is not None:
+        detail += f" (task {task}; look it up in CAPE later)"
+    box.update(status="timeout", submitted=submission == "confirmed", task_id=task,
+               submission=submission, transmission=transmission, detail=detail)
+    if transmission != "none":
+        box["sent"] = ["file"]
+        shared = result.setdefault("provenance", {}).setdefault("shared", [])
+        if not any(e.get("service") == "sandbox" and "member_path" not in e for e in shared):
+            shared.append({"service": "sandbox", "sent": ["file"]})
+    for gap in result.get("incomplete_reasons") or []:
+        if gap.get("layer") == "sandbox":
+            gap["reason"] = f"sandbox timeout: {detail}"
+    result["scan_duration_ms"] = int(elapsed * 1000)
     return result
 
 
@@ -946,9 +1028,9 @@ class _IsolatedScan:
             w.ready = True
             METRICS.worker_start(True, time.monotonic() - w.created)
             return True
-        if kind in ("container", "member"):
+        if kind in ("container", "member", "provisional", "sandbox"):
             if w.path is not None:
-                (w.evidence.add_container if kind == "container" else w.evidence.add)(payload)
+                self._progress(w, kind, payload)
             return True
         if kind in ("ok", "error"):
             path, w.path = w.path, None
@@ -973,12 +1055,35 @@ class _IsolatedScan:
             elif over_memory:
                 reason = (f"MemoryError: the worker used {over_memory // (1024 * 1024)} MB, "
                           f"over the {self.memory_mb} MB limit, and was stopped")
+            elif overdue and not dead and w.provisional is not None:
+                # M26: stopped during the sandbox wait, after a checked provisional
+                # result: the other layers' findings stand, the sandbox timed out
+                logger.warning("The sandbox did not answer for %s within the scan limit "
+                               "(%ds); the worker was stopped and the other layers' "
+                               "findings are kept.", path, int(self.timeout),
+                               extra={"event": "sandbox_worker_stopped", "path": path})
+                self._finish(path, sandbox_stopped_result(w.provisional, w.sandbox_state,
+                                                          self.timeout, time.monotonic() - w.started))
+                return self._replace(i)
             elif overdue and not dead:
                 reason = f"timed out after {int(self.timeout)}s"
             else:
                 reason = f"the worker process died (exit code {w.proc.exitcode})"
             self._fail(path, reason, w.evidence)
         return self._replace(i)
+
+    @staticmethod
+    def _progress(w: _Worker, kind: str, payload: Any) -> None:
+        """A checked report about the file in progress: H6 (b) evidence, or the
+        M26 provisional result and submission state."""
+        if kind == "container":
+            w.evidence.add_container(payload)
+        elif kind == "member":
+            w.evidence.add(payload)
+        elif kind == "provisional":
+            w.provisional = payload
+        else:
+            w.sandbox_state = payload
 
     def _over_memory(self, w: _Worker) -> int:
         """Resident bytes when a busy worker is over the limit, else 0 (watchdog)."""
@@ -995,6 +1100,7 @@ class _IsolatedScan:
     def _dispatch(self, w: _Worker) -> None:
         w.path, w.started = self.pending.pop(0), time.monotonic()
         w.evidence = Evidence()
+        w.provisional, w.sandbox_state = None, None
         try:
             w.parent.send(w.path)
         except Exception:

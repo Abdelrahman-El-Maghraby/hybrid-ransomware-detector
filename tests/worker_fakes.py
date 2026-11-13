@@ -83,3 +83,63 @@ def make_quick_poll(config):
     scanner = RansomwareScanner(config)
     scanner.sandbox.poll_seconds = 0.5
     return scanner
+
+
+class SandboxProbeScanner(RansomwareScanner):
+    """M26 (provisional results): a real scanner whose sandbox polls every 0.3 s.
+    After each top-level scan it appends what its worker holds to
+    `<file>.probe` (pid, threads, open descriptors). Config keys, all test-only:
+    `_slow_vt_seconds` delays the VirusTotal layer of a top-level `.zip` (it runs
+    before the sandbox),
+    `_hang_dns` makes every name lookup in this worker hang, `_crash_in_sandbox`
+    ends the worker inside the sandbox wait, `_bad_provisional` sends a
+    provisional result that fails the parent's check, `_poll_seconds` sets the
+    sandbox poll interval (0.3 s by default)."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        if self.sandbox is not None:
+            self.sandbox.poll_seconds = float(config.get("_poll_seconds") or 0.3)
+        if config.get("_hang_dns"):
+            import socket
+
+            def hang(*a, **k):
+                time.sleep(600)
+            socket.getaddrinfo = hang
+        if config.get("_crash_in_sandbox") and self.sandbox is not None:
+            def crash(path, deadline=None, progress=None):
+                os._exit(3)
+            self.sandbox.analyze = crash
+        slow = float(config.get("_slow_vt_seconds") or 0)
+        if slow:
+            original = self.scan_file_with_virustotal
+
+            def slow_vt(path, *a, **k):          # the top-level archive only, not its members
+                if str(path).endswith(".zip"):
+                    time.sleep(slow)
+                return original(path, *a, **k)
+            self.scan_file_with_virustotal = slow_vt
+
+    def provisional_result(self, ctx, layer, key, entry):
+        result = super().provisional_result(ctx, layer, key, entry)
+        if self.config.get("_bad_provisional"):
+            result["scan_results"]["sandbox"]["status"] = "reported"
+            hang = getattr(self.sandbox, "analyze", None)
+            if hang is not None:
+                self.sandbox.analyze = lambda *a, **k: time.sleep(600)
+        return result
+
+    def scan_file(self, file_path, _depth=0, _display_name=None):
+        result = super().scan_file(file_path, _depth, _display_name)
+        if _depth == 0:
+            import json
+            import threading
+            fds = len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else -1
+            with open(file_path + ".probe", "a") as fh:
+                fh.write(json.dumps({"pid": os.getpid(), "threads": threading.active_count(),
+                                     "fds": fds}) + "\n")
+        return result
+
+
+def make_sandbox_probe(config):
+    return SandboxProbeScanner(config)

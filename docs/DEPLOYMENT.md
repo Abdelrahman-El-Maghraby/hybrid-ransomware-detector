@@ -76,8 +76,13 @@ the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOW
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
 back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL` and `SANDBOX_WAIT_SECONDS` (600; keep it
 below `SCAN_TIMEOUT_SECONDS`, which compose also passes to intel, so intel warns at start-up
-otherwise; the wait in the scan worker is cut 10 % of that limit before it ends, so a slow
-report leaves the sandbox at `timeout` and the scan `partial` with the static verdict kept). What each scan actually sent - a
+otherwise; the wait in the scan worker runs after the other slow layers and is cut 10 % of
+that limit before it ends, so a slow report leaves the sandbox at `timeout` and the scan
+`partial` with the static verdict kept. That cut is cooperative; a call to intel that outlasts
+it is ended by the worker's own time limit, and the parent then keeps the result the worker
+sent before the sandbox wait. Intel's own requests to CAPE are not bounded by the scan: after
+the worker stops waiting, intel may still submit the file or fetch its report, and the result
+says `submission: possible` when that is not known). What each scan actually sent - a
 hash, a file, extracted text, to a local or a cloud LLM - is in every result's
 `provenance.shared`, the report's "Sent outside" line and the `external_share` log event. Putting an external-service key on the
 analysis side is a start-up error in the production profile.

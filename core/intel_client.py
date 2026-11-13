@@ -25,7 +25,16 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from detectors.llm_backends import LLMBackend, _empty_analysis
 
-from .sandbox import SandboxResult, _late, _request_timeout, _wait_end
+from .sandbox import (
+    MIN_REQUEST_SECONDS,
+    SUBMISSION_STATES,
+    Progress,
+    SandboxResult,
+    _late,
+    _no_progress,
+    _request_timeout,
+    _wait_end,
+)
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -33,7 +42,18 @@ RETRY_CAPABILITIES_SECONDS = 30.0
 
 
 class IntelError(RuntimeError):
-    """The intel service could not be reached or refused the request."""
+    """The intel service could not be reached or refused the request.
+    `status`: its HTTP status, or None when no answer came. `delivered`: False
+    when the connection never opened (nothing reached the service), else None."""
+
+    def __init__(self, message: str, status: Optional[int] = None,
+                 delivered: Optional[bool] = None):
+        super().__init__(message)
+        self.status, self.delivered = status, delivered
+
+
+class NotConnected(OSError):
+    """The Unix socket connection to the intel service did not open."""
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -61,6 +81,10 @@ def unix_request(path: str, method: str, url: str, body: Optional[bytes] = None,
     """One HTTP request over a Unix domain socket: (status, body)."""
     conn = _UnixConnection(path, timeout)
     try:
+        try:
+            conn.connect()
+        except OSError as e:
+            raise NotConnected(f"{type(e).__name__}: {e}") from e
         conn.request(method, url, body=body, headers=headers or {})
         resp = conn.getresponse()
         return resp.status, resp.read()
@@ -90,6 +114,9 @@ class IntelClient:
         try:
             status, raw = unix_request(self.socket_path, method, url, body, send,
                                        timeout or self.timeout)
+        except NotConnected as e:
+            raise IntelError(f"intel service unreachable ({type(e.__cause__).__name__})",
+                             delivered=False) from None
         except OSError as e:
             raise IntelError(f"intel service unreachable ({type(e).__name__})") from None
         try:
@@ -98,9 +125,10 @@ class IntelClient:
             answer = {}
         if status != 200:
             detail = answer.get("detail") if isinstance(answer, dict) else ""
-            raise IntelError(f"intel {url}: HTTP {status}" + (f" ({detail})" if detail else ""))
+            raise IntelError(f"intel {url}: HTTP {status}" + (f" ({detail})" if detail else ""),
+                             status=status)
         if not isinstance(answer, dict):
-            raise IntelError(f"intel {url}: not a JSON object")
+            raise IntelError(f"intel {url}: not a JSON object", status=status)
         return answer
 
     def capabilities(self) -> Dict:
@@ -193,43 +221,100 @@ class IntelSandbox:
         self.wait_seconds, self.poll_seconds = wait_seconds, poll_seconds
         self.sleep, self.clock = sleep, clock
 
-    def analyze(self, path: str, deadline: Optional[float] = None) -> SandboxResult:
-        """M26: `deadline` (on self.clock) bounds the wait as in CapeClient."""
+    def analyze(self, path: str, deadline: Optional[float] = None,
+                progress: Optional[Progress] = None) -> SandboxResult:
+        """M26: `deadline` (on self.clock) bounds the wait cooperatively as in
+        CapeClient: each call's timeout is the time left, no call starts with less
+        than MIN_REQUEST_SECONDS left, and a transient failure of a status check
+        counts as pending. What the intel service does after this side stops
+        waiting (its own CAPE requests) is not bounded here."""
+        note = progress or _no_progress
         res = SandboxResult(enabled=True)
         try:
             ext = os.path.splitext(path)[1].lower()
             with open(path, "rb") as fh:
                 data = fh.read()
             headers = {"X-Aegis-Extension": ext} if 1 < len(ext) <= 9 and ext[1:].isalnum() else {}
-            submitted = self.client.call("POST", "/v1/sandbox/submit", data=data,
-                                         headers=headers,
-                                         timeout=_request_timeout(120, deadline, self.clock))
+            if deadline is not None and deadline - self.clock() < MIN_REQUEST_SECONDS:
+                res.status, res.detail = "timeout", "not submitted: no time left for a request"
+                return res
+            res.submission = "possible"            # from here on the file may leave
+            note("possible")
+            try:
+                submitted = self.client.call("POST", "/v1/sandbox/submit", data=data,
+                                             headers=headers,
+                                             timeout=_request_timeout(120, deadline, self.clock))
+            except IntelError as e:
+                if e.delivered is False or (e.status is not None and 400 <= e.status < 500):
+                    res.submission = "not_attempted"   # intel never had it, or refused it
+                    note("not_attempted")
+                raise
+            first = _result(submitted)
+            note(first.submission, first.task_id if first.submission == "confirmed" else None)
             if submitted.get("status") == "cached" or not submitted.get("submitted"):
-                return _result(submitted)          # intel's cached report, or refused
+                return first                         # intel's cached report, or refused
             task_id = int(submitted["task_id"])
             end = _wait_end(self.clock() + self.wait_seconds, deadline)
             while True:
-                polled = self.client.call(
-                    "POST", "/v1/sandbox/poll", {"task_id": task_id},
-                    timeout=None if deadline is None else
-                    _request_timeout(self.client.timeout, deadline, self.clock))
-                if polled.get("status") != "pending":
-                    return _result(polled)
+                if deadline is None:
+                    polled: Optional[Dict] = self.client.call(
+                        "POST", "/v1/sandbox/poll", {"task_id": task_id}, timeout=None)
+                else:
+                    polled = self._poll_bounded(task_id, deadline)
+                if polled is not None and polled.get("status") != "pending":
+                    return _result(polled, default="confirmed")
                 if self.clock() >= end:
                     res.submitted, res.task_id, res.status = True, task_id, "timeout"
+                    res.submission = "confirmed"
                     res.detail = _late(self.wait_seconds, deadline, task_id)
                     return res
                 self.sleep(min(self.poll_seconds, max(0.0, end - self.clock())))
         except (IntelError, OSError, KeyError, ValueError) as e:
             logger.warning("Sandbox through the intel service failed: %s", e)
             res.status, res.detail = "error", f"sandbox via intel failed ({e})"
+            if res.submission == "possible":
+                res.detail += "; the intel service may still have submitted the file"
             return res
 
+    def _poll_bounded(self, task_id: int, deadline: float) -> Optional[Dict]:
+        """One status check within the deadline; None (pending) when there is no
+        time for it or it failed in a way a later check may not (no answer, a
+        time-out, HTTP 429 or 5xx)."""
+        if deadline - self.clock() < MIN_REQUEST_SECONDS:
+            return None
+        try:
+            return self.client.call("POST", "/v1/sandbox/poll", {"task_id": task_id},
+                                    timeout=_request_timeout(self.client.timeout, deadline,
+                                                             self.clock))
+        except IntelError as e:
+            if e.status is None or e.status == 429 or e.status >= 500:
+                return None
+            raise
 
-def _result(d: Dict[str, Any]) -> SandboxResult:
+
+def _result(d: Dict[str, Any], default: str = "") -> SandboxResult:
     fields = ("enabled", "submitted", "task_id", "status", "malscore", "signatures",
               "ransomware", "network_hosts", "detail")
-    return SandboxResult(**{k: d[k] for k in fields if k in d})
+    res = SandboxResult(**{k: d[k] for k in fields if k in d})
+    res.submission = _submission(d, default)
+    return res
+
+
+def _submission(d: Dict[str, Any], default: str = "") -> str:
+    """The submission state an intel answer gives, or (an older intel service)
+    the one its other fields imply; an unclear failure is `possible`."""
+    if d.get("status") == "cached":              # a report intel already had: nothing sent
+        return "not_attempted"
+    state = d.get("submission")
+    if state in SUBMISSION_STATES:
+        return str(state)
+    if d.get("submitted"):
+        return "confirmed"
+    if default:
+        return default
+    if str(d.get("detail") or "").startswith("submission refused"):
+        return "refused"
+    return "possible"
 
 
 def client_from_config(config: Dict) -> Optional[IntelClient]:

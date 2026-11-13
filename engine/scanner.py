@@ -82,6 +82,12 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     # M26: in an isolated worker, the time.monotonic() at which the parent stops
     # waiting for the current file (None outside a worker: no limit).
     scan_deadline: Optional[float] = None
+    # M26: set in an isolated worker; the sandbox layer sends the parent its
+    # provisional result (provisional_listener(result)) before the sandbox's
+    # network wait, and the submission state as it changes
+    # (sandbox_listener(state, task_id)).
+    provisional_listener: Optional[Callable[[Dict], None]] = None
+    sandbox_listener: Optional[Callable[..., None]] = None
 
     def time_left(self) -> Optional[float]:
         """Seconds before the worker's limit ends this scan, or None without one."""
