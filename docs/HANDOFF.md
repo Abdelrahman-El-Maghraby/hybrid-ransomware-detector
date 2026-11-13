@@ -1985,6 +1985,44 @@ reporting of members left out by the budget already existed (`_budget_gaps`:
   report times, the 15 s poll) and in Docker (the `analysis` worker polling
   `intel`; `intel`'s own wait); I-2 score shifts on real large archives.
 
+### Checkpoint after group 36 (2026-11-13, owner restart)
+
+- State: branch `review/production-hardening`, local only, never pushed. M26
+  code is in `bd9514e`; HEAD (`f732247` before this note) differs from it only
+  in this file. `git stash list` is empty: the stash used to show the M26
+  tests failing without the fix (7 of 8) was popped and every change was
+  restored. Tree clean apart from the untracked `.arena/` (preserved).
+- M26 evidence, all on the current code (`bd9514e` and later); the earlier
+  1,717-pass run at `42852d3` predates M26 and does not validate it:
+  - `tests/test_external_deadline.py` rerun at the checkpoint: 8 passed
+    (`test_a_worker_knows_its_remaining_time`,
+    `test_cape_stops_at_the_deadline`,
+    `test_cape_without_a_deadline_is_unchanged`,
+    `test_the_intel_sandbox_stops_at_the_deadline`,
+    `test_the_layer_waits_only_the_time_left`,
+    `test_no_time_left_means_the_file_is_not_sent`,
+    `test_outside_a_worker_the_layer_is_unchanged`,
+    `test_a_slow_report_keeps_the_static_verdict`).
+  - Related suites before the commit: 303 passed, 8 skipped; with the
+    config-validation tests 213 passed.
+  - Full safe run at `bd9514e`: 1,730 passed, 0 failed, 23 skipped,
+    4 deselected, 1 warning (Starlette `httpx`); smoke passed.
+- Owner policy choices, as recorded in the owner's answers of 2026-11-13:
+  sandbox only; margin 10 % of the scan limit, at least 1 s; **"Don't
+  submit"** when the time left is insufficient. Recorded and implemented.
+- **Pending owner confirmation (made by Claude, not chosen by the owner):**
+  "insufficient" means less than one poll interval (15 s) left after the
+  margin. Changing it is one comparison in `engine/layers._sandbox_deadline`.
+- Not tested: a real CAPE server; the Docker path (`analysis` worker polling
+  `intel`, and `intel`'s own wait); that `IntelSandbox`'s request timeouts
+  are capped (only its clock is tested; `CapeClient`'s timeouts are); the
+  real 15 s poll inside a worker (the worker test uses a 0.5 s stand-in poll);
+  VirusTotal and LLM waits (out of scope, the rest of I-6).
+- Exact next step: the owner confirms or changes the "less than one poll
+  interval" threshold; then, on a Docker host, run `deploy/check-deployment.sh`
+  and a scan against a stand-in or real CAPE through `intel`. No other item is
+  in progress.
+
 ## Exact next action
 
 The review stage is closed; the next stage is implementation in the order of
