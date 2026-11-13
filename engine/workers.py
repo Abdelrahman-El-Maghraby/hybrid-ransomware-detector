@@ -725,16 +725,10 @@ def _pid_alive(pid: int) -> bool:
     """True when a process with this id exists (or might: when in doubt, alive)."""
     if os.name == "nt":                      # os.kill would terminate it on Windows
         try:
-            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
-            if not handle:
-                return False
-            code = ctypes.c_ulong()
-            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-            kernel32.CloseHandle(handle)
-            return code.value == 259                             # STILL_ACTIVE
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
         except (AttributeError, OSError):
             return True
+        return _pid_alive_windows(pid, kernel32, ctypes.get_last_error)  # type: ignore[attr-defined]
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -742,6 +736,30 @@ def _pid_alive(pid: int) -> bool:
     except OSError:                          # exists, owned by someone else
         return True
     return True
+
+
+ERROR_ACCESS_DENIED = 5
+ERROR_INVALID_PARAMETER = 87                 # OpenProcess: no process with that id
+
+
+def _pid_alive_windows(pid: int, kernel32: Any, last_error: Callable[[], int]) -> bool:
+    """L-E6: OpenProcess fails for a process that exists but belongs to someone
+    else (access denied) as well as for one that does not exist; only the
+    second means dead. Anything unclear counts as alive, so a live scanner's
+    folder is never swept."""
+    try:
+        handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return last_error() != ERROR_INVALID_PARAMETER
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259                             # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError):
+        return True
 
 
 def sweep_stale_worker_dirs(folder: Optional[str] = None) -> int:
