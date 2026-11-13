@@ -36,6 +36,15 @@ class MisbehavingScanner(RansomwareScanner):
         if name.startswith("deadline"):          # M26: what the worker knows of its limit
             with open(file_path + ".left", "w") as fh:
                 fh.write(repr(self.time_left()))
+        if name.startswith("helper"):            # L-E5: an inert helper program of the scan
+            import subprocess
+            import sys
+            child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+            with open(file_path + ".helper", "w") as fh:
+                fh.write(str(child.pid))
+            if name.startswith("helperexit"):
+                os._exit(3)
+            time.sleep(600)
         if name.startswith("slow"):              # tells the test which worker has it
             with open(file_path + ".pid", "w") as fh:
                 fh.write(str(os.getpid()))

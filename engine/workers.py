@@ -48,6 +48,7 @@ import multiprocessing as mp
 import multiprocessing.connection
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import threading
@@ -590,6 +591,13 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
     if temp_dir:
         tempfile.tempdir = temp_dir
         os.environ["TMPDIR"] = temp_dir          # helper programs (unar, 7z) too
+    if os.name == "posix":
+        # L-E5: a process group of its own, so the parent can stop this worker
+        # and the helper programs it started (OCR, 7-Zip, box-js) together
+        try:
+            os.setpgid(0, 0)
+        except OSError:
+            pass
     _limit_memory(memory_mb)
     logging.getLogger("RansomwareScanner").setLevel(logging.WARNING)
     cfg = dict(config, isolate_scans=False, scan_workers=1, _isolation="worker")
@@ -785,9 +793,31 @@ class _Worker:
         self.provisional: Optional[Dict] = None      # M26: checked, for self.path
         self.settled = False                         # ... and holding the sandbox outcome
         self.external: Dict[str, Dict[str, Any]] = {}  # I-6: what may have left, per service
+        self.pgid: Optional[int] = None              # L-E5: its own process group (POSIX)
         self.sandbox_state: Optional[Dict] = None
 
+    def note_group(self) -> None:
+        """L-E5: once the worker is ready (alive), remember its process group if
+        it leads one of its own; only that group is ever signalled."""
+        if os.name != "posix" or self.proc.pid is None:
+            return
+        try:
+            if os.getpgid(self.proc.pid) == self.proc.pid:
+                self.pgid = self.proc.pid
+        except OSError:
+            pass
+
     def kill(self) -> None:
+        """Stop the worker and, on POSIX, the helper programs it started (its
+        process group). A group still holding a helper keeps its id reserved, so
+        the signal cannot reach another program's group; with no member left
+        the call finds nothing."""
+        pgid = getattr(self, "pgid", None)
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except OSError:
+                pass
         try:
             self.proc.kill()
             self.proc.join(5)
@@ -1005,6 +1035,7 @@ def wait_ready(w: _Worker, timeout: float) -> bool:
                 kind, _ = read_reply(w.parent)
                 if kind == "ready":
                     w.ready = True
+                    w.note_group()
                     METRICS.worker_start(True, time.monotonic() - w.created)
                     return True
                 why = f"unexpected first message {kind!r}"
@@ -1126,6 +1157,7 @@ class _IsolatedScan:
             return True
         if kind == "ready":
             w.ready = True
+            w.note_group()
             METRICS.worker_start(True, time.monotonic() - w.created)
             return True
         if kind in ("container", "member", "provisional", "settled", "sandbox", "external"):

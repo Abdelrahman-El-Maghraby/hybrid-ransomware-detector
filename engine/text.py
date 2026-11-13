@@ -105,7 +105,7 @@ class TextExtractionMixin:
                 text = self._extract_text_from_pdf(file_path, errors)
                 if not text.strip() and allow_ocr:
                     logger.info("No text found in PDF. Using OCR fallback for %s", file_path)
-                    text = self._extract_text_with_ocr_from_pdf(file_path)
+                    text = self._extract_text_with_ocr_from_pdf(file_path, errors)
                 return text
             elif file_ext == ".docx":
                 return self._extract_text_from_word(file_path) or \
@@ -146,19 +146,53 @@ class TextExtractionMixin:
                 errors.append(f"PDF could not be parsed ({type(e).__name__}: {str(e)[:80]})")
             return ""
 
-    def _extract_text_with_ocr_from_pdf(self, file_path: str) -> str:
-        """Extract text from a PDF file using OCR if it is image-based."""
+    OCR_TOTAL_SECONDS = 180.0      # L-E5: rendering plus every page of one PDF
+    OCR_MIN_CALL_SECONDS = 1.0
+
+    def _ocr_end(self) -> float:
+        """When this PDF's OCR must end: OCR_TOTAL_SECONDS from now, and in an
+        isolated worker no later than the scan limit less the M26 margin."""
+        import time
+        now = time.monotonic()
+        end = now + self.OCR_TOTAL_SECONDS
+        time_left = getattr(self, "time_left", None)
+        left = time_left() if callable(time_left) else None
+        if left is not None:
+            limit = float((getattr(self, "config", None) or {}).get("scan_timeout_seconds", 300)
+                          or 300)
+            end = min(end, now + left - max(1.0, 0.1 * limit))
+        return end
+
+    def _extract_text_with_ocr_from_pdf(self, file_path: str,
+                                        errors: Optional[List[str]] = None) -> str:
+        """Extract text from a PDF file using OCR if it is image-based. L-E5: the
+        poppler and tesseract helpers get only the OCR time left (each library
+        kills its helper at its timeout); a time-out or a failure is recorded in
+        `errors`, which makes the scan partial, and the pages read are kept."""
+        import time
         if not OCR_AVAILABLE:
             return ""
+        failures = errors if errors is not None else []
+        end = self._ocr_end()
+        text = ""
         try:
-            images = convert_from_path(file_path, last_page=20)
-            text = ""
-            for img in images:
-                text += pytesseract.image_to_string(img)
+            if end - time.monotonic() < self.OCR_MIN_CALL_SECONDS:
+                failures.append("OCR not run: no time left in the scan limit")
+                return ""
+            images = convert_from_path(file_path, last_page=20,
+                                       timeout=max(1, int(end - time.monotonic())))
+            for done, img in enumerate(images):
+                left = end - time.monotonic()
+                if left < self.OCR_MIN_CALL_SECONDS:
+                    failures.append(f"OCR stopped at its time limit: {done} of "
+                                    f"{len(images)} page(s) read")
+                    break
+                text += pytesseract.image_to_string(img, timeout=max(1, int(left)))
             return text
         except Exception as e:
             logger.error("OCR failed for PDF %s: %s", file_path, str(e))
-            return ""
+            failures.append(f"OCR failed ({type(e).__name__}: {str(e)[:80]})")
+            return text
 
     OOXML_PART_MAX = 20 * 1024 * 1024     # as _extract_text_from_ooxml
     OOXML_MAX_CHARS = 200_000
