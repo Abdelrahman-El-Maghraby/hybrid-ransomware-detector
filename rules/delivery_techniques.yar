@@ -36,7 +36,11 @@ rule LNK_Shortcut_Runs_Script_Host
     condition:
         uint32(0) == 0x0000004C and uint32(4) == 0x00021401   // shell link header + CLSID
         and filesize < 2MB
-        and any of ($h*) and any of ($a*)
+        and any of ($h*)
+        // S-Y3: "/c" alone is how every cmd.exe shortcut runs a command; it counts
+        // when the arguments also start another script host or LOLBin
+        and (any of ($a1, $a2, $a3, $a4, $a6, $a7, $a8)
+             or ($a5 and any of ($h1, $h3, $h4, $h5, $h6, $h7, $h8)))
 }
 
 rule HTA_Application_With_Script_Execution
@@ -134,6 +138,22 @@ rule PowerShell_Defender_Tampering
         $x2  = "ExclusionProcess"          nocase ascii wide
         $x3  = "ExclusionExtension"        nocase ascii wide
         $reg = "\\Windows Defender\\DisableAntiSpyware" nocase ascii wide
+        // S-Y2: an excluded folder counts when it is broad or user-writable (where
+        // droppers write) or next to a download; a build agent excluding its own
+        // work folder does not. The script layer still notes any exclusion.
+        $root = /ExclusionPath\s+["']?[A-Za-z]:\\?["']?\s*($|[\r\n;|])/ nocase ascii wide
+        $b1  = "\\Users"              nocase ascii wide
+        $b2  = "\\Temp"               nocase ascii wide
+        $b3  = "\\AppData"            nocase ascii wide
+        $b4  = "\\ProgramData"        nocase ascii wide
+        $b5  = "\\Start Menu\\Programs\\Startup" nocase ascii wide
+        $b6  = /\$env:(TEMP|TMP|APPDATA|LOCALAPPDATA|PUBLIC|ProgramData|USERPROFILE)/ nocase ascii wide
+        $b7  = /%(TEMP|TMP|APPDATA|LOCALAPPDATA|PUBLIC|ProgramData|USERPROFILE)%/ nocase ascii wide
+        $dl1 = "Invoke-WebRequest"     nocase ascii wide
+        $dl2 = "DownloadFile"          nocase ascii wide
+        $dl3 = "DownloadString"        nocase ascii wide
+        $dl4 = "Start-BitsTransfer"    nocase ascii wide
     condition:
-        ($mp1 and any of ($d*)) or ($mp2 and any of ($x*)) or $reg
+        ($mp1 and any of ($d*)) or ($mp2 and ($x2 or $x3)) or $reg
+        or ($mp2 and $x1 and ($root or any of ($b*) or any of ($dl*)))
 }
