@@ -218,10 +218,11 @@ the CLI commands in section 6. Keep the encrypted backup apart from the vault;
 verify recovery before removing the old installation.
 
 **Cloud:** install the optional dependency with `pip install -e ".[cloud]"` when
-running from source. Use the editable (`-e`) form: a regular `pip install .`
-copies the code into the environment without the `rules/` folder and the sample
-fuzzy signatures, so YARA would run with no rules unless `YARA_RULES_DIR` points
-at them. In **Alerts & cloud**, set an HTTPS endpoint, region,
+running from source. A regular `pip install .` (or a wheel) works too: it ships the
+bundled YARA rules as the `aegis_sentinel_rules` package, which the scanner uses
+when there is no `rules/` folder beside the code (M15). It does not ship the
+placeholder `fuzzy_signatures.sample.json`, which matches nothing; a missing rules
+folder is logged as a warning. In **Alerts & cloud**, set an HTTPS endpoint, region,
 bucket, prefix, access key id and secret key, then save and use **Test upload**.
 Uploads are off by default (`CLOUD_UPLOAD=false`). Leave `CLOUD_UPLOAD_FULL=false`
 for an allowlisted, pseudonymised report and structured log events; raw rotated

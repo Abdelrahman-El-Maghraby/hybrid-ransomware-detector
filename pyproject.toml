@@ -60,13 +60,19 @@ Repository = "https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detec
 
 [tool.setuptools]
 py-modules = ["RansomwareScanner", "gui"]
+# M15: listed, not found, so the bundled YARA rules (the source tree's rules/)
+# can ship as their own package; tests/test_packaging.py keeps this list equal to
+# the code packages in the tree.
+packages = ["aegis_gui", "aegis_gui.pages", "api", "core", "detectors", "engine", "tools",
+            "aegis_sentinel_rules"]
 
-[tool.setuptools.packages.find]
-include = ["engine*", "detectors*", "core*", "aegis_gui*", "api*", "tools*"]
+[tool.setuptools.package-dir]
+aegis_sentinel_rules = "rules"
 
 [tool.setuptools.package-data]
 detectors = ["indicators.yaml"]
 api = ["*.json"]
+aegis_sentinel_rules = ["*.yar", "*.yara"]
 
 # ------------------------------------------------------------------ tooling
 [tool.pytest.ini_options]

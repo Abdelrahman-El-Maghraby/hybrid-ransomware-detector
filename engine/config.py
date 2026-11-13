@@ -34,7 +34,27 @@ KEYSTORE_DIR = APP_DIR / "keystore"
 # In a PyInstaller build they are unpacked to sys._MEIPASS instead.
 FROZEN = bool(getattr(sys, "frozen", False))
 SCRIPT_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-BUNDLED_RULES_DIR = SCRIPT_DIR / "rules"
+
+
+def _bundled_rules_dir() -> Path:
+    """The YARA rules that ship with the scanner: rules/ next to the code (a
+    source tree, an editable install, the PyInstaller bundle, the Docker image),
+    else the `aegis_sentinel_rules` package a wheel installs them as (M15)."""
+    local = SCRIPT_DIR / "rules"
+    if local.is_dir():
+        return local
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("aegis_sentinel_rules")
+    except (ImportError, ValueError):
+        spec = None
+    for place in (spec.submodule_search_locations or []) if spec else []:
+        if Path(place).is_dir():
+            return Path(place)
+    return local
+
+
+BUNDLED_RULES_DIR = _bundled_rules_dir()
 BUNDLED_FUZZY_SIGS = SCRIPT_DIR / "fuzzy_signatures.sample.json"
 
 logger = logging.getLogger("RansomwareScanner")
