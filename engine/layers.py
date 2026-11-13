@@ -483,6 +483,11 @@ class SandboxLayer(Layer):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),
                                                 ransomware=data.get("ransomware", []),
                                                 malscore=data.get("malscore", 0))
+        settle = getattr(scanner, "provisional_listener", None)
+        if deadline is not None and settle is not None and not cached and not no_time:
+            # M26: the sandbox's outcome is known; if the worker is stopped before
+            # its final reply, the parent keeps this result, not "did not answer"
+            settle(scanner.provisional_result(ctx, "sandbox", "sandbox", data), True)
 
     @staticmethod
     def _analyze(scanner: RansomwareScanner, ctx: ScanContext, client: Any,
@@ -496,7 +501,7 @@ class SandboxLayer(Layer):
         if deadline is None or send is None or listen is None:
             return client.analyze(ctx.path, deadline=deadline).as_dict()
         stopped = SandboxResult(enabled=True, status="timeout", detail=STOPPED_DETAIL).as_dict()
-        send(scanner.provisional_result(ctx, "sandbox", "sandbox", stopped))
+        send(scanner.provisional_result(ctx, "sandbox", "sandbox", stopped), False)
         return client.analyze(ctx.path, deadline=deadline, progress=listen).as_dict()
 
 

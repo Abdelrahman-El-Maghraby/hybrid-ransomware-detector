@@ -281,9 +281,10 @@ security boundary. In the Docker deployment the boundary is the container:
 - Its messages reach the parent as JSON of at most 16 MiB, checked for shape before
   any field is used, never as a pickle (M18 in `docs/PROJECT_REVIEW.md`), so a forged
   message cannot run code in the long-lived parent; a malformed, oversized or
-  unexpected one fails that file (`scan_failed`) and stops the worker. The result a
-  worker sends before its sandbox wait (M26) is checked the same way and used only
-  when the parent stops that worker at the scan time limit; it concerns the worker's
+  unexpected one fails that file (`scan_failed`) and stops the worker. The results a
+  worker sends before its sandbox wait and once the sandbox has answered (M26) are
+  checked the same way and used only when the parent stops that worker at the scan
+  time limit; it concerns the worker's
   own file, which a compromised worker could already misreport. Worker and
   parent still run as the same user in the same container, so the pool is not a
   full security boundary (see DEPLOYMENT).

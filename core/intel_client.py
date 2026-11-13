@@ -255,6 +255,7 @@ class IntelSandbox:
                 return first                         # intel's cached report, or refused
             task_id = int(submitted["task_id"])
             end = _wait_end(self.clock() + self.wait_seconds, deadline)
+            unreadable = ""
             while True:
                 if deadline is None:
                     polled: Optional[Dict] = self.client.call(
@@ -263,10 +264,12 @@ class IntelSandbox:
                     polled = self._poll_bounded(task_id, deadline)
                 if polled is not None and polled.get("status") != "pending":
                     return _result(polled, default="confirmed")
+                if polled is not None and polled.get("detail"):
+                    unreadable = str(polled["detail"])[:300]     # M34: say why it waited
                 if self.clock() >= end:
                     res.submitted, res.task_id, res.status = True, task_id, "timeout"
                     res.submission = "confirmed"
-                    res.detail = _late(self.wait_seconds, deadline, task_id)
+                    res.detail = unreadable or _late(self.wait_seconds, deadline, task_id)
                     return res
                 self.sleep(min(self.poll_seconds, max(0.0, end - self.clock())))
         except (IntelError, OSError, KeyError, ValueError) as e:

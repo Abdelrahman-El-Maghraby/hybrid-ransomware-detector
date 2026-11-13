@@ -207,6 +207,11 @@ class Stand:
         if mode.startswith("503"):
             ra = mode.partition(":")[2]
             return self._send(conn, 503, headers=((f"Retry-After: {ra}",) if ra else ()))
+        if mode == "report_ok":
+            if not report:
+                return self._json(conn, {"data": {"status": "reported"}})
+            return self._json(conn, {"malscore": 8.5, "signatures": [
+                {"name": "ransomware_files", "severity": 3, "categories": ["ransomware"]}]})
         if mode in ("report_hang", "report_500"):
             if not report:
                 return self._json(conn, {"data": {"status": "reported"}})
@@ -417,8 +422,9 @@ def _script(tmp_path):
 
 def _in_worker(s, left, limit=300):
     """Make an in-process scanner act as a worker's (listeners and a deadline)."""
-    sent = {"provisional": [], "sandbox": []}
-    s.provisional_listener = sent["provisional"].append
+    sent = {"provisional": [], "settled": [], "sandbox": []}
+    s.provisional_listener = lambda result, settled=False: sent[
+        "settled" if settled else "provisional"].append(result)
     s.sandbox_listener = lambda state, task_id=None: sent["sandbox"].append((state, task_id))
     s.config["scan_timeout_seconds"] = limit
     s.scan_deadline = time.monotonic() + left
@@ -496,6 +502,10 @@ def test_the_provisional_result_is_built_without_side_effects(tmp_path, caplog):
     assert checked["scan_status"] == "partial"
     assert final["scan_results"]["sandbox"]["status"] == "reported"
     assert sent["sandbox"] == [("possible", None), ("confirmed", 42)]
+    assert len(sent["settled"]) == 1                            # the outcome, once known
+    settled = json.loads(json.dumps(sent["settled"][0], default=str))
+    assert W.check_reply(["settled", settled])[1]["scan_results"]["sandbox"]["status"] == "reported"
+    assert settled["verdict"] == final["verdict"]
     events = [getattr(r, "event", "") for r in caplog.records]
     assert events.count("scan_completed") == 1 and events.count("external_share") == 1
 
@@ -826,3 +836,92 @@ def test_the_stopped_result_completes_the_sandbox_entry(state, task, transmissio
 def test_fake_response_without_headers_is_accepted():
     from core.sandbox import retry_after
     assert retry_after(FakeResponse({})) is None
+
+
+# ============================== M34 and the gap after the sandbox has answered
+class ReportFails(FakeCape):
+    """CAPE says the task is reported, but the report request fails or is not a
+    JSON object."""
+
+    def __init__(self, response):
+        super().__init__(statuses=("reported",))
+        self.response = response
+
+    def get(self, url, timeout=None):
+        self.gets.append(url)
+        if "/tasks/view/" in url:
+            return FakeResponse({"data": {"status": "reported"}})
+        return self.response
+
+
+class BadJson(FakeResponse):
+    def json(self):
+        raise ValueError("not JSON")
+
+
+@pytest.mark.parametrize("response", [FakeResponse({"error": "x"}, 500), FakeResponse([], 200),
+                                      BadJson(None, 200), FakeResponse({}, 502)],
+                         ids=["http-500", "a-list", "not-json", "http-502"])
+def test_a_report_that_failed_is_not_a_finished_report(tmp_path, response):
+    """M34, without a deadline (desktop and CLI outside a worker, and the intel
+    service's own polling): the wait goes on and ends at timeout."""
+    res = client(ReportFails(response), wait=60).analyze(str(_inert(tmp_path)))
+    assert res.status == "timeout" and res.malscore == 0 and not res.signatures
+    assert "report could not be read" in res.detail and res.task_id == 42
+
+
+def test_an_empty_report_object_is_still_a_report(tmp_path):
+    res = client(ReportFails(FakeResponse({}, 200)), wait=60).analyze(str(_inert(tmp_path)))
+    assert res.status == "reported" and res.malscore == 0
+
+
+def test_a_failed_report_is_not_cached(tmp_path):
+    s = _scanner(tmp_path, ReportFails(FakeResponse({}, 500)))
+    s.sandbox.wait_seconds = 60
+    p = _script(tmp_path)
+    box = s.scan_file(str(p))["scan_results"]["sandbox"]
+    assert box["status"] == "timeout" and "report could not be read" in box["detail"]
+    key = "sandbox:" + __import__("hashlib").sha256(
+        f"{s.sandbox.url}|{s.sandbox.options}".encode()).hexdigest()[:12]
+    assert s.cache.get(s.calculate_hashes(str(p))["sha256"], key) is None
+
+
+def test_the_intel_wait_says_why_it_waited(tmp_path):
+    why = "CAPE said task 3 finished, but its report could not be read (HTTP 500)"
+    intel = ScriptedIntel(CAPS, {"/v1/sandbox/submit": {"submitted": True, "task_id": 3},
+                                 "/v1/sandbox/poll": {"status": "pending", "detail": why}})
+    clock = {"t": 0.0}
+    res = IntelSandbox(intel, wait_seconds=30, clock=lambda: clock["t"],
+                       sleep=lambda s: clock.__setitem__("t", clock["t"] + s)).analyze(
+        str(_inert(tmp_path, "s.docm")))
+    assert res.status == "timeout" and res.detail == why
+
+
+def test_a_worker_stopped_after_the_sandbox_answered_keeps_that_answer(tmp_path, stand):
+    cape = stand("report_ok")
+    p = _script(tmp_path)
+    static = RS.RansomwareScanner(_config(tmp_path, isolate_scans=False)).scan_file(str(p))
+    cfg = _worker_cfg(tmp_path, cape.url, 5, _slow_finish=True)
+    _, got = _scan_in_workers(cfg, [p], 5)
+    r = got[0][1]
+    box = r["scan_results"]["sandbox"]
+    assert box["status"] == "reported" and box["malscore"] == 8.5
+    assert "did not answer" not in box["detail"] and "scan_failed" not in r["scan_results"]
+    assert "sandbox_ransomware_behaviour" in {
+        c["indicator"] for c in r["score_breakdown"]["contributions"]}
+    assert r["risk_score"] > static["risk_score"]               # the sandbox's finding counts
+    assert box["submission"] == "confirmed" and box["sent"] == ["file"]
+
+
+def test_settled_results_are_checked():
+    good = _provisional()
+    good["scan_results"]["sandbox"].update(status="reported", submission="confirmed",
+                                           transmission="sent")
+    assert W.check_reply(["settled", good])[0] == "settled"
+    for change in ({"status": "pending"}, {"submission": "sent"},
+                   {"submission": "confirmed", "transmission": "none"}):
+        bad = _provisional()
+        bad["scan_results"]["sandbox"].update({"status": "reported", "submission": "confirmed",
+                                               "transmission": "sent", **change})
+        with pytest.raises(W.InvalidReply):
+            W.check_reply(["settled", bad])

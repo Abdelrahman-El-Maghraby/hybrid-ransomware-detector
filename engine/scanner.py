@@ -83,10 +83,11 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     # waiting for the current file (None outside a worker: no limit).
     scan_deadline: Optional[float] = None
     # M26: set in an isolated worker; the sandbox layer sends the parent its
-    # provisional result (provisional_listener(result)) before the sandbox's
-    # network wait, and the submission state as it changes
-    # (sandbox_listener(state, task_id)).
-    provisional_listener: Optional[Callable[[Dict], None]] = None
+    # provisional result (provisional_listener(result, False)) before the
+    # sandbox's network wait, the settled one (provisional_listener(result,
+    # True)) once the sandbox's outcome is known, and the submission state as
+    # it changes (sandbox_listener(state, task_id)).
+    provisional_listener: Optional[Callable[[Dict, bool], None]] = None
     sandbox_listener: Optional[Callable[..., None]] = None
 
     def time_left(self) -> Optional[float]:

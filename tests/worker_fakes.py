@@ -94,7 +94,8 @@ class SandboxProbeScanner(RansomwareScanner):
     `_hang_dns` makes every name lookup in this worker hang, `_crash_in_sandbox`
     ends the worker inside the sandbox wait, `_bad_provisional` sends a
     provisional result that fails the parent's check, `_poll_seconds` sets the
-    sandbox poll interval (0.3 s by default)."""
+    sandbox poll interval (0.3 s by default), `_slow_finish` stalls after the
+    scan has finished, before the worker replies."""
 
     def __init__(self, config):
         super().__init__(config)
@@ -131,6 +132,8 @@ class SandboxProbeScanner(RansomwareScanner):
 
     def scan_file(self, file_path, _depth=0, _display_name=None):
         result = super().scan_file(file_path, _depth, _display_name)
+        if _depth == 0 and self.config.get("_slow_finish"):
+            time.sleep(600)                      # finished, but the reply never leaves
         if _depth == 0:
             import json
             import threading

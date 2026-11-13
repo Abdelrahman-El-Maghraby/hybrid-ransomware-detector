@@ -179,13 +179,15 @@ class CapeClient:
         if not res.submitted:
             return res
         end = self.clock() + self.wait_seconds
+        unreadable = ""
         while True:
             polled = self.poll(int(res.task_id or 0))
             if polled.status != "pending":
                 return polled
+            unreadable = polled.detail or unreadable
             if self.clock() >= end:
                 res.status = "timeout"
-                res.detail = _late(self.wait_seconds, None, res.task_id)
+                res.detail = unreadable or _late(self.wait_seconds, None, res.task_id)
                 return res
             self.sleep(min(self.poll_seconds, max(0.0, end - self.clock())))
 
@@ -234,8 +236,12 @@ class CapeClient:
                 return res
             if status != "reported":
                 return res
-            report = safe_json(self.session.get(
-                f"{self.url}/apiv2/tasks/get/report/{task_id}/", timeout=timeout))
+            r = self.session.get(f"{self.url}/apiv2/tasks/get/report/{task_id}/",
+                                 timeout=timeout)
+            report = report_body(r)
+            if report is None:                       # M34: not a finished report; wait on
+                res.detail = _unreadable(task_id, r)
+                return res
             return _reported(res, report, task_id)
         except Exception as e:
             return self._unreachable(res, e)
@@ -323,11 +329,11 @@ class CapeClient:
                 return None, retry_after(r), True
             if self._left(deadline) <= 0:            # arrived too late: not decoded
                 return pending
-            report = r.json()
+            report = report_body(r)
         except Exception as e:
             logger.info("Sandbox report could not be read (will try again): %s", type(e).__name__)
             return None, None, True
-        if not isinstance(report, dict):
+        if report is None:
             return None, None, True
         res = SandboxResult(enabled=True, submitted=True, task_id=task_id, status="pending",
                             submission="confirmed")
@@ -338,6 +344,26 @@ class CapeClient:
         logger.warning("Sandbox request failed: %s", e)
         res.status, res.detail = "error", f"sandbox unreachable ({type(e).__name__})"
         return res
+
+
+def report_body(response) -> Optional[Dict]:
+    """M34: a CAPE report only when the request succeeded (2xx) and its body is
+    a JSON object; an empty object is a valid report. Anything else (an error
+    page, a proxy's answer, a truncated body) is not a finished report."""
+    code = int(getattr(response, "status_code", 200) or 200)
+    if not 200 <= code < 300:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _unreadable(task_id: int, response) -> str:
+    code = getattr(response, "status_code", "?")
+    return (f"CAPE said task {task_id} finished, but its report could not be read "
+            f"(HTTP {code}); look it up in CAPE later")
 
 
 def _reported(res: SandboxResult, report: Dict, task_id: int) -> SandboxResult:
