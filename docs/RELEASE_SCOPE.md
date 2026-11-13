@@ -63,7 +63,7 @@ An optional layer that is disabled by configuration is recorded in provenance. I
 | Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | `Dockerfile` and `docker-compose.yml` since 4.7; built and checked by the `docker` workflow (`deploy/check-deployment.sh`). |
 | Docker Engine on Linux arm64 | **Decision D5**; proposed "supported once the image is built and tested in CI" | Dependencies ship arm64 wheels (README); not tested yet. |
 | Docker Desktop on macOS / Windows | Evaluation only, not production | macOS cannot enforce RLIMIT_AS, so worker memory falls back to a 0.25 s watchdog (THREAT_MODEL §1). |
-| Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025. |
+| Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025; 4.8 keeps supporting it (D26). |
 | Python 3.13 | The lock file is resolved for 3.12 and later | `requirements.lock` header; not run in CI. |
 | Python 3.14 | Installs from the lock (B3 fixed) | Local runs of the review stage on macOS arm64 used Python 3.14.2; not run in CI. |
 | Desktop binaries (Windows, macOS, Linux) | Only if D2 = yes | Built and smoke-tested by `release.yml`; unsigned. Signing and notarisation need certificates the owner buys. Signing does not remove every OS warning (for example SmartScreen reputation). |
@@ -161,4 +161,4 @@ the files that doc leaves unassigned placed in an area.
 | D3 | Are canaries and containment part of the paid edition? | No: desktop build only, outside paid support. |
 | D4 | Is the VirusTotal hash look-up off by default in the production profile (not only upload)? | Off; one setting turns on look-up, a second turns on upload. |
 | D5 | Is Linux arm64 a supported image? | Yes, once it is built and tested in CI. |
-| D6 | Python 3.9 is end of life. Keep it in the test matrix for v4.7? | Keep it for v4.7, as the hard rules require; drop it in the next release. |
+| D6 | Python 3.9 is end of life. Keep it in the test matrix for v4.7? | Keep it for v4.7, as the hard rules require; drop it in the next release. **Updated 2026-11-13 (D26):** 4.8 still declares and tests Python 3.9 (`pyproject.toml` `requires-python = ">=3.9"`, the `tests` workflow matrix), and the owner chose to keep it supported for now; dropping it is a later, separate decision. |
