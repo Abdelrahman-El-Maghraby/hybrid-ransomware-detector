@@ -259,8 +259,8 @@ def read_xar(path: Path) -> Tuple[List[XarEntry], int]:
                 enc = data.find("encoding")
                 entries.append(XarEntry(
                     full, kind,
-                    int(data.findtext("offset") or 0), int(data.findtext("length") or 0),
-                    int(data.findtext("size") or 0),
+                    _toc_int(data.findtext("offset")), _toc_int(data.findtext("length")),
+                    _toc_int(data.findtext("size")),
                     enc.get("style", "") if enc is not None else ""))
             else:
                 entries.append(XarEntry(full, kind, 0, 0, 0, ""))
@@ -270,7 +270,21 @@ def read_xar(path: Path) -> Tuple[List[XarEntry], int]:
     return entries, header_size + toc_len
 
 
+def _toc_int(text: Optional[str]) -> int:
+    """L-D1: a number from the table of contents; not a whole number >= 0 is a
+    format error, not a ValueError or a negative read."""
+    value = (text or "").strip() or "0"       # empty: 0, as before
+    if not value.isdigit():
+        raise FormatError(f"not a size or offset in the table of contents: {value[:20]!r}")
+    return int(value)
+
+
 def xar_read_entry(path: Path, heap: int, entry: XarEntry, budget: int) -> bytes:
+    # L-D1: the table of contents says where an entry is; a range outside the
+    # file is refused before anything is read (a read of that length could ask
+    # for that much memory at once)
+    if heap + entry.offset + entry.length > os.path.getsize(path):
+        raise FormatError("package data outside the file")
     with open(path, "rb") as fh:
         fh.seek(heap + entry.offset)
         stored = fh.read(entry.length)

@@ -160,11 +160,22 @@ class TextExtractionMixin:
             logger.error("OCR failed for PDF %s: %s", file_path, str(e))
             return ""
 
+    OOXML_PART_MAX = 20 * 1024 * 1024     # as _extract_text_from_ooxml
+    OOXML_MAX_CHARS = 200_000
+
     def _extract_text_from_word(self, file_path: str) -> str:
-        """Extract text from a Word document."""
+        """Extract text from a Word document. L-E4: within the same limits as the
+        other Office formats: python-docx reads the whole main part, so a part
+        declared over OOXML_PART_MAX is left to the bounded reader (which skips
+        it), and the text is cut at OOXML_MAX_CHARS. zipfile reads no more than
+        a part's declared size."""
         try:
+            import zipfile
+            with zipfile.ZipFile(file_path) as zf:
+                if zf.getinfo("word/document.xml").file_size > self.OOXML_PART_MAX:
+                    return ""
             doc = docx.Document(file_path)
-            return "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            return "\n".join([paragraph.text for paragraph in doc.paragraphs])[:self.OOXML_MAX_CHARS]
         except Exception as e:
             logger.debug("python-docx could not read %s: %s", file_path, e)
             return ""
