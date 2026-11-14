@@ -57,6 +57,7 @@ from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from engine.completeness import PRECEDENCE
+from engine.helper_processes import track_descendants
 from engine.metrics import METRICS, VERDICTS
 
 logger = logging.getLogger("RansomwareScanner")
@@ -269,7 +270,7 @@ LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer
 MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
 MAX_ERROR_CHARS = 2000
 REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member", "provisional", "settled",
-               "sandbox", "external")
+               "sandbox", "external", "completed", "clear")
 # I-6: the layers a provisional result may name as stopped, with their result keys
 STOPPABLE = {"sandbox": "sandbox", "virustotal": "virustotal", "llm": "chatgpt_analysis"}
 EXTERNAL_SENT = ("sha256", "file", "text")
@@ -350,7 +351,7 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
     if not (isinstance(msg, list) and len(msg) == 2 and msg[0] in REPLY_KINDS):
         raise InvalidReply("not a [kind, payload] pair of a known kind")
     kind, payload = msg
-    if kind == "ready":
+    if kind in ("ready", "clear"):
         if payload is not None:
             raise InvalidReply("a ready message with a payload")
     elif kind == "error":
@@ -375,7 +376,7 @@ def check_reply(msg: Any) -> Tuple[str, Any]:
             _signal_class(payload["container"])(**payload["signal"])
         except (TypeError, ValueError):
             raise InvalidReply("a container signal with unknown fields") from None
-    elif kind in ("provisional", "settled", "sandbox", "external"):
+    elif kind in ("provisional", "settled", "sandbox", "external", "completed"):
         _check_sandbox_message(kind, payload)
     elif kind == "member":
         if not (isinstance(payload, dict) and set(payload) == {"container", "result"}
@@ -413,6 +414,10 @@ def _check_sandbox_message(kind: str, payload: Any) -> None:
     shared = payload.get("provenance", {}).get("shared", [])
     if not (isinstance(shared, list) and all(isinstance(e, dict) for e in shared)):
         raise InvalidReply(f"a {kind} result whose shared list is not plain")
+    if kind == "completed":
+        if "stopped_layers" in payload["scan_results"]:
+            raise InvalidReply("a completed result with stopped layers")
+        return
     if kind == "provisional":
         _check_provisional(payload)
         return
@@ -429,7 +434,8 @@ def _check_provisional(payload: Dict[str, Any]) -> None:
     submitted nothing yet; the scan is not complete."""
     sr = payload["scan_results"]
     stopped = sr.get("stopped_layers")
-    if not (isinstance(stopped, list) and stopped and len(set(stopped)) == len(stopped)
+    if not (isinstance(stopped, list) and stopped and all(isinstance(n, str) for n in stopped)
+            and len(set(stopped)) == len(stopped)
             and all(name in STOPPABLE for name in stopped)
             and payload["scan_status"] != "complete"):
         raise InvalidReply("a provisional result without its stopped layers")
@@ -650,6 +656,15 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
             send_reply(conn, "sandbox", {"submission": state, "task_id": task})
         except Exception:
             pass
+    def report_completed(result: Dict) -> None:
+        try:
+            send_reply(conn, "completed", result)
+        except Exception:
+            pass
+    def clear_provisional() -> None:
+        send_reply(conn, "clear", None)
+    _SCANNER.clear_provisional_listener = clear_provisional
+    _SCANNER.completed_listener = report_completed
     _SCANNER.provisional_listener = report_provisional   # read by the sandbox layer
     _SCANNER.sandbox_listener = report_sandbox
     try:
@@ -813,12 +828,16 @@ class _Worker:
         self.external: Dict[str, Dict[str, Any]] = {}  # I-6: what may have left, per service
         self.pgid: Optional[int] = None              # L-E5: its own process group (POSIX)
         self.sandbox_state: Optional[Dict] = None
+        self.descendants = track_descendants(self.proc.pid)
 
     def note_group(self) -> None:
         """L-E5: once the worker is ready (alive), remember its process group if
         it leads one of its own; only that group is ever signalled."""
         if os.name != "posix" or self.proc.pid is None:
             return
+        descendants = getattr(self, "descendants", None)
+        if descendants is not None:
+            descendants.ready()
         try:
             if os.getpgid(self.proc.pid) == self.proc.pid:
                 self.pgid = self.proc.pid
@@ -827,11 +846,14 @@ class _Worker:
 
     def kill(self) -> None:
         """Stop the worker and, on POSIX, the helper programs it started (its
-        process group). A group still holding a helper keeps its id reserved, so
-        the signal cannot reach another program's group; with no member left
-        the call finds nothing."""
+        process group). On supported macOS versions, use individually verified
+        generations instead, including observed session-escaped descendants.
+        Other POSIX systems retain the existing process-group cleanup."""
+        descendants = getattr(self, "descendants", None)
+        if descendants is not None:
+            descendants.stop(signal.SIGKILL)
         pgid = getattr(self, "pgid", None)
-        if pgid is not None:
+        if pgid is not None and descendants is None:
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except OSError:
@@ -1169,6 +1191,7 @@ class _IsolatedScan:
         if (w.ready and w.path is None and self.pending and not self.cancelled()
                 and not self.broken):
             self._dispatch(w)
+        self._collect_helpers(w)
         kind, payload = self._receive(w)
         if kind == "log":
             replay_worker_logs(payload)
@@ -1178,8 +1201,15 @@ class _IsolatedScan:
             w.note_group()
             METRICS.worker_start(True, time.monotonic() - w.created)
             return True
-        if kind in ("container", "member", "provisional", "settled", "sandbox", "external"):
+        if kind == "clear":
+            w.provisional, w.settled = None, False
+            return True
+        if kind in ("container", "member", "provisional", "settled", "sandbox", "external", "completed"):
             if w.path is not None:
+                if kind in ("provisional", "settled", "completed") and payload["file_path"] != w.path:
+                    self._fail(w.path, "invalid reply: snapshot belongs to another file", w.evidence)
+                    w.path = None
+                    return self._replace(i)
                 self._progress(w, kind, payload)
             return True
         if kind in ("ok", "error"):
@@ -1194,7 +1224,7 @@ class _IsolatedScan:
         dead = (invalid or kind == "dead" or not w.proc.is_alive()
                 or (not w.ready and time.monotonic() - w.created > self.START_SECONDS))
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
-        over_memory = not (dead or overdue) and self._over_memory(w)
+        over_memory = not dead and self._over_memory(w)
         if not (dead or overdue or over_memory):
             return True
         if w.path is not None:
@@ -1211,7 +1241,7 @@ class _IsolatedScan:
                 elapsed = time.monotonic() - w.started
                 if w.settled:
                     logger.warning("The worker scanning %s was stopped at the scan limit (%ds) "
-                                   "after its sandbox analysis; that result is kept.",
+                                   "after its analysis; that result is kept.",
                                    path, int(self.timeout),
                                    extra={"event": "sandbox_worker_stopped", "path": path})
                     result = dict(copy.deepcopy(w.provisional),
@@ -1235,6 +1265,12 @@ class _IsolatedScan:
         return self._replace(i)
 
     @staticmethod
+    def _collect_helpers(w: _Worker) -> None:
+        descendants = getattr(w, "descendants", None)
+        if descendants is not None:
+            descendants.collect()
+
+    @staticmethod
     def _progress(w: _Worker, kind: str, payload: Any) -> None:
         """A checked report about the file in progress: H6 (b) evidence, or the
         M26 provisional result and submission state."""
@@ -1242,8 +1278,8 @@ class _IsolatedScan:
             w.evidence.add_container(payload)
         elif kind == "member":
             w.evidence.add(payload)
-        elif kind in ("provisional", "settled"):
-            w.provisional, w.settled = payload, kind == "settled"
+        elif kind in ("provisional", "settled", "completed"):
+            w.provisional, w.settled = payload, kind != "provisional"
         elif kind == "external":
             seen = w.external.setdefault(payload["service"], {"sent": [], "destination": None})
             seen["sent"] = sorted(set(seen["sent"]) | set(payload["sent"]))
@@ -1331,6 +1367,9 @@ class _IsolatedScan:
                 w.parent.send(None)
             except Exception:
                 pass
+            descendants = getattr(w, "descendants", None)
+            if descendants is not None:
+                descendants.stop(signal.SIGKILL)
             w.proc.join(2)
             if w.proc.is_alive():
                 w.kill()

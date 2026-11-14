@@ -1,12 +1,12 @@
 # Current task handoff
 
-- Status: **paused for owner review** (2026-11-13). Production-engineering review and
+- Status: **active authorized reliability follow-up** (2026-11-14). Production-engineering review and
   staged fixes, finished for now; not ready for merge and not production ready.
   Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
   to resume) and [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
   every finding). The sections below are the history of the work, in order; older
   "still open" lists in them are superseded by the register.
-- Active agent: Claude (2026-11-11). The owner confirmed the previous Codex
+- Active agent: Codex (2026-11-14); Claude Code has exited. Historical context: The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
   of checks). One editing agent.
@@ -2405,3 +2405,24 @@ Still unverified (33.7 lists the platform checks):
 - the VM items: 27.5, L-D1, L-E4, OOM-H, real-sample evaluation
 - the release gate job (runs on a tag only)
 - the benign corpus for M29, M32 and S-Y1 to S-Y4
+
+
+## Codex reliability checkpoint (2026-11-14, supersedes earlier stop state)
+
+Owner authorized the remaining I-6/M26, L-E5 and named S-Y detection repairs,
+bounded policy/guard experiments, final local verification and Graphify mapping.
+Codex is the sole editor. Read-only supporting agents stopped after reaching their
+usage limit; none edits or continues. Technical brief and evidence:
+[tasks/reliability-local-validation.md](tasks/reliability-local-validation.md).
+
+Completed working implementation: coordinated completed-layer snapshots, strict
+file identity/reset/JSON checks, memory-failure precedence, and bounded macOS
+native-identity descendant cleanup. Focused reliability selection: 123 passed;
+a later teardown refinement and final safe suite still need final validation.
+Detection/budget batch is in the working tree and separately reviewed/tested.
+Last full safe implementation remains `88b2db1` until the new full run completes.
+
+Next: finish the local checkpoints, inspect/execute the safe selection with all
+four historical deselections and fuzz-file exclusion, smoke/quality/packaging/GUI,
+then Graphify static mapping outside the tree and final owner-review checkpoint.
+No remote actions authorized; nothing pushed. Preserve `.arena/` and `.hypothesis/`.

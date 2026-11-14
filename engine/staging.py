@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, cast
 
 from .completeness import assess, verdict_label
@@ -30,6 +30,9 @@ class StagedPipelineMixin:
     scoring: Any
     _heavy_pool: Optional[ThreadPoolExecutor]
     provisional_listener: Optional[Callable[[Dict, bool], None]]   # set in a worker (M26)
+
+    completed_listener: Optional[Callable[[Dict], None]]
+    clear_provisional_listener: Optional[Callable[[], None]]
 
     # ------------------------------------------------------------- scanning
     def scan_file(self, file_path: str, _depth: int = 0,
@@ -52,10 +55,14 @@ class StagedPipelineMixin:
                 continue
             self._run_heavy(heavy, ctx)          # a fast layer after slow ones keeps its order
             heavy = []
+            self._clear_provisional(ctx)
             self._run_layer(layer, ctx)
         self._run_heavy(heavy, ctx)
 
         result = self._assemble(ctx)
+        completed = getattr(self, "completed_listener", None)
+        if self._in_worker(ctx) and completed is not None:
+            completed(result)  # evidence only; delivery remains in the parent
         own = [s for s in result["provenance"]["shared"] if "member_path" not in s]
         if own:
             logger.info("Sent outside for %s: %s", display,
@@ -149,6 +156,8 @@ class StagedPipelineMixin:
             # a layer that does not apply to this file type returns without evidence
             ctx.layer_log.append((layer.name, RAN if set(ctx.scan_results) - keys
                                   else NOT_APPLICABLE))
+        except MemoryError:
+            raise  # the worker must report a memory failure, never a timeout fallback
         except Exception as e:
             ctx.layer_log.append((layer.name, FAILED))
             logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
@@ -180,8 +189,6 @@ class StagedPipelineMixin:
             return
         last = [layer for layer in layers if layer.name == "sandbox"] \
             if self._sandbox_last(ctx) else []
-        if self._in_worker(ctx):                 # I-6: before VirusTotal and the LLM wait
-            self._send_stage_provisional([layer for layer in layers if layer not in last], ctx)
         if last:                                 # M26: the others first, then the sandbox
             self._run_together([layer for layer in layers if layer not in last], ctx)
             for layer in last:
@@ -194,6 +201,8 @@ class StagedPipelineMixin:
             return
         if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
             for layer in layers:
+                self._clear_provisional(ctx)
+                self._publish_pending([layer], ctx)
                 self._run_layer(layer, ctx)
             return
 
@@ -201,6 +210,10 @@ class StagedPipelineMixin:
             sub = copy.copy(ctx)
             sub.result = {**ctx.result, "scan_results": {}}
             sub.signals = ctx.signals.copy()
+            # No mutable bookkeeping is shared with other layer threads.
+            sub.layer_log = []
+            sub.member_reasons = list(ctx.member_reasons)
+            sub.member_shared = list(ctx.member_shared)
             self._run_layer(layer, sub)
             return sub
 
@@ -208,16 +221,49 @@ class StagedPipelineMixin:
             self._heavy_pool = ThreadPoolExecutor(max_workers=4,
                                                   thread_name_prefix="heavy-layer")
         before_signals, before_result = ctx.signals.copy(), dict(ctx.result)
-        futures = [self._heavy_pool.submit(run_on_copy, layer) for layer in layers]
-        for fut in futures:                      # merge in pipeline order: same report order
-            sub = fut.result()
-            errors = sub.scan_results.pop("layer_errors", None)
-            ctx.scan_results.update(sub.scan_results)
-            if errors:                           # L-E1: add to, never replace, the errors
-                ctx.scan_results.setdefault("layer_errors", {}).update(errors)
-            for key, value in sub.signals.changed_since(before_signals).items():
-                ctx.signals.set(key, value)              # only what this layer changed
-            for key, value in sub.result.items():
-                if key != "scan_results" and value is not before_result.get(key):
-                    ctx.result[key] = value
+        self._publish_pending(layers, ctx)
+        futures = {self._heavy_pool.submit(run_on_copy, layer): i
+                   for i, layer in enumerate(layers)}
+        finished: Dict[int, ScanContext] = {}
+        for fut in as_completed(futures):
+            finished[futures[fut]] = fut.result()
+            # Only the coordinator assembles snapshots. Completed contexts are
+            # immutable here; merging in pipeline order makes conflicting fields
+            # deterministic even when completion order differs.
+            snapshot = copy.copy(ctx)
+            snapshot.result = copy.deepcopy(ctx.result)
+            snapshot.signals = ctx.signals.copy()
+            snapshot.layer_log = list(ctx.layer_log)
+            for index in sorted(finished):
+                self._merge_layer(snapshot, finished[index], before_signals, before_result)
+            pending = [layer for i, layer in enumerate(layers) if i not in finished]
+            self._publish_pending(pending, snapshot)
+        for index in sorted(finished):
+            self._merge_layer(ctx, finished[index], before_signals, before_result)
 
+    def _clear_provisional(self, ctx: ScanContext) -> None:
+        clear = getattr(self, "clear_provisional_listener", None)
+        if self._in_worker(ctx) and clear is not None:
+            clear()
+
+    def _publish_pending(self, pending: List[Layer], ctx: ScanContext) -> None:
+        if not pending or not self._in_worker(ctx):
+            return
+        # A stalled parser/ML/emulator is a failure, not an external timeout.
+        if any(layer.stopped_entry(cast("RansomwareScanner", self), ctx) is None
+               for layer in pending):
+            return
+        self._send_stage_provisional(pending, ctx)
+
+    @staticmethod
+    def _merge_layer(ctx: ScanContext, sub: ScanContext, before_signals: Any,
+                     before_result: Dict) -> None:
+        ctx.scan_results.update({k: v for k, v in sub.scan_results.items() if k != "layer_errors"})
+        if sub.scan_results.get("layer_errors"):
+            ctx.scan_results.setdefault("layer_errors", {}).update(sub.scan_results["layer_errors"])
+        ctx.layer_log.extend(sub.layer_log)
+        for key, value in sub.signals.changed_since(before_signals).items():
+            ctx.signals.set(key, value)
+        for key, value in sub.result.items():
+            if key != "scan_results" and value is not before_result.get(key):
+                ctx.result[key] = value

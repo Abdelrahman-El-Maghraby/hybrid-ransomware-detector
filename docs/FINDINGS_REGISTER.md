@@ -5,7 +5,8 @@ the status columns of older tables (PROJECT_REVIEW 28.1, 31.10, 32.6, 33.6 and t
 handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
-[HANDOFF](HANDOFF.md) (groups 1 to 48). Status as of code commit `88b2db1`, 2026-11-13.
+[HANDOFF](HANDOFF.md) (groups 1 to 48). Historical baseline: code commit `88b2db1`. Current follow-up: 2026-11-14;
+see [local validation](tasks/reliability-local-validation.md) and latest handoff.
 
 **Categories:** *defect* (confirmed by a reproduction or an unambiguous code
 path), *suspicion* (not confirmed), *gap* (a check that needs another platform or
@@ -86,13 +87,16 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 
 ### Residuals of fixed items
 
-- **L-E5:** a helper that starts a session of its own leaves the worker's group; real
-  Tesseract and poppler, Linux and Windows are not verified (stand-ins on macOS).
+- **L-E5:** macOS now tracks observed descendants by native lifetime identity
+  and signals with kernel generation checks, including new sessions. Unobserved
+  detached/reparented descendants, discovery overflow, unsupported APIs and
+  teardown races remain limits. Linux session escapes and Windows need platform
+  work; real Tesseract/poppler remain unverified. See the local-validation brief.
 - **I-6, M26:** the cooperative bounds are best effort (a name lookup, a dripped
   answer, redirects or a proxy can outlast them); the guarantee is the worker's scan
-  limit. A VirusTotal or LLM answer that finished before a stop is not kept (the
-  provisional result was sent before those calls); the intel service's own
-  requests continue after a worker stops waiting.
+  limit. Completed VirusTotal/LLM answers are now retained by coordinated snapshots
+  (local regressions passed; final suite pending at this checkpoint). The intel
+  service's own requests can continue after a worker stops waiting.
 
 ## 3. Suspicions, not confirmed
 
