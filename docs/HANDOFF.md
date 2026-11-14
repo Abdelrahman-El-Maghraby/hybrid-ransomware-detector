@@ -2426,3 +2426,17 @@ Next: finish the local checkpoints, inspect/execute the safe selection with all
 four historical deselections and fuzz-file exclusion, smoke/quality/packaging/GUI,
 then Graphify static mapping outside the tree and final owner-review checkpoint.
 No remote actions authorized; nothing pushed. Preserve `.arena/` and `.hypothesis/`.
+
+
+### Detection and budget checkpoint
+
+Reliability implementation checkpoint: `2004d79`. macOS helper refinement:
+13 passed in 20.90 s; escaped-helper baseline test failed on `d8aec95` as
+expected (12.79 s, teardown cleaned its inert children). Additional generation
+unit tests are included in final validation. Ruff and mypy passed (69 files).
+
+S-Y4 service-only coverage restored with the exact known maintenance false
+positive documented; S-Y1/encryptor remain unresolved ambiguities. 121 detection
+checks passed. The 144-case virtual-clock sandbox experiment leaves the 15 s
+threshold unchanged; 9 experiment/resource-bound tests passed. Full final safe
+validation is next; no remote action occurred.

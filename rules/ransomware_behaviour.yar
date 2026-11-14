@@ -36,11 +36,10 @@ rule Ransomware_Stops_Services_And_Processes
         $t13 = "sophos"          nocase ascii wide
         $t14 = "acronis"         nocase ascii wide
     condition:
-        // S-Y4: a backup window stops database and backup services gracefully;
-        // ransomware also kills processes or user and security software. Stopping
-        // server services alone with `net stop` / `sc stop` no longer matches.
+        // S-Y4: bulk service stopping is also used during backup maintenance.
+        // The same commands cannot establish intent. Keep coverage for service-
+        // only inhibition; the known maintenance false positive is documented.
         any of ($k*) and 5 of ($t*)
-        and ($k1 or $k5 or any of ($t8, $t9, $t10, $t11, $t13))
 }
 
 rule Ransomware_Safe_Mode_Boot

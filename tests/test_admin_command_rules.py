@@ -4,8 +4,7 @@ tests/sy_examples.py (inert; shortcuts are real shell-link structures).
 Measured before the change (docs/HANDOFF.md, group 48): every harmless example
 scored High or Critical except the S-Y1 log reset (Medium 40). After: harmless
 Defender build scripts Medium 40 (the script layer still notes the exclusion:
-they are not called safe), the admin shortcuts and the backup pre-freeze script
-Clean; every harmful example keeps its verdict and rule. Two cases stay as
+they are not called safe), the admin shortcuts Clean; the backup pre-freeze tradeoff is retained at High 65; every harmful example keeps its verdict and rule. Two cases stay as
 documented ambiguities: the S-Y1 log reset and the encryptor-shaped string set."""
 
 import pytest
@@ -17,7 +16,7 @@ from tests.test_scanner_integration import _config
 
 pytestmark = pytest.mark.skipif(not YARA_AVAILABLE, reason="yara-python not installed")
 HIGH = ("High", "Critical")
-AMBIGUOUS = {"rotate_logs.ps1", "backup_agent.exe"}
+AMBIGUOUS = {"rotate_logs.ps1", "backup_agent.exe", "backup_prefreeze.bat"}
 RULE = {"S-Y1": "Event_Log_Clearing", "S-Y2": "PowerShell_Defender_Tampering",
         "S-Y3": "LNK_Shortcut_Runs_Script_Host"}
 
@@ -70,7 +69,9 @@ def test_the_techniques_keep_their_rule_and_verdict(scan, sid, name, data):
 def test_documented_ambiguities_are_unchanged(scan, name):
     """The same observable strings as the technique: left as they were, on purpose."""
     sid, _, data = next(h for h in HARMLESS if h[1] == name)
-    assert RULE.get(sid, "Ransomware_Encryptor_Target_Extensions") in _rules(scan(name, data))
+    rule = ("Ransomware_Stops_Services_And_Processes" if name.endswith(".bat")
+            else RULE.get(sid, "Ransomware_Encryptor_Target_Extensions"))
+    assert rule in _rules(scan(name, data))
 
 
 def test_the_shortcut_fixture_is_a_real_shell_link():

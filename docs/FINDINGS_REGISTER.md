@@ -61,7 +61,7 @@ a regression test that failed before it and passes after it, on this Mac only.
 | I-6 | The sandbox wait (M26), the VirusTotal upload wait, the VirusTotal lookup and the LLM request respect the worker's limit: cooperatively (time left per call), and if a call stalls past the limit the worker is stopped and the result it sent before the call is kept (`scan_results.stopped_layers`; possible transmissions labelled) | `bd9514e`, `f6c0bab`, `873fc0a`, `489ace5` |
 | L-E5 | OCR ran without a timeout; on macOS and Linux a stopped worker's helper programs kept running | `9572a10` |
 | L-E6 | On Windows, "access denied" made a live process count as dead (stale-folder sweep) | `5984d05` (stand-in kernel32 only; Windows unverified) |
-| S-Y2, S-Y3, S-Y4 (services) | A build agent's Defender folder exclusion scored Critical 100; `cmd.exe /c` admin shortcuts and a backup pre-freeze script scored High | `88b2db1` |
+| S-Y2, S-Y3 | Defender folder exclusion and administrative shortcut false positives | `88b2db1`; retained |
 | I-B1, I-B2, I-B4, I-B5 | User agent; hash-pinned SBOM tool; profiling tool; member indicators in alerts | `742a1cc`, `70ce04c`, `fbc65dd` |
 | I-x | Cache purge while running; IMAP fetch label; intel auth before JSON; unused `send_webhook`; evaluation errors counted as Clean | `9a1bd35`, `9892704`, `70ce04c` |
 | ML version (suspicion, now confirmed) | A model saved by another scikit-learn version was used silently | `15b6760` |
@@ -83,7 +83,7 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 |---|---|---|
 | S-Y1 | `Event_Log_Clearing` scores a lab log reset (`Clear-EventLog -LogName Application`) Medium 40, the same as a script clearing every log | The command is the technique; it scores Medium (below the alert floor), and the log name alone does not separate maintenance from anti-forensics |
 | S-Y4 (encryptor strings) | `Ransomware_Encryptor_Target_Extensions` matches a program-shaped string set (user-data extensions, crypto and file-walk APIs, "readme", "decrypt") that a backup tool could also hold | The rule's inputs are identical for both; the harmless example was constructed here, not found |
-| S-Y4 (services, tradeoff) | After `88b2db1`, ransomware that only stops server services with `net stop` / `sc stop` no longer matches `Ransomware_Stops_Services_And_Processes` | The same commands are a backup window; such files can still match the shadow-copy and other rules |
+| S-Y4 (services, tradeoff) | Service-only `net stop` / `sc stop` coverage restored, High 65 on the two added inert fixtures; backup pre-freeze also returns High 65 | Identical observable service inhibition cannot establish intent; the false positive remains explicit, without an administrator whitelist |
 
 ### Residuals of fixed items
 
@@ -137,7 +137,7 @@ sample in a wheel (it matches nothing).
 ## 6. Owner decisions
 
 - The M26 "not enough time to submit" threshold: less than one 15 s poll left after
-  the margin. **Retained behaviour; owner confirmation still pending.**
+  the margin. **Unchanged; local virtual-clock measurements support retaining it pending real latency evidence and an owner policy decision.**
 - The documented ambiguities in section 2 (S-Y1, the encryptor strings, the S-Y4
   service tradeoff): accept, or decide with a benign admin-script and backup-tool
   corpus.

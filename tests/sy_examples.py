@@ -74,3 +74,9 @@ HARMFUL = [
         ".bak", ".accdb", "CryptEncrypt", "CryptGenRandom", "FindFirstFileW", "FindNextFileW",
         "README_DECRYPT.txt", "decrypt your files", "vssadmin")),
 ]
+
+# Inert service-only technique fixtures: neither a kill nor an Office/security target.
+HARMFUL.extend(("S-Y4", f"service_only_{command.split()[0]}.bat",
+                "\r\n".join(f"{command} {service}" for service in
+                            ("SQLWriter", "VSS", "veeam", "backupexec", "msexchange")).encode())
+               for command in ("net stop", "sc stop"))
