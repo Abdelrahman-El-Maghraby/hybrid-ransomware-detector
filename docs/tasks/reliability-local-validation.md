@@ -141,5 +141,29 @@ about the historical 4096 MB failure; instrumentation/limit changes need approva
 
 ## Final validation and platform status
 
-Pending final safe selection, smoke, quality, GUI, packaging and Graphify evidence.
-Prepared procedures and local stand-ins do not constitute platform/provider passes.
+Final local validation at `72aa761` (macOS on Apple Silicon, Python 3.14.2;
+temporary HOME/TMPDIR, clean environment, bytecode disabled):
+
+- Safe suite, with the four historical deselections and the restricted fuzz file
+  excluded, and coverage on: **1,891 passed, 0 failed, 23 skipped, 4 deselected,
+  1 warning** (the third-party Starlette `httpx` deprecation), 577.55 s. Total
+  coverage 92%. Skips are platform or tool absences (Windows Job Object, `/proc`,
+  RAR/7-Zip tools and similar).
+- `test_smoke.py`: ALL SMOKE TESTS PASSED.
+- GUI tests (`RUN_GUI_TESTS=1`): 2 passed, 18.03 s. This does not count as a test
+  on a display.
+- Wheel check on a clean export: built, five rule files compiled, the restored
+  service-only rule matched, the helper module imported from the wheel.
+- Ruff on the tracked Python files: clean. Mypy: no issues in 69 source files.
+  Both were rerun at the documentation checkpoint.
+- Graphify: a static, code-only map was built outside the repository (local AST,
+  no LLM, no network service, no installs). The input was a `git archive` of the
+  tracked source, tests, configuration and technical docs. The result has 6,366
+  nodes and 15,577 edges (93% extracted from code, 7% inferred). Architecture
+  notes and five diagrams were produced with it. These are local navigation aids
+  and are not committed.
+
+Not run: pip-audit (no dependency changed), the coverage gate as CI runs it, CI,
+Docker, Linux, Windows, real CAPE, VirusTotal or LLM services, Tesseract or
+poppler, and the GUI on a display. Prepared procedures and local stand-ins do
+not count as platform or provider passes.

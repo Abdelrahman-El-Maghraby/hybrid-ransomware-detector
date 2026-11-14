@@ -5,8 +5,9 @@ the status columns of older tables (PROJECT_REVIEW 28.1, 31.10, 32.6, 33.6 and t
 handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
-[HANDOFF](HANDOFF.md) (groups 1 to 48). Historical baseline: code commit `88b2db1`. Current follow-up: 2026-11-14;
-see [local validation](tasks/reliability-local-validation.md) and latest handoff.
+[HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
+Current code baseline: `72aa761` (final local validation passed on macOS; see
+[local validation](tasks/reliability-local-validation.md)). Earlier baseline: `88b2db1`.
 
 **Categories:** *defect* (confirmed by a reproduction or an unambiguous code
 path), *suspicion* (not confirmed), *gap* (a check that needs another platform or
@@ -58,10 +59,11 @@ a regression test that failed before it and passes after it, on this Mac only.
 | I-1 (part) | Eight macro-capable Office types offered to folder scans | `d95e5e5` |
 | I-2 (archives) | Risky archive members take the 25-member budget first | `e3f1cd3` |
 | I-3 | Daily dependency audit; manual lock-refresh tool | `4c68756`, `42852d3` |
-| I-6 | The sandbox wait (M26), the VirusTotal upload wait, the VirusTotal lookup and the LLM request respect the worker's limit: cooperatively (time left per call), and if a call stalls past the limit the worker is stopped and the result it sent before the call is kept (`scan_results.stopped_layers`; possible transmissions labelled) | `bd9514e`, `f6c0bab`, `873fc0a`, `489ace5` |
-| L-E5 | OCR ran without a timeout; on macOS and Linux a stopped worker's helper programs kept running | `9572a10` |
+| I-6 | The sandbox wait (M26), the VirusTotal upload wait, the VirusTotal lookup and the LLM request respect the worker's limit: cooperatively (time left per call), and if a call stalls past the limit the worker is stopped and the result it sent before the call is kept (`scan_results.stopped_layers`; possible transmissions labelled); completed VirusTotal/LLM answers are kept by coordinated snapshots when another layer stalls | `bd9514e`, `f6c0bab`, `873fc0a`, `489ace5`, `2004d79` |
+| L-E5 | OCR ran without a timeout; on macOS and Linux a stopped worker's helper programs kept running; on macOS, observed helpers that started a new session escaped the group kill | `9572a10`, `2004d79` (macOS only; see residuals) |
 | L-E6 | On Windows, "access denied" made a live process count as dead (stale-folder sweep) | `5984d05` (stand-in kernel32 only; Windows unverified) |
 | S-Y2, S-Y3 | Defender folder exclusion and administrative shortcut false positives | `88b2db1`; retained |
+| S-Y4 (service coverage) | `88b2db1` had dropped service-only `net stop` / `sc stop` detection; restored with the known tradeoff in section 2 | `72aa761` |
 | I-B1, I-B2, I-B4, I-B5 | User agent; hash-pinned SBOM tool; profiling tool; member indicators in alerts | `742a1cc`, `70ce04c`, `fbc65dd` |
 | I-x | Cache purge while running; IMAP fetch label; intel auth before JSON; unused `send_webhook`; evaluation errors counted as Clean | `9a1bd35`, `9892704`, `70ce04c` |
 | ML version (suspicion, now confirmed) | A model saved by another scikit-learn version was used silently | `15b6760` |
@@ -95,7 +97,7 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 - **I-6, M26:** the cooperative bounds are best effort (a name lookup, a dripped
   answer, redirects or a proxy can outlast them); the guarantee is the worker's scan
   limit. Completed VirusTotal/LLM answers are now retained by coordinated snapshots
-  (local regressions passed; final suite pending at this checkpoint). The intel
+  (focused regressions and the final safe suite at `72aa761` passed on macOS). The intel
   service's own requests can continue after a worker stops waiting.
 
 ## 3. Suspicions, not confirmed

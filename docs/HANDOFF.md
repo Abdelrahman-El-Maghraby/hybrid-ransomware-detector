@@ -1,12 +1,13 @@
 # Current task handoff
 
-- Status: **active authorized reliability follow-up** (2026-11-14). Production-engineering review and
+- Status: **reliability follow-up complete; paused for owner review** (2026-11-14). Production-engineering review and
   staged fixes, finished for now; not ready for merge and not production ready.
   Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
   to resume) and [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
   every finding). The sections below are the history of the work, in order; older
   "still open" lists in them are superseded by the register.
-- Active agent: Codex (2026-11-14); Claude Code has exited. Historical context: The owner confirmed the previous Codex
+- Active agent: Claude Code (2026-11-14). Codex reached its usage limit at the
+  Graphify step and is stopped. Historical context: The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
   of checks). One editing agent.
@@ -2440,3 +2441,45 @@ positive documented; S-Y1/encryptor remain unresolved ambiguities. 121 detection
 checks passed. The 144-case virtual-clock sandbox experiment leaves the 15 s
 threshold unchanged; 9 experiment/resource-bound tests passed. Full final safe
 validation is next; no remote action occurred.
+
+
+## Final reliability checkpoint (2026-11-14, Claude Code)
+
+Claude Code took over from Codex at the Graphify step (Codex reached its usage
+limit and is stopped). One editing agent. No code changed in this step.
+
+- **Branch:** `review/production-hardening`, local only. Last implementation
+  commit: `72aa761`. This documentation commit follows it. Nothing is pushed: no
+  PR, tag, release, deployment or version change.
+- **Validation at `72aa761` (macOS, Apple Silicon, Python 3.14.2):**
+  - Safe suite: 1,891 passed, 0 failed, 23 skipped, 4 deselected, 1 warning
+    (third party), 577.55 s; coverage 92%.
+  - `test_smoke.py` passed. GUI tests: 2 passed. Wheel check passed.
+  - Ruff and mypy are clean (69 files); both were rerun at this checkpoint.
+  - Details: [local validation](tasks/reliability-local-validation.md).
+- **Graphify map:** static, code-only and local (no LLM, no network service, no
+  installs). It was built from a `git archive` of tracked files and stored
+  outside the repository. It is not committed. The architecture notes and five
+  diagrams (flowchart, sequence, use case, class, activity) went to the owner
+  locally.
+- **Status by category** (the register is authoritative):
+  - Fixed and verified locally: I-6 completed-finding retention, the macOS L-E5
+    escaped helpers, restored S-Y4 service coverage, and every item in register
+    section 1.
+  - Awaiting platform validation: L-E5 on Linux and Windows, L-E6, Tesseract and
+    poppler, real CAPE, VirusTotal and LLM, Docker, CI, and the GUI on a display
+    (register section 5).
+  - Unresolved with blockers: 27.5/B4 out-of-memory failures. These need a
+    separately authorized VM run.
+  - Unconfirmed suspicions: S-01, S-03, S-04, H-03/OOM-H.
+  - Owner decisions: the M26 15 s threshold (retained), S-Y1 and the S-Y4
+    tradeoffs, CI on this branch, exit code 2 and the IMAP retry, and Python 3.9.
+  - Deferred: register section 4.
+- **Uncommitted:** none from this task. The untracked `.arena/` folder is
+  unrelated and is preserved.
+
+## Exact next action (current)
+
+None. The branch is paused for owner review, and no agent should continue
+without a new owner request. Owner decisions in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6 come first.
