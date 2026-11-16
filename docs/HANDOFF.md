@@ -3,9 +3,11 @@
 - Status: **reliability follow-up complete; paused for owner review** (2026-11-14). Production-engineering review and
   staged fixes, finished for now; not ready for merge and not production ready.
   Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
-  to resume) and [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
-  every finding). The sections below are the history of the work, in order; older
-  "still open" lists in them are superseded by the register.
+  to resume), [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
+  every finding) and [architecture/README](architecture/README.md) (how the scanner
+  is built: four UML diagrams, also stated in text). The sections below are the
+  history of the work, in order; older "still open" lists in them are superseded by
+  the register.
 - Active agent: Claude Code (2026-11-14). Codex reached its usage limit at the
   Graphify step and is stopped. Historical context: The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
@@ -2477,6 +2479,38 @@ limit and is stopped). One editing agent. No code changed in this step.
   - Deferred: register section 4.
 - **Uncommitted:** none from this task. The untracked `.arena/` folder is
   unrelated and is preserved.
+
+## Architecture diagrams in the repository (2026-11-16, Claude Code)
+
+Owner request: draw the finished architecture as four UML diagrams, review them
+against the code, and keep them in the repository so a new session finds them.
+Documentation only: no application code, test, CI, dependency or detection change.
+
+- **Where:** `docs/architecture/`. `README.md` states the diagrams in text;
+  `ARCHITECTURE_UML_DIAGRAMS.html` shows all four on one self-contained page;
+  `uml-diagram-sources/` holds one definition (`d1` to `d4`) and one SVG per
+  diagram, the drawing toolkit (`umlkit.py`) and `build_diagrams.py`.
+- **Baseline:** the code at `72aa761` (`f825915` adds documentation only).
+- **Graphify:** the stored code-only graph was rebuilt from a `git archive` of
+  `f825915` with the network blocked and compared: the same 6,366 nodes, 15,577
+  edges and 335 communities. The graph stays outside the repository (generated
+  data, about 18 MB).
+- **Checked against the code:** inheritance and hubs from the graph; the pipeline
+  order, the 12 worker reply kinds, the listener callbacks, the time-out outcomes
+  of `_IsolatedScan._step`, every entry point and every output by reading
+  `engine/`, `core/`, `api/`, `aegis_gui/` and `RansomwareScanner.py`. A second
+  pass corrected three statements (the CLI reaches folder scans through
+  `run_scan()`; an `error` reply keeps its worker; monitor results also reach the
+  GUI) and added the caller classes and the layer-to-scanner dependency.
+- **Checks run (macOS, Apple Silicon, Python 3.14.2):** `build_diagrams.py` (0
+  layout problems); every label measured in headless Chrome (none wider than its
+  box, none under 12 px) and all four diagrams looked at in screenshots of the
+  page; `ruff check` on the tracked files and the new ones; the focused tests
+  named in the commit message. Application tests were not rerun (no code change).
+- **Not verified:** rendering in browsers other than Chrome; the page at widths
+  under 1280 px beyond its horizontal scroll.
+- **Pointers added:** `AGENTS.md`, `docs/PROJECT_MAP.md`, `docs/ARCHITECTURE.md`
+  and the top of this file link to `docs/architecture/README.md`.
 
 ## Exact next action (current)
 

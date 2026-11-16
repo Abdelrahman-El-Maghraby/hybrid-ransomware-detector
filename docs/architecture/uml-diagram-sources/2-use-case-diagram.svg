@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d2" width="1600" height="1190" viewBox="0 0 1600 1190" role="img" aria-labelledby="d2-title d2-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d2-title">Use-case diagram: Who uses the system, and for what?</title>
+<desc id="d2-desc">UML use-case diagram of Aegis Sentinel with three primary actors, seven external systems and nineteen use cases; GUI, CLI and REST API are shown as interfaces.</desc>
+<rect x="0" y="0" width="1600" height="1190" fill="#ffffff"/>
+<g id="d2-frame">
+<rect x="300" y="178" width="1000" height="892" fill="#ffffff" rx="6" stroke="#0f172a" stroke-width="2.2"/>
+<text x="318" y="208" font-size="20" fill="#0f172a" font-weight="700">Aegis Sentinel</text>
+<rect x="24" y="884" width="262" height="186" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<rect x="38" y="1022" width="36" height="22" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.4"/>
+</g>
+<g id="d2-edge">
+<path d="M250,262 L317.5,251.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,262" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,354" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,446" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,538" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,630" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,722" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M194,537 L312,814" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,262" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,354" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,446" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,538" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,630" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,722" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,814" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,906" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1406,629 L1288,998" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M640,154 L748.1,227" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,154 L800,224" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960,154 L851.9,227" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150,154 L1150,224" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M624,1092 L733.9,1028.3" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,1092 L800,1034" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M976,1092 L866.1,1028.3" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M524.6,294 L726.1,380.3" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="715.1,380.6 726.1,380.3 718.7,372.1" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M568.2,373.6 L684.3,392.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="673.7,395.7 684.3,392.8 675.2,386.7" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M580.1,433.4 L673.2,424.3" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="663.7,429.9 673.2,424.3 662.8,420.7" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1075.4,294 L873.9,380.3" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="881.3,372.1 873.9,380.3 884.9,380.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1031.8,373.6 L915.7,392.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="924.8,386.7 915.7,392.8 926.3,395.7" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,300 L800,374" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="795.4,364 800,374 804.6,364" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,946 L800,450" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="804.6,460 800,450 795.4,460" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M934,990 L1012,990" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1002,994.6 1012,990 1002,985.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M36,926 L76,926" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M36,952 L76,952" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="66,956.6 76,952 66,947.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M36,992 L76,992" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="66,996.6 76,992 66,987.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d2-node">
+<ellipse cx="450" cy="262" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="258.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan a single file</text>
+<text x="450" y="275.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI · REST API</text>
+<ellipse cx="450" cy="354" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="350.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan the configured folders</text>
+<text x="450" y="367.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="450" cy="446" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="442.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Monitor folders for new files</text>
+<text x="450" y="459.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="450" cy="538" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="534.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Stop a running scan</text>
+<text x="450" y="551.2" font-size="12" fill="#334155" text-anchor="middle">GUI</text>
+<ellipse cx="450" cy="630" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="626.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Review verdicts and reports</text>
+<text x="450" y="643.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="450" cy="722" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="718.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Quarantine a suspicious file</text>
+<text x="450" y="735.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI · automatic after scans</text>
+<ellipse cx="450" cy="814" rx="138" ry="38" fill="#eff6ff" stroke="#0f172a" stroke-width="1.6"/>
+<text x="450" y="810.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Restore a quarantined file</text>
+<text x="450" y="827.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="262" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="258.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan new e-mail from a mailbox</text>
+<text x="1150" y="275.2" font-size="12" fill="#334155" text-anchor="middle">CLI</text>
+<ellipse cx="1150" cy="354" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="350.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Run scheduled background scans</text>
+<text x="1150" y="367.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="446" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="442.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Configure settings, keys and alerts</text>
+<text x="1150" y="459.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="538" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="534.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Update detection content</text>
+<text x="1150" y="551.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="630" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="626.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Back up the quarantine key</text>
+<text x="1150" y="643.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="722" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="718.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Set up start at login</text>
+<text x="1150" y="735.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="1150" cy="814" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="810.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Check health and readiness</text>
+<text x="1150" y="827.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI · REST API</text>
+<ellipse cx="1150" cy="906" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="902.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Lift containment after an alarm</text>
+<text x="1150" y="919.2" font-size="12" fill="#334155" text-anchor="middle">CLI</text>
+<ellipse cx="1150" cy="998" rx="138" ry="38" fill="#f0fdf4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="994.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Guard folders with canary files</text>
+<text x="1150" y="1011.2" font-size="12" fill="#334155" text-anchor="middle">GUI · CLI</text>
+<ellipse cx="800" cy="262" rx="134" ry="38" fill="#fffbeb" stroke="#0f172a" stroke-width="1.6"/>
+<text x="800" y="258.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Consult external services</text>
+<text x="800" y="275.2" font-size="12" fill="#334155" text-anchor="middle">VirusTotal · LLM · sandbox</text>
+<ellipse cx="800" cy="412" rx="134" ry="38" fill="#fffbeb" stroke="#0f172a" stroke-width="1.6"/>
+<text x="800" y="408" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Analyse a file and</text>
+<text x="800" y="425.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">score its verdict</text>
+<ellipse cx="800" cy="990" rx="134" ry="44" fill="#fffbeb" stroke="#0f172a" stroke-width="1.6"/>
+<text x="800" y="978" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Send alerts and</text>
+<text x="800" y="995.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">upload reports</text>
+<text x="800" y="1012.1" font-size="12" fill="#334155" text-anchor="middle">webhook · e-mail · cloud storage</text>
+<rect x="44" y="228" width="206" height="68" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="147" y="249.5" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="147" y="266.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">API client</text>
+<text x="147" y="283.2" font-size="12" fill="#334155" text-anchor="middle">mail gateway, SOAR, web app</text>
+<ellipse cx="170" cy="513" rx="11" ry="11" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<line x1="170" y1="524" x2="170" y2="550" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="153" y1="533" x2="187" y2="533" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="170" y1="550" x2="156" y2="572" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="170" y1="550" x2="184" y2="572" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<text x="140" y="527.1" font-size="14" fill="#0f172a" font-weight="700" text-anchor="end">Desktop user</text>
+<text x="140" y="542.8" font-size="12" fill="#334155" text-anchor="end">through the GUI</text>
+<text x="140" y="558.4" font-size="12" fill="#334155" text-anchor="end">or the CLI</text>
+<ellipse cx="1430" cy="605" rx="11" ry="11" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<line x1="1430" y1="616" x2="1430" y2="642" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="1413" y1="625" x2="1447" y2="625" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="1430" y1="642" x2="1416" y2="664" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="1430" y1="642" x2="1444" y2="664" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<text x="1460" y="619.1" font-size="14" fill="#0f172a" font-weight="700">Administrator</text>
+<text x="1460" y="634.8" font-size="12" fill="#334155">installs, configures</text>
+<text x="1460" y="650.4" font-size="12" fill="#334155">and operates it</text>
+<rect x="565" y="96" width="150" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="640" y="120.4" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="640" y="137.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<rect x="725" y="96" width="150" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="800" y="112.5" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="800" y="129.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM service</text>
+<text x="800" y="146.1" font-size="12" fill="#334155" text-anchor="middle">Ollama or OpenAI</text>
+<rect x="885" y="96" width="150" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="960" y="120.4" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="960" y="137.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<rect x="1075" y="96" width="150" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="1150" y="120.4" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="1150" y="137.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">IMAP mail server</text>
+<rect x="541" y="1092" width="166" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="624" y="1116.4" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="624" y="1133.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP mail server</text>
+<rect x="717" y="1092" width="166" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="800" y="1108.5" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="800" y="1125.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Webhook receiver</text>
+<text x="800" y="1142.1" font-size="12" fill="#334155" text-anchor="middle">SOC, SIEM or chat</text>
+<rect x="893" y="1092" width="166" height="58" fill="#ffffff" rx="4" stroke="#0f172a" stroke-width="1.6"/>
+<text x="976" y="1116.4" font-size="12" fill="#334155" text-anchor="middle">«system»</text>
+<text x="976" y="1133.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">S3-compatible storage</text>
+<rect x="318" y="892" width="336" height="160" fill="#f8fafc" rx="6" stroke="#475569" stroke-width="1.2"/>
+<text x="330" y="914" font-size="13" fill="#0f172a" font-weight="700">Interfaces: how the system is reached</text>
+<text x="330" y="932" font-size="12" fill="#334155">They are not actors. Each use case lists its interfaces.</text>
+<rect x="330" y="948" width="36" height="22" fill="#1e293b" rx="11" stroke="none"/>
+<text x="348" y="963.3" font-size="12" fill="#ffffff" font-weight="700" text-anchor="middle">GUI</text>
+<text x="374" y="964" font-size="12" fill="#0f172a">desktop application (aegis_gui)</text>
+<rect x="330" y="980" width="34" height="22" fill="#1e293b" rx="11" stroke="none"/>
+<text x="347" y="995.3" font-size="12" fill="#ffffff" font-weight="700" text-anchor="middle">CLI</text>
+<text x="372" y="996" font-size="12" fill="#0f172a">RansomwareScanner.py command line</text>
+<rect x="330" y="1012" width="71" height="22" fill="#1e293b" rx="11" stroke="none"/>
+<text x="365.5" y="1027.3" font-size="12" fill="#ffffff" font-weight="700" text-anchor="middle">REST API</text>
+<text x="409" y="1028" font-size="12" fill="#0f172a">api/server.py: POST /scan, GET /ready</text>
+<text x="36" y="906" font-size="13" fill="#0f172a" font-weight="700">Key</text>
+<text x="86" y="930" font-size="12" fill="#0f172a">takes part in the use case</text>
+<text x="86" y="950" font-size="12" fill="#0f172a">«include»: always part of</text>
+<text x="86" y="965" font-size="12" fill="#0f172a">the use case it points to</text>
+<text x="86" y="990" font-size="12" fill="#0f172a">«extend»: added to it when</text>
+<text x="86" y="1005" font-size="12" fill="#0f172a">the [condition] holds</text>
+<text x="86" y="1031" font-size="12" fill="#0f172a">«system»: an external</text>
+<text x="86" y="1046" font-size="12" fill="#0f172a">system (non-human actor)</text>
+</g>
+<g id="d2-label">
+<rect x="589.1" y="316" width="60.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="619.3" y="329.5" font-size="12" fill="#0f172a" text-anchor="middle">«include»</text>
+<rect x="596.1" y="363" width="60.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="626.3" y="376.5" font-size="12" fill="#0f172a" text-anchor="middle">«include»</text>
+<rect x="600.5" y="432.7" width="60.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="630.7" y="446.2" font-size="12" fill="#0f172a" text-anchor="middle">«include»</text>
+<rect x="952.5" y="316" width="60.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="982.7" y="329.5" font-size="12" fill="#0f172a" text-anchor="middle">«include»</text>
+<rect x="943.5" y="363" width="60.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="973.7" y="376.5" font-size="12" fill="#0f172a" text-anchor="middle">«include»</text>
+<rect x="820.9" y="320.1" width="114.1" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="878" y="333.6" font-size="12" fill="#0f172a" text-anchor="middle">«extend»</text>
+<text x="878" y="349" font-size="12" fill="#0f172a" text-anchor="middle">[service configured]</text>
+<rect x="742.6" y="643.1" width="114.8" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="800" y="656.6" font-size="12" fill="#0f172a" text-anchor="middle">«extend»</text>
+<text x="800" y="672" font-size="12" fill="#0f172a" text-anchor="middle">[alert level reached]</text>
+<rect x="943.8" y="967.8" width="58.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="973" y="981.3" font-size="12" fill="#0f172a" text-anchor="middle">«extend»</text>
+<rect x="946.9" y="994.8" width="52.2" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="973" y="1008.3" font-size="12" fill="#0f172a" text-anchor="middle">[tripped]</text>
+</g>
+<g id="d2-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Use-case diagram: Who uses the system, and for what?</text>
+<text x="24" y="63" font-size="13" fill="#334155">Actors and external systems outside the boundary, user goals inside. Branch review/production-hardening, commit f825915.</text>
+</g>
+</svg>

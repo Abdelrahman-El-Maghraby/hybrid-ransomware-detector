@@ -1,7 +1,9 @@
 # Architecture overview
 
 A short, defensible tour of how Aegis Sentinel is built and why. Each section
-ends with the files to read.
+ends with the files to read. The same structure as four UML diagrams (class, use
+case, activity, system flowchart), with the facts also stated in text, is in
+[architecture/README.md](architecture/README.md).
 
 ## 1. One file, one context, many independent layers
 
