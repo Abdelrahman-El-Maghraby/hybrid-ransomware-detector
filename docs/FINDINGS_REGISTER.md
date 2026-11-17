@@ -6,8 +6,10 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `72aa761` (final local validation passed on macOS; see
-[local validation](tasks/reliability-local-validation.md)). Earlier baseline: `88b2db1`.
+Current code baseline: `b6966f8` (review of thirteen items, 2026-11-17; see
+[the task brief](tasks/review-items-2026-11-17.md) and the
+[verification matrix](VERIFICATION_MATRIX.md)). Earlier baselines: `72aa761`
+([local validation](tasks/reliability-local-validation.md)), `88b2db1`.
 
 **Categories:** *defect* (confirmed by a reproduction or an unambiguous code
 path), *suspicion* (not confirmed), *gap* (a check that needs another platform or
@@ -68,6 +70,13 @@ a regression test that failed before it and passes after it, on this Mac only.
 | I-x | Cache purge while running; IMAP fetch label; intel auth before JSON; unused `send_webhook`; evaluation errors counted as Clean | `9a1bd35`, `9892704`, `70ce04c` |
 | ML version (suspicion, now confirmed) | A model saved by another scikit-learn version was used silently | `15b6760` |
 | Release pip upgrade | An unhashed `pip install --upgrade pip` in the release job | `109df77` |
+| I-4 | A scheduled scan held back the alert-outbox retry, canary checks and cloud uploads of the background service (shown by a bounded probe); they now run on their own thread, scans stay on the main loop | `f8af202` |
+| M35 | A partly unscanned folder-monitor batch dropped the report, JSON Lines and alerts of the files that were scanned and queued them again; an auto-quarantined file then never alerted | `6e1190c` |
+| I-T4 | A developer's own `.env` (scan settings written by the GUI) failed a shared-settings test | `43cd1d4` |
+| Eval summary | The evaluation summary did not show rates on complete scans, family-label coverage or dominant families | `0acd78b` |
+| Layer order | Ordering dependencies between layers were implicit; now declared and checked (no layer moved) | `8686cd2` |
+| D43 | Protection and support wording: extraction "sandbox", worker isolation, monitoring after a write, the dated 0.7% figure, `--scan-imap` in Docker, the GUI "Protection on" label | `b6966f8` |
+| D44 | Architecture: deployment and trust-boundary diagram; `scan_directory()` in the flowchart; Graphify page marked as a `72aa761` snapshot | `fde684c` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -87,12 +96,18 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 | S-Y4 (encryptor strings) | `Ransomware_Encryptor_Target_Extensions` matches a program-shaped string set (user-data extensions, crypto and file-walk APIs, "readme", "decrypt") that a backup tool could also hold | The rule's inputs are identical for both; the harmless example was constructed here, not found |
 | S-Y4 (services, tradeoff) | Service-only `net stop` / `sc stop` coverage restored, High 65 on the two added inert fixtures; backup pre-freeze also returns High 65 | Identical observable service inhibition cannot establish intent; the false positive remains explicit, without an administrator whitelist |
 
+All three were re-scored at `b6966f8` with unchanged results. Concrete policy
+options with their coverage and false-positive tradeoffs (P1 to P3) are in the
+[task brief](tasks/review-items-2026-11-17.md#2-detection-policy-proposals-s-y1-s-y4-for-approval-not-implemented);
+none is implemented.
+
 ### Residuals of fixed items
 
 - **L-E5:** macOS now tracks observed descendants by native lifetime identity
   and signals with kernel generation checks, including new sessions. Unobserved
   detached/reparented descendants, discovery overflow, unsupported APIs and
-  teardown races remain limits. Linux session escapes and Windows need platform
+  teardown races remain limits. A bounded probe on 2026-11-17 confirmed the
+  first: a helper whose parent exits before the first discovery pass survives. Linux session escapes and Windows need platform
   work; real Tesseract/poppler remain unverified. See the local-validation brief.
 - **I-6, M26:** the cooperative bounds are best effort (a name lookup, a dripped
   answer, redirects or a proxy can outlast them); the guarantee is the worker's scan
@@ -105,19 +120,20 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 | ID | Description | Status |
 |---|---|---|
 | S-01 | A crafted DMG could make 7-Zip write outside the extraction folder | Risk reduced by an existing change: members are streamed with `7z e -so` (`600d8bc`); those tests skip here (no 7-Zip) |
-| S-03 | Concurrent canary checks race on the last signature | Not reproduced: the two-thread test (`af8deda`, `tests/test_alerts.py`) shows one alert; it relies on the GIL, no lock was added |
+| S-03 | Concurrent canary checks race on the last signature | Still not reproduced. Because I-4 runs the scheduled check on its own thread (and the real-time watcher already ran one), the compare-and-set now runs under a lock (`f8af202`); the two-thread test still passes |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
 | H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
 
 ## 4. Deferred improvements (not started on purpose)
 
-The other twelve I-1 file types; I-2 ordering for mail attachments; I-4 (scheduled
-background scans on a worker thread; needs S-03 settled); automatic lock updates
+The other twelve I-1 file types; I-2 ordering for mail attachments; automatic lock updates
 (Dependabot, or a workflow that opens a PR); replacing `httpx` for the Starlette
 test-client warning (a dependency change); shipping the placeholder fuzzy-signature
 sample in a wheel (it matches nothing).
 
 ## 5. Verification that needs another platform or service
+
+The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md).
 
 - **CI:** no workflow has run on any commit after `3e5a3f2`; the daily audit (I-3)
   and the release job (M16, I-B2, the pip change) run only on GitHub.
@@ -141,8 +157,9 @@ sample in a wheel (it matches nothing).
 - The M26 "not enough time to submit" threshold: less than one 15 s poll left after
   the margin. **Unchanged; local virtual-clock measurements support retaining it pending real latency evidence and an owner policy decision.**
 - The documented ambiguities in section 2 (S-Y1, the encryptor strings, the S-Y4
-  service tradeoff): accept, or decide with a benign admin-script and backup-tool
-  corpus.
+  service tradeoff): accept, choose one of the proposals P1 to P3, or decide with
+  a benign admin-script and backup-tool corpus.
+- Whether to authorise the bounded 27.5 / B4 VM investigation (task brief section 3).
 - How CI should run on this branch (a pull request would also start the restricted
   Atheris campaigns; a push plus manual dispatch would not).
 - Exit code 2's three meanings and the IMAP fetch retry: kept as they are.

@@ -1,14 +1,16 @@
 # Current task handoff
 
-- Status: **reliability follow-up complete; paused for owner review** (2026-11-14). Production-engineering review and
-  staged fixes, finished for now; not ready for merge and not production ready.
+- Status: **review of thirteen items complete; paused for owner review** (2026-11-17).
+  Production-engineering review and staged fixes; not ready for merge and not
+  production ready. Latest: section "Review of thirteen items (2026-11-17)" below.
   Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
   to resume), [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
   every finding) and [architecture/README](architecture/README.md) (how the scanner
-  is built: four UML diagrams, also stated in text). The sections below are the
+  is built: five diagrams, also stated in text). Current checks per platform:
+  [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md). The sections below are the
   history of the work, in order; older "still open" lists in them are superseded by
   the register.
-- Active agent: Claude Code (2026-11-14). Codex reached its usage limit at the
+- Active agent: Claude Code (2026-11-17), the only editor. Earlier (2026-11-14): Codex reached its usage limit at the
   Graphify step and is stopped. Historical context: The owner confirmed the previous Codex
   session was stopped; no concurrent changes were seen during the reviews or the
   validation (HEAD and `git status` were compared before and after each group
@@ -2525,8 +2527,42 @@ Documentation only: no application code, test, CI, dependency or detection chang
 - **Pointers added:** `AGENTS.md`, `docs/PROJECT_MAP.md`, `docs/ARCHITECTURE.md`
   and the top of this file link to `docs/architecture/README.md`.
 
+## Review of thirteen items (2026-11-17, Claude Code)
+
+Owner request: validate thirteen items from an earlier discussion of the code,
+findings and diagrams against the branch, repair confirmed defects with focused
+tests, and prepare proposals, a VM plan and a verification matrix for the rest.
+Sanitised brief, dispositions and proposals:
+[tasks/review-items-2026-11-17.md](tasks/review-items-2026-11-17.md).
+
+- **Branch:** `review/production-hardening`, local only; nothing pushed, no PR,
+  tag, release or deployment. Start: `74b6aef`. Last implementation commit:
+  `b6966f8`; diagrams `fde684c`; this documentation checkpoint follows.
+- **Commits:** `f8af202` I-4 scheduler and S-03 lock; `6e1190c` M35 monitor
+  outputs; `0acd78b` evaluation summary and procedure; `8686cd2` layer-order
+  check; `43cd1d4` I-T4 test isolation; `b6966f8` D43 wording and GUI label;
+  `fde684c` D44 deployment diagram and corrections.
+- **Not changed (approval needed):** S-Y1/S-Y4 rules (proposals P1 to P3), the
+  27.5/B4 VM investigation, any extraction from `RansomwareScanner` (assessed as
+  not justified now).
+- **Checks run here** (macOS 27.2.1 arm64, Python 3.14.2): see
+  [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md) section 3. Final safe suite at
+  `fde684c`: 1,919 passed, 0 failed, 8 skipped, 4 deselected, 547 s;
+  `test_smoke.py` passed; GUI tests 3 passed (headless). A first full run at `0acd78b` (zbar not reachable through
+  SIP-protected `env`/`time`) gave 1,898 passed, 4 failed: three needed zbar and
+  passed with it; one was I-T4, fixed in `43cd1d4`. Ruff, mypy (69 files) and the
+  bandit gate are clean. 18 documentation-pinning test files: 262 passed, 1
+  skipped. Diagrams: build check clean, 881 labels measured in headless Chrome,
+  none wider than its box.
+- **Environment note:** on this Mac zbar is in `/opt/homebrew/lib`; tests that
+  need it pass only with `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`, and that
+  variable is stripped by SIP-protected launchers (`/usr/bin/env`, `/usr/bin/time`).
+- **Not run:** Docker (daemon not running), CI, Linux, Windows, real services,
+  the GUI on a display, desktop packaging, real samples, fuzz campaigns, OOM work.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-None. The branch is paused for owner review, and no agent should continue
-without a new owner request. Owner decisions in
-[FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6 come first.
+None. The branch is paused for owner review. Owner decisions in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6 come first, now including the
+S-Y proposals P1 to P3 and whether to authorise the 27.5/B4 VM plan.
