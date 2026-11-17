@@ -20,7 +20,7 @@ contribution. The customer pays a subscription for signed rule-pack updates and 
 | Surface | In the edition | Notes |
 |---|---|---|
 | REST API (`aegis-api`) | **Yes, primary** | Behind the customer's TLS reverse proxy. `/scan`, `/health`, `/ready` (Phase 1), `/version`, `/schema`, `/metrics`. |
-| CLI inside the container | Yes | Folder and single-file triage, `--scan-imap` (read-only mailbox scanning), rule-pack install. |
+| CLI inside the container | Yes | Folder and single-file triage, rule-pack install. `--scan-imap` needs a route to the mail server, and the containers that run the scanner (`analysis`, `content`) have `network_mode: none` while intel offers no IMAP operation, so mailbox scanning is a desktop/CLI feature outside the shipped compose file. |
 | E-mail alerts | Yes | API results at or above `ALERT_EMAIL_MIN_VERDICT` (and incomplete or failed scans) are e-mailed by the intel service; metadata only, never file content. |
 | JSON Lines and signed webhooks | **No** (desktop and CLI only) | SIEM / SOAR outputs of the desktop app and the CLI; metadata only, never file content. API scans in the Docker edition write no JSON Lines file and send no webhook (`api/server.py`, `_Alerts`); the analysis service has no network (D22). |
 | Encrypted quarantine vault | **No** (desktop and CLI only) | The server deployment does not quarantine files (`docs/OPERATIONS.md`). On a desktop, restore needs authorisation and is audit-logged (A8); quarantining is a separate action decision, not the verdict (D23). |

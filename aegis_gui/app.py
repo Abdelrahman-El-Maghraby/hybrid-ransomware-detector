@@ -495,9 +495,11 @@ class App(ctk.CTk):
         threading.Thread(target=work, name="aegis-deliveries", daemon=True).start()
 
     def _refresh_protection(self):
+        # Item 11: this shows the scheduled-scan setting only; "Protection on"
+        # suggested a guarantee that scheduled scans do not give.
         enabled = self.settings["schedule_enabled"]
         self.protection_label.configure(
-            text=("●  Protection on" if enabled else "○  Protection off"),
+            text=("●  Scheduled scans on" if enabled else "○  Scheduled scans off"),
             text_color=ACCENT_SOFT if enabled else MUTED)
 
     def last_scan_text(self) -> str:
