@@ -192,3 +192,42 @@ def test_the_tools_never_submit_to_a_sandbox(monkeypatch):
     E._init_worker(False, False)                          # builds the pool worker's scanner
     assert E._scanner.sandbox is None
     assert CW._scanner().sandbox is None
+
+
+def _summary_rows():
+    base = {"ext": ".exe", "by_content": "", "split": "test", "group": "x",
+            "supported": True, "seconds": 1, "reasons": ""}
+    rows = [dict(base, label="malicious", path=f"/m/l{i}.exe", family="lockbit",
+                 verdict="High", risk=80, scan_status="complete") for i in range(6)]
+    rows += [dict(base, label="malicious", path="/m/c.exe", family="conti", verdict="Clean",
+                  risk=0, scan_status="complete"),
+             dict(base, label="malicious", path="/m/u1.exe", family="unlabelled",
+                  verdict="Medium", risk=45, scan_status="partial"),
+             dict(base, label="malicious", path="/m/u2.exe", family="unlabelled",
+                  verdict="Clean", risk=0, scan_status="complete"),
+             dict(base, label="benign", path="/b/a.exe", family="", verdict="Medium",
+                  risk=40, scan_status="partial"),
+             dict(base, label="benign", path="/b/b.exe", family="", verdict="Clean",
+                  risk=0, scan_status="complete")]
+    return rows
+
+
+def test_summary_reports_rates_on_complete_scans_and_label_coverage(tmp_path):
+    """Item 1 (evaluation): a partial scan's verdict can move a rate either way, an
+    unlabelled malicious file is its own split group (related variants can sit on
+    both sides), and one family can dominate the rate. The summary now shows all
+    three instead of leaving them to be worked out from results.csv."""
+    import argparse
+
+    from tools import evaluate as E
+    args = argparse.Namespace(alert="Medium", with_vt=False, with_llm=False,
+                              prep={"duplicates": 0, "conflicts": [], "split": "test"})
+    text = E.summarise(_summary_rows(), [], tmp_path, args)
+    complete = text[text.index("## Rates on complete scans only"):]
+    # malicious complete: 6 High lockbit + conti Clean + u2 Clean -> 6/8 at Medium
+    assert "| Medium | 75.0% (6/8) | 0.00% (0/1) |" in complete
+    assert "Incomplete scans left out here: 1 malicious, 1 benign" in complete
+    labels = text[text.index("## Family labels and split leakage"):]
+    assert "Malicious files without a family label: 2 of 9 (22%)" in labels
+    assert "lockbit: 6 of 9 (67%)" in labels           # above the 15% guideline
+    assert "conti" not in labels.split("## ")[1].split("above")[1]

@@ -33,8 +33,10 @@ Outputs (in --out):
   results.csv   one row per file: label, type, family, split, verdict, risk,
                 scan_status, reasons
   summary.md    rates at three alert thresholds (and a worst case that counts
-                errors and timeouts as misses), per file type, per family, scan
-                completeness, timing, and the full list of misses and false alarms
+                errors and timeouts as misses), the same rates on complete scans
+                only, family-label coverage and dominant families, per file type,
+                per family, scan completeness, timing, and the full list of
+                misses and false alarms
 
 Rates are reported at fixed verdict thresholds rather than as one "accuracy"
 number: with few malicious files in real traffic, accuracy hides false alarms.
@@ -211,6 +213,9 @@ def run(files, jobs, timeout, with_vt, with_llm):
     return results
 
 
+FAMILY_SHARE_LIMIT = 0.15          # no family above about 15 % (DATASET_PLAN)
+
+
 def rate(rows, label, thr):
     sel = [r for r in rows if r["label"] == label and "error" not in r]
     if not sel:
@@ -255,6 +260,36 @@ def summarise(rows, unsupported, out: Path, args) -> str:
         L.append(f"\nWorst case at {args.alert}: {100.0 * dh / (dn + mal_err):.1f}% "
                  f"({dh}/{dn + mal_err}) when the {mal_err} malicious file(s) that errored or "
                  "timed out count as misses.")
+
+    # A partial, locked or failed scan's verdict rests on part of the file: show
+    # the rates without them too, so a reader sees how much they move the result.
+    whole = [r for r in rows if r.get("scan_status", "complete") == "complete"]
+    L.append("\n## Rates on complete scans only\n")
+    L.append("| Alert when verdict ≥ | Detection rate (malicious) | False-positive rate (benign) |")
+    L.append("|---|---|---|")
+    for thr in THRESHOLDS:
+        d, dh, dn = rate(whole, "malicious", thr)
+        f, fh, fn = rate(whole, "benign", thr)
+        L.append(f"| {thr} | {d:.1f}% ({dh}/{dn}) | {f:.2f}% ({fh}/{fn}) |")
+    cut = Counter(r["label"] for r in rows
+                  if "error" not in r and r.get("scan_status", "complete") != "complete")
+    L.append(f"\nIncomplete scans left out here: {cut['malicious']} malicious, "
+             f"{cut['benign']} benign (see Scan completeness).")
+
+    measured = [r for r in mal if "error" not in r]
+    if measured:
+        fams = Counter(r.get("family") or "unlabelled" for r in measured)
+        unlabelled = fams.pop("unlabelled", 0)
+        n = len(measured)
+        L.append("\n## Family labels and split leakage\n")
+        L.append(f"- Malicious files without a family label: {unlabelled} of {n} "
+                 f"({100.0 * unlabelled / n:.0f}%). Each is its own split group, so "
+                 "unlabelled variants of one family can sit in both parts.")
+        big = [(f, c) for f, c in fams.most_common() if c / n > FAMILY_SHARE_LIMIT]
+        L.append(f"- Families above {FAMILY_SHARE_LIMIT:.0%} of the malicious files "
+                 "(docs/DATASET_PLAN.md): "
+                 + (", ".join(f"{f}: {c} of {n} ({100.0 * c / n:.0f}%)" for f, c in big)
+                    if big else "none"))
 
     L.append("\n## Scan completeness\n")
     L.append("| scan_status | Malicious | Benign |")

@@ -122,3 +122,49 @@ free-form on MalwareBazaar; families are its `signature` field
   (lures change), but keep some older ones for regression (macro era, ISO wave).
 
 Totals of the table: about 3,100 malicious and 6,900 benign files.
+
+## Part 3: reproducible evaluation procedure
+
+No detection or false-positive rate has been measured yet (findings M1/X1). Every
+step below runs **inside the isolated analysis VM**, needs a separate owner
+authorisation, and keeps only hashes, labels and the two output files.
+
+1. **Freeze the inputs before scanning.** Record the code commit, the rule-pack
+   version, the configuration (`--with-vt` / `--with-llm` off for an engine-only
+   result), and a manifest of every file's SHA-256, label, type folder and family.
+   Nothing in the manifest may change after the first scan.
+2. **Independent test data.** Calibrate weights only with
+   `tools/calibrate_weights.py --split calibration`; report rates only from
+   `tools/evaluate.py --split test`. Do not change rules, weights or thresholds
+   after looking at test-split results; a change starts a new run with a new
+   manifest. Benign files must not come from the projects whose files were used
+   to write or tune a rule (for example the synthetic examples in `tests/`).
+3. **Hash deduplication.** The tool counts each SHA-256 once and leaves out files
+   labelled both ways; record the summary's duplicate and conflict counts.
+   Near-duplicates (the same sample repacked) are not caught by hashing: the
+   family grouping below is what keeps them on one side.
+4. **Family leakage.** The split is grouped by family for malicious files, so the
+   label file must cover them: the summary's "Family labels and split leakage"
+   section gives the share without a label (each such file is its own group) and
+   any family above 15 % of the malicious files. Normalise family aliases (for
+   example `LockBit` / `LockBit3` / `lockbit_black`) in the label file before the
+   run; the tool lower-cases names but cannot merge aliases. Benign files are
+   grouped by hash only, so several versions of one program can fall on both
+   sides; keep one version per program or accept and record that limitation.
+5. **Per-format and per-family results.** Keep one sub-folder per file type; the
+   summary breaks the rates down by type, by family and by folder. Report each
+   type with its sample count and the ±1.96·√(p(1−p)/n) interval; do not merge
+   types into one headline number.
+6. **Incomplete scans.** Report the "Scan completeness" table and the "Rates on
+   complete scans only" table next to the main rates, and the worst case that
+   counts errors and time-outs as misses. A partial, locked or failed scan is not
+   a detection or a clean result; list how many there were per type.
+7. **False positives.** The benign corpus must include the administration cases
+   that the documented ambiguities depend on: backup pre-freeze and service
+   scripts, event-log maintenance scripts and backup or encryption utilities
+   (S-Y1, S-Y4), plus ordinary documents per type. Report the false-alarm rate per
+   type at each threshold and every false alarm with its indicators (the summary
+   lists them).
+8. **Record, do not round up.** Keep `results.csv` and `summary.md` with the
+   manifest and the commit. A rate measured on one corpus describes that corpus;
+   state the corpus, the date and the configuration with every number.
