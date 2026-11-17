@@ -109,6 +109,17 @@ def own_files(config: Mapping[str, Any]) -> List[str]:
     return [_real(f) for f in files]
 
 
+def _not_taken(result: Mapping[str, Any]) -> bool:
+    """True for a file no isolated worker could take (it was not scanned)."""
+    from engine.workers import isolation_unavailable
+    return isolation_unavailable(dict(result))
+
+
+def _scanned_only(results: List[Dict]) -> List[Dict]:
+    """The results of files a worker scanned (finished, failed or stopped)."""
+    return [r for r in results if not _not_taken(r)]
+
+
 @dataclass
 class _Pending:
     size: int
@@ -335,12 +346,18 @@ class FolderMonitor:
             return []
         results = self.scan_batch(paths)
         unscanned = int(getattr(self.scanner, "last_not_scanned", 0) or 0)
+        scanned = _scanned_only(results)
         if unscanned:
+            # Only the files no worker took wait for the retry; the ones that
+            # finished keep their outputs (scan_batch) and are not scanned again.
+            retry = {str(r.get("file_path")) for r in results if _not_taken(r)}
             with self._lock:
                 self.paused_reason = ("isolated scan workers could not start; no file was "
                                       "scanned in the main process")
                 self._paused_at = self._clock()
                 for p in paths:                    # retried after the pause
+                    if p not in retry:
+                        continue
                     self._seen.pop(p, None)
                     try:
                         st = os.stat(p)
@@ -350,13 +367,14 @@ class FolderMonitor:
             logger.error("Folder monitoring paused: %s. %d file(s) will be retried in %.0f "
                          "minute(s).", self.paused_reason, unscanned, self.retry_seconds / 60,
                          extra={"event": "monitor_paused", "files": unscanned})
+        if not scanned:
             return results
         with self._lock:
-            self.counts["scanned"] += len(results)
-        self.last_results = results
+            self.counts["scanned"] += len(scanned)
+        self.last_results = scanned
         if self.on_results is not None:
             try:
-                self.on_results(results)
+                self.on_results(scanned)
             except Exception as e:
                 logger.error("Folder monitor: result callback failed: %s", e)
         return results
@@ -365,16 +383,17 @@ class FolderMonitor:
         """Isolated scan with the normal outputs: report, JSON Lines, alerts and
         automatic quarantine (inside _scan_targets)."""
         results = self.scanner._scan_targets(paths)
-        if not results or int(getattr(self.scanner, "last_not_scanned", 0) or 0):
+        scanned = _scanned_only(results)            # a file no worker took waits for the retry
+        if not scanned:
             return results
         try:
-            self.scanner.generate_report(results)
+            self.scanner.generate_report(scanned)
         except Exception as e:
             logger.error("Folder monitor: report failed: %s", e,
                          extra={"event": "monitor_output_error"})
         try:                                      # M17: alerts even when the report fails
             from core.outputs import deliver
-            deliver(results, self.config)
+            deliver(scanned, self.config)
         except Exception as e:
             logger.error("Folder monitor: outputs failed: %s", e,
                          extra={"event": "monitor_output_error"})

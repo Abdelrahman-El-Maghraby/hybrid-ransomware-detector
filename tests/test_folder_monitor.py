@@ -275,3 +275,41 @@ def test_split_dirs():
     sep = ";"
     assert FW.split_dirs(f"/a{sep} /b ;") == ["/a", "/b"]
     assert FW.split_dirs(["~/x"]) == [os.path.expanduser("~/x")]
+
+
+def test_a_partly_unscanned_batch_still_delivers_what_was_scanned(tmp_path, monkeypatch):
+    """Item 9 (entry-point outputs): when workers stop starting part-way through a
+    batch, the files that did finish keep their outputs (report, JSON Lines,
+    alerts) like a folder scan's, and only the unscanned files wait for the
+    retry. Before, the whole batch was held back and re-queued, so a file already
+    moved to the vault by automatic quarantine never got its alert."""
+    from engine.workers import ISOLATION_TEXT, ISOLATION_UNAVAILABLE, failure_result
+    clock = Clock()
+    s = _scanner(tmp_path, jsonl_path=str(tmp_path / "out.jsonl"))
+    m = _monitor(tmp_path, s, clock, retry_minutes=1)
+    a, b = _pdf(_watch(tmp_path) / "a.pdf"), _pdf(_watch(tmp_path) / "b.pdf", "other")
+
+    def partial(paths):
+        done = failure_result(s, str(a), "stand-in finding")
+        done.update(verdict="High", risk_score=80, scan_status="complete")
+        done["scan_results"].pop("scan_failed", None)
+        left = failure_result(s, str(b), ISOLATION_TEXT, ISOLATION_UNAVAILABLE, "unavailable")
+        s.last_not_scanned = 1
+        return [r for r in (done, left) if r["file_path"] in paths]
+    monkeypatch.setattr(s, "_scan_targets", partial)
+    delivered, reports = [], []
+    monkeypatch.setattr("core.outputs.deliver", lambda results, cfg: delivered.extend(results))
+    monkeypatch.setattr(s, "generate_report", lambda results, **k: reports.append(results))
+    seen = []
+    m.on_results = seen.extend
+    m.note(str(a))
+    m.note(str(b))
+    clock.now += 5
+    m.scan_due()
+    assert [r["file_path"] for r in delivered] == [str(a)]
+    assert [[r["file_path"] for r in batch] for batch in reports] == [[str(a)]]
+    assert [r["file_path"] for r in seen] == [str(a)]
+    assert "could not start" in m.status()["paused"]
+    assert m.status()["scanned"] == 1
+    clock.now += 61                                                 # the retry
+    assert m.due() == [str(b)]                                      # only the unscanned file
