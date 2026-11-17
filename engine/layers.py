@@ -577,3 +577,42 @@ def default_pipeline() -> List[Layer]:
         VirusTotalLayer(),
         SandboxLayer(),
     ]
+
+
+# Item 8: what a layer reads from earlier ones, as data. (before, after, why):
+# `before` must run earlier than `after` in the pipeline. The staged runner also
+# needs the layers in FAST_BEFORE_HEAVY to be fast: the slow-layer skip
+# (StagedPipelineMixin._run_heavy) reads the flags they set.
+ORDER_RULES: Tuple[Tuple[str, str, str], ...] = (
+    ("hashes", "allowlist", "the allowlist is keyed by SHA-256"),
+    ("hashes", "local-db", "the hash database is keyed by MD5"),
+    ("hashes", "llm", "LLM answers are cached by SHA-256"),
+    ("hashes", "virustotal", "VirusTotal is queried by hash"),
+    ("hashes", "sandbox", "sandbox reports are cached by SHA-256"),
+    ("mail", "prompt-guard", "the guard reads the e-mail body the mail container sets"),
+    ("prompt-guard", "llm", "the LLM reads the text and strings the guard extracts"),
+)
+FAST_BEFORE_HEAVY = ("hashes", "allowlist", "local-db")
+SANDBOX_LAST = "sandbox"     # its "suspicious" gate scores every earlier layer's signals
+
+
+def pipeline_order_problems(layers: List[Layer]) -> List[str]:
+    """The ordering requirements a pipeline breaks (empty when none). A layer
+    missing from the pipeline is not a problem; only a wrong order is."""
+    names = [layer.name for layer in layers]
+    first = {name: names.index(name) for name in names}
+    problems = [f"{before} must run before {after}: {why}"
+                for before, after, why in ORDER_RULES
+                if before in first and after in first and first[before] > first[after]]
+    heavy = [i for i, layer in enumerate(layers) if getattr(layer, "heavy", False)]
+    for name in FAST_BEFORE_HEAVY:
+        if name not in first:
+            continue
+        layer = layers[first[name]]
+        if getattr(layer, "heavy", False) or (heavy and first[name] > heavy[0]):
+            problems.append(f"{name} must be a fast layer before every slow layer: the "
+                            "slow-layer skip reads what it sets")
+    if SANDBOX_LAST in first and first[SANDBOX_LAST] != len(names) - 1:
+        problems.append(f"{SANDBOX_LAST} must be the last layer: its gate scores the "
+                        "signals of every earlier layer")
+    return problems
