@@ -103,8 +103,12 @@ def store(tmp_path, monkeypatch):
     from aegis_gui import state
     file = tmp_path / "gui_settings.json"
     monkeypatch.setattr(state, "SETTINGS_FILE", file)
+    import engine.config
     for name in ("SCAN_DIRECTORIES", "FILE_EXTENSIONS", "SCAN_INTERVAL_HOURS"):
         monkeypatch.delenv(name, raising=False)
+        # a developer's own .env (the GUI writes these keys there, M28) must not
+        # decide the test: env_is_set() also reads the parsed .env
+        monkeypatch.delitem(engine.config._DOTENV, name, raising=False)
     monkeypatch.setitem(state.RS.CONFIG, "scan_directories", ["/shared"])
     monkeypatch.setitem(state.RS.CONFIG, "file_extensions", [".pdf"])
     monkeypatch.setitem(state.RS.CONFIG, "scan_interval_hours", 6)
