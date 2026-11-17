@@ -34,6 +34,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Tuple
@@ -963,19 +964,21 @@ def _scan_or_schedule(args, scanner) -> None:
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
         _schedule_background_jobs(scanner, watcher, CONFIG)
+        service_jobs = _ServiceJobThread()          # I-4: short jobs keep their cadence
+        service_jobs.start()
         from core.folder_watch import monitor_from_config
         monitor = monitor_from_config(scanner, CONFIG)      # WATCH_DIRS (desktop, F1)
         if monitor is not None:
             monitor.start()
 
-        if not args.scan_now:
-            _guarded("scan", scanner.run_scan)()
-
         try:
+            if not args.scan_now:
+                _guarded("scan", scanner.run_scan)()
             _run_background_loop()
         except KeyboardInterrupt:
             logger.info("Scanner stopped by user.")
         finally:
+            service_jobs.stop()
             watcher.stop()
             if monitor is not None:
                 monitor.stop()
@@ -998,8 +1001,16 @@ def _guarded(name: str, job):
     return run
 
 
+# I-4: the short jobs (canary checks, alert retries, cloud uploads) run on their own
+# scheduler and thread, so a long folder scan or mailbox check no longer holds them
+# back. Scans and mailbox checks stay on the main loop, one at a time, as before:
+# they never overlap, and Ctrl+C stops them and their workers as before.
+SERVICE_JOBS = schedule.Scheduler()
+
+
 def _schedule_background_jobs(scanner, watcher, config) -> None:
-    """Register the background service's jobs, each one guarded."""
+    """Register the background service's jobs, each one guarded: the scans on the
+    main scheduler (`schedule`), the short jobs on SERVICE_JOBS (I-4)."""
     logger.info(f"Scheduling scans every {config['scan_interval_hours']} hours.")
     schedule.every(config['scan_interval_hours']).hours.do(_guarded("scan", scanner.run_scan))
     # Always scheduled: with no canaries deployed the check is a no-op, and
@@ -1012,35 +1023,62 @@ def _schedule_background_jobs(scanner, watcher, config) -> None:
                     ("no real-time watching (pip install watchdog)"
                      if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
                     minutes)
-    schedule.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
+    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
     # Canaries deployed or removed later (GUI or CLI) are picked up here.
-    schedule.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
     # optional cloud storage (core/cloud.py): spool cleaned at start and daily,
     # uploads every 5 minutes; nothing is queued or uploaded while it is off
     from core import cloud
     _guarded("cloud_cleanup", lambda: cloud.run_uploads(config, cleanup=True))()
-    schedule.every(5).minutes.do(_guarded("cloud_upload", lambda: cloud.run_uploads(config)))
-    schedule.every(1).days.do(_guarded("cloud_cleanup",
-                                       lambda: cloud.run_uploads(config, cleanup=True)))
+    SERVICE_JOBS.every(5).minutes.do(_guarded("cloud_upload", lambda: cloud.run_uploads(config)))
+    SERVICE_JOBS.every(1).days.do(_guarded("cloud_cleanup",
+                                           lambda: cloud.run_uploads(config, cleanup=True)))
     # alerts a receiver did not take yet (core/outbox.py) are retried every minute
     from core.outbox import flush_pending
-    schedule.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
+    SERVICE_JOBS.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
     imap_minutes = int(config.get("imap_check_minutes", 0) or 0)
     if imap_minutes > 0 and config.get("imap_host"):
         logger.info("Mailbox %s checked every %d minute(s).", config["imap_folder"], imap_minutes)
         schedule.every(imap_minutes).minutes.do(_guarded("mailbox", scanner.scan_mailbox_safely))
 
 
-def _run_background_loop(sleep=time.sleep, keep_going=lambda: True) -> None:
+def _run_background_loop(sleep=time.sleep, keep_going=lambda: True, jobs=None) -> None:
     """Run due jobs every 30 s until interrupted. Jobs are guarded; anything
-    else that goes wrong in one pass is logged and the loop carries on."""
+    else that goes wrong in one pass is logged and the loop carries on. `jobs` is
+    a schedule.Scheduler; by default the main one (scans and mailbox checks)."""
     while keep_going():
         try:
-            schedule.run_pending()
+            (schedule if jobs is None else jobs).run_pending()
         except Exception as e:
             logger.error("Background scheduler error: %s", e,
                          extra={"event": "scheduled_job_failed", "job": "scheduler"})
         sleep(30)
+
+
+class _ServiceJobThread:
+    """Runs SERVICE_JOBS on a daemon thread until stop() (I-4). Every job there is
+    guarded and short; the outbox and cloud spool lock their folders for every
+    thread and process, and canary checks are serialised (ProtectionMixin)."""
+
+    def __init__(self, jobs: schedule.Scheduler = SERVICE_JOBS, tick: float = 30.0):
+        self.jobs, self.tick = jobs, tick
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="aegis-service-jobs",
+                                        daemon=True)
+
+    def _loop(self) -> None:
+        _run_background_loop(sleep=lambda _s: self._stop.wait(self.tick),
+                             keep_going=lambda: not self._stop.is_set(), jobs=self.jobs)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, timeout: float = 10.0) -> bool:
+        """Ask the thread to end after the job it is running; True once it has."""
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+        return not self._thread.is_alive()
 
 
 def main():

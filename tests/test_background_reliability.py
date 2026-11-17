@@ -51,8 +51,16 @@ class FakeWatcher:
 @pytest.fixture
 def jobs():
     schedule.clear()
+    RS.SERVICE_JOBS.clear()
     yield
     schedule.clear()
+    RS.SERVICE_JOBS.clear()
+
+
+def run_all_jobs():
+    """Every job of both schedulers (scans; short jobs, I-4) runs once."""
+    schedule.run_all()
+    RS.SERVICE_JOBS.run_all()
 
 
 CONFIG = {"scan_interval_hours": 24, "canary_check_minutes": 5, "imap_check_minutes": 0}
@@ -63,8 +71,8 @@ def test_a_failing_job_is_logged_counted_and_the_others_still_run(jobs, caplog):
     RS._schedule_background_jobs(scanner, watcher, CONFIG)
     before = dict(METRICS.snapshot()["scheduled_job_failures"])
     with caplog.at_level(logging.ERROR, logger="RansomwareScanner"):
-        schedule.run_all()                    # unguarded, the first raise stopped everything
-        schedule.run_all()
+        run_all_jobs()                        # unguarded, the first raise stopped everything
+        run_all_jobs()
     assert scanner.scans == 2 and scanner.canary_checks == 2 and watcher.refreshed == 2
     after = METRICS.snapshot()["scheduled_job_failures"]
     assert after["scan"] == before.get("scan", 0) + 2
@@ -72,7 +80,9 @@ def test_a_failing_job_is_logged_counted_and_the_others_still_run(jobs, caplog):
     events = [r for r in caplog.records if getattr(r, "event", "") == "scheduled_job_failed"]
     assert {r.job for r in events} == {"scan", "canary_refresh"}
     assert "No space left on device" in caplog.text
-    assert len(schedule.get_jobs()) == 6     # nothing cancelled (+ outbox, cloud upload, cleanup)
+    # nothing cancelled: the scan here, canary check and refresh, outbox, cloud
+    # upload and cleanup on the short-job scheduler (I-4)
+    assert len(schedule.get_jobs()) == 1 and len(RS.SERVICE_JOBS.get_jobs()) == 5
 
 
 def test_the_loop_keeps_running_and_the_next_canary_check_runs(jobs, monkeypatch):
@@ -84,7 +94,7 @@ def test_the_loop_keeps_running_and_the_next_canary_check_runs(jobs, monkeypatch
         passes.append(1)
         if len(passes) == 1:
             raise RuntimeError("scheduler hiccup")
-        schedule.run_all()
+        run_all_jobs()
     monkeypatch.setattr(schedule, "run_pending", run_pending)
     sleeps = []
     RS._run_background_loop(sleep=sleeps.append, keep_going=lambda: len(passes) < 4)

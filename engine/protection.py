@@ -7,6 +7,7 @@ quarantine, and the canary tripwires with their containment response
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
@@ -29,6 +30,10 @@ class ProtectionMixin:
     canaries: CanaryManager
     _vault: Optional[QuarantineVault]
     _last_canary_signature: Optional[tuple]
+    # S-03: the scheduled check, the real-time watcher and a scan's own check can
+    # run at once (I-4 runs the scheduled one on its own thread). The compare and
+    # set of the last signature is atomic under this lock, not by bytecode luck.
+    _canary_lock = threading.Lock()
 
     @property
     def quarantine_vault(self) -> QuarantineVault:
@@ -82,12 +87,15 @@ class ProtectionMixin:
         raise a desktop notification (repeat findings stay quiet). `touched` are
         the paths the real-time watcher saw change."""
         report = self.canaries.verify()
-        if not report.triggered:
-            self._last_canary_signature = None
-            return report
-        signature = tuple(sorted((f.path, f.status) for f in report.findings))
-        if signature != self._last_canary_signature:
-            self._last_canary_signature = signature
+        with self._canary_lock:
+            if not report.triggered:
+                self._last_canary_signature = None
+                return report
+            signature = tuple(sorted((f.path, f.status) for f in report.findings))
+            new = signature != self._last_canary_signature
+            if new:
+                self._last_canary_signature = signature
+        if new:
             self._canary_alert(report, touched, notify)
         return report
 
