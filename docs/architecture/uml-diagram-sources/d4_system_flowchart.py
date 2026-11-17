@@ -97,7 +97,7 @@ def build(meta: dict) -> Diagram:
     # ------------------------------------------------------- 1 intake channels
     d.frame(20, 86, 1560, 152, "1  Intake channels: every way a file reaches the scanner")
     intake_text = [
-        ("GUI", "Desktop GUI", ["aegis_gui: ScanController", "one file, or all scan folders"]),
+        ("GUI", "Desktop GUI", ["aegis_gui: ScanController", "a file, a folder or all folders"]),
         ("CLI", "Command line", ["RansomwareScanner.py", "--scan-file PATH, --scan-now"]),
         ("BG", "Background service", ["--background scheduler", "run_scan() every N hours"]),
         ("MON", "Folder monitoring", ["FolderMonitor (watchdog)",
@@ -122,8 +122,9 @@ def build(meta: dict) -> Diagram:
     e1 = d.titled(40, 424, 220, "scan_one(file_path)", "one file; no automatic quarantine",
                   h=92, fill=ENGINE)
     e2 = d.titled(320, 424, 280, "scan_all_directories()",
-                  "all configured scan folders; the CLI and the background service come in "
-                  "through run_scan(), which checks the canaries first", h=92, fill=ENGINE)
+                  "all scan folders (a folder the GUI names: scan_directory()); the CLI "
+                  "and background service come in through run_scan(), which checks the "
+                  "canaries first", h=92, fill=ENGINE)
     e3 = d.titled(650, 424, 300, "_collect_target_files(directory)",
                   "walks each folder; keeps the configured file types; skips canary files, "
                   "~$ lock files and non-regular files", h=92, fill=ENGINE)
@@ -293,7 +294,7 @@ def build(meta: dict) -> Diagram:
 
 NOTES: List[str] = [
     "GUI and CLI both reach scan_one() for a single file. For the configured folders the GUI "
-    "calls scan_all_directories() itself; the CLI's --scan-now and the background service call "
+    "calls scan_all_directories() itself, and scan_directory() for one folder it names; the CLI's --scan-now and the background service call "
     "run_scan(), which checks the canaries first and then calls it (engine/scanner.py).",
     "FolderMonitor.scan_batch() and MailboxScanner.run() hand their files straight to "
     "_scan_targets(); the REST API calls scan_isolated() itself through _ScanService.scan() "

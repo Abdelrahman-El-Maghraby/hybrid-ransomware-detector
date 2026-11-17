@@ -5,7 +5,7 @@ Read [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) and
 They define the shared Claude/Codex handoff process and the latest saved task state.
 For how the scanner is built (classes, the path of one file, entry points and
 outputs), read [docs/architecture/README.md](docs/architecture/README.md) at the
-start of a session; it states the four UML diagrams in text.
+start of a session; it states the five diagrams in text.
 
 - Follow the owner's current request and explicit stage boundaries. A handoff does
   not authorise a new task, a wider scope, or a previously gated next stage.

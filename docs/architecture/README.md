@@ -1,9 +1,9 @@
 # Architecture diagrams
 
-Four UML diagrams of Aegis Sentinel, drawn from the code and checked against it.
-They describe the code at commit `72aa761` on `review/production-hardening`
-(`f825915` adds documentation only). Class, method and message names are the ones
-in the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
+Five diagrams of Aegis Sentinel (four UML views and a deployment view), drawn from
+the code and checked against it. They describe the code at commit `b6966f8`
+on `review/production-hardening`. Class, method and message names are the ones in
+the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 
 | # | Diagram | Question it answers | Drawing | Definition |
 |---|---|---|---|---|
@@ -11,8 +11,9 @@ in the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 | 2 | Use-case diagram | Who uses the system, and for what? | [2-use-case-diagram.svg](uml-diagram-sources/2-use-case-diagram.svg) | [d2_use_case_diagram.py](uml-diagram-sources/d2_use_case_diagram.py) |
 | 3 | Activity diagram | How does one file get a verdict? | [3-activity-diagram.svg](uml-diagram-sources/3-activity-diagram.svg) | [d3_activity_diagram.py](uml-diagram-sources/d3_activity_diagram.py) |
 | 4 | Flowchart | How does the whole system fit together? | [4-system-flowchart.svg](uml-diagram-sources/4-system-flowchart.svg) | [d4_system_flowchart.py](uml-diagram-sources/d4_system_flowchart.py) |
+| 5 | Deployment and trust boundaries | Where does each part run, and what separates it? | [5-deployment-trust-boundaries.svg](uml-diagram-sources/5-deployment-trust-boundaries.svg) | [d5_deployment_trust_boundaries.py](uml-diagram-sources/d5_deployment_trust_boundaries.py) |
 
-All four on one page, with zoom and the checked facts under each diagram:
+All five on one page, with zoom and the checked facts under each diagram:
 [ARCHITECTURE_UML_DIAGRAMS.html](ARCHITECTURE_UML_DIAGRAMS.html). Open it in a
 browser; it is self-contained and loads nothing from the network.
 
@@ -110,6 +111,22 @@ read in the files named.
    `AUTO_QUARANTINE` is set and the verdict reaches it, then keeps the result. The
    entry point writes the report and delivers the outputs.
 
+Ordering requirements between layers (declared as `ORDER_RULES`,
+`FAST_BEFORE_HEAVY` and `SANDBOX_LAST` in `engine/layers.py`, checked by
+`pipeline_order_problems()` and `tests/test_pipeline.py`):
+
+| Earlier | Later | Why |
+|---|---|---|
+| hashes | allowlist, local-db, llm, virustotal, sandbox | they look up or cache by SHA-256 or MD5 |
+| mail (container) | prompt-guard | the guard reads the e-mail body the container sets |
+| prompt-guard | llm | the LLM reads the text and strings the guard extracts |
+| hashes, allowlist, local-db (fast) | every heavy layer | the heavy-layer skip reads `allowlisted` and `local_db_hit` |
+| every other layer | sandbox (last) | its `suspicious` gate scores the earlier signals |
+
+Other layers do not read each other: each adds its own signal, and scoring runs once
+in `_assemble()`. Heavy layers run concurrently on copies of the context and are
+merged back in pipeline order.
+
 Pipe messages, worker to parent: `ready`, `log`, `ok`, `error`, `container`,
 `member`, `provisional`, `settled`, `sandbox`, `external`, `completed`, `clear`.
 Parent to worker: the file path, then `None` to stop.
@@ -118,9 +135,9 @@ Parent to worker: the file path, then `None` to stop.
 
 | Intake | Enters the engine through | Destinations |
 |---|---|---|
-| GUI (`ScanController`) | `scan_one()` or `scan_all_directories()` | dashboard, report files, JSON Lines, alerts, cloud; vault after folder scans |
+| GUI (`ScanController`) | `scan_one()`, `scan_directory()` or `scan_all_directories()` | dashboard, report files, JSON Lines, alerts, cloud; vault after folder scans |
 | CLI | `scan_one()` (`--scan-file`) or `run_scan()` (`--scan-now`) | console report, report files, JSON Lines, alerts, cloud; vault after folder scans |
-| Background service | `run_scan()` on a schedule | report files, JSON Lines, alerts, cloud, vault |
+| Background service | `run_scan()` on a schedule (main loop; the short jobs run on their own thread) | report files, JSON Lines, alerts, cloud, vault |
 | Folder monitoring (`FolderMonitor`) | `_scan_targets()` | report files, JSON Lines, alerts, cloud, vault |
 | IMAP mailbox (`MailboxScanner`) | `_scan_targets()` | report files, JSON Lines, alerts, cloud, vault |
 | REST API (`_ScanService`) | `scan_isolated()` | JSON response, e-mail alerts |
@@ -129,6 +146,40 @@ Every channel ends in the same place: `scan_isolated()`, a worker process, the
 detection pipeline, `ScoringMatrix`, and back to the parent. With
 `ISOLATE_SCANS=0` (development only) `scan_file()` runs in the caller's process.
 
+Output behaviour that differs by entry point, and why:
+
+| Behaviour | Where it applies | Intentional? |
+|---|---|---|
+| No automatic quarantine | `scan_one()` (GUI and CLI single file), the API | Yes: a single-file scan is an inspection; the API never holds the user's file |
+| Automatic quarantine | `_scan_targets()`: folder scans, the monitor, IMAP (a temporary `.eml` copy) | Yes |
+| Canary check before the scan | `run_scan()` only (CLI `--scan-now`, background service); the GUI and the service also check on a timer | Yes |
+| No report file for a cancelled GUI scan; alerts and JSON Lines still go out | GUI | Yes: what was found is still delivered |
+| E-mail alerts only; no webhook, JSON Lines, report file or cloud upload | REST API (`_Alerts` clears `webhook_url`) | Yes: the Docker analysis side has no network |
+| Partly unscanned monitor batch: the scanned files get their outputs, only the unscanned ones are retried | Folder monitor | Fixed in this review: the whole batch was held back before |
+| Scheduled short jobs (canary checks, alert retries, cloud uploads) run beside a long scan | Background service | Fixed in this review (I-4) |
+
+### 5. Deployment and trust boundaries
+
+- **Desktop app and CLI:** one parent process (GUI, CLI or `--background`) and
+  its scan workers, all as the signed-in user. Workers get the full configuration,
+  API keys included, and make the VirusTotal, LLM and CAPE requests themselves;
+  the parent sends webhook and e-mail alerts, uploads to S3 and fetches IMAP. The
+  parent reads files to walk, hash and quarantine them; only workers parse them.
+  Worker and helper processes are separated for time, memory and crash
+  containment: this is not a security boundary.
+- **Docker (`docker-compose.yml`):** four containers with distinct users,
+  read-only root file systems, `cap_drop: [ALL]` and `no-new-privileges`. `proxy`
+  (uid 10003, network `edge`, TLS on 8443) reaches `analysis` through the
+  `api.sock` Unix socket. `analysis` (uid 10001, `network_mode: none`; secrets
+  `api_token` and `intel_token` only) runs the API server and its workers, which
+  share its uid. It reaches `intel` (uid 10002, network `egress`, the service keys
+  and SMTP password) through `intel.sock`; intel alone calls VirusTotal, the LLM,
+  CAPE and SMTP. `content` (`network_mode: none`) installs rule packs into the
+  volume analysis mounts read-only. Webhooks, JSON Lines, S3, automatic
+  quarantine and `--scan-imap` are not available in this mode.
+- **CAPE:** the operator's own server, in its own isolated environment: submitted
+  files are executed there.
+
 ## Rebuilding and keeping them true
 
 ```sh
@@ -136,7 +187,7 @@ cd docs/architecture/uml-diagram-sources
 python3 build_diagrams.py
 ```
 
-Python 3.9 or later, standard library only. The script writes the four SVG files
+Python 3.9 or later, standard library only. The script writes the five SVG files
 and the HTML page, and stops when a label no longer fits its box, two nodes
 overlap or a connector runs through an unrelated node.
 
@@ -149,7 +200,10 @@ repository.
 
 [`graphify-code-graph.html`](graphify-code-graph.html) is the interactive code
 graph the diagrams were drawn from: 6,366 nodes covering all 253 Python files at
-commit `72aa761`, grouped into named communities. It is a single page; it loads
+commit `72aa761`, grouped into named communities. It is a **snapshot of
+`72aa761`** and the page says so; it does not include the later code changes
+listed in [HANDOFF](../HANDOFF.md) (the background scheduler, the folder monitor's
+partial batches, the evaluation summary, the layer-order check and a GUI label). It is a single page; it loads
 the `vis-network` 9.1.6 library from unpkg, so it needs an internet connection.
 It is a generated snapshot: the raw `graph.json` and Graphify cache are not kept
 in the repository. After the code changes, rebuild the graph with Graphify and
@@ -164,3 +218,5 @@ replace this file, or the page will describe older code.
 ![Activity diagram](uml-diagram-sources/3-activity-diagram.svg)
 
 ![System flowchart](uml-diagram-sources/4-system-flowchart.svg)
+
+![Deployment and trust boundaries](uml-diagram-sources/5-deployment-trust-boundaries.svg)

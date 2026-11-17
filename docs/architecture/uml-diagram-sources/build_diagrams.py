@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Build the four Aegis Sentinel UML diagrams and the page that shows them.
+"""Build the five Aegis Sentinel architecture diagrams and the page that shows them.
 
-    python3 build_diagrams.py            write the four .svg files here and
+    python3 build_diagrams.py            write the five .svg files here and
                                          ../ARCHITECTURE_UML_DIAGRAMS.html
     python3 build_diagrams.py --check    also write ../ARCHITECTURE_UML_DIAGRAMS.check.html,
                                          a copy that measures every label in the browser and
                                          lists the ones wider than their box (open it, read
                                          the report at the top, then delete it; never commit it)
 
-Sources: d1_class_diagram.py, d2_use_case_diagram.py, d3_activity_diagram.py and
-d4_system_flowchart.py. umlkit.py is the drawing toolkit. Standard library only.
+Sources: d1_class_diagram.py, d2_use_case_diagram.py, d3_activity_diagram.py,
+d4_system_flowchart.py and d5_deployment_trust_boundaries.py. umlkit.py is the
+drawing toolkit. Standard library only.
 
 The build stops with exit code 1 when a diagram has a layout problem (a label
 wider than its box, overlapping nodes, a connector through an unrelated node).
@@ -28,11 +29,11 @@ PAGE = HERE.parent / "ARCHITECTURE_UML_DIAGRAMS.html"
 
 META = {
     "branch": "review/production-hardening",
-    "commit": "f825915",
-    "commit_full": "f8259158992315e4dd071b5f8068561ad184d4a8",
-    "code_commit": "72aa761",
-    "code_commit_full": "72aa7610f80fc73a3591366bf7c773f1c86d3eb1",
-    "built": "2026-11-16",
+    "commit": "b6966f8",
+    "commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
+    "code_commit": "b6966f8",
+    "code_commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
+    "built": "2026-11-17",
 }
 
 DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
@@ -62,6 +63,13 @@ DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
      "stages in an isolated worker, is scored, and comes back to the parent, which sends the "
      "result to the destinations that channel uses. The coloured chips on a destination name "
      "the channels that reach it."),
+    ("d5_deployment_trust_boundaries", "5-deployment-trust-boundaries.svg", "deployment",
+     "5. Deployment: where does each part run, and what separates it?",
+     "The two execution modes side by side: the desktop app and CLI on one computer, and the "
+     "Docker deployment with its four containers. A dashed frame is process separation "
+     "(time and memory limits, crash containment) inside one user: it is not a security "
+     "boundary. A thick red frame is a container, an OS-enforced boundary. The chips on each "
+     "external service say which mode reaches it; in Docker only the intel container does."),
 ]
 
 CSS = """
@@ -231,19 +239,20 @@ def page(items, check: bool) -> str:
     parts = [
         "<!doctype html>", '<html lang="en">', "<head>", '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        "<title>Aegis Sentinel architecture: four UML diagrams</title>",
+        "<title>Aegis Sentinel architecture diagrams</title>",
         f"<style>{CSS}</style>", "</head>", "<body>", '<div class="wrap">',
         '<header class="page">',
-        "<h1>Aegis Sentinel architecture in four diagrams</h1>",
+        "<h1>Aegis Sentinel architecture in five diagrams</h1>",
         '<p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and '
-        "how the whole system fits together. Every class, method and message name is the one in "
+        "how the whole system fits together and where each part runs. Every class, method and "
+        "message name is the one in "
         "the code, read at the commit below.</p>",
         '<ul class="facts">',
         f"<li><b>Branch</b><code>{escape(m['branch'])}</code></li>",
         f"<li><b>Baseline commit</b><code>{m['commit']}</code> "
         f"<span title=\"{m['commit_full']}\">(documentation checkpoint)</span></li>",
         f"<li><b>Code last changed in</b><code>{m['code_commit']}</code> "
-        "The two commits differ in three documentation files only.</li>",
+        "Later commits change documentation only.</li>",
         f"<li><b>Drawn</b>{m['built']}, from the source files and the Graphify graph</li>",
         "</ul>",
         '<nav class="toc" aria-label="Diagrams">',
@@ -308,7 +317,7 @@ def page(items, check: bool) -> str:
         "<ul>",
         "<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: "
         "texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in "
-        "that folder. The four SVG files and this page are written again. Python 3.9 or later; "
+        "that folder. The five SVG files and this page are written again. Python 3.9 or later; "
         "nothing to install.</li>",
         "<li>The build stops when a label no longer fits its box, when two nodes overlap or "
         "when a connector runs through a node it is not attached to.</li>",

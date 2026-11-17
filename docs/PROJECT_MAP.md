@@ -2,7 +2,7 @@
 
 A short guide for coming back to this project. It links to the detailed records
 instead of repeating them: [README](../README.md) (features and settings),
-[ARCHITECTURE](ARCHITECTURE.md) and its [four UML diagrams](architecture/README.md),
+[ARCHITECTURE](ARCHITECTURE.md) and its [five diagrams](architecture/README.md),
 [THREAT_MODEL](THREAT_MODEL.md),
 [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (every finding's current status),
 [PROJECT_REVIEW](PROJECT_REVIEW.md) (the review, sections 28 to 34) and

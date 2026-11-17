@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aegis Sentinel architecture: four UML diagrams</title>
+<title>Aegis Sentinel architecture diagrams</title>
 <style>
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -69,19 +69,20 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <body>
 <div class="wrap">
 <header class="page">
-<h1>Aegis Sentinel architecture in four diagrams</h1>
-<p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and how the whole system fits together. Every class, method and message name is the one in the code, read at the commit below.</p>
+<h1>Aegis Sentinel architecture in five diagrams</h1>
+<p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and how the whole system fits together and where each part runs. Every class, method and message name is the one in the code, read at the commit below.</p>
 <ul class="facts">
 <li><b>Branch</b><code>review/production-hardening</code></li>
-<li><b>Baseline commit</b><code>f825915</code> <span title="f8259158992315e4dd071b5f8068561ad184d4a8">(documentation checkpoint)</span></li>
-<li><b>Code last changed in</b><code>72aa761</code> The two commits differ in three documentation files only.</li>
-<li><b>Drawn</b>2026-11-16, from the source files and the Graphify graph</li>
+<li><b>Baseline commit</b><code>b6966f8</code> <span title="b6966f83a0b9552d0e6d9f431f842175b2f3cf7c">(documentation checkpoint)</span></li>
+<li><b>Code last changed in</b><code>b6966f8</code> Later commits change documentation only.</li>
+<li><b>Drawn</b>2026-11-17, from the source files and the Graphify graph</li>
 </ul>
 <nav class="toc" aria-label="Diagrams">
 <a href="#class-diagram">1. Class diagram: what makes up the scanner?</a>
 <a href="#use-case-diagram">2. Use-case diagram: who uses the system, and for what?</a>
 <a href="#activity-diagram">3. Activity diagram: how does one file get a verdict?</a>
 <a href="#system-flowchart">4. Flowchart: how does the whole system fit together?</a>
+<a href="#deployment">5. Deployment: where does each part run, and what separates it?</a>
 <a class="alt" href="#graphify">Graphify network (reference)</a>
 <a class="alt" href="#editing">Editing the diagrams</a>
 </nav>
@@ -670,7 +671,7 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 </g>
 <g id="d1-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Class diagram: What makes up the scanner?</text>
-<text x="24" y="63" font-size="13" fill="#334155">The classes on the scan path, with their names in the code. Branch review/production-hardening, commit f825915.</text>
+<text x="24" y="63" font-size="13" fill="#334155">The classes on the scan path, with their names in the code. Branch review/production-hardening, commit b6966f8.</text>
 </g>
 </svg>
 
@@ -1249,7 +1250,7 @@ NOTES: List[str] = [
 </g>
 <g id="d2-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Use-case diagram: Who uses the system, and for what?</text>
-<text x="24" y="63" font-size="13" fill="#334155">Actors and external systems outside the boundary, user goals inside. Branch review/production-hardening, commit f825915.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Actors and external systems outside the boundary, user goals inside. Branch review/production-hardening, commit b6966f8.</text>
 </g>
 </svg>
 
@@ -1858,7 +1859,7 @@ NOTES: List[str] = [
 </g>
 <g id="d3-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Activity diagram: How does one file get a verdict?</text>
-<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit f825915.</text>
+<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit b6966f8.</text>
 </g>
 </svg>
 
@@ -2356,7 +2357,7 @@ NOTES: List[str] = [
 <rect x="40" y="128" width="240" height="96" fill="#dbeafe" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="160" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Desktop GUI</text>
 <text x="160" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis_gui: ScanController</text>
-<text x="160" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">one file, or all scan folders</text>
+<text x="160" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">a file, a folder or all folders</text>
 <rect x="50" y="118" width="36" height="20" fill="#ffffff" rx="10" stroke="#1e3a8a" stroke-width="1"/>
 <text x="68" y="132.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
 <rect x="296" y="128" width="240" height="96" fill="#dcfce7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
@@ -2396,10 +2397,11 @@ NOTES: List[str] = [
 <text x="150" y="466.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_one(file_path)</text>
 <text x="150" y="483.4" font-size="12.5" fill="#0f172a" text-anchor="middle">one file; no automatic quarantine</text>
 <rect x="320" y="424" width="280" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
-<text x="460" y="450.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_all_directories()</text>
-<text x="460" y="466.9" font-size="12.5" fill="#0f172a" text-anchor="middle">all configured scan folders; the CLI and the</text>
-<text x="460" y="483.4" font-size="12.5" fill="#0f172a" text-anchor="middle">background service come in through</text>
-<text x="460" y="499.9" font-size="12.5" fill="#0f172a" text-anchor="middle">run_scan(), which checks the canaries first</text>
+<text x="460" y="441.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_all_directories()</text>
+<text x="460" y="458.7" font-size="12.5" fill="#0f172a" text-anchor="middle">all scan folders (a folder the GUI names:</text>
+<text x="460" y="475.2" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_directory()); the CLI and background</text>
+<text x="460" y="491.7" font-size="12.5" fill="#0f172a" text-anchor="middle">service come in through run_scan(), which</text>
+<text x="460" y="508.2" font-size="12.5" fill="#0f172a" text-anchor="middle">checks the canaries first</text>
 <rect x="650" y="424" width="300" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="800" y="450.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_collect_target_files(directory)</text>
 <text x="800" y="466.9" font-size="12.5" fill="#0f172a" text-anchor="middle">walks each folder; keeps the configured file</text>
@@ -2679,7 +2681,7 @@ NOTES: List[str] = [
 </g>
 <g id="d4-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Flowchart: How does the whole system fit together?</text>
-<text x="24" y="63" font-size="13" fill="#334155">Follow a file from any intake channel to its outputs. Branch review/production-hardening, commit f825915.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Follow a file from any intake channel to its outputs. Branch review/production-hardening, commit b6966f8.</text>
 </g>
 </svg>
 
@@ -2687,7 +2689,7 @@ NOTES: List[str] = [
 <details open>
 <summary>Checked in the code</summary>
 <div class="body"><ul>
-<li>GUI and CLI both reach scan_one() for a single file. For the configured folders the GUI calls scan_all_directories() itself; the CLI&#x27;s --scan-now and the background service call run_scan(), which checks the canaries first and then calls it (engine/scanner.py).</li>
+<li>GUI and CLI both reach scan_one() for a single file. For the configured folders the GUI calls scan_all_directories() itself, and scan_directory() for one folder it names; the CLI&#x27;s --scan-now and the background service call run_scan(), which checks the canaries first and then calls it (engine/scanner.py).</li>
 <li>FolderMonitor.scan_batch() and MailboxScanner.run() hand their files straight to _scan_targets(); the REST API calls scan_isolated() itself through _ScanService.scan() (core/folder_watch.py, core/mailbox.py, api/server.py).</li>
 <li>Isolation fails closed: when no worker can start, the file is not parsed in the parent. The CLI exits 3, the API answers 503, the GUI offers a retry (engine/workers.py).</li>
 <li>Automatic quarantine runs in the collect() callback of _scan_targets(), so it applies to folder, monitor and IMAP scans, not to scan_one() or the API.</li>
@@ -2796,7 +2798,7 @@ def build(meta: dict) -&gt; Diagram:
     # ------------------------------------------------------- 1 intake channels
     d.frame(20, 86, 1560, 152, &quot;1  Intake channels: every way a file reaches the scanner&quot;)
     intake_text = [
-        (&quot;GUI&quot;, &quot;Desktop GUI&quot;, [&quot;aegis_gui: ScanController&quot;, &quot;one file, or all scan folders&quot;]),
+        (&quot;GUI&quot;, &quot;Desktop GUI&quot;, [&quot;aegis_gui: ScanController&quot;, &quot;a file, a folder or all folders&quot;]),
         (&quot;CLI&quot;, &quot;Command line&quot;, [&quot;RansomwareScanner.py&quot;, &quot;--scan-file PATH, --scan-now&quot;]),
         (&quot;BG&quot;, &quot;Background service&quot;, [&quot;--background scheduler&quot;, &quot;run_scan() every N hours&quot;]),
         (&quot;MON&quot;, &quot;Folder monitoring&quot;, [&quot;FolderMonitor (watchdog)&quot;,
@@ -2821,8 +2823,9 @@ def build(meta: dict) -&gt; Diagram:
     e1 = d.titled(40, 424, 220, &quot;scan_one(file_path)&quot;, &quot;one file; no automatic quarantine&quot;,
                   h=92, fill=ENGINE)
     e2 = d.titled(320, 424, 280, &quot;scan_all_directories()&quot;,
-                  &quot;all configured scan folders; the CLI and the background service come in &quot;
-                  &quot;through run_scan(), which checks the canaries first&quot;, h=92, fill=ENGINE)
+                  &quot;all scan folders (a folder the GUI names: scan_directory()); the CLI &quot;
+                  &quot;and background service come in through run_scan(), which checks the &quot;
+                  &quot;canaries first&quot;, h=92, fill=ENGINE)
     e3 = d.titled(650, 424, 300, &quot;_collect_target_files(directory)&quot;,
                   &quot;walks each folder; keeps the configured file types; skips canary files, &quot;
                   &quot;~$ lock files and non-regular files&quot;, h=92, fill=ENGINE)
@@ -2992,7 +2995,7 @@ def build(meta: dict) -&gt; Diagram:
 
 NOTES: List[str] = [
     &quot;GUI and CLI both reach scan_one() for a single file. For the configured folders the GUI &quot;
-    &quot;calls scan_all_directories() itself; the CLI&#x27;s --scan-now and the background service call &quot;
+    &quot;calls scan_all_directories() itself, and scan_directory() for one folder it names; the CLI&#x27;s --scan-now and the background service call &quot;
     &quot;run_scan(), which checks the canaries first and then calls it (engine/scanner.py).&quot;,
     &quot;FolderMonitor.scan_batch() and MailboxScanner.run() hand their files straight to &quot;
     &quot;_scan_targets(); the REST API calls scan_isolated() itself through _ScanService.scan() &quot;
@@ -3007,21 +3010,517 @@ NOTES: List[str] = [
 </code></pre></div>
 </details>
 </section>
+<section class="diagram" id="deployment">
+<h2>5. Deployment: where does each part run, and what separates it?</h2>
+<p>The two execution modes side by side: the desktop app and CLI on one computer, and the Docker deployment with its four containers. A dashed frame is process separation (time and memory limits, crash containment) inside one user: it is not a security boundary. A thick red frame is a container, an OS-enforced boundary. The chips on each external service say which mode reaches it; in Docker only the intel container does.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/5-deployment-trust-boundaries.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="5. Deployment: where does each part run, and what separates it?" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d5" width="1600" height="1384" viewBox="0 0 1600 1384" role="img" aria-labelledby="d5-title d5-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d5-title">Deployment: where each part runs, and what separates it</title>
+<desc id="d5-desc">Deployment and trust-boundary diagram of Aegis Sentinel: the desktop app and CLI on one computer, the Docker deployment with its four containers, and the external services each mode can reach.</desc>
+<rect x="0" y="0" width="1600" height="1384" fill="#ffffff"/>
+<g id="d5-frame">
+<rect x="760" y="12" width="820" height="62" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<rect x="1280" y="22" width="40" height="16" fill="#eff6ff" rx="3" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="774" y="48" width="40" height="16" fill="#f0fdf4" rx="3" stroke="#b91c1c" stroke-width="3"/>
+<rect x="20" y="90" width="1190" height="600" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="110" font-size="13" fill="#0f172a" font-weight="700">Mode 1  Desktop app and CLI: one computer, one OS user</text>
+<text x="32" y="126.9" font-size="12" fill="#334155">Everything below runs as the signed-in user, with that user&#x27;s files, network and keys.</text>
+<rect x="310" y="352" width="490" height="312" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="322" y="372" font-size="13" fill="#0f172a" font-weight="700">Worker processes (spawn), same OS user</text>
+<rect x="20" y="714" width="1190" height="650" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="734" font-size="13" fill="#0f172a" font-weight="700">Mode 2  Docker deployment: one host, four containers (docker-compose.yml)</text>
+<text x="32" y="750.9" font-size="12" fill="#334155">Distinct users, read-only root file systems, all capabilities dropped, no-new-privileges, memory, CPU and process limits.</text>
+<rect x="550" y="1006" width="370" height="112" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="562" y="1026" font-size="13" fill="#0f172a" font-weight="700">Workers, same uid 10001</text>
+<rect x="1230" y="90" width="350" height="1274" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1242" y="110" font-size="13" fill="#0f172a" font-weight="700">External services, when configured</text>
+<text x="1242" y="126.9" font-size="12" fill="#334155">Chips: the modes that reach each one.</text>
+</g>
+<g id="d5-edge">
+<path d="M774,30 L818,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="818,30 808,34.2 808,25.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M920,30 L964,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="954,34.6 964,30 954,25.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M465,274 L465,404" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="460.4,394 465,404 469.6,394" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M645,404 L645,274" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="649.6,284 645,274 640.4,284" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M155,264 L155,458 Q155,466 163,466 L330,466" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="330,466 320,470.2 320,461.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M270,212 L330,212" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="330,212 320,216.2 320,207.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M555,528 L555,560" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550.4,550 555,560 559.6,550" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,205.8 L807,205.8 Q815,205.8 815,213.8 L815,225 Q815,233 823,233 L860,233" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="850,237.6 860,233 850,228.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,230.6 L822,230.6 Q830,230.6 830,238.6 L830,309 Q830,317 838,317 L860,317" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="860,317 850,321.2 850,312.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M780,255.4 L837,255.4 Q845,255.4 845,263.4 L845,393.5 Q845,401 852.5,401 L860,401" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="850,405.6 860,401 850,396.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M190,835 L250,845" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="250,845 239.4,847.5 240.8,839.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M470,828.5 L530,828.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="530,828.5 520,832.7 520,824.3" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M530,867 L470,867" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="480,862.4 470,867 480,871.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M735,986 L735,1046" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="735,1046 730.8,1036 739.2,1036" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M940,841.8 L1000,841.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="990,846.4 1000,841.8 990,837.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M940,934.5 L1000,934.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="990,939.1 1000,934.5 990,929.9" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,164.9 L1210,164.9 Q1218,164.9 1218,172.9 L1218,463" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,193 L1250,193" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,197.6 1250,193 1240,188.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,283 L1250,283" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,287.6 1250,283 1240,278.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,373 L1250,373" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,377.6 1250,373 1240,368.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1250,463 L1220,463" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1230,458.4 1220,463 1230,467.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,497 L1210,497 Q1218,497 1218,505 L1218,762" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,573 L1250,573" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,577.6 1250,573 1240,568.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,663 L1250,663" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,667.6 1250,663 1240,658.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,762 L1250,762" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,766.6 1250,762 1240,757.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1200,840 L1214,840 Q1222,840 1222,848 L1222,870 Q1222,878 1230,878 L1250,878" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,882.6 1250,878 1240,873.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d5-node">
+<text x="826" y="34" font-size="12" fill="#0f172a">file content</text>
+<text x="972" y="34" font-size="12" fill="#0f172a">paths, results, requests or alerts (metadata)</text>
+<text x="1328" y="34" font-size="12" fill="#0f172a">process separation, not a security boundary</text>
+<text x="822" y="60" font-size="12" fill="#0f172a">container: OS-enforced boundary</text>
+<rect x="1040" y="46" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1051.5" y="60.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1066" y="46" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1077.5" y="60.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">K</text>
+<text x="1094" y="60" font-size="12" fill="#0f172a">reached from the desktop mode (D) or the Docker mode (K)</text>
+<rect x="40" y="160" width="230" height="104" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="155" y="192.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Files to scan</text>
+<text x="155" y="208.9" font-size="12.5" fill="#0f172a" text-anchor="middle">scan folders, chosen files, watched</text>
+<text x="155" y="225.4" font-size="12.5" fill="#0f172a" text-anchor="middle">folders (WATCH_DIRS), saved</text>
+<text x="155" y="241.9" font-size="12.5" fill="#0f172a" text-anchor="middle">IMAP messages</text>
+<rect x="330" y="150" width="450" height="124" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="183.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Parent process (GUI, CLI or --background)</text>
+<text x="555" y="200.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ScanController, run_scan(), FolderMonitor, MailboxScanner,</text>
+<text x="555" y="217.2" font-size="12.5" fill="#0f172a" text-anchor="middle">CanaryWatcher, the alert outbox.</text>
+<text x="555" y="233.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Configuration and keys from the OS keyring or .env. Reads files to walk,</text>
+<text x="555" y="250.2" font-size="12.5" fill="#0f172a" text-anchor="middle">hash and quarantine them; never parses them.</text>
+<rect x="860" y="200" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="229.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Reports, JSON Lines, logs, outbox</text>
+<text x="1025" y="246.4" font-size="12.5" fill="#0f172a" text-anchor="middle">report_directory and the data folder</text>
+<rect x="860" y="284" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="313.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Quarantine vault and key</text>
+<text x="1025" y="330.4" font-size="12.5" fill="#0f172a" text-anchor="middle">encrypted files; key in the keystore (mode 0600)</text>
+<rect x="860" y="368" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="397.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Canary files in guarded folders</text>
+<text x="1025" y="414.4" font-size="12.5" fill="#0f172a" text-anchor="middle">a trip runs containment on the user&#x27;s processes</text>
+<rect x="330" y="404" width="450" height="124" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="437.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers: one file each</text>
+<text x="555" y="454.7" font-size="12.5" fill="#0f172a" text-anchor="middle">The whole detection pipeline. Time limit SCAN_TIMEOUT_SECONDS;</text>
+<text x="555" y="471.2" font-size="12.5" fill="#0f172a" text-anchor="middle">memory limit: RLIMIT_AS (Linux), Job Object (Windows), RSS watchdog</text>
+<text x="555" y="487.7" font-size="12.5" fill="#0f172a" text-anchor="middle">(macOS); a private temp folder.</text>
+<text x="555" y="504.2" font-size="12.5" fill="#0f172a" text-anchor="middle">They receive the full configuration, API keys included.</text>
+<rect x="330" y="560" width="450" height="84" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="590.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Helper programs started by a worker</text>
+<text x="555" y="607.2" font-size="12.5" fill="#0f172a" text-anchor="middle">7-Zip or unar, Tesseract, poppler, box-js. Stopped with their worker; one</text>
+<text x="555" y="623.7" font-size="12.5" fill="#0f172a" text-anchor="middle">that detached before discovery can survive (L-E5).</text>
+<rect x="40" y="800" width="150" height="70" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="115" y="831.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">API client</text>
+<text x="115" y="848.4" font-size="12.5" fill="#0f172a" text-anchor="middle">HTTPS, bearer token</text>
+<rect x="250" y="790" width="220" height="110" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="360" y="825.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
+<text x="360" y="841.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003, network edge;</text>
+<text x="360" y="858.4" font-size="12.5" fill="#0f172a" text-anchor="middle">publishes port 8443; TLS ends</text>
+<text x="360" y="874.9" font-size="12.5" fill="#0f172a" text-anchor="middle">here</text>
+<rect x="530" y="780" width="410" height="206" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="735" y="863.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">analysis: api.server (_ScanService)</text>
+<text x="735" y="879.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; network_mode none: no interface but loopback.</text>
+<text x="735" y="896.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Secrets: api_token and intel_token only. tmpfs /tmp; volumes</text>
+<text x="735" y="912.9" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis-state (reports, logs, outbox) and content (rules, read-only).</text>
+<rect x="565" y="1046" width="340" height="56" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="735" y="1070.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers</text>
+<text x="735" y="1087.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time and memory limits; no network, no API keys</text>
+<rect x="1000" y="780" width="200" height="300" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="1100" y="877.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel: api.intel</text>
+<text x="1100" y="893.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10002; network egress.</text>
+<text x="1100" y="910.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Secrets: VirusTotal and OpenAI</text>
+<text x="1100" y="926.9" font-size="12.5" fill="#0f172a" text-anchor="middle">keys, sandbox token, SMTP</text>
+<text x="1100" y="943.4" font-size="12.5" fill="#0f172a" text-anchor="middle">password.</text>
+<text x="1100" y="959.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Fixed operations; only the</text>
+<text x="1100" y="976.4" font-size="12.5" fill="#0f172a" text-anchor="middle">destinations its own</text>
+<text x="1100" y="992.9" font-size="12.5" fill="#0f172a" text-anchor="middle">configuration names.</text>
+<rect x="530" y="1170" width="410" height="92" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="735" y="1204.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">content (tools profile, run by hand)</text>
+<text x="735" y="1221.2" font-size="12.5" fill="#0f172a" text-anchor="middle">--update-rules; network_mode none; writes the content volume that</text>
+<text x="735" y="1237.7" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis mounts read-only</text>
+<rect x="40" y="1170" width="440" height="92" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="260" y="1196.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Named volumes and Docker secrets</text>
+<text x="260" y="1212.9" font-size="12.5" fill="#0f172a" text-anchor="middle">api-socket and intel-socket carry Unix sockets between containers;</text>
+<text x="260" y="1229.4" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis-state, content and intel-state hold data; secrets are files under</text>
+<text x="260" y="1245.9" font-size="12.5" fill="#0f172a" text-anchor="middle">/run/secrets.</text>
+<polygon points="40,1300 928,1300 940,1312 940,1349 40,1349" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="928,1300 928,1312 940,1312" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="1319.6" font-size="12" fill="#0f172a">Not in this mode: webhooks, JSON Lines, S3 uploads, automatic quarantine and --scan-imap. The analysis side has no network and intel offers no IMAP</text>
+<text x="49" y="1335.7" font-size="12" fill="#0f172a">operation; API results reach e-mail only, through intel.</text>
+<rect x="1250" y="160" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="189.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1405" y="206.4" font-size="12.5" fill="#0f172a" text-anchor="middle">alert e-mails (metadata only)</text>
+<rect x="1511.4" y="150" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="164.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="250" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="279.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Webhook receiver</text>
+<text x="1405" y="296.4" font-size="12.5" fill="#0f172a" text-anchor="middle">signed alerts (metadata only)</text>
+<rect x="1527.8" y="240" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="254.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="340" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="369.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">S3-compatible storage</text>
+<text x="1405" y="386.4" font-size="12.5" fill="#0f172a" text-anchor="middle">reports and logs (opt-in)</text>
+<rect x="1527.8" y="330" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="344.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="430" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="459.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">IMAP mail server</text>
+<text x="1405" y="476.4" font-size="12.5" fill="#0f172a" text-anchor="middle">messages fetched read-only</text>
+<rect x="1527.8" y="420" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="434.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="540" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="569.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1405" y="586.4" font-size="12.5" fill="#0f172a" text-anchor="middle">hash look-ups; uploads only if switched on</text>
+<rect x="1511.4" y="530" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="544.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="630" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="659.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM: OpenAI or Ollama</text>
+<text x="1405" y="676.4" font-size="12.5" fill="#0f172a" text-anchor="middle">document text sent for an opinion</text>
+<rect x="1511.4" y="620" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="634.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="720" width="310" height="84" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="750.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1405" y="767.2" font-size="12.5" fill="#0f172a" text-anchor="middle">your own server in a separately isolated</text>
+<text x="1405" y="783.7" font-size="12.5" fill="#0f172a" text-anchor="middle">environment; files are detonated there, never here</text>
+<rect x="1511.4" y="710" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="724.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="836" width="310" height="84" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="858.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Docker: through intel only</text>
+<text x="1405" y="874.9" font-size="12.5" fill="#0f172a" text-anchor="middle">intel reaches the services marked K over its egress</text>
+<text x="1405" y="891.4" font-size="12.5" fill="#0f172a" text-anchor="middle">network; the analysis container cannot reach any</text>
+<text x="1405" y="907.9" font-size="12.5" fill="#0f172a" text-anchor="middle">of them</text>
+<polygon points="1250,950 1548,950 1560,962 1560,1031 1250,1031" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,950 1548,962 1560,962" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1259" y="969.6" font-size="12" fill="#0f172a">Security boundaries: the containers, and the</text>
+<text x="1259" y="985.7" font-size="12" fill="#0f172a">separate CAPE environment. Worker processes are</text>
+<text x="1259" y="1001.7" font-size="12" fill="#0f172a">not one: on a desktop they share the user&#x27;s access;</text>
+<text x="1259" y="1017.8" font-size="12" fill="#0f172a">in Docker they share uid 10001 with the API server.</text>
+</g>
+<g id="d5-label">
+<rect x="422.2" y="320.8" width="85.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="465" y="334.3" font-size="12" fill="#0f172a" text-anchor="middle">file path (pipe)</text>
+<rect x="578.8" y="320.8" width="132.5" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="645" y="334.3" font-size="12" fill="#0f172a" text-anchor="middle">JSON replies, checked</text>
+<rect x="106.4" y="350.8" width="97.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="155" y="364.3" font-size="12" fill="#0f172a" text-anchor="middle">read and parsed</text>
+<rect x="562" y="534.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="581" y="548.3" font-size="12" fill="#0f172a" text-anchor="middle">starts</text>
+<rect x="197.6" y="808.8" width="44.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="220" y="822.3" font-size="12" fill="#0f172a" text-anchor="middle">upload</text>
+<rect x="473.6" y="805.8" width="52.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="500" y="819.3" font-size="12" fill="#0f172a" text-anchor="middle">api.sock</text>
+<rect x="481" y="870.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="500" y="884.3" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="770.1" y="986.8" width="129.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="835" y="1000.3" font-size="12" fill="#0f172a" text-anchor="middle">file path; JSON replies</text>
+<rect x="942.5" y="814.8" width="54.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="970" y="828.3" font-size="12" fill="#0f172a" text-anchor="middle">requests</text>
+<rect x="946.3" y="923.8" width="47.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="970" y="937.3" font-size="12" fill="#0f172a" text-anchor="middle">e-mails</text>
+<rect x="927.1" y="144.7" width="165.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1010" y="158.2" font-size="12" fill="#334155" text-anchor="middle">parent: alerts, uploads, IMAP</text>
+<rect x="941" y="476.8" width="137.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1010" y="490.3" font-size="12" fill="#334155" text-anchor="middle">worker: hash, text or file</text>
+</g>
+<g id="d5-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Deployment: where each part runs, and what separates it</text>
+<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit b6966f8.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>Desktop: workers are started with multiprocessing spawn and get the full configuration, keys included (engine/workers.py, _Worker and _worker_main). The VirusTotal, LLM and sandbox layers run in the worker, so those requests leave from the worker process.</li>
+<li>Desktop: the parent sends webhook and e-mail alerts through the outbox, uploads to S3 and fetches IMAP messages (core/outputs.py, core/outbox.py, core/cloud.py, core/mailbox.py). It reads files to walk, hash (folder monitor) and quarantine them, but parsing happens only in a worker.</li>
+<li>Docker: proxy, analysis, intel and content are separate containers with their own uids (10003, 10001, 10002, 10001), read-only root file systems, cap_drop ALL and no-new-privileges. analysis and content use network_mode none; proxy is on the edge network and intel on the egress network (docker-compose.yml).</li>
+<li>Docker: the API reaches analysis through a Unix socket on the api-socket volume; analysis reaches intel through intel.sock. analysis holds only api_token and intel_token; the service keys are secrets of intel alone.</li>
+<li>The CAPE sandbox is the operator&#x27;s own server and should run in its own isolated environment: files submitted there are executed. Emulation (box-js) also executes attacker JavaScript and belongs in an analysis VM only.</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d5_deployment_trust_boundaries.py"><code>uml-diagram-sources/d5_deployment_trust_boundaries.py</code></a> (the definition) and <a href="uml-diagram-sources/5-deployment-trust-boundaries.svg"><code>uml-diagram-sources/5-deployment-trust-boundaries.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d5_deployment_trust_boundaries.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 5 - Deployment and trust boundaries: where does each part run, and
+what separates it from the others?
+
+Two execution modes are drawn separately: the desktop app / CLI on one computer,
+and the Docker deployment (docker-compose.yml). External services, including a
+separately isolated CAPE sandbox, are shared on the right. Every connection is
+taken from the code or the compose file named in the notes.
+
+A dashed frame is process separation inside one operating-system user or
+container user: it limits time and memory and keeps a crash away, but it is not
+a security boundary. A thick frame is a container: an OS-enforced boundary.
+
+Edit the texts and coordinates below, then run `python3 build_diagrams.py`.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import INK, MUTED, Box, Diagram
+
+TITLE = &quot;Deployment: where each part runs, and what separates it&quot;
+
+PROC = &quot;#eff6ff&quot;        # a process
+CONT = &quot;#f0fdf4&quot;        # a container
+STORE = &quot;#f8fafc&quot;       # files and volumes
+EXT = &quot;#fff7ed&quot;         # an external service
+CAPE = &quot;#fee2e2&quot;        # the separately isolated sandbox
+BOUND = &quot;#b91c1c&quot;       # container boundary stroke
+SOFT = &quot;#64748b&quot;        # process-separation stroke
+
+
+def container(d: Diagram, x: float, y: float, w: float, h: float, title: str,
+              body: List[str], name: str) -&gt; Box:
+    &quot;&quot;&quot;A container: thick solid boundary, title and wrapped body.&quot;&quot;&quot;
+    return d.titled(x, y, w, title, body, h=h, fill=CONT, stroke=BOUND, sw=3, rx=6, name=name)
+
+
+def service(d: Diagram, x: float, y: float, w: float, title: str, body: str, modes: str,
+            fill: str = EXT, h: float = 66) -&gt; Box:
+    &quot;&quot;&quot;An external service with the modes that reach it (D desktop, K Docker).&quot;&quot;&quot;
+    box = d.titled(x, y, w, title, body, h=h, fill=fill, name=title)
+    d.chip(x + w - 10 - 8.2 * len(modes) - 14, y - 10, modes, &quot;#ffffff&quot;, INK, stroke=INK)
+    return box
+
+
+def build(meta: dict) -&gt; Diagram:
+    d = Diagram(&quot;d5&quot;, 1600, 1384, TITLE,
+                f&quot;Two execution modes and the boundaries between their parts. Branch &quot;
+                f&quot;{meta[&#x27;branch&#x27;]}, commit {meta[&#x27;commit&#x27;]}.&quot;,
+                &quot;Deployment and trust-boundary diagram of Aegis Sentinel: the desktop app and &quot;
+                &quot;CLI on one computer, the Docker deployment with its four containers, and the &quot;
+                &quot;external services each mode can reach.&quot;)
+    d.title_block()
+
+    # ---------------------------------------------------------------- legend
+    lx, ly = 760, 22
+    d.rect(lx, ly - 10, 820, 62, &quot;#f8fafc&quot;, &quot;#94a3b8&quot;, 1, 6, &quot;frame&quot;)
+    d.edge([(lx + 14, ly + 8), (lx + 58, ly + 8)], &quot;flow&quot;, check=False)
+    d.text(lx + 66, ly + 12, &quot;file content&quot;, 12)
+    d.edge([(lx + 160, ly + 8), (lx + 204, ly + 8)], &quot;msg&quot;, check=False)
+    d.text(lx + 212, ly + 12, &quot;paths, results, requests or alerts (metadata)&quot;, 12)
+    d.rect(lx + 520, ly, 40, 16, PROC, SOFT, 1.4, 3, &quot;frame&quot;, &quot;6 4&quot;)
+    d.text(lx + 568, ly + 12, &quot;process separation, not a security boundary&quot;, 12)
+    d.rect(lx + 14, ly + 26, 40, 16, CONT, BOUND, 3, 3, &quot;frame&quot;)
+    d.text(lx + 62, ly + 38, &quot;container: OS-enforced boundary&quot;, 12)
+    d.chip(lx + 280, ly + 24, &quot;D&quot;, &quot;#ffffff&quot;, INK, stroke=INK)
+    d.chip(lx + 306, ly + 24, &quot;K&quot;, &quot;#ffffff&quot;, INK, stroke=INK)
+    d.text(lx + 334, ly + 38, &quot;reached from the desktop mode (D) or the Docker mode (K)&quot;, 12)
+
+    # ------------------------------------------------- mode 1: desktop and CLI
+    d.frame(20, 90, 1190, 600, &quot;Mode 1  Desktop app and CLI: one computer, one OS user&quot;,
+            sub=&quot;Everything below runs as the signed-in user, with that user&#x27;s files, &quot;
+                &quot;network and keys.&quot;)
+    files = d.titled(40, 160, 230, &quot;Files to scan&quot;,
+                     [&quot;scan folders, chosen files, watched folders (WATCH_DIRS), &quot;
+                      &quot;saved IMAP messages&quot;], h=104, fill=STORE)
+    parent = d.titled(330, 150, 450, &quot;Parent process (GUI, CLI or --background)&quot;,
+                      [&quot;ScanController, run_scan(), FolderMonitor, MailboxScanner, &quot;
+                       &quot;CanaryWatcher, the alert outbox.&quot;,
+                       &quot;Configuration and keys from the OS keyring or .env. Reads files to &quot;
+                       &quot;walk, hash and quarantine them; never parses them.&quot;],
+                      h=124, fill=PROC, name=&quot;desktop parent&quot;)
+    reports = d.titled(860, 200, 330, &quot;Reports, JSON Lines, logs, outbox&quot;,
+                       &quot;report_directory and the data folder&quot;, h=66, fill=STORE)
+    vault = d.titled(860, 284, 330, &quot;Quarantine vault and key&quot;,
+                     &quot;encrypted files; key in the keystore (mode 0600)&quot;, h=66, fill=STORE)
+    canary = d.titled(860, 368, 330, &quot;Canary files in guarded folders&quot;,
+                      &quot;a trip runs containment on the user&#x27;s processes&quot;, h=66, fill=STORE)
+
+    d.frame(310, 352, 490, 312, &quot;Worker processes (spawn), same OS user&quot;, stroke=SOFT,
+            dash=&quot;6 4&quot;, fill=&quot;#ffffff&quot;)
+    worker = d.titled(330, 404, 450, &quot;Scan workers: one file each&quot;,
+                      [&quot;The whole detection pipeline. Time limit SCAN_TIMEOUT_SECONDS; &quot;
+                       &quot;memory limit: RLIMIT_AS (Linux), Job Object (Windows), RSS watchdog &quot;
+                       &quot;(macOS); a private temp folder.&quot;,
+                       &quot;They receive the full configuration, API keys included.&quot;],
+                      h=124, fill=PROC, name=&quot;desktop worker&quot;)
+    helpers = d.titled(330, 560, 450, &quot;Helper programs started by a worker&quot;,
+                       [&quot;7-Zip or unar, Tesseract, poppler, box-js. Stopped with their &quot;
+                        &quot;worker; one that detached before discovery can survive (L-E5).&quot;],
+                       h=84, fill=PROC, name=&quot;helpers&quot;)
+
+    d.edge([parent.b(0.3), (parent.side(&quot;bottom&quot;, 0.3)[0], worker.top)], &quot;msg&quot;,
+           &quot;file path (pipe)&quot;, (parent.side(&quot;bottom&quot;, 0.3)[0], 330), (parent, worker))
+    d.edge([(worker.side(&quot;top&quot;, 0.7)[0], worker.top), (worker.side(&quot;top&quot;, 0.7)[0], parent.bottom)],
+           &quot;msg&quot;, &quot;JSON replies, checked&quot;, (worker.side(&quot;top&quot;, 0.7)[0], 330), (worker, parent))
+    d.edge([files.b(), (files.cx, worker.cy), worker.l()], &quot;flow&quot;,
+           &quot;read and parsed&quot;, (files.cx, 360), (files, worker))
+    d.edge([files.r(), parent.l()], &quot;flow&quot;, ends=(files, parent), name=&quot;files to parent&quot;)
+    d.edge([worker.b(), helpers.t()], &quot;msg&quot;, &quot;starts&quot;, (worker.cx + 26, 544), (worker, helpers))
+    for t, lane, box, kind in ((0.45, 815, reports, &quot;msg&quot;), (0.65, 830, vault, &quot;flow&quot;),
+                               (0.85, 845, canary, &quot;msg&quot;)):
+        y = parent.side(&quot;right&quot;, t)[1]
+        d.edge([parent.r(t), (lane, y), (lane, box.cy), box.l()], kind, ends=(parent, box),
+               name=f&quot;parent to {box.name}&quot;)
+
+    # ----------------------------------------------------- mode 2: Docker
+    d.frame(20, 714, 1190, 650, &quot;Mode 2  Docker deployment: one host, four containers &quot;
+            &quot;(docker-compose.yml)&quot;,
+            sub=&quot;Distinct users, read-only root file systems, all capabilities dropped, &quot;
+                &quot;no-new-privileges, memory, CPU and process limits.&quot;)
+    client = d.titled(40, 800, 150, &quot;API client&quot;, &quot;HTTPS, bearer token&quot;, h=70, fill=STORE)
+    proxy = container(d, 250, 790, 220, 110, &quot;proxy (Caddy)&quot;,
+                      [&quot;uid 10003, network edge; publishes port 8443; TLS ends here&quot;],
+                      &quot;proxy&quot;)
+    analysis = container(d, 530, 780, 410, 206,
+                         &quot;analysis: api.server (_ScanService)&quot;,
+                         [&quot;uid 10001; network_mode none: no interface but loopback.&quot;,
+                          &quot;Secrets: api_token and intel_token only. tmpfs /tmp; volumes &quot;
+                          &quot;analysis-state (reports, logs, outbox) and content (rules, &quot;
+                          &quot;read-only).&quot;],
+                         &quot;analysis&quot;)
+    d.frame(550, 1006, 370, 112, &quot;Workers, same uid 10001&quot;, stroke=SOFT, dash=&quot;6 4&quot;,
+            fill=&quot;#ffffff&quot;)
+    dworker = d.titled(565, 1046, 340, &quot;Scan workers&quot;,
+                       &quot;time and memory limits; no network, no API keys&quot;, h=56, fill=PROC,
+                       name=&quot;docker worker&quot;)
+    intel = container(d, 1000, 780, 200, 300, &quot;intel: api.intel&quot;,
+                      [&quot;uid 10002; network egress.&quot;,
+                       &quot;Secrets: VirusTotal and OpenAI keys, sandbox token, SMTP password.&quot;,
+                       &quot;Fixed operations; only the destinations its own configuration &quot;
+                       &quot;names.&quot;],
+                      &quot;intel&quot;)
+    container(d, 530, 1170, 410, 92, &quot;content (tools profile, run by hand)&quot;,
+                        [&quot;--update-rules; network_mode none; writes the content volume &quot;
+                         &quot;that analysis mounts read-only&quot;], &quot;content&quot;)
+    d.titled(40, 1170, 440, &quot;Named volumes and Docker secrets&quot;,
+             [&quot;api-socket and intel-socket carry Unix sockets between containers; &quot;
+              &quot;analysis-state, content and intel-state hold data; secrets are files &quot;
+              &quot;under /run/secrets.&quot;], h=92, fill=STORE)
+    d.note(40, 1300, 900,
+           [&quot;Not in this mode: webhooks, JSON Lines, S3 uploads, automatic quarantine and &quot;
+            &quot;--scan-imap. The analysis side has no network and intel offers no IMAP &quot;
+            &quot;operation; API results reach e-mail only, through intel.&quot;])
+
+    d.edge([client.r(), proxy.l()], &quot;flow&quot;, &quot;upload&quot;, (220, 818), (client, proxy))
+    d.edge([proxy.r(0.35), (analysis.left, proxy.side(&quot;right&quot;, 0.35)[1])], &quot;flow&quot;,
+           &quot;api.sock&quot;, (500, 815), (proxy, analysis))
+    d.edge([(analysis.left, proxy.side(&quot;right&quot;, 0.7)[1]), proxy.r(0.7)], &quot;msg&quot;,
+           &quot;result&quot;, (500, 880), (analysis, proxy))
+    d.edge([analysis.b(), dworker.t()], &quot;flow&quot;, &quot;file path; JSON replies&quot;,
+           (835, 996), (analysis, dworker))
+    d.edge([analysis.r(0.3), (intel.left, analysis.side(&quot;right&quot;, 0.3)[1])], &quot;msg&quot;,
+           &quot;requests&quot;, (970, 824), (analysis, intel))
+    d.edge([analysis.r(0.75), (intel.left, analysis.side(&quot;right&quot;, 0.75)[1])], &quot;msg&quot;,
+           &quot;e-mails&quot;, (970, 933), (analysis, intel))
+
+    # ------------------------------------------------- external services
+    d.frame(1230, 90, 350, 1274, &quot;External services, when configured&quot;,
+            sub=&quot;Chips: the modes that reach each one.&quot;)
+    smtp = service(d, 1250, 160, 310, &quot;SMTP server&quot;, &quot;alert e-mails (metadata only)&quot;, &quot;D K&quot;)
+    hook = service(d, 1250, 250, 310, &quot;Webhook receiver&quot;, &quot;signed alerts (metadata only)&quot;, &quot;D&quot;)
+    s3 = service(d, 1250, 340, 310, &quot;S3-compatible storage&quot;, &quot;reports and logs (opt-in)&quot;, &quot;D&quot;)
+    imap = service(d, 1250, 430, 310, &quot;IMAP mail server&quot;, &quot;messages fetched read-only&quot;, &quot;D&quot;)
+    vt = service(d, 1250, 540, 310, &quot;VirusTotal&quot;, &quot;hash look-ups; uploads only if switched on&quot;,
+                 &quot;D K&quot;)
+    llm = service(d, 1250, 630, 310, &quot;LLM: OpenAI or Ollama&quot;, &quot;document text sent for an &quot;
+                  &quot;opinion&quot;, &quot;D K&quot;)
+    cape = service(d, 1250, 720, 310, &quot;CAPE sandbox&quot;,
+                   &quot;your own server in a separately isolated environment; files are &quot;
+                   &quot;detonated there, never here&quot;, &quot;D K&quot;, CAPE, 84)
+    egress = d.titled(1250, 836, 310, &quot;Docker: through intel only&quot;,
+                      &quot;intel reaches the services marked K over its egress network; the &quot;
+                      &quot;analysis container cannot reach any of them&quot;, h=84, fill=CONT,
+                      name=&quot;egress&quot;)
+    d.note(1250, 950, 310,
+           [&quot;Security boundaries: the containers, and the separate CAPE environment. &quot;
+            &quot;Worker processes are not one: on a desktop they share the user&#x27;s access; in &quot;
+            &quot;Docker they share uid 10001 with the API server.&quot;], 12)
+
+    # desktop: the parent reaches SMTP, webhooks, S3 and IMAP
+    bx = 1218
+    py = parent.side(&quot;right&quot;, 0.12)[1]
+    d.edge([parent.r(0.12), (bx, py), (bx, imap.cy)], &quot;line&quot;, ends=(parent,),
+           name=&quot;parent bus&quot;, check=False)
+    for box in (smtp, hook, s3):
+        d.edge([(bx, box.cy), box.l()], &quot;msg&quot;, ends=(box,), name=f&quot;parent to {box.name}&quot;,
+               check=False)
+    d.edge([imap.l(), (bx + 2, imap.cy)], &quot;msg&quot;, ends=(imap,), name=&quot;IMAP to parent&quot;,
+           check=False)
+    d.label(1010, py - 11, &quot;parent: alerts, uploads, IMAP&quot;, 12, fill=MUTED, check=False)
+    # desktop: the worker reaches VirusTotal, the LLM and CAPE
+    wy = worker.side(&quot;right&quot;, 0.75)[1]
+    d.edge([worker.r(0.75), (bx, wy), (bx, cape.cy)], &quot;line&quot;, ends=(worker,),
+           name=&quot;worker bus&quot;, check=False)
+    for box in (vt, llm, cape):
+        d.edge([(bx, box.cy), box.l()], &quot;msg&quot;, ends=(box,), name=f&quot;worker to {box.name}&quot;,
+               check=False)
+    d.label(1010, wy - 11, &quot;worker: hash, text or file&quot;, 12, fill=MUTED, check=False)
+    # Docker: only intel goes out
+    d.edge([intel.r(0.2), (1222, intel.side(&quot;right&quot;, 0.2)[1]), (1222, egress.cy), egress.l()],
+           &quot;msg&quot;, ends=(intel, egress), name=&quot;intel to egress&quot;, check=False)
+    return d
+
+
+NOTES: List[str] = [
+    &quot;Desktop: workers are started with multiprocessing spawn and get the full configuration, &quot;
+    &quot;keys included (engine/workers.py, _Worker and _worker_main). The VirusTotal, LLM and &quot;
+    &quot;sandbox layers run in the worker, so those requests leave from the worker process.&quot;,
+    &quot;Desktop: the parent sends webhook and e-mail alerts through the outbox, uploads to S3 &quot;
+    &quot;and fetches IMAP messages (core/outputs.py, core/outbox.py, core/cloud.py, &quot;
+    &quot;core/mailbox.py). It reads files to walk, hash (folder monitor) and quarantine them, &quot;
+    &quot;but parsing happens only in a worker.&quot;,
+    &quot;Docker: proxy, analysis, intel and content are separate containers with their own uids &quot;
+    &quot;(10003, 10001, 10002, 10001), read-only root file systems, cap_drop ALL and &quot;
+    &quot;no-new-privileges. analysis and content use network_mode none; proxy is on the edge &quot;
+    &quot;network and intel on the egress network (docker-compose.yml).&quot;,
+    &quot;Docker: the API reaches analysis through a Unix socket on the api-socket volume; &quot;
+    &quot;analysis reaches intel through intel.sock. analysis holds only api_token and &quot;
+    &quot;intel_token; the service keys are secrets of intel alone.&quot;,
+    &quot;The CAPE sandbox is the operator&#x27;s own server and should run in its own isolated &quot;
+    &quot;environment: files submitted there are executed. Emulation (box-js) also executes &quot;
+    &quot;attacker JavaScript and belongs in an analysis VM only.&quot;,
+]
+</code></pre></div>
+</details>
+</section>
 <section class="ref" id="graphify">
 <h2>Graphify network (reference)</h2>
-<p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, 15,577 edges and 335 communities, built from the tracked source, tests and configuration with no LLM. Before drawing, the graph was built again from a <code>git archive</code> of <code>f825915</code> and compared with the stored one: the same nodes, the same edges and the same communities.</p>
+<p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, 15,577 edges and 335 communities, built from the tracked source, tests and configuration with no LLM. Before drawing, the graph was built again from a <code>git archive</code> of <code>b6966f8</code> and compared with the stored one: the same nodes, the same edges and the same communities.</p>
 <p><a href="graphify-code-graph.html">graphify-code-graph.html</a>: the interactive network, one node per community, named after its main symbol and that symbol's own file. It loads the vis-network library from unpkg, so it needs an internet connection.</p>
 <p>The graph supplied the class list, the 88 inheritance edges (69 of them between application classes, all read from the code) and the hubs (RansomwareScanner, ContainerExtractor, ScoringMatrix, ScanContext, Signals). It is a static graph, so it cannot see what happens at run time. The pipe messages between worker and parent, the listener callbacks, the thread pool, the time-out outcomes and the network calls were read in the source files and are drawn from there.</p>
 </section>
 <section class="ref" id="editing">
 <h2>Editing the diagrams</h2>
 <ul>
-<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The four SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
+<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The five SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
 <li>The build stops when a label no longer fits its box, when two nodes overlap or when a connector runs through a node it is not attached to.</li>
 <li>The SVG files are plain SVG with real text, so they also open in Inkscape, Figma or draw.io for a one-off change. A later build overwrites such changes.</li>
 </ul>
 </section>
-<footer>Aegis Sentinel, branch review/production-hardening, commit f8259158992315e4dd071b5f8068561ad184d4a8. This page is self-contained: it loads nothing from the network.</footer>
+<footer>Aegis Sentinel, branch review/production-hardening, commit b6966f83a0b9552d0e6d9f431f842175b2f3cf7c. This page is self-contained: it loads nothing from the network.</footer>
 </div>
 <script>
 (function () {
