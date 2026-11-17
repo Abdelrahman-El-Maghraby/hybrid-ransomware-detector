@@ -109,7 +109,8 @@ def build(meta: dict) -> Diagram:
     signals = d.klass(20, 624, "Signals", [
         "+ local_db_hit : bool", "+ allowlisted : str", "+ scan_failed : str",
         "+ yara : Optional[YaraSignal]", "+ macro, pe, mail, llm, sandbox, ...",
-        "   19 typed signals, one per layer"], [
+        "   19 typed signals: one per layer,",
+        "   not hash, allowlist or local-db"], [
         "+ set(key, value)", "+ copy() : Signals", "+ changed_since(before) : Dict"],
         w=250, stereotype="detectors/signals.py (dataclass)", fill=SCORE)
     d.edge([ctx.b(), signals.t()], "comp", "signals  1", (ctx.cx + 44, (ctx.bottom + signals.top) / 2 + 6),

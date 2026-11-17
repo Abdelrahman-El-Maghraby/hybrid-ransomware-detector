@@ -80,8 +80,8 @@
 <path d="M556,892 L574,892" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M795.6,689 L795.6,954 Q795.6,962 787.6,962 L427.5,962 Q419.5,962 419.5,970 L419.5,992" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="795.6,674 790.6,681.5 795.6,689 800.6,681.5" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
-<path d="M300,1027 L288,1027 Q280,1027 280,1019 L280,806.2 Q280,801.2 275,801.2 L270,801.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
-<polyline points="280,796.6 270,801.2 280,805.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300,1027 L288,1027 Q280,1027 280,1019 L280,820.2 Q280,815.2 275,815.2 L270,815.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="280,810.6 270,815.2 280,819.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M539,1050.2 L640,1050.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <polyline points="630,1054.8 640,1050.2 630,1045.7" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M865,1064.5 L960,1064.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -209,7 +209,7 @@
 <line x1="20" y1="506.5" x2="270" y2="506.5" stroke="#0f172a" stroke-width="1.2" stroke-linecap="round"/>
 <text x="30" y="524.5" font-size="12.5" fill="#0f172a">+ start(scanner, path, depth, display)</text>
 <text x="30" y="542" font-size="12.5" fill="#0f172a">+ data() : Optional[bytes]</text>
-<rect x="20" y="624" width="250" height="221.5" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.6"/>
+<rect x="20" y="624" width="250" height="239" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.6"/>
 <rect x="20" y="624" width="250" height="44" fill="#fef3c7" rx="3" stroke="#0f172a" stroke-width="1.6"/>
 <rect x="20.8" y="662" width="248.4" height="6" fill="#fef3c7" stroke="none"/>
 <line x1="20" y1="668" x2="270" y2="668" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
@@ -220,11 +220,12 @@
 <text x="30" y="721" font-size="12.5" fill="#0f172a">+ scan_failed : str</text>
 <text x="30" y="738.5" font-size="12.5" fill="#0f172a">+ yara : Optional[YaraSignal]</text>
 <text x="30" y="756" font-size="12.5" fill="#0f172a">+ macro, pe, mail, llm, sandbox, ...</text>
-<text x="30" y="773.5" font-size="12.5" fill="#0f172a">   19 typed signals, one per layer</text>
-<line x1="20" y1="783" x2="270" y2="783" stroke="#0f172a" stroke-width="1.2" stroke-linecap="round"/>
-<text x="30" y="801" font-size="12.5" fill="#0f172a">+ set(key, value)</text>
-<text x="30" y="818.5" font-size="12.5" fill="#0f172a">+ copy() : Signals</text>
-<text x="30" y="836" font-size="12.5" fill="#0f172a">+ changed_since(before) : Dict</text>
+<text x="30" y="773.5" font-size="12.5" fill="#0f172a">   19 typed signals: one per layer,</text>
+<text x="30" y="791" font-size="12.5" fill="#0f172a">   not hash, allowlist or local-db</text>
+<line x1="20" y1="800.5" x2="270" y2="800.5" stroke="#0f172a" stroke-width="1.2" stroke-linecap="round"/>
+<text x="30" y="818.5" font-size="12.5" fill="#0f172a">+ set(key, value)</text>
+<text x="30" y="836" font-size="12.5" fill="#0f172a">+ copy() : Signals</text>
+<text x="30" y="853.5" font-size="12.5" fill="#0f172a">+ changed_since(before) : Dict</text>
 <rect x="474" y="350" width="200" height="134" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.6"/>
 <rect x="474" y="350" width="200" height="44" fill="#dcfce7" rx="3" stroke="#0f172a" stroke-width="1.6"/>
 <rect x="474.8" y="388" width="198.4" height="6" fill="#dcfce7" stroke="none"/>

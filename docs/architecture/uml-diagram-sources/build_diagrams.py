@@ -205,8 +205,14 @@ def build_diagrams():
 
 
 def graph_links():
-    """Links to a Graphify output folder next to the page, when there is one. The
-    graph is generated data (about 18 MB) and is not kept in the repository."""
+    """Links to the Graphify page kept next to this page (graphify-code-graph.html),
+    or to a full Graphify output folder when there is one. The raw graph data
+    (about 18 MB) is not kept in the repository."""
+    if (PAGE.parent / "graphify-code-graph.html").is_file():
+        return ['<p><a href="graphify-code-graph.html">graphify-code-graph.html</a>: the '
+                "interactive network, one node per community, named after its main symbol "
+                "and that symbol's own file. It loads the vis-network library from unpkg, so "
+                "it needs an internet connection.</p>"]
     if not (PAGE.parent / "graphify-out" / "graph.html").is_file():
         return ["<p>The graph is generated data and is not part of this folder. Build it again "
                 "with Graphify in code-only mode from a <code>git archive</code> of the commit.</p>"]

@@ -43,7 +43,9 @@ read in the files named.
   `SandboxLayer`. `ContainerLayer` is created four times, each owning one
   `ContainerHandler` (`MailHandler`, `ArchiveHandler`, `WebHandler`,
   `EmbeddedHandler`).
-- `ScanContext` owns a `Signals` object (19 typed signals, one per layer).
+- `ScanContext` owns a `Signals` object: 19 typed signals, one for each layer
+  except the hash, allowlist and local-db layers (the last two set the flags
+  `allowlisted` and `local_db_hit`; the hash layer sets no signal).
   `ScoringMatrix.score(signals)` returns a `ScoreResult` that owns its
   `Contribution` list.
 - Isolation (`engine/workers.py`): `scan_isolated()` creates an `_IsolatedScan`,

@@ -2498,6 +2498,16 @@ Documentation only: no application code, test, CI, dependency or detection chang
   `docs/architecture/graphify-code-graph.html` (552 KB, all 253 Python files at
   `72aa761`, loads `vis-network` from unpkg). The raw `graph.json` and cache
   (about 18 MB) stay outside the repository.
+- **Review of 2026-11-17 (before the owner shares the diagrams):** every claim in
+  the four diagrams and the README was re-read against the code (class members
+  per class, layer order, worker replies, time-out outcomes, defaults, intake
+  routes and destinations). Two errors were found and fixed: "19 typed signals,
+  one per layer" (the hash, allowlist and local-db layers have none) and the
+  diagrams page saying the graph is not in the folder. In the Graphify page, 65
+  of 335 community names paired a symbol with a file it is not in (for example
+  `tests/test_elf · ElfAnalyzer`); each is now named after its main symbol's own
+  file (`detectors/elf_analysis · ElfAnalyzer`). Nodes and links are unchanged
+  (335 nodes, 1,811 aggregated links, checked by comparing the data).
 - **Checked against the code:** inheritance and hubs from the graph; the pipeline
   order, the 12 worker reply kinds, the listener callbacks, the time-out outcomes
   of `_IsolatedScan._step`, every entry point and every output by reading
