@@ -2493,8 +2493,11 @@ Documentation only: no application code, test, CI, dependency or detection chang
 - **Baseline:** the code at `72aa761` (`f825915` adds documentation only).
 - **Graphify:** the stored code-only graph was rebuilt from a `git archive` of
   `f825915` with the network blocked and compared: the same 6,366 nodes, 15,577
-  edges and 335 communities. The graph stays outside the repository (generated
-  data, about 18 MB).
+  edges and 335 communities. On 2026-11-17 the owner asked for the interactive
+  page in the project so it can be shared: it is now
+  `docs/architecture/graphify-code-graph.html` (552 KB, all 253 Python files at
+  `72aa761`, loads `vis-network` from unpkg). The raw `graph.json` and cache
+  (about 18 MB) stay outside the repository.
 - **Checked against the code:** inheritance and hubs from the graph; the pipeline
   order, the 12 worker reply kinds, the listener callbacks, the time-out outcomes
   of `_IsolatedScan._step`, every entry point and every output by reading

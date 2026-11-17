@@ -141,7 +141,17 @@ overlap or a connector runs through an unrelated node.
 When the scan path changes (a layer, a worker message, an entry point, an output),
 change the definition file, rebuild, and update this text and the baseline in
 `build_diagrams.py`. The diagrams started from a Graphify code graph of the
-repository; the graph is generated data and is not kept here.
+repository.
+
+## Graphify code graph
+
+[`graphify-code-graph.html`](graphify-code-graph.html) is the interactive code
+graph the diagrams were drawn from: 6,366 nodes covering all 253 Python files at
+commit `72aa761`, grouped into named communities. It is a single page; it loads
+the `vis-network` 9.1.6 library from unpkg, so it needs an internet connection.
+It is a generated snapshot: the raw `graph.json` and Graphify cache are not kept
+in the repository. After the code changes, rebuild the graph with Graphify and
+replace this file, or the page will describe older code.
 
 ## The drawings
 
