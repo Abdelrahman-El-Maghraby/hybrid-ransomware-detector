@@ -1,9 +1,9 @@
 # Architecture overview
 
 A short, defensible tour of how Aegis Sentinel is built and why. Each section
-ends with the files to read. The same structure as five diagrams (class, use
-case, activity, system flowchart, deployment and trust boundaries), with the facts
-also stated in text, is in
+ends with the files to read. The same structure as six diagrams (class, use
+case, activity, system flowchart, Docker deployment and trust boundaries, and the
+optional Kubernetes deployment), with the facts also stated in text, is in
 [architecture/README.md](architecture/README.md).
 
 ## 1. One file, one context, many independent layers
@@ -104,7 +104,9 @@ only, D22), a persistent alert outbox with e-mail alerts
 S3-compatible storage (`core/cloud.py`), and an optional REST API with abuse limits
 (`api/limits.py`). In the Docker edition the analysis service has no network; the
 intel service (`api/intel.py`, `core/intel_client.py`) holds the external services
-and their secrets. All results follow
+and their secrets. The optional Kubernetes deployment (`deploy/kubernetes/`,
+`docs/KUBERNETES.md`) runs the analysis service and the TLS proxy without intel, so
+external services and e-mail alerts are off there. All results follow
 `api/scan_result.schema.json` (`schema_version`). Operations: structured JSON logs
 (`engine/logs.py`) and counters (`engine/metrics.py`, `GET /metrics`); see
 `docs/DEPLOYMENT.md`.

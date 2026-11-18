@@ -62,6 +62,7 @@ An optional layer that is disabled by configuration is recorded in provenance. I
 |---|---|---|
 | Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | `Dockerfile` and `docker-compose.yml` since 4.7; built and checked by the `docker` workflow (`deploy/check-deployment.sh`). |
 | Docker Engine on Linux arm64 | **Decision D5**; proposed "supported once the image is built and tested in CI" | Dependencies ship arm64 wheels (README); not tested yet. |
+| Kubernetes 1.29+ (`deploy/kubernetes/`, single instance, no intel) | **Not in the accepted scope**; optional manifests, unverified on a cluster. Support status is an owner decision, after K8S-1 and a test-cluster run | Rendered and checked offline (`tests/test_kubernetes.py`); `docs/KUBERNETES.md`, `docs/VERIFICATION_MATRIX.md` section 4. |
 | Docker Desktop on macOS / Windows | Evaluation only, not production | macOS cannot enforce RLIMIT_AS, so worker memory falls back to a 0.25 s watchdog (THREAT_MODEL §1). |
 | Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025; 4.8 keeps supporting it (D26). |
 | Python 3.13 | The lock file is resolved for 3.12 and later | `requirements.lock` header; not run in CI. |

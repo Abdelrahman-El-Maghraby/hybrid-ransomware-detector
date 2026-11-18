@@ -2,7 +2,7 @@
 
 A short guide for coming back to this project. It links to the detailed records
 instead of repeating them: [README](../README.md) (features and settings),
-[ARCHITECTURE](ARCHITECTURE.md) and its [five diagrams](architecture/README.md),
+[ARCHITECTURE](ARCHITECTURE.md) and its [six diagrams](architecture/README.md),
 [THREAT_MODEL](THREAT_MODEL.md),
 [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (every finding's current status),
 [PROJECT_REVIEW](PROJECT_REVIEW.md) (the review, sections 28 to 34) and
@@ -26,12 +26,12 @@ external opinions (VirusTotal, an LLM, a self-hosted CAPE sandbox).
 | Services | `api/` | the REST API (`server.py`) and, for Docker, the intel service (`intel.py`), the only part that reaches VirusTotal, the LLM or CAPE |
 | Desktop | `aegis_gui/`, `gui.py` | the Tk GUI; `RansomwareScanner.py` is the CLI |
 | Content | `rules/` | five YARA rule files (25 rules); installed from a wheel as `aegis_sentinel_rules` |
-| Operations | `deploy/`, `Dockerfile`, `docker-compose.yml`, `tools/` | Docker edition, backup and restore, deployment check, evaluation and build tools |
-| Tests | `tests/`, `test_smoke.py` | about 1,850 tests; see section 4 for what runs here |
+| Operations | `deploy/`, `Dockerfile`, `docker-compose.yml`, `tools/` | Docker edition, backup and restore, deployment check, the optional Kubernetes deployment (`deploy/kubernetes/`, [guide](KUBERNETES.md)), evaluation and build tools |
+| Tests | `tests/`, `test_smoke.py` | about 2,000 tests; see section 6 for what runs here |
 
 ## 2. What the hardening branch changed
 
-Branch `review/production-hardening`, cut from `3e5a3f2`; 108 commits, **local
+Branch `review/production-hardening`, cut from `3e5a3f2`; over 120 commits, **local
 only, never pushed or published**. By purpose (IDs and commits in the register):
 
 - **Security:** checked JSON from workers instead of pickle (M18); the API reads an
@@ -66,9 +66,9 @@ only, never pushed or published**. By purpose (IDs and commits in the register):
 ## 3. What is fixed, and the evidence
 
 Each fix has a regression test that failed on the code before it and passes after
-it (the handoff records each before/after run). The last full local run is in the
-handoff's "Final checkpoint": the documented safe selection and `test_smoke.py` on
-the final commit. That is evidence for **macOS on Apple Silicon, Python 3.14.2,
+it (the handoff records each before/after run). The latest full local runs are in
+[VERIFICATION_MATRIX](VERIFICATION_MATRIX.md): the documented safe selection with
+its commands, revision, skips and deselections. That is evidence for **macOS on Apple Silicon, Python 3.14.2,
 synthetic inputs and local stand-in services only**.
 
 ## 4. What remains
@@ -100,8 +100,8 @@ All in the [register](FINDINGS_REGISTER.md):
 
 ## 6. How to resume
 
-1. Read `AGENTS.md`, `docs/AI_WORKFLOW.md`, this file and the handoff's "Final
-   checkpoint". Check `git status`, the branch and HEAD against it. `.arena/` is
+1. Read `AGENTS.md`, `docs/AI_WORKFLOW.md`, this file and the status at the top of
+   the handoff. Check `git status`, the branch and HEAD against it. `.arena/` is
    unrelated local data: leave it alone.
 2. Do not redo completed work: the register says what is fixed and by which commit.
 3. Test locally with the handoff's documented safe-selection command. Never run
