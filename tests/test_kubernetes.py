@@ -456,6 +456,88 @@ def test_scripts_need_an_explicit_context_and_namespace(tmp_path, script, args):
     assert not log.exists()
 
 
+_FAKE_KUBECTL = """#!/bin/sh
+# records every call; answers only the read-only preflight of verify-cluster.sh
+echo "$@" >> "$AEGIS_FAKE_LOG"
+case "$*" in
+  *" version -o json"*) echo '{"serverVersion": {"major": "1", "minor": "'"$AEGIS_FAKE_MINOR"'"}}' ;;
+  *"get namespace"*"jsonpath"*) printf '%s' "$AEGIS_FAKE_LABEL" ;;
+  *"get namespace"*) echo ok ;;
+  *"auth can-i"*) echo yes ;;
+  *) exit 1 ;;
+esac
+"""
+
+
+def _verify(tmp_path, args, minor="31", label=""):
+    stub = tmp_path / "kubectl"
+    stub.write_text(_FAKE_KUBECTL, encoding="utf-8")
+    stub.chmod(0o755)
+    for name in ("token", "ca.pem"):
+        (tmp_path / name).write_text("x" * 32, encoding="utf-8")
+    log = tmp_path / "calls"
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", AEGIS_FAKE_LOG=str(log),
+               AEGIS_FAKE_MINOR=minor, AEGIS_FAKE_LABEL=label)
+    run = subprocess.run(["bash", str(K8S / "verify-cluster.sh"), "--context", "kind-test",
+                          "--token-file", str(tmp_path / "token"), "--ca-file",
+                          str(tmp_path / "ca.pem"), "--yes", *args],
+                         capture_output=True, encoding="utf-8", timeout=60,
+                         stdin=subprocess.DEVNULL, env=env)
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return run, calls
+
+
+_READ_ONLY = (" version ", " get namespace ", " auth can-i ")
+
+
+@needs_bash
+@pytest.mark.parametrize("args,why", [
+    (["--namespace", "default"], "shared"),
+    (["--namespace", "kube-system"], "shared"),
+    (["--namespace", "aegis-test", "--control-namespace", "kube-public"], "shared"),
+    (["--namespace", "aegis-test", "--control-namespace", "aegis-test"], "must differ"),
+    (["--namespace", "Bad_Name"], "bad namespace"),
+])
+def test_verify_refuses_shared_or_ambiguous_namespaces(tmp_path, args, why):
+    run, calls = _verify(tmp_path, args, label="disposable")
+    assert run.returncode == 2 and why in run.stderr
+    assert calls == []
+
+
+@needs_bash
+@pytest.mark.parametrize("flag", [["--restart-test"], ["--drift-test"],
+                                  ["--control-namespace", "aegis-control"]])
+def test_verify_changes_nothing_in_an_unlabelled_namespace(tmp_path, flag):
+    """The changing checks need aegis-sentinel.io/verification=disposable; without
+    it the run stops after read-only calls."""
+    run, calls = _verify(tmp_path, ["--namespace", "aegis-test", *flag], label="")
+    assert run.returncode == 2 and "aegis-sentinel.io/verification=disposable" in run.stderr
+    assert calls and all(any(r in f" {c} " for r in _READ_ONLY) for c in calls), calls
+    assert all("--context kind-test" in c for c in calls)
+
+
+@needs_bash
+def test_verify_refuses_a_cluster_older_than_1_29(tmp_path):
+    run, calls = _verify(tmp_path, ["--namespace", "aegis-test"], minor="28+")
+    assert run.returncode == 2 and "1.29 or later" in run.stderr
+    assert all(" version " in f" {c} " for c in calls)
+
+
+def test_verify_deletes_only_what_it_created():
+    """Clean-up walks the list of objects this run created (named with its marker);
+    no delete names anything else, and no label selector is ever deleted."""
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
+    import re
+    deletes = [line.strip() for line in text.splitlines()
+               if re.search(r"(^|\s)kc? delete ", line) and not line.lstrip().startswith("#")]
+    allowed = ('delete "${item#* }"', 'delete pod "$old"', 'delete networkpolicy "$marker-drift"')
+    assert deletes and all(any(a in d for a in allowed) for d in deletes), deletes
+    assert "delete -l" not in text and not re.search(r"--all(\s|$)", text)
+    for created in ('created+=("$cns pod/$marker-$role")', 'created+=("$cns service/$marker")',
+                    'created+=("$ns networkpolicy/$marker-drift")'):
+        assert created in text
+
+
 def test_scripts_never_switch_the_current_context():
     for script in ("verify-cluster.sh", "content-update.sh"):
         text = (K8S / script).read_text(encoding="utf-8")
@@ -463,7 +545,8 @@ def test_scripts_never_switch_the_current_context():
         calls = [line for line in text.splitlines() if not line.lstrip().startswith("#")
                  and (line.strip().startswith("kubectl") or " kubectl " in line)]
         assert calls
-        assert all('--context "$ctx" --namespace "$ns"' in c for c in calls), calls
+        assert all('--context "$ctx" --namespace "$ns"' in c or
+                   '--context "$ctx" --namespace "$cns"' in c for c in calls), calls
 
 
 def test_the_token_never_appears_on_a_command_line():
