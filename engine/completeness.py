@@ -182,6 +182,11 @@ def _web_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
     web = sr.get("web")
     if not isinstance(web, dict):
         return
+    if web.get("truncated"):
+        # RV-S1: only the first MAX_READ bytes were analysed (embedded payloads too);
+        # a fuzzy limit at the same size used to hide this
+        out.append(reason(PARTIAL, ctx.display, "web",
+                          "page longer than the analysis limit: only its beginning was read"))
     for text in web.get("skipped") or []:
         out.append(reason(PARTIAL, ctx.display, "web", f"not scanned: {text}"))
 

@@ -225,6 +225,20 @@ def test_the_limit_itself_leaves_the_scan_complete(scanner, tmp_path):
     assert not any(x["layer"] == "web" for x in r["incomplete_reasons"])
 
 
+def test_a_page_cut_at_the_read_limit_is_partial(scanner, tmp_path, monkeypatch):
+    """RV-S1: a small read limit stands in for the 20 MB one; the page stays below
+    the fuzzy layer's limit, which used to be the only thing marking such a scan
+    partial (both are 20 MB by default)."""
+    import detectors.web_content as wc
+    monkeypatch.setattr(wc, "MAX_READ", 1000)
+    (tmp_path / "scan").mkdir(exist_ok=True)
+    p = page(tmp_path / "scan", "long.html", "<html><body>" + "<p>news</p>" * 400 + "</body></html>")
+    r = scanner.scan_file(str(p))
+    assert r["scan_results"]["web"]["truncated"] and r["scan_status"] == "partial"
+    assert any(x["layer"] == "web" and "only its beginning" in x["reason"]
+               for x in r["incomplete_reasons"])
+
+
 def test_scanner_leaves_a_plain_page_clean(scanner, tmp_path):
     (tmp_path / "scan").mkdir(exist_ok=True)
     p = page(tmp_path / "scan", "menu.html", "<html><body><p>Lunch menu</p></body></html>")
