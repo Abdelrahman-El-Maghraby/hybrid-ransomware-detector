@@ -33,7 +33,7 @@ jobs:
           python -m pip install -e . --no-deps
           mypy
       - name: bandit (security linter; medium and high findings fail the job)
-        run: bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll
+        run: bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py deploy -ll
 
   coverage:
     runs-on: ubuntu-latest

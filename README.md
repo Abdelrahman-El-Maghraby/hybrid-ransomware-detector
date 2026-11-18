@@ -722,7 +722,7 @@ pip install -e ".[dev]"          # or, hash-checked: pip install --require-hashe
 python -m pytest                 # about 2,000 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
 python -m pytest --cov           # coverage report; CI fails under 85 %
 ruff check . && mypy             # lint (incl. complexity < 20, lazy logging) and types, also in CI
-bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll   # security linter, as in CI
+bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py deploy -ll   # security linter, as in CI
 python test_smoke.py             # the original v3 smoke test, still passing
 
 # optional: the GUI test drives the real window (needs a display)

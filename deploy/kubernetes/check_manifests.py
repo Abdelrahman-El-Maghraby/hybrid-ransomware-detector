@@ -40,6 +40,7 @@ WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Replic
 FORBIDDEN_KINDS = {"HorizontalPodAutoscaler", "Role", "ClusterRole", "RoleBinding",
                    "ClusterRoleBinding", "Ingress", "PodDisruptionBudget"}
 CONTENT_PATH = "/var/lib/aegis/RansomwareScanner/data"
+SCRATCH = "/tmp"  # noqa: S108  # nosec B108  # a mount path compared in manifests, never opened
 PLACEHOLDER = re.compile(r"SET-VERSION-IN-OVERLAY|REPLACE")
 
 
@@ -188,7 +189,7 @@ def _check_analysis(owner, c, pod, mounts, volumes, secrets) -> List[str]:
         claim = (volumes.get(m.get("name")) or {}).get("persistentVolumeClaim") or {}
         if not m.get("readOnly") or not claim.get("readOnly"):
             p.append(f"{owner}: analysis must mount the detection content read-only")
-    tmp = [m for m in mounts.values() if m.get("mountPath") == "/tmp"]  # noqa: S108  # nosec B108
+    tmp = [m for m in mounts.values() if m.get("mountPath") == SCRATCH]
     if not tmp or (volumes.get(tmp[0].get("name")) or {}).get("emptyDir", {}).get("medium") \
             != "Memory":
         p.append(f"{owner}: analysis /tmp must be a memory-backed, size-limited emptyDir")

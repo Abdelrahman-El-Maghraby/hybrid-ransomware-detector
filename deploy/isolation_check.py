@@ -75,7 +75,7 @@ def common(role):
     check("no-new-privileges", status_field("NoNewPrivs") == "1")
     check("seccomp filter", status_field("Seccomp") == "2", f"Seccomp {status_field('Seccomp')}")
     check("read-only root fs", "ro" in mount_options("/"), ",".join(mount_options("/")[:2]))
-    tmp = mount_options("/tmp")  # noqa: S108  # nosec B108 - reads mount options only
+    tmp = mount_options("/tmp")  # noqa: S108  # nosec B108  # reads mount options only
     check("tmp is noexec,nosuid", "noexec" in tmp and "nosuid" in tmp, ",".join(tmp[:6]))
 
 

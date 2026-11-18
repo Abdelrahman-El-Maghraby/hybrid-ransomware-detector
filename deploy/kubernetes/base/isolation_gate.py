@@ -36,6 +36,7 @@ TIMEOUT = float(os.environ.get("AEGIS_GATE_TIMEOUT", "2"))
 WAIT = TIMEOUT * 3 + 2                   # all probes together; below the probe time-outs
 API_SOCKET = os.environ.get("AEGIS_API_SOCKET", "/run/aegis/api/api.sock")
 CONTENT = "/var/lib/aegis/RansomwareScanner/data"
+SCRATCH = "/tmp"  # noqa: S108  # nosec B108  # only its mount options are read
 # Names of settings that belong to the external services. None of them may reach the
 # analysis container: Kubernetes has no intel service yet (docs/KUBERNETES.md).
 EXTERNAL_SETTINGS = ("VIRUSTOTAL_API_KEY", "OPENAI_API_KEY", "SANDBOX_URL", "SANDBOX_TOKEN",
@@ -90,7 +91,7 @@ def resolve_probe(name: str) -> Tuple[bool, str]:
 def nameservers(path: str = "/etc/resolv.conf") -> List[str]:
     found = []
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 parts = line.split()
                 if len(parts) >= 2 and parts[0] == "nameserver":
@@ -206,9 +207,15 @@ def posture_checks() -> List[Result]:
     held = [k for k in EXTERNAL_SETTINGS if os.environ.get(k) or os.environ.get(k + "_FILE")]
     res.append(("no external-service setting", not held, ",".join(held) or "none"))
     res.append(("detection content mounted read-only", "ro" in _mount_options(CONTENT), CONTENT))
+    probe = os.path.join(CONTENT, ".aegis-gate-write-test")
     try:
-        with open(os.path.join(CONTENT, ".aegis-gate-write-test"), "w") as fh:
+        with open(probe, "w", encoding="utf-8") as fh:
             fh.write("x")
+        # a failed check must not leave a file in the detection content
+        try:
+            os.remove(probe)
+        except OSError:
+            pass
         res.append(("cannot write detection content", False, "written"))
     except OSError as e:
         res.append(("cannot write detection content", True, e.strerror or type(e).__name__))
@@ -217,9 +224,8 @@ def posture_checks() -> List[Result]:
 
 def info_lines() -> List[str]:
     """Known differences from Docker; reported, not failed (docs/KUBERNETES.md)."""
-    tmp = _mount_options("/tmp")  # noqa: S108  # nosec B108 - reads mount options only
-    return ["/tmp mount options: "  # noqa: S108  # nosec B108
-            f"{','.join(tmp[:6])} (emptyDir: Kubernetes sets no noexec)",
+    tmp = _mount_options(SCRATCH)
+    return [f"{SCRATCH} mount options: {','.join(tmp[:6])} (emptyDir: Kubernetes sets no noexec)",
             f"container pids.max: {_pids_max()} (the node's podPidsLimit is the Pod limit)"]
 
 

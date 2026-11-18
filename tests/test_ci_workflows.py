@@ -81,3 +81,16 @@ def test_the_dependency_audit_also_runs_daily_and_reports_failures():
     assert "failure()" in report["if"] and "schedule" in report["if"]
     script = report["steps"][0]["run"]
     assert "gh issue create" in script and "gh issue comment" in script
+
+
+def test_bandit_gate_covers_the_deployment_tooling():
+    """deploy/ holds the Docker and Kubernetes isolation checks and the manifest
+    checker; the gate keeps its severity (-ll: medium and high fail) and scans them."""
+    run = _steps(_load("quality.yml")["jobs"]["lint-and-types"])[
+        "bandit (security linter; medium and high findings fail the job)"]["run"]
+    args = run.split()
+    assert args[:3] == ["bandit", "-q", "-r"] and args[-1] == "-ll"
+    for target in ("engine", "detectors", "core", "api", "aegis_gui", "tools",
+                   "RansomwareScanner.py", "deploy"):
+        assert target in args
+    assert "-x" not in args and "--skip" not in args and "-s" not in args
