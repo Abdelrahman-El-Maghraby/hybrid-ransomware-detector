@@ -215,6 +215,41 @@ def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
         assert run.returncode == 1 and "is not writable by uid" in run.stderr
 
 
+@needs_kubectl
+def test_prepare_state_keeps_an_existing_volume_as_it_is(base, tmp_path):
+    """A claim from an earlier start (or a restored snapshot): the folders and their
+    files stay, nothing is re-moded or re-owned, and running it again changes
+    nothing."""
+    code = _prepare(pod(base))["command"][2]
+    home = tmp_path / "home"
+    app = home / "RansomwareScanner"
+    (app / "data").mkdir(parents=True)
+    (app / "ransomware_scanner.log").write_text("earlier lines\n")
+    app.chmod(0o750)
+    before = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
+    for _ in range(2):
+        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(home))],
+                             capture_output=True, text=True, timeout=30)
+        assert run.returncode == 0, run.stderr
+    after = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
+    assert after == before
+    assert (app / "ransomware_scanner.log").read_text() == "earlier lines\n"
+
+
+@needs_kubectl
+def test_prepare_state_changes_no_permissions_and_stays_hardened(base):
+    for spec in (pod(base), _job()):
+        prep = _prepare(spec)
+        code = prep["command"][2]
+        for call in ("chmod", "chown", "umask", "setuid", "setgid"):
+            assert call not in code
+        sc = prep["securityContext"]
+        assert sc["allowPrivilegeEscalation"] is False and sc["capabilities"] == {"drop": ["ALL"]}
+        assert sc["readOnlyRootFilesystem"] is True and "runAsUser" not in sc
+        assert spec["securityContext"]["runAsUser"] == 10001
+        assert spec["securityContext"]["fsGroupChangePolicy"] == "OnRootMismatch"
+
+
 # ------------------------------------------------------------------ the checker rejects
 
 def _broken(base, change):

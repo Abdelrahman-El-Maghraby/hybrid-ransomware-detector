@@ -311,7 +311,12 @@ the container runtime would create those mount-point folders as root with mode
 `RansomwareScanner/data`, and checks that it can write there; it stops with
 "is not writable by uid 10001" when the driver ignores `fsGroup` (then fix the
 volume's ownership with the storage provider's tools). The content Job does the
-same for its home emptyDir. Nothing runs as root to chown.
+same for its home emptyDir. Nothing runs as root to chown, and nothing changes a
+mode: on an existing or restored claim the folders and files are left exactly as
+they are. A claim whose `RansomwareScanner` folder already belongs to root (one
+started without this step) stops `prepare-state` with the same message; give that
+folder to uid 10001 with the storage provider's tools, or start from a new claim
+and reinstall the rule pack.
 
 ## Backup and restore
 

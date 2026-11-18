@@ -52,6 +52,17 @@ available), **history** (an earlier revision only).
 | Backup and restore scripts on real volumes | pending |
 | Upgrade from 4.7 and rollback of a rule pack | pending |
 
+### Kubernetes (optional; `deploy/kubernetes/`, [KUBERNETES](KUBERNETES.md))
+
+| Check | Status |
+|---|---|
+| Base and example overlay render (`kubectl kustomize`, client 1.36.1, Kustomize 5.8.1, offline) | passed here |
+| `check_manifests.py` invariants; the checker rejects weakened copies; the gate's classification; scripts refuse to run without context and namespace | passed here (`tests/test_kubernetes.py`, 61 tests) |
+| Schema validation against a server, admission (`restricted`) | pending: no cluster; no offline schema validator installed |
+| NetworkPolicy enforcement, isolation gate in a Pod, `fsGroup` on real storage, probes, shutdown, `content-update.sh`, `verify-cluster.sh` | pending: needs an approved test cluster |
+| Image provides `sh` and `find` for the analysis start command | pending: Docker not running here |
+| Intel on Kubernetes | not implemented: owner decision K8S-1 |
+
 ### Real integrations
 
 | Service | Status |
@@ -110,3 +121,28 @@ Python 3.14.2, temporary HOME and TMPDIR, bytecode disabled,
 Not run: pip-audit (no dependency changed), the coverage gate as CI runs it,
 the wheel build (no packaging file changed), Docker, CI and everything marked
 pending above.
+
+## 4. Checks run for the Kubernetes deployment (2026-11-18)
+
+At `7ae85eb` (manifests before `prepare-state`), macOS 27.2.1 on Apple Silicon,
+Python 3.14.2, temporary HOME and TMPDIR, `PATH=/usr/local/bin:/usr/bin:/bin`
+(kubectl found; Homebrew's `7zz` and `unar` not on the path),
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`:
+
+| Check | Result |
+|---|---|
+| Safe suite (same selection and deselections as section 3) | **1,960 passed, 0 failed, 23 skipped, 4 deselected**, 1 warning, 551 s. The 15 skips beyond section 3 are 7-Zip and RAR tests, because that PATH left out `/opt/homebrew/bin`; no Kubernetes test was skipped |
+| Ruff (tracked Python files) | clean (the untracked `.arena/` scratch folder has findings; not part of the repository) |
+| Mypy | no issues in 69 source files |
+| Bandit gate | clean; `bandit -ll -r deploy/kubernetes` clean |
+
+At `817d3b9` (adds `prepare-state`): `tests/test_kubernetes.py` 59 passed; the
+base renders and passes `check_manifests.py --allow-placeholders`; the example
+overlay renders and is refused until its placeholders are filled in; diagram
+build without layout problems; diagrams 1 to 5 unchanged byte for byte. The full
+suite was not repeated for that commit: it changes only manifests, the checker's
+uid table, tests and documentation.
+
+Not run: anything against a cluster, image builds, `verify-cluster.sh`,
+`content-update.sh`.
+

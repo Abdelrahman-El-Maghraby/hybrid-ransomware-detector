@@ -148,6 +148,12 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
   LLM (I-6, L-L1), Tesseract and poppler (L-E5), SMTP, webhook receivers, S3; the GUI
   on a display (M28, L-C6, L-G1, L-E9, M30).
 - **Hardware:** Linux and Windows ARM64, macOS Intel (no runner).
+- **Kubernetes (optional deployment, `deploy/kubernetes/`):** never run on a
+  cluster. Pending a test cluster and the owner's approval: admission, schema
+  validation against the server, NetworkPolicy enforcement, `fsGroup` handling by
+  the storage driver, probe timing, shutdown within the grace period, resource
+  use, `content-update.sh`; `verify-cluster.sh` covers these. The image's `sh` and
+  `find` (used by the analysis start command) are not checked (Docker not running).
 - **Corpora:** a benign corpus for M29, M32 and S-Y1 to S-Y4 (only synthetic
   examples were used: `tests/fp_examples.py`, `tests/sy_examples.py`); real-sample
   evaluation in the VM (detection rate unmeasured).
@@ -164,3 +170,10 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
   Atheris campaigns; a push plus manual dispatch would not).
 - Exit code 2's three meanings and the IMAP fetch retry: kept as they are.
 - When to drop Python 3.9 (kept for now).
+- **K8S-1:** the intel transport on Kubernetes. Intel reaches analysis only over a
+  Unix socket, which cannot cross Pods without weakening isolation, so the
+  Kubernetes deployment runs without intel (no VirusTotal, LLM, CAPE or e-mail
+  alerts). Proposal (TCP with TLS and the token, one egress rule from the analysis
+  Pod, fixed address, no DNS) in [KUBERNETES](KUBERNETES.md#intel-external-services);
+  approve, reject or amend before anything is built.
+- Whether to run `deploy/kubernetes/verify-cluster.sh` on a dedicated test cluster.

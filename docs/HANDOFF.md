@@ -1,12 +1,14 @@
 # Current task handoff
 
-- Status: **review of thirteen items complete; paused for owner review** (2026-11-17).
-  Production-engineering review and staged fixes; not ready for merge and not
-  production ready. Latest: section "Review of thirteen items (2026-11-17)" below.
+- Status: **optional Kubernetes deployment implemented and statically validated;
+  paused for owner decisions** (2026-11-18). Runtime validation on a cluster is
+  pending. Not ready for merge and not production ready. Latest: section
+  "Optional Kubernetes deployment (2026-11-18)" at the end; the thirteen-item
+  review (2026-11-17) before it is complete.
   Start here: [PROJECT_MAP](PROJECT_MAP.md) (what the project is, what changed, how
   to resume), [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (the current status of
   every finding) and [architecture/README](architecture/README.md) (how the scanner
-  is built: five diagrams, also stated in text). Current checks per platform:
+  is built: six diagrams, also stated in text). Current checks per platform:
   [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md). The sections below are the
   history of the work, in order; older "still open" lists in them are superseded by
   the register.
@@ -2561,8 +2563,49 @@ Sanitised brief, dispositions and proposals:
   the GUI on a display, desktop packaging, real samples, fuzz campaigns, OOM work.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Exact next action (superseded 2026-11-18)
+
+Paused for owner review; see the Kubernetes section below for the current next
+action.
+
+## Optional Kubernetes deployment (2026-11-18)
+
+- **Goal and brief:** an optional, single-instance Kubernetes deployment reusing
+  the existing images; Docker Compose and the desktop/CLI unchanged. Brief and
+  boundaries: [tasks/kubernetes-deployment-2026-11-18.md](tasks/kubernetes-deployment-2026-11-18.md).
+  Guide: [KUBERNETES](KUBERNETES.md).
+- **Agent:** Claude Code, the only editor. Branch `review/production-hardening`,
+  local only, started at `b93f287`. Nothing pushed, merged, published or deployed;
+  no cluster contacted, no kubectl context read or changed (only offline
+  `kubectl kustomize`).
+- **Decision:** one Pod (analysis + TLS proxy over the Unix socket in an
+  emptyDir), default-deny NetworkPolicy with ingress TCP 8443 only and no egress,
+  restricted Pod Security, isolation-gate init container and readiness probe,
+  ReadWriteOncePod claims, content written only by a Job while analysis is scaled
+  to zero. **No intel on Kubernetes:** external services and e-mail alerts are
+  unavailable there until owner decision K8S-1 (proposal in the guide).
+- **Commits:** `a139fa3` manifests, checker, gate, operator scripts, tests;
+  `00c0639` guide and `/tmp` clearing at container start (an emptyDir outlives a
+  container restart); `7ae85eb` diagram 6 and THREAT_MODEL section 14; `817d3b9`
+  `prepare-state` (the runtime would create the nested content mount point in a
+  new state claim as root 0755, so uid 10001 could not write its log; Docker seeds
+  its volume from the image); then the commit with the fresh/existing-volume tests
+  and these documents (last implementation commit before it: `817d3b9`).
+- **No application code changed.** No detection, threshold, coverage or schema
+  change.
+- **Checks:** [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md) section 4. Safe suite
+  at `7ae85eb`: 1,960 passed, 0 failed. Final revision results are recorded there.
+- **Pending, not verified anywhere:** everything at run time on a cluster
+  (admission, server-side schema, NetworkPolicy enforcement, `fsGroup` on real
+  storage and Linux ownership of the folders `prepare-state` creates, probes,
+  shutdown within 330 s, resources, `content-update.sh`, `verify-cluster.sh`);
+  the image's `sh` and `find` (Docker not running).
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-None. The branch is paused for owner review. Owner decisions in
-[FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6 come first, now including the
-S-Y proposals P1 to P3 and whether to authorise the 27.5/B4 VM plan.
+Owner decisions: K8S-1 (intel transport on Kubernetes) and whether to approve a
+dedicated test cluster for `deploy/kubernetes/verify-cluster.sh --restart-test`
+and a `content-update.sh` run with a test-signed pack; then the earlier decisions
+in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6. No step runs without
+approval.
