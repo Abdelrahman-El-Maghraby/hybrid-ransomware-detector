@@ -402,11 +402,19 @@ production profile sends nothing outside.
   network plugin. An init container and the readiness probe
   (`isolation_gate.py`) keep the Pod out of service while the internet, public or
   cluster DNS, the Kubernetes API or the metadata address answers. They detect a
-  missing or late policy; they do not stop code already running in the Pod.
+  missing or late policy; they do not stop code already running in the Pod. The
+  probes are a finite sample: a time-out counts as blocked, so only the
+  destinations that always exist (cluster DNS, the API server) make a pass
+  meaningful; `verify-cluster.sh --control-namespace` adds a positive control.
+  A failing readiness probe removes the Pod from the Service; it does not stop
+  the process or the scans in progress.
 - **Not blockable here:** traffic to and from the Pod's own node, which
   NetworkPolicy always allows (node-local services, the kubelet's port), and the
   proxy container, which shares the Pod's network namespace (it listens on 8443
-  and holds the TLS key, not the API token).
+  and holds the TLS key, not the API token). Code in analysis can reach the
+  proxy over loopback, and could bind 8443 while the proxy is down; without the
+  TLS key it cannot pass a client that verifies the certificate
+  ([KUBERNETES](KUBERNETES.md#isolation-contract-and-its-limits)).
 - **Less to rely on than Docker:** `/tmp` is not `noexec` (a written file can be
   run; capabilities and no-new-privileges still apply), the process limit is the
   node's `podPidsLimit`, and Secrets are protected by the cluster's RBAC and

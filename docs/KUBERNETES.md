@@ -20,7 +20,7 @@ Contents: [Architecture](#architecture) ·
 [Backup and restore](#backup-and-restore) · [Upgrade and rollback](#upgrade-and-rollback) ·
 [Rotation](#rotation) · [Remove](#remove) · [Resources and shutdown](#resources-and-shutdown) ·
 [Scaling](#scaling) · [Differences from Docker Compose](#differences-from-docker-compose) ·
-[Intel](#intel-external-services) · [Troubleshooting](#troubleshooting) ·
+[Isolation contract](#isolation-contract-and-its-limits) · [Intel](#intel-external-services) · [Troubleshooting](#troubleshooting) ·
 [Checks](#checks)
 
 ## Architecture
@@ -76,7 +76,7 @@ Alternatives considered and rejected:
 | Requirement | Why | If absent |
 |---|---|---|
 | Kubernetes 1.29 or later | `ReadWriteOncePod` is stable from 1.29 | Claims are refused or stay Pending |
-| A network plugin that **enforces NetworkPolicy** (Calico, Cilium, Antrea, ...) | Without it the policies "have no effect" (Kubernetes documentation) and the analysis Pod has full network access | The isolation-gate init container fails and the Pod never starts; the readiness probe takes a running Pod out of service if enforcement stops |
+| A network plugin that **enforces NetworkPolicy** (Calico, Cilium, Antrea, ...) | Without it the policies "have no effect" (Kubernetes documentation) and the analysis Pod has full network access | The isolation-gate init container fails, because the cluster DNS and the API server answer, and the Pod never starts; the readiness probe takes a running Pod out of service if enforcement stops. The probes are a sample, not a proof ([Isolation contract](#isolation-contract-and-its-limits)) |
 | A CSI storage class that supports `ReadWriteOncePod` | One Pod at a time per claim: no concurrent writer of content or state | Claims stay Pending (or set `ReadWriteOnce` deliberately: [Storage](#storage)) |
 | Pod Security Admission (built in since 1.25) | The namespace enforces `restricted` | Without admission the labels do nothing; `check_manifests.py` still checks every field |
 | Kubelet `podPidsLimit` (for example 512) | Kubernetes has no per-Pod or per-container process limit in the Pod spec; Docker's `pids_limit` has no Pod-spec equivalent | A fork bomb in a parser is bounded only by the node's settings |
@@ -219,41 +219,72 @@ Pod runs on is always allowed by NetworkPolicy, whatever the rule says.
 
 ## Verify
 
-`deploy/kubernetes/verify-cluster.sh` is for a **dedicated test cluster**, run by
-the operator with the owner's approval; nobody has run it yet.
+Two kinds of evidence, kept apart:
 
-```bash
-deploy/kubernetes/verify-cluster.sh --context "$CTX" --namespace aegis-sentinel \
-    --token-file ~/aegis-k8s-secrets/api_token --ca-file ca.pem --server-name aegis.test \
-    --probe 10.0.0.5:443 --restart-test
-```
+- **Static** (this repository, no cluster): `check_manifests.py`, the rendered
+  base and overlay, and `tests/test_kubernetes.py`. They show what the YAML
+  requests, not what a cluster does with it.
+- **Runtime** (an approved, dedicated test cluster): `verify-cluster.sh`.
+  **Nobody has run it yet**; every runtime property below is unverified until
+  someone does.
 
-It needs `kubectl`, `curl` and `python3` with PyYAML on the operator's machine. It
-checks:
+### Runtime procedure (operator-run, disposable namespaces, inert files only)
 
-- the deployed objects with `check_manifests.py`, and that no Role, RoleBinding or
-  autoscaler exists in the namespace;
-- that the rollout completes and the Pod is Ready;
-- inside the analysis container (`isolation_gate.py verify`): not root, no
-  capabilities, no-new-privileges, seccomp filtering, read-only root, no
-  service-account token, no external-service setting, the content read-only and
-  not writable, and that the internet (IPv4 and IPv6), public DNS, the cluster DNS,
-  the Kubernetes API, the metadata address and every `--probe` target do not
-  answer; the `/tmp` mount options and `pids.max` are printed for the record;
-- that the analysis container holds only the API token, and the proxy container's
-  capabilities, no-new-privileges, seccomp and user;
-- through TLS (a port-forward): `/health` 200, `/version` 401 without and with a
-  wrong token, `/ready` 200 with the token, and an inert text file scanned as Clean;
-- with `--restart-test`: deletes the Pod once, prints how long shutdown took, and
-  checks that a marker in the state claim survived, `/tmp` is new, and the
-  rule-pack version is unchanged.
+1. Choose a test cluster and the context name explicitly. The script never reads
+   or changes the current context; every call names `--context`.
+2. Create two empty namespaces and mark them disposable. The script refuses
+   `default` and `kube-*`, and runs no changing check without this label:
 
-The token goes to curl in a header file and is never printed. The script creates
-nothing in the cluster; `--restart-test` deletes one Pod (the Deployment replaces
-it) and removes the marker it wrote. Intel checks are reported as not applicable:
-intel is not deployed. Add `--probe` targets for anything else the analysis Pod
-must not reach (another Service, a node address, a database); traffic to the
-Pod's own node cannot be blocked by NetworkPolicy at all.
+   ```bash
+   kubectl --context "$CTX" create namespace aegis-verify
+   kubectl --context "$CTX" create namespace aegis-verify-control
+   kubectl --context "$CTX" label namespace aegis-verify aegis-verify-control \
+       aegis-sentinel.io/verification=disposable \
+       pod-security.kubernetes.io/enforce=restricted
+   ```
+
+3. Deploy into `aegis-verify` with an overlay that sets `namespace: aegis-verify`
+   (Secrets as in [Secrets and TLS](#secrets-and-tls), with a test token and a
+   test CA). This is the **fresh-volume** start: `prepare-state` creates the
+   state folders on new claims.
+4. Run the checks:
+
+   ```bash
+   deploy/kubernetes/verify-cluster.sh --context "$CTX" --namespace aegis-verify \
+       --token-file ~/aegis-test/api_token --ca-file ~/aegis-test/ca.pem \
+       --server-name aegis.test --control-namespace aegis-verify-control \
+       --drift-test --restart-test
+   ```
+
+5. For content maintenance, install a **test-signed** pack with
+   `content-update.sh` (it scales analysis to zero, runs the Job, scales back),
+   then run step 4 again without `--drift-test`: the rule-pack version must be
+   the new one, and a pack with a bad signature must leave the old content.
+6. Delete both namespaces. The script removes only what it created; the claims
+   and Secrets belong to the operator's deployment.
+
+Before changing anything, the script checks that the server is 1.29 or later,
+that the namespaces exist (and carry the label when a changing check was asked
+for), and that the operator may do what the selected checks need
+(`kubectl auth can-i`). It then checks:
+
+| Area | Check | Kind |
+|---|---|---|
+| Objects | the live objects pass `check_manifests.py`; no Role, RoleBinding or autoscaler | read |
+| Start | rollout completes, Pod Ready, `prepare-state` ran; the state folder belongs to uid 10001 (fresh volume); the socket's mode and owner are printed | read |
+| Isolation | `isolation_gate.py verify` inside analysis: not root, no capabilities, no-new-privileges, seccomp, read-only root, no service-account token, no external setting, content read-only and not writable, and the internet, DNS, the API server, the metadata address and every `--probe` do not answer | read |
+| Secrets | analysis sees its token and not the TLS key; the proxy sees its certificate (positive control) and not the token | read |
+| API over TLS | `/health` 200; `/version` 401 without and with a wrong token; `/ready` 200; an inert text file scanned Clean; one byte over `AEGIS_API_MAX_UPLOAD_MB` gets the **API's** JSON 413 (so the proxy's cap is above it) | read |
+| Controlled network (`--control-namespace`) | a listener and a client Pod in the control namespace: the client reaches the listener and resolves cluster DNS (**positive controls**), and only then does "analysis cannot reach the listener" count; if the positive control fails the result is *inconclusive*, not a pass | creates 2 Pods, 1 Service |
+| After start-up (`--drift-test`) | a NetworkPolicy that allows DNS egress is added: readiness must take the Pod out of service (within 180 s), and it must return when the policy is removed | creates 1 NetworkPolicy |
+| Restart (`--restart-test`) | the Pod is deleted once: shutdown time printed (grace 330 s), a marker in the state claim survives, `/tmp` is new, the rule-pack version is unchanged (**existing-volume** restart) | deletes 1 Pod |
+
+Not covered by the script, and still to be checked by hand on that cluster:
+shutdown while a scan is in progress (start a large inert upload, delete the
+Pod, expect the reply before the grace period ends); resource use under two
+concurrent scans; behaviour when the storage class ignores `fsGroup` (expect the
+`prepare-state` error). Traffic to the Pod's own node cannot be blocked by
+NetworkPolicy at all, so no probe of the node proves anything about it.
 
 ## Rule packs
 
@@ -447,40 +478,129 @@ Pod: raise `AEGIS_API_MAX_CONCURRENT_SCANS` and the memory limit together.
 | Admission | none | the namespace enforces Pod Security `restricted` |
 | External services and e-mail alerts | through intel | not available yet |
 
+## Isolation contract and its limits
+
+What these manifests promise for the analysis Pod, and where each promise ends.
+"Holds" below means *requested by the manifests and checked statically*; none of
+it has been observed on a cluster yet ([Verify](#verify)).
+
+| Property | Mechanism | Limit |
+|---|---|---|
+| No egress from the Pod | default-deny NetworkPolicy, no egress rule | Enforced only by a network plugin that implements NetworkPolicy. A policy applies to the **Pod**, not to a container: the proxy and analysis share one network namespace and one set of rules. Traffic to and from the Pod's own node is always allowed |
+| The policy is in effect before analysis starts | the `isolation-gate` init container must see every probe fail | The probes are a **finite sample**, not proof of isolation. A time-out or refusal counts as blocked, so in a cluster without internet access the internet probes pass whether or not the policy is enforced. The gate is meaningful because two destinations always exist in a working cluster: the cluster DNS server (from `/etc/resolv.conf`) and the API server (`KUBERNETES_SERVICE_HOST`). If either answers, the gate fails. `verify-cluster.sh --control-namespace` adds a destination proven reachable by a positive control |
+| It stays in effect | the readiness probe reruns the gate every 30 s | Detection, not prevention: between probes, and while a probe fails, the process keeps running and in-flight scans continue; the Pod only stops receiving new requests through the Service. Nothing restarts it, by design (liveness asks only `/health`). `--drift-test` checks this behaviour |
+| Ingress only to the proxy | NetworkPolicy: TCP 8443 only | Analysis listens on no TCP port, only `api.sock`. Code running in analysis shares the Pod's loopback: it can open connections to the proxy's 8443, which gives it nothing it does not already hold (the API token is in its own container). If the proxy is not running, such code could bind 8443 itself and receive client connections; it holds no TLS key, so a client that verifies the certificate refuses it. **Clients must verify the server certificate** |
+| Secrets per container | the token is mounted only in analysis, the TLS key only in the proxy; no service-account token | `fsGroup` gives every container in the Pod the supplementary group 10001; the proxy uses it to open `api.sock`. Secrets in etcd are protected by the cluster's RBAC and encryption at rest, not by these manifests |
+| Detection content read-only | the content claim is mounted `readOnly` in analysis and written only by the content Job while analysis is scaled to zero | The gate's `verify` mode tries a write and must fail; that probe file is removed if the write succeeds |
+| Restart semantics | state and content: claims (persist); `/tmp`, the socket folder and the proxy's folders: emptyDirs (persist across a **container** restart, removed with the **Pod**) | The analysis start command clears `/tmp`; a stale `api.sock` is replaced when the server binds again. A Pod replaced by the Deployment starts with new emptyDirs and the same claims |
+| Volume ownership | `prepare-state` (uid 10001, no `chmod`/`chown`) creates the state folders on a new claim | Relies on the storage driver applying `fsGroup`; if it does not, `prepare-state` fails with a clear message instead of running with wrong permissions |
+| Execution and processes | read-only root, every capability dropped, no-new-privileges, seccomp `RuntimeDefault` | `/tmp` (memory-backed emptyDir) is **not** `noexec`: a file written there can be run. No per-Pod process limit in the spec: only the kubelet's `podPidsLimit` |
+| Probes and shutdown | startup and liveness: `/health` over the socket; readiness: the gate, then `/ready`; grace period 330 s | Shutdown within the grace period is unverified; SIGTERM reaches `python` as PID 1 (the start command `exec`s it), and uvicorn handles it |
+
+A sandboxed runtime (gVisor, Kata) and user namespaces strengthen the first and
+the last rows where the cluster offers them ([Cluster requirements](#cluster-requirements)).
+
 ## Intel: external services
 
-**Not available on Kubernetes in this version.** VirusTotal, the LLM, the CAPE
-sandbox and e-mail alerts all go through the intel service, which reaches analysis
-only over a Unix socket. No Kubernetes arrangement keeps that socket and keeps
-analysis without a network path (see Architecture). The settings that switch them
-on (`VIRUSTOTAL_API_KEY`, `LLM_PROVIDER`, `OLLAMA_HOST`, `OPENAI_API_KEY`,
-`SANDBOX_URL`, `SANDBOX_TOKEN`, `SMTP_*`, `ALERT_EMAIL_*`) must not be added to the
-analysis container: `check_manifests.py` and the isolation gate fail when they
-are. The production profile never sends anything outside when they are absent.
+**Not available on Kubernetes in this version.** VirusTotal lookups and
+uploads, the LLM (Ollama or OpenAI), the CAPE sandbox and e-mail alerts all go
+through the intel service. Without it, the production profile sends nothing
+outside, and the API's alert outbox stays disabled (`_Alerts` in `api/server.py`
+is off without `AEGIS_INTEL_SOCKET` or SMTP settings), so nothing is queued
+without a receiver. Webhooks are not configured in these manifests either. The
+settings that would switch these on must not be added to the analysis container:
+`check_manifests.py` and the isolation gate fail when they are.
 
-**Proposal for an owner decision** (not implemented):
+### Decision record K8S-1: how analysis could reach intel (proposed, not approved)
 
-1. Intel in its own Deployment and namespace-local Service, listening on TCP with
-   TLS, holding the external-service Secrets and its cache claim; egress allowed
-   only to the operator's destinations (CIDR rules: NetworkPolicy cannot filter by
-   domain name, so intel's own origin allowlist, `core/http.py`, stays the real
-   filter).
-2. An application change: `AEGIS_INTEL_URL` (an `https://` address with a fixed
-   IP, so analysis needs no DNS) and a CA file beside the existing token, in
-   `core/intel_client.py`, `api/intel.py` and `engine/validation.py`, with tests;
-   the Unix-socket path stays the default for Docker.
-3. The analysis Pod gets exactly one egress rule: TCP to the intel Pods' port.
-   Intel accepts only that Pod. Because the proxy shares the analysis Pod's
-   network, the proxy could also open connections to intel (it holds no intel
-   token, so it gets 401); separating the proxy would need analysis to listen on
-   TCP, which the Architecture table rejects.
-4. The isolation gate learns the one allowed destination and keeps failing on
-   everything else.
+**Context.** In Docker, intel is a separate container with an allowlisted egress
+network; analysis has no network and reaches intel only over `intel.sock`,
+a Unix socket in a volume shared by group (`core/intel_client.py` speaks HTTP
+over a Unix socket and nothing else; `api/intel.py` listens only on a socket).
+Intel authenticates analysis with `AEGIS_INTEL_TOKEN`, holds every external
+credential, and filters destinations by origin (`core/http.py`).
 
-What this changes: analysis gains a network path to one internal service
-(today: none in Docker, a socket only). The token and TLS keep it authenticated;
-NetworkPolicy keeps it narrow. Approve, reject or amend before any of it is
-built; until then Kubernetes runs without external services.
+**Constraints.** Kubernetes applies NetworkPolicy per Pod, and containers in a
+Pod share one network namespace. A Unix socket works only within one node's
+kernel: a shared ReadWriteMany claim (NFS, CephFS) carries files between nodes,
+not socket connections, and a `hostPath` socket is refused by the restricted Pod
+Security Standard and ties both Pods to one node.
+
+| Option | Analysis network | Application change | Verdict |
+|---|---|---|---|
+| A. No intel (today) | none | none | Safe default; no external services or e-mail alerts |
+| B. Intel and analysis in one Pod, socket in an emptyDir | the Pod gets intel's egress | none | **Rejected**: the hostile-file parser would share intel's egress, which no enforceable mechanism separates |
+| C. Socket on a shared claim or `hostPath` | none | none | **Rejected**: does not work across nodes; `hostPath` breaks the restricted standard |
+| D. Exchange files through a shared ReadWriteMany claim (queue folders) | none | large: every intel call is synchronous today (lookups, LLM, sandbox wait) and would become an asynchronous queue with its own timeouts; adds RWX storage and its locking semantics | Keeps "no network" but costs a redesign and a storage dependency; reconsider only if B and E are refused |
+| **E. Intel in its own Deployment; analysis reaches it over TLS on one port** | exactly one destination: the intel Pods' TLS port | client HTTPS transport (below); no server change if intel keeps its socket behind a TLS proxy in its own Pod | **Recommended** |
+
+**Recommended design (E).**
+
+- *Intel Pod*: the `intel` container (uid 10002, unchanged: `python -m api.intel`
+  on `intel.sock` in a Pod-local emptyDir) and a TLS proxy container (the same
+  hardened Caddy image) that terminates TLS on 9443 and forwards to the socket,
+  with its own request-size cap above `AEGIS_INTEL_MAX_UPLOAD_MB`. Same hardening
+  as analysis; its own ServiceAccount without a token; a ReadWriteOncePod claim
+  for its cache; one replica (its rate limits and e-mail caps are in-process).
+- *Network*: analysis gets **one** egress rule: TCP 9443 to Pods labelled as
+  intel (podSelector), nothing else; no DNS (the client uses the Service's
+  ClusterIP, fixed in the overlay, with the certificate's name for SNI). Intel
+  accepts ingress only from the analysis Pods on 9443 and has egress to the
+  operator's destinations; NetworkPolicy cannot filter by name, so its egress is
+  a CIDR rule (excluding the cluster ranges and `169.254.169.254`) and intel's
+  origin allowlist remains the real filter. An egress gateway or a plugin with
+  name-based policies (Cilium, Calico Enterprise) narrows it further.
+- *Credentials*: the external keys, SMTP password and intel TLS key exist only in
+  the intel Pod. Analysis holds the intel token (as in Docker) and the CA that
+  signed intel's certificate. The analysis proxy shares analysis's network and
+  can reach 9443 too, but holds no intel token and gets 401.
+- *Application change*: an `AEGIS_INTEL_URL=https://IP:9443` alternative to
+  `AEGIS_INTEL_SOCKET` with `AEGIS_INTEL_CA_FILE` and `AEGIS_INTEL_SERVER_NAME`
+  in `core/intel_client.py` (TLS 1.2+, certificate and name verified, no proxy
+  environment variables honoured, the same reply-size limits), and the matching
+  checks in `engine/validation.py`. The socket stays the default; Docker is
+  unchanged.
+- *Deployment changes*: intel manifests; `check_manifests.py` learns the one
+  allowed analysis egress rule and the intel invariants (no external setting in
+  analysis except the URL, token and CA; intel ingress only from analysis);
+  `isolation_gate.py` gets the intel address as the one destination that
+  **must** answer (a positive control inside every gate run) while every other
+  probe must still fail.
+- *Scheduling and runtime*: no co-location needed; about the Docker intel
+  service's resources (`AEGIS_INTEL_MEMORY`, `AEGIS_INTEL_CPUS`); readiness of
+  analysis stays independent of intel (an intel outage degrades to "external
+  layers unavailable", as in Docker).
+- *Operational cost*: a second Deployment, an intel TLS certificate to rotate,
+  the egress CIDR list to maintain, and a cluster whose plugin enforces both
+  ingress and egress rules.
+
+**What changes in the trust boundary.** Analysis gains a network path to one
+internal TLS port, where Docker gives it a socket. Authentication (token) and
+what intel will do for analysis are the same as in Docker; reachability now
+also depends on NetworkPolicy enforcement, which the existing gate already
+requires.
+
+**Tests required before it can be called isolated.**
+
+1. Unit: the HTTPS client refuses a wrong CA, a wrong name, a plain-HTTP URL, a
+   host name that needs DNS, and proxy variables; the same reply limits as the
+   socket client; Docker settings unchanged.
+2. Static: `check_manifests.py` rejects a second analysis egress rule, a wider
+   port or selector, intel ingress from anything but analysis, intel egress to
+   cluster ranges or the metadata address, and any external setting in analysis;
+   tests with weakened copies, as today.
+3. Gate: fails when intel does not answer (positive control) and when anything
+   else does, including another port of the intel Pod.
+4. Cluster (`verify-cluster.sh`, extended): analysis reaches intel 9443 with the
+   token (200) and without it (401); the analysis proxy gets 401; analysis cannot
+   reach the control listener, DNS, the API server, the internet or intel's other
+   ports; a Pod in the control namespace cannot reach intel; intel cannot reach
+   analysis; with a stand-in external service in the control namespace,
+   allowlisted by CIDR, intel reaches it and analysis does not; the drift test
+   with intel deployed.
+
+Until the owner approves option E (or chooses A or D), Kubernetes runs without
+external services.
 
 ## Troubleshooting
 
@@ -509,7 +629,7 @@ Logs: `kubectl logs deployment/aegis-analysis -c analysis` (JSON lines,
 | `check_manifests.py` | operator, before every apply; `tests/test_kubernetes.py` | every invariant in this guide that the YAML can show: hardening fields, users, secrets per container, no external settings, read-only content, probes, grace period, one replica, `Recreate`, `ReadWriteOncePod`, default-deny and no egress, one HTTPS port, no Secret, Role or autoscaler, no placeholders |
 | `tests/test_kubernetes.py` | `pytest` (renders with `kubectl kustomize` when kubectl is installed) | the base and the example overlay render; the checker rejects each of a list of weakened manifests (privileged, egress allowed, content writable, a second replica, a Secret in the output, ...); the gate's classification (connected, refused, silent, DNS answer, broken probe); the scripts refuse to run without an explicit context and namespace |
 | `isolation_gate.py` | in the Pod: init, readiness, `verify` | the network isolation as the Pod experiences it |
-| `verify-cluster.sh` | operator, test cluster | everything above, on a running deployment |
+| `verify-cluster.sh` | operator, approved test cluster, disposable namespaces | everything above on a running deployment, with positive controls for the network and secret checks, the readiness reaction to isolation drift, the API's upload limit, and a restart ([Verify](#verify)) |
 
 Not covered without a cluster: server-side admission, schema validation against
 the cluster's API version, whether the network plugin really enforces the
