@@ -163,6 +163,58 @@ def test_the_content_job_installs_with_the_deployments_image_and_keys(base):
     assert mounts["/import"]["readOnly"] is True
 
 
+def _prepare(spec):
+    first = spec["initContainers"][0]
+    assert first["name"] == "prepare-state"
+    return first
+
+
+def _job():
+    text = (K8S / "jobs" / "content-update.yaml").read_text()
+    return yaml.safe_load(text)["spec"]["template"]["spec"]
+
+
+@needs_kubectl
+@pytest.mark.parametrize("which", ["deployment", "job"])
+def test_the_state_folders_are_made_by_the_service_user_before_the_content_mount(base, which):
+    """The content claim is mounted inside the state volume (the Job: its home
+    emptyDir). Left to the runtime, RansomwareScanner/ would be created as root 0755
+    and uid 10001 could not write its log file; Docker seeds its volume from the
+    image instead. prepare-state runs first, as 10001, without the content mounted."""
+    spec = pod(base) if which == "deployment" else _job()
+    prep = _prepare(spec)
+    assert [m["mountPath"] for m in prep["volumeMounts"]] == ["/var/lib/aegis"]
+    assert spec["securityContext"]["runAsUser"] == 10001
+    assert prep["securityContext"]["readOnlyRootFilesystem"] is True
+    main = spec["containers"][0]
+    paths = {m["mountPath"]: m["name"] for m in main["volumeMounts"]}
+    assert paths[checker.CONTENT_PATH] != paths["/var/lib/aegis"]
+    assert prep["volumeMounts"][0]["name"] == paths["/var/lib/aegis"]
+
+
+@needs_kubectl
+def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
+    code = _prepare(pod(base))["command"][2]
+    assert code == _prepare(_job())["command"][2]
+    home = tmp_path / "home"
+    home.mkdir()
+    run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(home))],
+                         capture_output=True, text=True, timeout=30)
+    assert run.returncode == 0, run.stderr
+    assert (home / "RansomwareScanner" / "data").is_dir()
+    assert not (home / "RansomwareScanner" / ".aegis-write-test").exists()
+    locked = tmp_path / "locked"
+    (locked / "RansomwareScanner" / "data").mkdir(parents=True)
+    (locked / "RansomwareScanner").chmod(0o555)
+    try:
+        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(locked))],
+                             capture_output=True, text=True, timeout=30)
+    finally:
+        (locked / "RansomwareScanner").chmod(0o755)
+    if os.geteuid() != 0:                     # root ignores the mode
+        assert run.returncode == 1 and "is not writable by uid" in run.stderr
+
+
 # ------------------------------------------------------------------ the checker rejects
 
 def _broken(base, change):

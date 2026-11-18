@@ -84,9 +84,9 @@
 <text x="150" y="821.6" font-size="12.5" fill="#0f172a" text-anchor="middle">etcd: encryption at rest and RBAC</text>
 <text x="150" y="838.1" font-size="12.5" fill="#0f172a" text-anchor="middle">are the cluster&#x27;s</text>
 <rect x="310" y="205" width="660" height="70" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
-<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: isolation-gate (uid 10001)</text>
-<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">fails while the internet, DNS, the Kubernetes API or the metadata address answers; runs again in every</text>
-<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">readiness probe</text>
+<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: prepare-state, then isolation-gate (uid 10001)</text>
+<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">creates the state folders as 10001; then fails while the internet, DNS, the Kubernetes API or the metadata</text>
+<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">address answers (again in every readiness probe)</text>
 <rect x="310" y="300" width="230" height="150" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
 <text x="425" y="346.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
 <text x="425" y="363.7" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003; port 8443; TLS ends</text>

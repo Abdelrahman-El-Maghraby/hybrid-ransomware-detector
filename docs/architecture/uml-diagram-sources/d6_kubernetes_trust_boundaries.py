@@ -89,9 +89,10 @@ def build(meta: dict) -> Diagram:
             stroke=POD, fill="#faf5ff",
             sub="No service-account token; fsGroup 10001; RuntimeDefault seccomp; "
                 "grace period 330 s.")
-    gate = container(d, 310, 205, 660, 70, "init: isolation-gate (uid 10001)",
-                     ["fails while the internet, DNS, the Kubernetes API or the metadata "
-                      "address answers; runs again in every readiness probe"], "gate")
+    gate = container(d, 310, 205, 660, 70, "init: prepare-state, then isolation-gate (uid 10001)",
+                     ["creates the state folders as 10001; then fails while the internet, DNS, "
+                      "the Kubernetes API or the metadata address answers (again in every "
+                      "readiness probe)"], "gate")
     proxy = container(d, 310, 300, 230, 150, "proxy (Caddy)",
                       ["uid 10003; port 8443; TLS ends here.",
                        "Secret aegis-tls; emptyDirs /data, /config."], "proxy")
@@ -176,7 +177,9 @@ NOTES: List[str] = [
     "not containers. aegis-default-deny selects every Pod for ingress and egress with no "
     "rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress "
     "(deploy/kubernetes/base/networkpolicy.yaml).",
-    "The init container isolation-gate and the analysis readiness probe run "
+    "The init container prepare-state creates RansomwareScanner/data in the state claim as "
+    "uid 10001 (the runtime would create that mount point as root). Then isolation-gate and "
+    "the analysis readiness probe run "
     "isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds "
     "or a DNS answer fails them. Liveness asks only /health on the socket.",
     "Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode "

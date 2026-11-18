@@ -187,9 +187,10 @@ Output behaviour that differs by entry point, and why:
 - One Pod `aegis-analysis` (one replica, `Recreate`) with two containers:
   `analysis` (`python -m api.server`, uid 10001) and `proxy` (Caddy with
   `deploy/Caddyfile`, uid 10003, port 8443), joined by `api.sock` in a
-  memory-backed emptyDir, as in Docker. An init container `isolation-gate` runs
-  `isolation_gate.py` (ConfigMap `aegis-isolation-gate`) before them, and the
-  analysis readiness probe runs it again.
+  memory-backed emptyDir, as in Docker. Two init containers run before them:
+  `prepare-state` creates the state folders as uid 10001, and `isolation-gate`
+  runs `isolation_gate.py` (ConfigMap `aegis-isolation-gate`); the analysis
+  readiness probe runs the gate again.
 - The containers share the Pod's network namespace; NetworkPolicy applies to the
   Pod: default deny, ingress TCP 8443 to this Pod only, no egress. It needs an
   enforcing network plugin and cannot block the Pod's own node. Docker's

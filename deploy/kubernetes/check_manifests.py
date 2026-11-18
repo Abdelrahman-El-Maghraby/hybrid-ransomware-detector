@@ -27,7 +27,8 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 
 NAMESPACE = "aegis-sentinel"
-UIDS = {"analysis": 10001, "isolation-gate": 10001, "content": 10001, "proxy": 10003}
+UIDS = {"analysis": 10001, "isolation-gate": 10001, "prepare-state": 10001, "content": 10001,
+        "proxy": 10003}
 ANALYSIS_SECRETS = {"aegis-api-token"}
 PROXY_SECRETS = {"aegis-tls"}
 EXTERNAL_WORDS = ("VIRUSTOTAL", "OPENAI", "SANDBOX_URL", "SANDBOX_TOKEN", "SMTP_",

@@ -3604,9 +3604,9 @@ NOTES: List[str] = [
 <text x="150" y="821.6" font-size="12.5" fill="#0f172a" text-anchor="middle">etcd: encryption at rest and RBAC</text>
 <text x="150" y="838.1" font-size="12.5" fill="#0f172a" text-anchor="middle">are the cluster&#x27;s</text>
 <rect x="310" y="205" width="660" height="70" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
-<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: isolation-gate (uid 10001)</text>
-<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">fails while the internet, DNS, the Kubernetes API or the metadata address answers; runs again in every</text>
-<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">readiness probe</text>
+<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: prepare-state, then isolation-gate (uid 10001)</text>
+<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">creates the state folders as 10001; then fails while the internet, DNS, the Kubernetes API or the metadata</text>
+<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">address answers (again in every readiness probe)</text>
 <rect x="310" y="300" width="230" height="150" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
 <text x="425" y="346.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
 <text x="425" y="363.7" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003; port 8443; TLS ends</text>
@@ -3695,7 +3695,7 @@ NOTES: List[str] = [
 <div class="body"><ul>
 <li>One Pod, two containers: analysis (python -m api.server, uid 10001) and proxy (the aegis-sentinel-proxy image with deploy/Caddyfile, uid 10003), joined by api.sock in a memory-backed emptyDir, as in docker-compose.yml (deploy/kubernetes/base/analysis.yaml).</li>
 <li>Containers in one Pod share its network namespace, and NetworkPolicy applies to Pods, not containers. aegis-default-deny selects every Pod for ingress and egress with no rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress (deploy/kubernetes/base/networkpolicy.yaml).</li>
-<li>The init container isolation-gate and the analysis readiness probe run isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds or a DNS answer fails them. Liveness asks only /health on the socket.</li>
+<li>The init container prepare-state creates RansomwareScanner/data in the state claim as uid 10001 (the runtime would create that mount point as root). Then isolation-gate and the analysis readiness probe run isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds or a DNS answer fails them. Liveness asks only /health on the socket.</li>
 <li>Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode 0440; automountServiceAccountToken false; no Role. No external-service credential exists in this deployment (check_manifests.py refuses one).</li>
 <li>Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the content read-only (both in the volume and the mount). The content Job (deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only while analysis is scaled to zero.</li>
 <li>Differences from Docker (diagram 5): a Pod interface exists where Docker has none; /tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; intel is not deployed. Runtime behaviour on a cluster is unverified (deploy/kubernetes/verify-cluster.sh).</li>
@@ -3795,9 +3795,10 @@ def build(meta: dict) -&gt; Diagram:
             stroke=POD, fill=&quot;#faf5ff&quot;,
             sub=&quot;No service-account token; fsGroup 10001; RuntimeDefault seccomp; &quot;
                 &quot;grace period 330 s.&quot;)
-    gate = container(d, 310, 205, 660, 70, &quot;init: isolation-gate (uid 10001)&quot;,
-                     [&quot;fails while the internet, DNS, the Kubernetes API or the metadata &quot;
-                      &quot;address answers; runs again in every readiness probe&quot;], &quot;gate&quot;)
+    gate = container(d, 310, 205, 660, 70, &quot;init: prepare-state, then isolation-gate (uid 10001)&quot;,
+                     [&quot;creates the state folders as 10001; then fails while the internet, DNS, &quot;
+                      &quot;the Kubernetes API or the metadata address answers (again in every &quot;
+                      &quot;readiness probe)&quot;], &quot;gate&quot;)
     proxy = container(d, 310, 300, 230, 150, &quot;proxy (Caddy)&quot;,
                       [&quot;uid 10003; port 8443; TLS ends here.&quot;,
                        &quot;Secret aegis-tls; emptyDirs /data, /config.&quot;], &quot;proxy&quot;)
@@ -3882,7 +3883,9 @@ NOTES: List[str] = [
     &quot;not containers. aegis-default-deny selects every Pod for ingress and egress with no &quot;
     &quot;rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress &quot;
     &quot;(deploy/kubernetes/base/networkpolicy.yaml).&quot;,
-    &quot;The init container isolation-gate and the analysis readiness probe run &quot;
+    &quot;The init container prepare-state creates RansomwareScanner/data in the state claim as &quot;
+    &quot;uid 10001 (the runtime would create that mount point as root). Then isolation-gate and &quot;
+    &quot;the analysis readiness probe run &quot;
     &quot;isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds &quot;
     &quot;or a DNS answer fails them. Liveness asks only /health on the socket.&quot;,
     &quot;Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode &quot;

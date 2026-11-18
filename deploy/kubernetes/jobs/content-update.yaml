@@ -33,6 +33,40 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # The content claim is mounted inside home at
+        # RansomwareScanner/data. Left to the container runtime, those folders are
+        # created as root (0755) and uid 10001 cannot write its log file next to
+        # them; Docker seeds its named volume from the image instead. Created here
+        # first, as uid 10001, before any container mounts the content.
+        - name: prepare-state
+          image: AEGIS_IMAGE
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import os, sys
+              d = "/var/lib/aegis/RansomwareScanner"
+              try:
+                  os.makedirs(d + "/data", exist_ok=True)
+                  open(d + "/.aegis-write-test", "w").close()
+                  os.remove(d + "/.aegis-write-test")
+              except OSError as e:
+                  sys.exit(f"prepare-state: {d} is not writable by uid {os.getuid()}: {e} "
+                           "(does the storage driver apply fsGroup? docs/KUBERNETES.md, Storage)")
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 64Mi}
+          volumeMounts:
+            - {name: home, mountPath: /var/lib/aegis}
       containers:
         - name: content
           image: AEGIS_IMAGE

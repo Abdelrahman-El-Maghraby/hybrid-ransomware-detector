@@ -30,6 +30,7 @@ Contents: [Architecture](#architecture) ·
                     |
    Pod aegis-analysis (namespace aegis-sentinel, Pod Security "restricted")
    +-----------------------------------------------------------------------+
+   | init: prepare-state    creates the state folders as uid 10001          |
    | init: isolation-gate   fails while any outside destination answers    |
    | proxy (Caddy, 10003)  --unix socket (emptyDir)-->  analysis (10001)   |
    |   TLS Secret aegis-tls                              API token Secret  |
@@ -194,7 +195,8 @@ kubectl --context "$CTX" -n aegis-sentinel rollout status deployment/aegis-analy
 ```
 
 Always pass `--context`; nothing here changes the current context. Start-up takes
-a while: the init container runs the isolation gate (about 8 s), then the API
+a while: the init containers create the state folders and run the isolation gate
+(about 8 s), then the API
 compiles the YARA rules and warms up its workers before `/health` answers.
 
 ## Access
@@ -298,11 +300,18 @@ on `content-update.sh` (which always scales analysis to zero first) and
 `replicas: 1` to keep a single writer. Claims are scheduled with the Pod: on
 zonal storage, the Pod can only run in the claim's zone.
 
-The claims are owned by root when new; `fsGroup: 10001` lets the kubelet give
-them to the image's `analysis` group (10001) for drivers that support it
-(`fsGroupChangePolicy: OnRootMismatch`). If the Pod logs a permission error on
-`/var/lib/aegis`, the driver ignores `fsGroup`: fix the volume's ownership with
-the storage provider's tools. The base never runs a root init container to chown.
+Ownership: a new claim is owned by root. `fsGroup: 10001` lets the kubelet give
+its root folder to the image's `analysis` group (10001) for drivers that support
+it (`fsGroupChangePolicy: OnRootMismatch`); the image's own ownership of
+`/var/lib/aegis` does not carry over, as it does for a Docker named volume. The
+content claim is mounted inside the state claim (at `RansomwareScanner/data`), and
+the container runtime would create those mount-point folders as root with mode
+0755, leaving uid 10001 unable to write its log file. So the first init container,
+`prepare-state`, runs as uid 10001 with only the state claim mounted, creates
+`RansomwareScanner/data`, and checks that it can write there; it stops with
+"is not writable by uid 10001" when the driver ignores `fsGroup` (then fix the
+volume's ownership with the storage provider's tools). The content Job does the
+same for its home emptyDir. Nothing runs as root to chown.
 
 ## Backup and restore
 
@@ -384,7 +393,7 @@ deleted with the namespace. Snapshots and images in your registry stay.
 |---|---|---|---|
 | `analysis` | 1 CPU, 6 GiB | 2 CPU, 6 GiB | the Docker deployment: main process + 2 concurrent scans x `WORKER_MEMORY_MB` 2,048 + 2 spares x about 200 MB + the 2 GiB `/tmp` |
 | `proxy` | 50m, 64 MiB | 500m, 256 MiB | the Docker deployment |
-| `isolation-gate` (init) | 50m, 64 MiB | 250m, 128 MiB | standard library only |
+| `prepare-state`, `isolation-gate` (init) | 50m, 64 MiB each | 250m, 128 MiB each | standard library only |
 | content Job | 250m, 512 MiB | 1 CPU, 1 GiB | YARA compile of the pack |
 
 Memory request equals the limit for analysis, so it is not the first Pod evicted
@@ -472,7 +481,8 @@ built; until then Kubernetes runs without external services.
 
 | Symptom | Likely cause |
 |---|---|
-| Pod stuck in `Init:CrashLoopBackOff`; the `isolation-gate` log shows `FAIL blocked: ...` | NetworkPolicy is not enforced, not yet programmed, or something allows that destination. Check the plugin; a delay clears after a restart or two |
+| Pod stuck in `Init:CrashLoopBackOff`; the `isolation-gate` log shows `FAIL blocked: ...` | NetworkPolicy is not enforced, not yet programmed, or something allows that destination. Check the plugin; a delay clears after a restart or two. Some managed clusters answer `169.254.169.254` from a node-local metadata server, which NetworkPolicy cannot block (node traffic): disable or block it at the cluster level |
+| `prepare-state` fails with "is not writable by uid 10001" | The storage driver does not apply `fsGroup` (Storage) |
 | `CreateContainerConfigError` or `ContainerCreating` for a long time | A Secret is missing (`aegis-api-token`, `aegis-tls`) or a claim is not bound |
 | Claims `Pending` | No CSI class with `ReadWriteOncePod`, or no default class; set `storageClassName` |
 | Admission error naming `restricted` | A patch removed a hardening field; render and run `check_manifests.py` |
@@ -485,7 +495,7 @@ built; until then Kubernetes runs without external services.
 | Content Job stays Pending | The analysis Pod still holds the claim: use `content-update.sh`, which scales it down |
 
 Logs: `kubectl logs deployment/aegis-analysis -c analysis` (JSON lines,
-`LOG_FORMAT=json`), `-c proxy`, `-c isolation-gate`.
+`LOG_FORMAT=json`), `-c proxy`, `-c prepare-state`, `-c isolation-gate`.
 
 ## Checks
 
