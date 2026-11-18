@@ -73,6 +73,7 @@ exist, or `--import-database` did not import (the current database is kept).
 The on-prem production edition (`docs/RELEASE_SCOPE.md`).
 
 - **A hardened Docker deployment** ([deployment](docs/DEPLOYMENT.md), [operations](docs/OPERATIONS.md)). The service that opens files runs with **no network** and without any API key. A separate intel service is the only part that reaches VirusTotal, an LLM or a sandbox, through fixed operations and to allowlisted destinations only. TLS terminates at a proxy. Every container runs non-root, with a read-only file system and no capabilities.
+- **Optional Kubernetes manifests** ([Kubernetes guide](docs/KUBERNETES.md)): a single-instance Kustomize deployment of the analysis service and the TLS proxy with no egress, checked before apply and gated by an in-Pod isolation check. Docker Compose remains the reference deployment; on Kubernetes the external services are not available yet, and the manifests have not been run on a cluster.
 - **Never a silent "Clean".** Every result says whether the scan was `complete`, `partial`, `locked`, `unsupported` or `failed`, and lists what was not inspected and why. That includes damaged documents, archives that would not open, parser errors and layers that are not installed.
 - **Provenance in every result:** the rules version and hash, the registry and schema versions, which layers ran, and **what was sent outside** for that file.
 - **Security fixes:** API login throttling; secrets in the OS keyring or Docker secrets; a cache of external answers that a compromised parser cannot poison; signed rule packs that cannot be replayed, with signed rollback and recovery from a compromised key; GitHub Actions pinned to commits.
@@ -828,6 +829,7 @@ hybrid-ransomware-detector/
 │   ├── cache.py, http.py
 ├── api/                         # result JSON schema + optional REST API (FastAPI) + abuse limits; intel.py: the intel service
 ├── deploy/                      # Caddyfile, deployment check, isolation check, backup and restore
+│   └── kubernetes/              # optional Kustomize base, example overlay, manifest check, cluster verification
 ├── Dockerfile, docker-compose.yml  # the Docker edition (analysis, intel, proxy, content tool)
 ├── rules/                       # YARA rules (23 public rules and 2 private helpers in five files)
 ├── tools/                       # evaluate, calibrate_weights, profile_layers, build_fuzzy_db, rulepack, mbox_to_eml

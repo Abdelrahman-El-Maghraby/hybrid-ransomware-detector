@@ -134,6 +134,20 @@ def test_analysis_keeps_the_docker_limits_and_settings(base):
 
 
 @needs_kubectl
+def test_a_restarted_analysis_container_starts_with_an_empty_tmp(base):
+    """An emptyDir outlives a container restart; Docker's tmpfs does not."""
+    command = container(base, "analysis")["command"]
+    assert command[:2] == ["sh", "-c"]
+    assert command[2].startswith("find /tmp -mindepth 1 -xdev -delete;")
+    assert command[2].endswith("exec python -m api.server")
+    scratch = {m["name"] for m in container(base, "analysis")["volumeMounts"]
+               if m["mountPath"] == "/tmp"}
+    others = [m for c in pod(base)["containers"] + pod(base)["initContainers"]
+              if c["name"] != "analysis" for m in c.get("volumeMounts", [])]
+    assert not any(m["name"] in scratch for m in others)     # only analysis uses it
+
+
+@needs_kubectl
 def test_the_content_job_installs_with_the_deployments_image_and_keys(base):
     text = (K8S / "jobs" / "content-update.yaml").read_text()
     text = text.replace("AEGIS_IMAGE", "registry.example/aegis-sentinel:4.8.0") \

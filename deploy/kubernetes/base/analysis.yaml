@@ -69,7 +69,11 @@ spec:
         - name: analysis
           image: aegis-sentinel
           imagePullPolicy: IfNotPresent
-          command: [python, -m, api.server]
+          # Docker gives a restarted container a new tmpfs; an emptyDir outlives a
+          # container restart (liveness, crash) within the Pod. Uploads and
+          # extracted members left by the previous process are removed first; the
+          # worker sweep alone would miss them (the new process is PID 1 again).
+          command: [sh, -c, "find /tmp -mindepth 1 -xdev -delete; exec python -m api.server"]
           securityContext: *hardened
           envFrom:
             - configMapRef:
