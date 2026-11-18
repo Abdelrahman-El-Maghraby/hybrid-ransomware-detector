@@ -136,12 +136,18 @@ Python 3.14.2, temporary HOME and TMPDIR, `PATH=/usr/local/bin:/usr/bin:/bin`
 | Mypy | no issues in 69 source files |
 | Bandit gate | clean; `bandit -ll -r deploy/kubernetes` clean |
 
-At `817d3b9` (adds `prepare-state`): `tests/test_kubernetes.py` 59 passed; the
-base renders and passes `check_manifests.py --allow-placeholders`; the example
-overlay renders and is refused until its placeholders are filled in; diagram
-build without layout problems; diagrams 1 to 5 unchanged byte for byte. The full
-suite was not repeated for that commit: it changes only manifests, the checker's
-uid table, tests and documentation.
+At `062262a` (the final revision of this task: `prepare-state`, the fresh- and
+existing-volume tests, these documents), same machine and settings,
+`PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`:
+
+| Check | Result |
+|---|---|
+| Safe suite (same selection and deselections as section 3) | **1,980 passed, 0 failed, 8 skipped, 4 deselected**, 1 warning, 546 s; the same 8 skips as section 3 |
+| `tests/test_kubernetes.py` (in the suite) | 61 passed: render, invariants, 28 weakened manifests rejected, `prepare-state` on a fresh volume, an existing volume (nothing re-moded or re-owned, idempotent) and an unwritable one (clear failure), no permission changes, the gate, the scripts |
+| Ruff (tracked Python files), mypy (69 files), bandit gate, `bandit -ll -r deploy/kubernetes` | clean |
+| `bash -n` on the operator scripts | clean |
+| Base render + `check_manifests.py --allow-placeholders`; example overlay | passes; the overlay is refused on its 8 placeholders, as intended |
+| Diagram build | no layout problems; rebuilding changes no file; diagrams 1 to 5 unchanged |
 
 Not run: anything against a cluster, image builds, `verify-cluster.sh`,
 `content-update.sh`.

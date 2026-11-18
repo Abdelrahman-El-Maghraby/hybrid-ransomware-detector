@@ -2594,7 +2594,9 @@ action.
 - **No application code changed.** No detection, threshold, coverage or schema
   change.
 - **Checks:** [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md) section 4. Safe suite
-  at `7ae85eb`: 1,960 passed, 0 failed. Final revision results are recorded there.
+  at `7ae85eb`: 1,960 passed, 0 failed (15 extra 7-Zip/RAR skips from a short
+  PATH). Final revision `062262a`: 1,980 passed, 0 failed, 8 skipped, 4
+  deselected; ruff, mypy, bandit clean; 61 Kubernetes tests pass.
 - **Pending, not verified anywhere:** everything at run time on a cluster
   (admission, server-side schema, NetworkPolicy enforcement, `fsGroup` on real
   storage and Linux ownership of the folders `prepare-state` creates, probes,
