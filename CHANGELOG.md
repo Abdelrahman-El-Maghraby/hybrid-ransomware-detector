@@ -6,6 +6,59 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Production-hardening branch (`review/production-hardening`). Not released;
+no version or date is assigned. Finding IDs and evidence:
+`docs/FINDINGS_REGISTER.md` and `docs/VERIFICATION_MATRIX.md`.
+
+### Added
+
+- Optional Kubernetes deployment (`deploy/kubernetes/`, `docs/KUBERNETES.md`):
+  one analysis Pod with the TLS proxy, a default-deny NetworkPolicy, restricted
+  Pod Security, an isolation gate (init container and readiness probe), read-only
+  detection content updated by a Job, a manifest checker and operator scripts.
+  **Limitations:** not run on a cluster yet; one replica, no high availability;
+  no intel service, so VirusTotal, the LLM, CAPE and e-mail alerts are
+  unavailable there; isolation depends on the cluster enforcing NetworkPolicy;
+  `/tmp` is not `noexec`. Docker Compose remains the reference deployment.
+- Scan-failed and incomplete-scan notices; findings reported before a worker
+  failed are kept in its result.
+- Complete-scan rates and family-label coverage in the evaluation tools; a manual
+  tool to refresh the hash-pinned lock files.
+
+### Changed
+
+- More scans are reported as `partial` when part of a file was not inspected
+  (cut streams, unread CHM pages, oversized XML or relationship parts, IMAP size
+  limits, unusable LLM replies, a web page's payloads at the nesting limit). The
+  result schema is unchanged.
+- Workers reply with bounded, checked JSON instead of pickle; an upload is read
+  only after its token is checked.
+- The API and intel refuse non-finite or negative numeric limits at start-up, and
+  the API refuses to start when `AEGIS_API_TOKEN_FILE` is set but unreadable or
+  empty (it used to fall back to `AEGIS_API_TOKEN`).
+- The bundled proxy's body limit is 51 MiB (was 52 MB, below the API's 50 MiB
+  file limit).
+- CI: the bandit gate also scans `deploy/`; the dependency audit runs daily.
+
+### Fixed
+
+- A worker that kept sending progress messages ran past the scan time limit and
+  memory watchdog; a worker that failed to start left its temporary folder.
+- Alert outbox: a malformed entry, a failed rewrite or a temporary read error no
+  longer blocks or deletes other alerts; an alert that cannot be queued no longer
+  drops the rest of its batch.
+- Linear-time pattern checks for web, script, mail and embedded content; bounded
+  CHM, OCR and declared-size handling; special files no longer hang a scan.
+- Sandbox, VirusTotal and LLM waits are bounded by the worker's remaining time,
+  and the static result is kept when they stall.
+- Helper programs are stopped with their worker; on Windows, "access denied" is
+  no longer read as a dead process.
+- False-positive fixes for quoted commands, ransom-report prose, shadow-copy
+  listings and administrative commands; a right-to-left override in a top-level
+  file name is flagged.
+- Many smaller reliability fixes in the CLI, GUI delivery, IMAP, rule packs,
+  backups and deployment scripts (see the register).
+
 ## [4.8.0] — pending release
 
 ### Added
