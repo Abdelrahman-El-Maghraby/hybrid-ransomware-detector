@@ -237,6 +237,9 @@ class WebResult:
     credential_reasons: List[str] = field(default_factory=list)
     obfuscation: List[str] = field(default_factory=list)
     truncated: bool = False
+    # payloads found but not extracted or scanned (the count and the reason are
+    # determined: each was decoded and recognised as a payload format)
+    skipped: List[str] = field(default_factory=list)
     detail: str = ""
 
     @property
@@ -257,6 +260,7 @@ class WebResult:
             "credential_reasons": self.credential_reasons,
             "obfuscation": self.obfuscation,
             "truncated": self.truncated,
+            "skipped": self.skipped,
             "detail": self.detail,
         }
 
@@ -370,11 +374,10 @@ class WebContentAnalyzer:
         candidates = [(m.group(3), "data URI") for m in _DATA_URI.finditer(raw)]
         joined = _JS_CONCAT.sub(b"", raw)            # "AAAA" + "BBBB" -> "AAAABBBB"
         candidates += [(m.group(1), "base64 string") for m in _B64_LITERAL.finditer(joined)]
+        beyond = 0                                    # payloads after MAX_PAYLOADS
         for blob, source in sorted(candidates, key=lambda c: -len(c[0])):
-            if len(res.payloads) >= MAX_PAYLOADS:
-                break
             data = _b64decode(blob)
-            if not data or len(data) > MAX_PAYLOAD_BYTES:
+            if not data:
                 continue
             digest = hash(data)
             if digest in seen:
@@ -383,6 +386,15 @@ class WebContentAnalyzer:
             fmt = payload_format(data)
             if fmt is None:
                 continue                              # an inline image, font, text...
+            # Past the limits a payload is only recognised (its magic bytes), never
+            # extracted or scanned, so the scan can say what it left out.
+            if len(data) > MAX_PAYLOAD_BYTES:
+                res.skipped.append(f"embedded {fmt} payload of {len(data):,} bytes over the "
+                                   f"{MAX_PAYLOAD_BYTES // (1024 * 1024)} MB payload limit")
+                continue
+            if len(res.payloads) >= MAX_PAYLOADS:
+                beyond += 1
+                continue
             payload = WebPayload(name=f"payload{len(res.payloads) + 1}{PAYLOAD_EXTENSIONS[fmt]}",
                                  format=fmt, size=len(data), source=source)
             if sandbox is not None:
@@ -391,6 +403,9 @@ class WebContentAnalyzer:
                 target.write_bytes(data)
                 payload.path = str(target)
             res.payloads.append(payload)
+        if beyond:
+            res.skipped.append(f"{beyond} embedded payload(s) beyond the {MAX_PAYLOADS}-payload "
+                               "limit")
 
     @staticmethod
     def _summary(res: WebResult) -> str:

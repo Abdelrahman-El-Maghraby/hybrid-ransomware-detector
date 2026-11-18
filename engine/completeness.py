@@ -178,6 +178,14 @@ def _embedded_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
         out.append(reason(PARTIAL, ctx.display, "embedded", f"not unpacked: {text}"))
 
 
+def _web_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
+    web = sr.get("web")
+    if not isinstance(web, dict):
+        return
+    for text in web.get("skipped") or []:
+        out.append(reason(PARTIAL, ctx.display, "web", f"not scanned: {text}"))
+
+
 def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
                  out: List[Reason]) -> None:
     for key in _CONTAINER_RESULTS:
@@ -276,6 +284,7 @@ def assess(scanner: RansomwareScanner, ctx: ScanContext) -> Tuple[str, List[Reas
     _layer_gaps(scanner, ctx, out)
     _archive_gaps(ctx.scan_results, ctx, out)
     _embedded_gaps(ctx.scan_results, ctx, out)
+    _web_gaps(ctx.scan_results, ctx, out)
     _budget_gaps(scanner, ctx.scan_results, ctx, out)
     _format_gaps(ctx, out)
     out.extend(ctx.member_reasons)

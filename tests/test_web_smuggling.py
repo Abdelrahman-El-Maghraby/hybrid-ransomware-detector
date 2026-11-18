@@ -106,11 +106,37 @@ def test_payload_without_a_download_trigger_is_not_smuggling(tmp_path):
     assert r.payloads and not r.smuggling_construct and not r.smuggling
 
 
-def test_number_of_payloads_is_capped(tmp_path):
+def _many(n, images=0):
+    from tests.test_qr import qr_png
     blobs = "".join(f'var p{i} = "{b64(zip_bytes(f"f{i}.txt", bytes([i]) * 400))}";\n'
-                    for i in range(MAX_PAYLOADS + 3))
-    r = analyze(tmp_path, "many.html", f"<script>{blobs}</script>")
-    assert len(r.payloads) == MAX_PAYLOADS
+                    for i in range(n))
+    if images:
+        pytest.importorskip("qrcode")
+        blobs += "".join(f'var i{i} = "{b64(qr_png(f"https://example.com/{i}"))}";\n'
+                         for i in range(images))
+    return f"<script>{blobs}</script>"
+
+
+def test_number_of_payloads_is_capped(tmp_path):
+    r = analyze(tmp_path, "many.html", _many(MAX_PAYLOADS + 3))
+    assert len(r.payloads) == MAX_PAYLOADS                    # the inspection limit is kept
+    assert r.skipped == [f"3 embedded payload(s) beyond the {MAX_PAYLOADS}-payload limit"]
+
+
+def test_exactly_the_limit_skips_nothing(tmp_path):
+    """At the limit, and with further blobs that are not payloads (images), nothing
+    was left out: no skipped entry, no partial scan."""
+    r = analyze(tmp_path, "five.html", _many(MAX_PAYLOADS, images=2))
+    assert len(r.payloads) == MAX_PAYLOADS and r.skipped == []
+
+
+def test_an_oversized_payload_is_named_not_dropped(tmp_path, monkeypatch):
+    import detectors.web_content as wc
+    monkeypatch.setattr(wc, "MAX_PAYLOAD_BYTES", 600)
+    big = zip_bytes("big.txt", bytes(range(256)) * 8)         # over 600 bytes once zipped
+    r = analyze(tmp_path, "big.html", f'<script>var b = "{b64(big)}";</script>')
+    assert not r.payloads
+    assert r.skipped == [f"embedded zip payload of {len(big):,} bytes over the 0 MB payload limit"]
 
 
 @pytest.mark.parametrize("html,field", [
@@ -160,6 +186,43 @@ def test_smuggling_page_attached_to_mail(scanner, tmp_path):
     r = scanner.scan_file(str(p))
     assert any("html_smuggling" in i for i in _indicators(r))
     assert r["verdict"] in ("High", "Critical")
+
+
+def test_payloads_beyond_the_limit_make_the_scan_partial_up_through_a_zip(scanner, tmp_path):
+    """RV-13: the left-out payloads reach scan_status and incomplete_reasons of the
+    page and of the archive that holds it; the inspected payloads' findings stay."""
+    import zipfile as zf
+    (tmp_path / "scan").mkdir(exist_ok=True)
+    html = _many(MAX_PAYLOADS + 2)
+    p = page(tmp_path / "scan", "many.html", html)
+    r = scanner.scan_file(str(p))
+    assert r["scan_status"] == "partial"
+    assert any(x["layer"] == "web" and "2 embedded payload(s) beyond" in x["reason"]
+               for x in r["incomplete_reasons"])
+    assert len(r["scan_results"]["web"]["payload_results"]) == MAX_PAYLOADS
+    outer = tmp_path / "scan" / "bundle.zip"
+    with zf.ZipFile(outer, "w") as z:
+        z.writestr("site/many.html", html)
+    o = scanner.scan_file(str(outer))
+    assert o["scan_status"] == "partial"
+    assert any("many.html" in x["member_path"] and "beyond the" in x["reason"]
+               for x in o["incomplete_reasons"])
+    report = scanner.generate_report([o])
+    assert f"Verdict:  {o['verdict']} (partial scan)" in report or "NOT FULLY INSPECTED (1)" in report
+    assert "beyond the 5-payload limit" in report
+    from core.outputs import alert_payload
+    assert alert_payload(o)["scan_status"] == "partial"
+    from aegis_gui.formatting import verdict_text
+    assert "partial scan" in verdict_text(o)
+    jsonschema = pytest.importorskip("jsonschema")
+    from api import load_schema
+    jsonschema.validate(o, load_schema())                     # the API result stays valid
+
+
+def test_the_limit_itself_leaves_the_scan_complete(scanner, tmp_path):
+    (tmp_path / "scan").mkdir(exist_ok=True)
+    r = scanner.scan_file(str(page(tmp_path / "scan", "five.html", _many(MAX_PAYLOADS))))
+    assert not any(x["layer"] == "web" for x in r["incomplete_reasons"])
 
 
 def test_scanner_leaves_a_plain_page_clean(scanner, tmp_path):
