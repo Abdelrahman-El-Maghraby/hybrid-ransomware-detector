@@ -44,7 +44,7 @@ gate = _load("aegis_k8s_gate", K8S / "base" / "isolation_gate.py")
 
 
 def render(path: Path) -> list:
-    out = subprocess.run([KUBECTL, "kustomize", str(path)], capture_output=True, text=True,
+    out = subprocess.run([KUBECTL, "kustomize", str(path)], capture_output=True, encoding="utf-8",
                          timeout=60, check=True, env=dict(os.environ, KUBECONFIG=os.devnull))
     return [d for d in yaml.safe_load_all(out.stdout) if d]
 
@@ -104,9 +104,9 @@ def test_only_the_expected_objects_are_rendered(base):
 
 @needs_kubectl
 def test_the_uids_match_the_image(base):
-    dockerfile = (ROOT / "Dockerfile").read_text()
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "useradd -r -M -u 10001 -g analysis" in dockerfile
-    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
     assert compose["proxy"]["user"].startswith("10003:")
     spec = pod(base)
     assert spec["securityContext"]["runAsUser"] == 10001
@@ -116,7 +116,7 @@ def test_the_uids_match_the_image(base):
 
 @needs_kubectl
 def test_the_proxy_uses_the_caddyfile_paths(base):
-    caddy = (ROOT / "deploy" / "Caddyfile").read_text()
+    caddy = (ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
     assert "unix//run/aegis/api/api.sock" in caddy and "/etc/caddy/tls/cert.pem" in caddy
     proxy = {m["mountPath"] for m in container(base, "proxy")["volumeMounts"]}
     assert {"/run/aegis/api", "/etc/caddy/tls"} <= proxy
@@ -128,7 +128,7 @@ def test_the_proxy_uses_the_caddyfile_paths(base):
 
 @needs_kubectl
 def test_analysis_keeps_the_docker_limits_and_settings(base):
-    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["analysis"]
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))["services"]["analysis"]
     cfg = find(base, "ConfigMap", "aegis-analysis-config")["data"]
     assert cfg["SCAN_TIMEOUT_SECONDS"] == "300" and cfg["WORKER_MEMORY_MB"] == "2048"
     assert compose["environment"]["AEGIS_API_TRUST_PROXY"] == "1"
@@ -153,7 +153,7 @@ def test_a_restarted_analysis_container_starts_with_an_empty_tmp(base):
 
 @needs_kubectl
 def test_the_content_job_installs_with_the_deployments_image_and_keys(base):
-    text = (K8S / "jobs" / "content-update.yaml").read_text()
+    text = (K8S / "jobs" / "content-update.yaml").read_text(encoding="utf-8")
     text = text.replace("AEGIS_IMAGE", "registry.example/aegis-sentinel:4.8.0") \
                .replace("AEGIS_CONFIG_MAP", "aegis-analysis-config-abc")
     job = yaml.safe_load(text)
@@ -174,7 +174,7 @@ def _prepare(spec):
 
 
 def _job():
-    text = (K8S / "jobs" / "content-update.yaml").read_text()
+    text = (K8S / "jobs" / "content-update.yaml").read_text(encoding="utf-8")
     return yaml.safe_load(text)["spec"]["template"]["spec"]
 
 
@@ -203,7 +203,7 @@ def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", home.as_posix())],
-                         capture_output=True, text=True, timeout=30)
+                         capture_output=True, encoding="utf-8", timeout=30)
     assert run.returncode == 0, run.stderr
     assert (home / "RansomwareScanner" / "data").is_dir()
     assert not (home / "RansomwareScanner" / ".aegis-write-test").exists()
@@ -212,7 +212,7 @@ def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
     (locked / "RansomwareScanner").chmod(0o555)
     try:
         run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", locked.as_posix())],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, encoding="utf-8", timeout=30)
     finally:
         (locked / "RansomwareScanner").chmod(0o755)
     # root ignores the mode, and Windows has no POSIX directory permissions
@@ -229,16 +229,16 @@ def test_prepare_state_keeps_an_existing_volume_as_it_is(base, tmp_path):
     home = tmp_path / "home"
     app = home / "RansomwareScanner"
     (app / "data").mkdir(parents=True)
-    (app / "ransomware_scanner.log").write_text("earlier lines\n")
+    (app / "ransomware_scanner.log").write_text("earlier lines\n", encoding="utf-8")
     app.chmod(0o750)
     before = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
     for _ in range(2):
         run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", home.as_posix())],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, encoding="utf-8", timeout=30)
         assert run.returncode == 0, run.stderr
     after = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
     assert after == before
-    assert (app / "ransomware_scanner.log").read_text() == "earlier lines\n"
+    assert (app / "ransomware_scanner.log").read_text(encoding="utf-8") == "earlier lines\n"
 
 
 @needs_kubectl
@@ -382,9 +382,19 @@ def test_a_probe_that_raises_fails_the_gate(monkeypatch):
     assert gate.run_network()[0][1] is False
 
 
+@pytest.fixture
+def posix_ids(monkeypatch):
+    """posture_checks() runs in a Linux container; Windows has no os.getuid. The
+    logic under test (settings, the content write probe) is portable, so a stand-in
+    uid lets it run on every CI platform instead of being skipped."""
+    for name in ("getuid", "getgid"):
+        if not hasattr(os, name):
+            monkeypatch.setattr(os, name, lambda: 10001, raising=False)
+
+
 def test_the_gate_reads_cluster_dns_and_targets(tmp_path):
     conf = tmp_path / "resolv.conf"
-    conf.write_text("search x.svc.cluster.local\nnameserver 10.96.0.10\noptions ndots:5\n")
+    conf.write_text("search x.svc.cluster.local\nnameserver 10.96.0.10\noptions ndots:5\n", encoding="utf-8")
     assert gate.nameservers(str(conf)) == ["10.96.0.10"]
     assert gate.parse_target("10.0.0.1:443") == ("10.0.0.1", 443)
     assert gate.parse_target("[fd00::1]:53") == ("fd00::1", 53)
@@ -392,10 +402,24 @@ def test_the_gate_reads_cluster_dns_and_targets(tmp_path):
         gate.parse_target("10.0.0.1")
 
 
-def test_the_gate_flags_external_settings(monkeypatch):
+def test_the_gate_flags_external_settings(monkeypatch, posix_ids):
     monkeypatch.setenv("VIRUSTOTAL_API_KEY_FILE", "/run/x")
     res = dict((n, ok) for n, ok, _ in gate.posture_checks())
     assert res["no external-service setting"] is False
+
+
+def test_the_gate_content_write_check_fails_and_leaves_nothing(monkeypatch, tmp_path, posix_ids):
+    """A writable content folder fails the check, and the probe file is removed so a
+    failed verification does not leave a stray file in the detection content."""
+    content = tmp_path / "data"
+    content.mkdir()
+    monkeypatch.setattr(gate, "CONTENT", str(content))
+    res = dict((n, ok) for n, ok, _ in gate.posture_checks())
+    assert res["cannot write detection content"] is False
+    assert list(content.iterdir()) == []
+    monkeypatch.setattr(gate, "CONTENT", str(tmp_path / "missing" / "data"))
+    res = dict((n, ok) for n, ok, _ in gate.posture_checks())
+    assert res["cannot write detection content"] is True
 
 
 def test_the_gate_names_no_unknown_mode():
@@ -423,9 +447,9 @@ def test_scripts_need_an_explicit_context_and_namespace(tmp_path, script, args):
     """Without both, nothing reaches kubectl (a recording stub stands in for it)."""
     log = tmp_path / "calls"
     stub = tmp_path / "kubectl"
-    stub.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n")
+    stub.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n", encoding="utf-8")
     stub.chmod(0o755)
-    run = subprocess.run(["bash", str(K8S / script), *args], capture_output=True, text=True,
+    run = subprocess.run(["bash", str(K8S / script), *args], capture_output=True, encoding="utf-8",
                          timeout=30, stdin=subprocess.DEVNULL,
                          env=dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}"))
     assert run.returncode == 2
@@ -434,7 +458,7 @@ def test_scripts_need_an_explicit_context_and_namespace(tmp_path, script, args):
 
 def test_scripts_never_switch_the_current_context():
     for script in ("verify-cluster.sh", "content-update.sh"):
-        text = (K8S / script).read_text()
+        text = (K8S / script).read_text(encoding="utf-8")
         assert "use-context" not in text and "set-context" not in text
         calls = [line for line in text.splitlines() if not line.lstrip().startswith("#")
                  and (line.strip().startswith("kubectl") or " kubectl " in line)]
@@ -443,7 +467,7 @@ def test_scripts_never_switch_the_current_context():
 
 
 def test_the_token_never_appears_on_a_command_line():
-    text = (K8S / "verify-cluster.sh").read_text()
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
     assert '-H "@$work/auth"' in text
     assert "Bearer $(cat" not in text and 'echo "$token' not in text
 
@@ -453,9 +477,9 @@ def test_the_token_never_appears_on_a_command_line():
 def test_the_deployment_docs_link_the_kubernetes_guide():
     guide = ROOT / "docs" / "KUBERNETES.md"
     assert guide.is_file()
-    assert "KUBERNETES.md" in (ROOT / "docs" / "DEPLOYMENT.md").read_text()
-    assert "docs/KUBERNETES.md" in (ROOT / "README.md").read_text()
-    text = guide.read_text()
+    assert "KUBERNETES.md" in (ROOT / "docs" / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    assert "docs/KUBERNETES.md" in (ROOT / "README.md").read_text(encoding="utf-8")
+    text = guide.read_text(encoding="utf-8")
     for section in ("## Architecture", "## Differences from Docker Compose", "## Verify",
                     "## Rule packs", "## Backup and restore", "## Intel"):
         assert section in text
@@ -463,7 +487,7 @@ def test_the_deployment_docs_link_the_kubernetes_guide():
 
 def test_the_gate_is_not_in_the_image():
     """It reaches the Pod as a ConfigMap; the image keeps deploy/ out (.dockerignore)."""
-    assert "\ndeploy\n" in (ROOT / ".dockerignore").read_text()
+    assert "\ndeploy\n" in (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":  # pragma: no cover
