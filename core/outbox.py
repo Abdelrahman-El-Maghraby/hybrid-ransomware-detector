@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import IO, Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import IO, Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 from .mailer import RateLimited, clean_text
 
@@ -395,6 +395,9 @@ class Outbox:
             counts["expired"] += 1
             return
         for channel, state in list(entry["channels"].items()):
+            if self._delivered(entry["id"], channel):
+                del entry["channels"][channel]    # sent before; only its record failed
+                continue
             send = senders.get(channel)
             if send is None or state["next"] > now:
                 counts["waiting"] += 1
@@ -415,6 +418,7 @@ class Outbox:
                 METRICS.alert(channel, "failed")
                 counts["retry"] += 1
                 continue
+            self._mark_delivered(entry["id"], channel)
             del entry["channels"][channel]
             from engine.metrics import METRICS
             METRICS.alert(channel, "sent")
@@ -426,6 +430,22 @@ class Outbox:
         else:
             (self.sent / entry["id"]).touch()
             path.unlink(missing_ok=True)
+
+    def _delivered(self, alert_id: str, channel: str) -> bool:
+        return ((alert_id, channel) in _DELIVERED.setdefault(str(self.root), set())
+                or (self.sent / f"{alert_id}.{channel}").exists())
+
+    def _mark_delivered(self, alert_id: str, channel: str) -> None:
+        """Recorded at once, apart from the entry rewrite: a failed rewrite (disk
+        full) must not make the next run send this channel again. In memory first
+        (this process), then a marker file (later processes)."""
+        _DELIVERED.setdefault(str(self.root), set()).add((alert_id, channel))
+        try:
+            (self.sent / f"{alert_id}.{channel}").touch()
+        except OSError as e:
+            logger.warning("Alert %s: %s delivery could not be recorded (%s); another "
+                           "process may send it again.", alert_id, channel, type(e).__name__,
+                           extra={"event": "alert_record_failed", "alert_id": alert_id})
 
     def _prune_sent(self) -> None:
         now = self._clock()
@@ -471,6 +491,12 @@ def channels_for(alert: Mapping[str, Any], config: Mapping[str, Any],
             canary or rank >= RANK.get(str(config.get("alert_email_min_verdict") or "High"), 3)):
         out.append("email")
     return out
+
+
+# (alert id, channel) delivered by this process, per outbox folder: a delivery is
+# never repeated in this process even when neither its marker nor the entry could
+# be written. outbox_for() builds a new Outbox per call, hence module level.
+_DELIVERED: Dict[str, Set[Tuple[str, str]]] = {}
 
 
 def _well_formed(entry: Any) -> bool:

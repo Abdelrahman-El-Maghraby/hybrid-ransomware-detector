@@ -30,7 +30,7 @@ import time
 import unicodedata
 from collections import deque
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formatdate
 from typing import Any, Callable, Deque, Dict, List, Mapping, Optional
 
 VERDICTS = ("Clean", "Low", "Medium", "High", "Critical")
@@ -149,7 +149,9 @@ def build_message(fields: Mapping[str, Any], sender: str, to: List[str]) -> Emai
     msg["From"] = sender
     msg["To"] = ", ".join(to)
     msg["Date"] = formatdate(localtime=False)
-    msg["Message-ID"] = make_msgid(domain="aegis-sentinel.invalid")
+    # stable per alert: a copy sent again after a failed record carries the same
+    # Message-ID, which mail systems that de-duplicate on it can use
+    msg["Message-ID"] = f"<{f['alert_id']}@aegis-sentinel.invalid>"
     msg["X-Aegis-Alert-Id"] = f["alert_id"]
     msg.set_content(BODY.format(**values))
     return msg

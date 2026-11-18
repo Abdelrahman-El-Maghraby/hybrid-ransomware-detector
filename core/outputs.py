@@ -79,6 +79,8 @@ def post_alert(payload: Dict, url: str, secret: str = "", session=None,
     http = session or requests
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
+    if payload.get("alert_id"):          # the same on every retry: receivers de-duplicate
+        headers["Idempotency-Key"] = str(payload["alert_id"])
     if secret:
         headers["X-Aegis-Signature"] = sign(body, secret)
     try:

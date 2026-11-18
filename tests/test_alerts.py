@@ -777,3 +777,91 @@ def test_an_alert_that_cannot_be_queued_does_not_drop_the_batch(tmp_path, clock,
     assert any(first["id"] in r.getMessage() and "not delivered" in r.getMessage()
                for r in caplog.records)
     assert METRICS.snapshot()["alerts"]["webhook_not_queued"] == before + 1
+
+
+# ------------------------------------------------- RV-14: a delivery is recorded at once
+def _restart():
+    """A new process: nothing remembered in memory, only what is on disk."""
+    OB._DELIVERED.clear()
+
+
+def test_a_failure_before_sending_is_retried_and_sent_once(tmp_path, clock):
+    box, hook = _box(tmp_path, clock), Receiver()
+    alert, _ = _two_alerts()
+    box.enqueue(alert, ["webhook"])
+    assert box.flush({"webhook": hook, "email": None})["retry"] == 1
+    assert not (box.sent / f"{alert['id']}.webhook").exists()     # nothing recorded
+    hook.up = True
+    clock[0] += OB.FIRST_RETRY_SECONDS + 1
+    _restart()
+    assert box.flush({"webhook": hook, "email": None})["sent"] == 1
+    assert len(hook.got) == 1
+
+
+def test_a_failed_record_after_sending_does_not_resend(tmp_path, clock, monkeypatch):
+    """Sent, then the entry rewrite fails (disk full): neither the next run of this
+    process nor a restarted process sends that channel again."""
+    box, hook, mail = _box(tmp_path, clock), Receiver(up=True), Receiver()
+    alert, _ = _two_alerts()
+    box.enqueue(alert, ["webhook", "email"])
+
+    def disk_full(path, entry):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(box, "_write", disk_full)
+    for _ in range(3):
+        box.flush({"webhook": hook, "email": mail})
+        clock[0] += OB.MAX_RETRY_SECONDS + 1
+    assert len(hook.got) == 1
+    monkeypatch.undo()
+    _restart()
+    box2 = _box(tmp_path, clock)
+    mail.up = True
+    box2.flush({"webhook": hook, "email": mail})
+    assert len(hook.got) == 1 and len(mail.got) == 1           # e-mail still delivered
+    assert not list(box2.pending.glob("*.json"))
+
+
+def test_the_remaining_duplicate_window_is_at_least_once(tmp_path, clock, monkeypatch):
+    """Only when neither the record nor the entry can be written and the process
+    restarts is the channel sent again; it carries the same alert id."""
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    alert, _ = _two_alerts()
+    box.enqueue(alert, ["webhook"])
+    from pathlib import Path
+    real_touch = Path.touch
+
+    def no_space(self, *a, **k):
+        if self.parent == box.sent:
+            raise OSError(28, "No space left on device")
+        return real_touch(self, *a, **k)
+    monkeypatch.setattr(Path, "touch", no_space)
+    monkeypatch.setattr(box, "_write", lambda path, entry: no_space(box.sent / "x"))
+    box.flush({"webhook": hook, "email": None})
+    box.flush({"webhook": hook, "email": None})
+    assert len(hook.got) == 1                                  # same process: remembered
+    monkeypatch.undo()
+    _restart()
+    _box(tmp_path, clock).flush({"webhook": hook, "email": None})
+    assert len(hook.got) == 2 and hook.got[0]["alert_id"] == hook.got[1]["alert_id"]
+
+
+def test_retries_carry_stable_delivery_ids(monkeypatch):
+    fields = {"alert_id": "ab" * 16}
+    import core.outputs as outputs
+    seen = []
+
+    class Session:
+        def post(self, url, data, headers, timeout):
+            seen.append(headers)
+            return SimpleNamespace(status_code=200)
+    for _ in range(2):
+        outputs.post_alert({"alert_id": fields["alert_id"], "verdict": "High"},
+                           "https://hooks.example.invalid/x", "s", session=Session())
+    assert seen[0]["Idempotency-Key"] == seen[1]["Idempotency-Key"] == fields["alert_id"]
+
+
+def test_an_email_sent_again_keeps_its_message_id():
+    fields = OB.verdict_alert(_result())["email"]
+    first = build_message(fields, "aegis@example.org", ["soc@example.org"])
+    again = build_message(fields, "aegis@example.org", ["soc@example.org"])
+    assert first["Message-ID"] == again["Message-ID"] == f"<{fields['alert_id']}@aegis-sentinel.invalid>"
