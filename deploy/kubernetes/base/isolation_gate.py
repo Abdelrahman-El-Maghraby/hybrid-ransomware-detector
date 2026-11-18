@@ -1,0 +1,259 @@
+"""Kubernetes isolation gate for the analysis Pod (docs/KUBERNETES.md).
+
+In Docker the analysis container has no network interface (network_mode: none).
+A Kubernetes Pod always has one; only a NetworkPolicy, enforced by the cluster's
+network plugin, keeps the analysis Pod from the internet, the cluster DNS, the
+Kubernetes API and the cloud metadata address. A policy that is missing, not yet
+applied (a new Pod can start before the plugin has programmed it) or not enforced
+at all leaves that Pod connected. This script checks the effect, not the YAML:
+
+    python /opt/aegis-k8s/isolation_gate.py gate     init container: exit 1 while any
+                                                     destination below answers
+    python /opt/aegis-k8s/isolation_gate.py ready    readiness probe: the gate, then
+                                                     the API's /ready on its socket
+    python /opt/aegis-k8s/isolation_gate.py verify [HOST:PORT ...]
+                                                     operator check (kubectl exec): the
+                                                     gate, extra destinations, and the
+                                                     container's own hardening
+
+A connection that succeeds, or a DNS server that answers, is a failure. A time-out,
+"no route" or a refused connection counts as blocked. The gate guards against
+misconfiguration; it is not a boundary against code already running in the Pod.
+Standard library only, so it runs before anything else is imported.
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+import struct
+import sys
+import threading
+import time
+from typing import Callable, List, Optional, Tuple
+
+TIMEOUT = float(os.environ.get("AEGIS_GATE_TIMEOUT", "2"))
+WAIT = TIMEOUT * 3 + 2                   # all probes together; below the probe time-outs
+API_SOCKET = os.environ.get("AEGIS_API_SOCKET", "/run/aegis/api/api.sock")
+CONTENT = "/var/lib/aegis/RansomwareScanner/data"
+# Names of settings that belong to the external services. None of them may reach the
+# analysis container: Kubernetes has no intel service yet (docs/KUBERNETES.md).
+EXTERNAL_SETTINGS = ("VIRUSTOTAL_API_KEY", "OPENAI_API_KEY", "SANDBOX_URL", "SANDBOX_TOKEN",
+                     "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO",
+                     "ALERT_EMAIL_FROM", "AEGIS_INTEL_TOKEN", "AEGIS_INTEL_SOCKET",
+                     "OLLAMA_HOST", "WEBHOOK_URL", "CLOUD_SECRET_ACCESS_KEY")
+SERVICE_ACCOUNT = "/var/run/secrets/kubernetes.io/serviceaccount"
+
+Result = Tuple[str, bool, str]           # name, passed, detail
+
+
+def tcp_probe(host: str, port: int) -> Tuple[bool, str]:
+    """(blocked, detail) for a TCP connection attempt."""
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as s:
+            s.settimeout(TIMEOUT)
+            s.connect((host, port))
+    except ConnectionRefusedError:
+        return True, "refused (a reject rule or a closed port)"
+    except OSError as e:
+        return True, type(e).__name__ + (": " + e.strerror if e.strerror else "")
+    return False, "connected"
+
+
+def dns_query(name: str) -> bytes:
+    labels = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".") if p)
+    return struct.pack(">HHHHHH", 0x5A5A, 0x0100, 1, 0, 0, 0) + labels + b"\0" + b"\0\1\0\1"
+
+
+def udp_dns_probe(server: str, port: int = 53) -> Tuple[bool, str]:
+    """(blocked, detail): a DNS server that answers at all is reachable."""
+    family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_DGRAM) as s:
+            s.settimeout(TIMEOUT)
+            s.sendto(dns_query("kubernetes.default.svc.cluster.local"), (server, port))
+            data = s.recv(512)
+    except OSError as e:
+        return True, type(e).__name__ + (": " + e.strerror if e.strerror else "")
+    return (False, "answered") if data[:2] == b"\x5a\x5a" else (True, "unrelated reply")
+
+
+def resolve_probe(name: str) -> Tuple[bool, str]:
+    try:
+        socket.getaddrinfo(name, 443)
+    except OSError as e:
+        return True, type(e).__name__
+    return False, "resolved"
+
+
+def nameservers(path: str = "/etc/resolv.conf") -> List[str]:
+    found = []
+    try:
+        with open(path) as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "nameserver":
+                    found.append(parts[1].split("%")[0])
+    except OSError:
+        pass
+    return found
+
+
+def parse_target(text: str) -> Tuple[str, int]:
+    host, _, port = text.strip().rpartition(":")
+    host = host.strip("[]")
+    if not host or not port.isdigit() or not 0 < int(port) < 65536:
+        raise ValueError(f"not HOST:PORT: {text!r}")
+    return host, int(port)
+
+
+def network_checks(extra: Tuple[Tuple[str, int], ...] = ()) -> List[Tuple[str, Callable]]:
+    checks: List[Tuple[str, Callable]] = [
+        ("tcp 1.1.1.1:443 (internet)", lambda: tcp_probe("1.1.1.1", 443)),
+        ("tcp 8.8.8.8:53 (internet DNS)", lambda: tcp_probe("8.8.8.8", 53)),
+        ("udp 8.8.8.8:53 (internet DNS)", lambda: udp_dns_probe("8.8.8.8")),
+        ("tcp [2606:4700:4700::1111]:443 (internet, IPv6)",
+         lambda: tcp_probe("2606:4700:4700::1111", 443)),
+        ("tcp 169.254.169.254:80 (cloud metadata)", lambda: tcp_probe("169.254.169.254", 80)),
+        ("dns www.virustotal.com", lambda: resolve_probe("www.virustotal.com")),
+        ("dns kubernetes.default.svc", lambda: resolve_probe("kubernetes.default.svc")),
+    ]
+    api_host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+    api_port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+    if api_host and api_port.isdigit():
+        port = int(api_port)
+        checks.append((f"tcp {api_host}:{port} (Kubernetes API)",
+                       lambda: tcp_probe(api_host, port)))
+    for server in nameservers():
+        checks.append((f"udp {server}:53 (cluster DNS)", lambda s=server: udp_dns_probe(s)))
+        checks.append((f"tcp {server}:53 (cluster DNS)", lambda s=server: tcp_probe(s, 53)))
+    for host, port in extra:
+        checks.append((f"tcp {host}:{port} (operator target)",
+                       lambda h=host, p=port: tcp_probe(h, p)))
+    return checks
+
+
+def run_network(extra: Tuple[Tuple[str, int], ...] = ()) -> List[Result]:
+    """Every destination at once, so the gate takes about one time-out."""
+    checks = network_checks(extra)
+    out: List[Optional[Result]] = [None] * len(checks)
+
+    def one(i: int, name: str, probe: Callable) -> None:
+        try:
+            blocked, detail = probe()
+        except Exception as e:  # a broken probe must not pass
+            blocked, detail = False, f"probe error: {type(e).__name__}"
+        out[i] = (f"blocked: {name}", blocked, detail)
+
+    threads = [threading.Thread(target=one, args=(i, n, p), daemon=True)
+               for i, (n, p) in enumerate(checks)]
+    for t in threads:
+        t.start()
+    deadline = time.monotonic() + WAIT
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+    # Still waiting (a resolver retrying a server that never answers): nothing came
+    # back, which is what blocked looks like.
+    return [r if r is not None else (f"blocked: {checks[i][0]}", True,
+                                     f"no answer within {WAIT:.0f} s")
+            for i, r in enumerate(out)]
+
+
+def _status(field: str) -> str:
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith(field + ":"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _mount_options(path: str) -> List[str]:
+    best = ("", "")
+    try:
+        with open("/proc/mounts") as fh:
+            for line in fh:
+                parts = line.split()
+                if (path == parts[1] or path.startswith(parts[1].rstrip("/") + "/")) \
+                        and len(parts[1]) >= len(best[0]):
+                    best = (parts[1], parts[3])
+    except OSError:
+        pass
+    return best[1].split(",")
+
+
+def _pids_max() -> str:
+    try:
+        with open("/sys/fs/cgroup/pids.max") as fh:
+            return fh.read().strip()
+    except OSError:
+        return "unreadable"
+
+
+def posture_checks() -> List[Result]:
+    """The container's own hardening, as the kernel reports it."""
+    res: List[Result] = []
+    res.append(("not root", os.getuid() != 0, f"uid {os.getuid()} gid {os.getgid()}"))
+    res.append(("no capabilities", int(_status("CapEff") or "1", 16) == 0, _status("CapEff")))
+    res.append(("no-new-privileges", _status("NoNewPrivs") == "1", _status("NoNewPrivs")))
+    res.append(("seccomp filter", _status("Seccomp") == "2", f"Seccomp {_status('Seccomp')}"))
+    res.append(("read-only root fs", "ro" in _mount_options("/"),
+                ",".join(_mount_options("/")[:2])))
+    res.append(("no service-account token", not os.path.exists(SERVICE_ACCOUNT), SERVICE_ACCOUNT))
+    held = [k for k in EXTERNAL_SETTINGS if os.environ.get(k) or os.environ.get(k + "_FILE")]
+    res.append(("no external-service setting", not held, ",".join(held) or "none"))
+    res.append(("detection content mounted read-only", "ro" in _mount_options(CONTENT), CONTENT))
+    try:
+        with open(os.path.join(CONTENT, ".aegis-gate-write-test"), "w") as fh:
+            fh.write("x")
+        res.append(("cannot write detection content", False, "written"))
+    except OSError as e:
+        res.append(("cannot write detection content", True, e.strerror or type(e).__name__))
+    return res
+
+
+def info_lines() -> List[str]:
+    """Known differences from Docker; reported, not failed (docs/KUBERNETES.md)."""
+    tmp = _mount_options("/tmp")  # noqa: S108  # nosec B108 - reads mount options only
+    return ["/tmp mount options: "  # noqa: S108  # nosec B108
+            f"{','.join(tmp[:6])} (emptyDir: Kubernetes sets no noexec)",
+            f"container pids.max: {_pids_max()} (the node's podPidsLimit is the Pod limit)"]
+
+
+def report(role: str, results: List[Result]) -> int:
+    width = max((len(n) for n, _, _ in results), default=0)
+    for name, ok, detail in results:
+        print(f"{'PASS' if ok else 'FAIL'}  {role:8} {name.ljust(width)}  {detail}", flush=True)
+    return 0 if all(ok for _, ok, _ in results) else 1
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    mode = args[0] if args else ""
+    if mode == "gate":
+        return report("gate", run_network())
+    if mode == "ready":
+        failed = [r for r in run_network() if not r[1]]
+        if failed:
+            return report("ready", failed)
+        from api.probe import main as probe  # the image's PYTHONPATH (/app)
+        return probe([API_SOCKET, "/ready"])
+    if mode == "verify":
+        try:
+            extra = tuple(parse_target(a) for a in args[1:])
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        code = report("analysis", posture_checks() + run_network(extra))
+        for line in info_lines():
+            print(f"INFO  analysis {line}")
+        return code
+    print(__doc__.split("\n\n")[2], file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

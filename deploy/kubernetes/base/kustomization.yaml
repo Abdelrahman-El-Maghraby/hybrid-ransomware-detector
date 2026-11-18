@@ -1,0 +1,41 @@
+# Aegis Sentinel on Kubernetes: the base (docs/KUBERNETES.md). Do not apply the base
+# directly: copy overlays/example, set the image references and storage there,
+# and render with `kubectl kustomize`. The images below are placeholders on
+# purpose; deploy/kubernetes/check_manifests.py refuses them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aegis-sentinel
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: aegis-sentinel
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - storage.yaml
+  - analysis.yaml
+  - service.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  # Settings of the analysis service; secrets never go here (they are Secrets
+  # mounted as files). A change renames the ConfigMap and so restarts the Pod.
+  - name: aegis-analysis-config
+    literals:
+      - LOG_FORMAT=json
+      - AEGIS_API_MAX_UPLOAD_MB=50
+      - AEGIS_API_MAX_CONCURRENT_SCANS=2
+      - AEGIS_API_SPARE_WORKERS=2
+      - SCAN_TIMEOUT_SECONDS=300
+      - WORKER_MEMORY_MB=2048
+      # base64 Ed25519 public keys of the rule-pack signers, comma-separated
+      # (public, not secret; docs/RULE_PACKS.md). Empty: no pack can be installed.
+      - RULEPACK_PUBLIC_KEYS=
+  # The fail-closed network check run by the init container and the readiness probe.
+  - name: aegis-isolation-gate
+    files:
+      - isolation_gate.py
+images:
+  - name: aegis-sentinel
+    newTag: SET-VERSION-IN-OVERLAY
+  - name: aegis-sentinel-proxy
+    newTag: SET-VERSION-IN-OVERLAY

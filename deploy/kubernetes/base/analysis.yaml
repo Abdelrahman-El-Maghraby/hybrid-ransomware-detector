@@ -1,0 +1,180 @@
+# The analysis Pod: the API server and its scan workers (container `analysis`) and
+# the TLS proxy (container `proxy`), joined by a Unix socket in a Pod-local
+# emptyDir exactly as in docker-compose.yml. The intel service is not part of the
+# Kubernetes deployment: external services (VirusTotal, LLM, CAPE, e-mail alerts)
+# stay off here until its transport is decided (docs/KUBERNETES.md, "Intel").
+#
+# One replica, replaced with Recreate: the state and content claims are
+# ReadWriteOncePod, and rate limits and the token lockout live in this process.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-analysis
+  labels:
+    app.kubernetes.io/name: aegis-sentinel
+    app.kubernetes.io/component: analysis
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: analysis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aegis-sentinel
+        app.kubernetes.io/component: analysis
+    spec:
+      serviceAccountName: aegis-sentinel
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      shareProcessNamespace: false
+      # A scan may take SCAN_TIMEOUT_SECONDS (300); uvicorn and Caddy finish the
+      # requests in progress after SIGTERM. 30 s on top for the reply and shutdown.
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001                 # the image's `analysis` user
+        runAsGroup: 10001
+        fsGroup: 10001                   # new claims are made group-writable for it
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Fail closed: the Pod does not start while the internet, the cluster DNS,
+        # the Kubernetes API or the metadata address answers (isolation_gate.py).
+        - name: isolation-gate
+          image: aegis-sentinel
+          imagePullPolicy: IfNotPresent
+          command: [python, /opt/aegis-k8s/isolation_gate.py, gate]
+          securityContext: &hardened
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 64Mi}
+          volumeMounts:
+            - {name: isolation-gate, mountPath: /opt/aegis-k8s, readOnly: true}
+      containers:
+        - name: analysis
+          image: aegis-sentinel
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, api.server]
+          securityContext: *hardened
+          envFrom:
+            - configMapRef:
+                name: aegis-analysis-config
+          env:
+            # Fixed here, not in the ConfigMap: they define the isolation.
+            - {name: HOME, value: /var/lib/aegis}
+            - {name: TMPDIR, value: /tmp}
+            - {name: AEGIS_PROFILE, value: production}
+            - {name: LLM_PROVIDER, value: none}
+            - {name: AEGIS_API_SOCKET, value: /run/aegis/api/api.sock}
+            - {name: AEGIS_API_TOKEN_FILE, value: /run/secrets/aegis/api_token}
+            # safe: only the proxy in this Pod can reach the socket
+            - {name: AEGIS_API_TRUST_PROXY, value: "1"}
+          resources:
+            # Main process + AEGIS_API_MAX_CONCURRENT_SCANS x WORKER_MEMORY_MB +
+            # spares x ~200 MB + the /tmp emptyDir (memory-backed, counted here):
+            # the Docker deployment's 6 GiB. Request = limit for memory, so the Pod
+            # is not the first evicted under node memory pressure.
+            requests: {cpu: "1", memory: 6Gi, ephemeral-storage: 64Mi}
+            limits: {cpu: "2", memory: 6Gi, ephemeral-storage: 1Gi}
+          startupProbe:                  # YARA compile and the warm-up scan
+            exec:
+              command: [python, -m, api.probe, /run/aegis/api/api.sock, /health]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 60
+          readinessProbe:                # isolation still holds, and /ready is 200
+            exec:
+              command: [python, /opt/aegis-k8s/isolation_gate.py, ready]
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 1
+          livenessProbe:                 # the process answers; never an external service
+            exec:
+              command: [python, -m, api.probe, /run/aegis/api/api.sock, /health]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 4
+          volumeMounts:
+            - {name: analysis-state, mountPath: /var/lib/aegis}
+            # read-only: a compromised parser cannot change what is detected
+            - {name: content, mountPath: /var/lib/aegis/RansomwareScanner/data, readOnly: true}
+            - {name: api-socket, mountPath: /run/aegis/api}
+            - {name: scratch, mountPath: /tmp}
+            - {name: api-token, mountPath: /run/secrets/aegis, readOnly: true}
+            - {name: isolation-gate, mountPath: /opt/aegis-k8s, readOnly: true}
+        - name: proxy
+          image: aegis-sentinel-proxy
+          imagePullPolicy: IfNotPresent
+          # deploy/Caddyfile, baked into the image: TLS on 8443 with the files in
+          # /etc/caddy/tls, request bodies up to 52 MB, reverse proxy to api.sock.
+          securityContext:
+            <<: *hardened
+            runAsUser: 10003
+            runAsGroup: 10003
+          ports:
+            - {name: https, containerPort: 8443, protocol: TCP}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 30
+            failureThreshold: 4
+          volumeMounts:
+            - {name: api-socket, mountPath: /run/aegis/api}
+            - {name: tls, mountPath: /etc/caddy/tls, readOnly: true}
+            - {name: proxy-data, mountPath: /data}
+            - {name: proxy-config, mountPath: /config}
+      volumes:
+        - name: analysis-state
+          persistentVolumeClaim: {claimName: aegis-analysis-state}
+        - name: content
+          persistentVolumeClaim: {claimName: aegis-content, readOnly: true}
+        - name: api-socket
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        # The extraction sandbox. Memory-backed like Docker's tmpfs and counted in
+        # the analysis memory limit; unlike it, Kubernetes mounts it without
+        # noexec, nosuid or nodev (docs/KUBERNETES.md, "Differences").
+        - name: scratch
+          emptyDir: {medium: Memory, sizeLimit: 2Gi}
+        - name: proxy-data
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: proxy-config
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        # Created by the operator (docs/KUBERNETES.md, "Secrets and TLS"); the Pod
+        # does not start without them.
+        - name: api-token
+          secret:
+            secretName: aegis-api-token
+            defaultMode: 0440
+            items:
+              - {key: api_token, path: api_token}
+        - name: tls
+          secret:
+            secretName: aegis-tls
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: cert.pem}
+              - {key: tls.key, path: key.pem}
+        - name: isolation-gate
+          configMap:
+            name: aegis-isolation-gate
+            defaultMode: 0444

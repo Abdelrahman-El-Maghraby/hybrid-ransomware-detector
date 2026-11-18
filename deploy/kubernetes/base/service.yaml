@@ -1,0 +1,18 @@
+# The only Service: HTTPS to the TLS proxy in the analysis Pod. ClusterIP in the
+# base; the overlay decides how clients reach it (docs/KUBERNETES.md, "Access").
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-sentinel
+  labels:
+    app.kubernetes.io/component: analysis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: aegis-sentinel
+    app.kubernetes.io/component: analysis
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+      protocol: TCP
