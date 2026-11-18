@@ -213,3 +213,26 @@ def test_an_unreadable_token_file_does_not_fall_back_to_another_token(tmp_path, 
     monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(secret))
     with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN_FILE"):
         create_app(_config(tmp_path), isolate=False)
+
+
+def test_a_used_spare_is_replaced_even_when_the_scan_raises(tmp_path, monkeypatch):
+    """RV-S3: the refill ran only after a normal return; an exception from
+    scan_isolated left one spare fewer for good. No realistic trigger was found;
+    the exception is injected."""
+    pytest.importorskip("fastapi")
+    import api.server as server
+    import engine.workers as workers
+    from tests.test_scanner_integration import _config
+    svc = server._ScanService.__new__(server._ScanService)
+    svc.isolate, svc.config, svc.scanner = True, _config(tmp_path), None
+    spare = object()
+    refills = []
+    monkeypatch.setattr(svc, "_take_spare", lambda: spare, raising=False)
+    monkeypatch.setattr(svc, "_refill", lambda: refills.append(1), raising=False)
+
+    def boom(*a, **k):
+        raise RuntimeError("unexpected")
+    monkeypatch.setattr(workers, "scan_isolated", boom)
+    with pytest.raises(RuntimeError):
+        svc.scan(str(tmp_path / "x"), "x")
+    assert refills == [1]

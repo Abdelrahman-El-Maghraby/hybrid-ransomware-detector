@@ -189,12 +189,14 @@ class _ScanService:
             from engine.workers import ISOLATION_TEXT, IsolationUnavailable, scan_isolated
             box: Dict = {}
             spare = self._take_spare()
-            unscanned = scan_isolated(self.scanner, [path], 1,
-                                      float(self.config.get("scan_timeout_seconds", 300)),
-                                      self._memory_mb(), lambda i, p, r: box.setdefault("r", r),
-                                      spare=spare)
-            if spare is not None:
-                self._refill()
+            try:
+                unscanned = scan_isolated(self.scanner, [path], 1,
+                                          float(self.config.get("scan_timeout_seconds", 300)),
+                                          self._memory_mb(),
+                                          lambda i, p, r: box.setdefault("r", r), spare=spare)
+            finally:
+                if spare is not None:           # RV-S3: replaced even when the scan raised
+                    self._refill()
             if unscanned:
                 raise IsolationUnavailable(ISOLATION_TEXT)
             result = box["r"]
