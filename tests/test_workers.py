@@ -157,3 +157,18 @@ def test_a_worker_that_fails_to_start_leaves_no_temp_folder(tmp_path, monkeypatc
     with pytest.raises(OSError):
         W._Worker(ctx, {}, 0)
     assert [p.name for p in tmp_path.iterdir()] == []
+
+
+def test_a_result_naming_another_file_is_refused(tmp_path):
+    """RV-S2: a worker's final result names the file it scanned; it was not checked
+    against the file it was given (snapshots were), so a compromised worker could
+    make the main process auto-quarantine (remove) another file."""
+    s = _setup(tmp_path, ["relabel.pdf"], scan_workers=1, auto_quarantine="High")
+    decoy = tmp_path / "scan" / "relabel.pdf.decoy"
+    decoy.write_text("an ordinary document\n", encoding="utf-8")
+    res = s.scan_all_directories()
+    assert decoy.exists() and decoy.read_text(encoding="utf-8") == "an ordinary document\n"
+    r = next(x for x in res if x["file_name"] == "relabel.pdf")
+    assert r["scan_status"] == "failed"
+    assert "another file" in r["scan_results"]["scan_failed"]["reason"]
+    assert not any(x.get("file_path") == str(decoy) and x.get("quarantine") for x in res)

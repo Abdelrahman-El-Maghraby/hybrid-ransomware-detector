@@ -1223,13 +1223,7 @@ class _IsolatedScan:
         else:
             progressed = False
         if kind in ("ok", "error"):
-            path, w.path = w.path, None
-            if path is not None:
-                if kind == "ok" and isinstance(payload, dict):
-                    self._finish(path, payload)
-                else:
-                    self._fail(path, payload or "scan error", w.evidence)
-            return True
+            return self._final_reply(i, w, kind, payload)
         invalid = kind == "invalid"
         # After a message, a worker that has just exited may still have its result in
         # the pipe: it is judged dead on a later step that receives nothing.
@@ -1276,6 +1270,22 @@ class _IsolatedScan:
                 reason = f"the worker process died (exit code {w.proc.exitcode})"
             self._fail(path, reason, w.evidence)
         return self._replace(i)
+
+    def _final_reply(self, i: int, w: _Worker, kind: str, payload: Any) -> bool:
+        """The worker's last word on its file: a result or an error."""
+        path, w.path = w.path, None
+        if path is None:
+            return True
+        if kind == "ok" and isinstance(payload, dict):
+            if payload.get("file_path") != path:
+                # RV-S2: the result must be about the file this worker was given;
+                # its path drives auto-quarantine in this process
+                self._fail(path, "invalid reply: the result names another file", w.evidence)
+                return self._replace(i)
+            self._finish(path, payload)
+        else:
+            self._fail(path, payload or "scan error", w.evidence)
+        return True
 
     @staticmethod
     def _collect_helpers(w: _Worker) -> None:

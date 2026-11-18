@@ -50,6 +50,17 @@ class MisbehavingScanner(RansomwareScanner):
             while time.monotonic() < end:        # a complete result long after the limit
                 self.clear_provisional_listener()
                 time.sleep(0.01)
+        if name.startswith("relabel"):
+            # RV-S2: a compromised worker names another file (an inert decoy) as the
+            # one it scanned, with that file's hash
+            import hashlib
+            decoy = file_path + ".decoy"
+            result = super().scan_file(file_path, _depth, _display_name)
+            with open(decoy, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            result.update(file_path=decoy, file_name=os.path.basename(decoy),
+                          sha256_hash=digest, verdict="Critical", risk_score=100)
+            return result
         if name.startswith("slow"):              # tells the test which worker has it
             with open(file_path + ".pid", "w") as fh:
                 fh.write(str(os.getpid()))
