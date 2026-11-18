@@ -152,7 +152,12 @@ class IntelClient:
         caps = self.capabilities()
         if caps.get("unreachable"):
             return {"enabled": False, "unreachable": True}
-        return dict(caps.get(name) or {"enabled": False})
+        entry = caps.get(name)
+        if not isinstance(entry, dict) or not isinstance(entry.get("enabled"), bool):
+            # not stated by intel: off for the caller, but not a statement that it is
+            # disabled (RV-15: queued e-mail is kept for that case)
+            return {"enabled": False, "unknown": True}
+        return dict(entry)
 
     # ------------------------------------------------------------ operations
     def vt_lookup(self, sha256: str, timeout: Optional[float] = None) -> Dict:

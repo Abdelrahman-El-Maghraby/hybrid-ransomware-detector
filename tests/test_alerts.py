@@ -577,9 +577,87 @@ def test_an_intel_service_without_e_mail_still_queues_nothing(tmp_path, monkeypa
     fake = SimpleNamespace(service=lambda name: {"enabled": False}, alert_email=None)
     monkeypatch.setattr("core.intel_client.client_from_config", lambda cfg: fake)
     cfg = _config(tmp_path, intel_socket="/x.sock", outbox_dir=str(tmp_path / "outbox"))
-    assert OB.senders_for(cfg)["email"] is None
+    assert OB.senders_for(cfg)["email"] is OB.email_disabled
+    assert not OB.usable(OB.senders_for(cfg)["email"])
     OB.queue_and_send([OB.verdict_alert(_result("Critical"))], cfg)
     assert OB.outbox_for(cfg).status()["pending"] == 0
+
+
+# ------------------------------------------------ RV-15: disabled is not unavailable
+def _intel(monkeypatch, state, sent):
+    def service(name):
+        mode = state["mode"]
+        if mode == "down":
+            return {"enabled": False, "unreachable": True}
+        if mode == "unknown":
+            return {"enabled": False, "unknown": True}
+        return {"enabled": mode == "enabled"}
+    monkeypatch.setattr("core.intel_client.client_from_config",
+                        lambda cfg: SimpleNamespace(service=service, alert_email=sent.append))
+    monkeypatch.setattr(OB, "FIRST_RETRY_SECONDS", 0.0)
+
+
+def test_queued_email_is_reported_and_removed_when_intel_has_none(tmp_path, monkeypatch, caplog):
+    """Queued while intel was down; intel then answers that it has no e-mail
+    settings: the e-mail part is removed with a warning and a metric, not left for
+    the 24 h expiry error; the webhook part of the same alert is still delivered."""
+    sent, hook, state = [], Receiver(), {"mode": "down"}
+    _intel(monkeypatch, state, sent)
+    cfg = _config(tmp_path, intel_socket="/x.sock", outbox_dir=str(tmp_path / "outbox"),
+                  webhook_url="https://hooks.example.invalid/x")
+    monkeypatch.setattr("core.outputs.post_alert", lambda payload, url, secret: hook(payload))
+    alert = OB.verdict_alert(_result("Critical"))
+    OB.queue_and_send([alert], cfg)
+    assert set(OB.outbox_for(cfg).status()["channels"]) == {"email", "webhook"}
+    state["mode"] = "disabled"
+    before = METRICS.snapshot()["alerts"].get("email_disabled", 0)
+    with caplog.at_level(logging.WARNING, logger="RansomwareScanner"):
+        OB.flush_pending(cfg)
+    assert not sent
+    assert any(alert["id"] in r.getMessage() and "not configured on the intel service" in
+               r.getMessage() for r in caplog.records)
+    assert METRICS.snapshot()["alerts"]["email_disabled"] == before + 1
+    assert set(OB.outbox_for(cfg).status()["channels"]) == {"webhook"}   # still queued
+    hook.up = True
+    assert OB.flush_pending(cfg)["sent"] == 1
+    assert OB.outbox_for(cfg).status()["pending"] == 0
+
+
+@pytest.mark.parametrize("mode", ["down", "unknown"])
+def test_unavailable_or_unstated_email_keeps_alerts_queued(tmp_path, monkeypatch, mode):
+    """A connection error, a time-out or an answer without the setting is not
+    "disabled": the alert is queued and retried."""
+    sent, state = [], {"mode": mode}
+    _intel(monkeypatch, state, sent)
+    cfg = _config(tmp_path, intel_socket="/x.sock", outbox_dir=str(tmp_path / "outbox"))
+    OB.queue_and_send([OB.verdict_alert(_result("Critical"))], cfg)
+    OB.flush_pending(cfg)
+    assert OB.outbox_for(cfg).status()["pending"] == 1 and not sent
+    state["mode"] = "enabled"
+    assert OB.flush_pending(cfg)["sent"] == 1 and len(sent) == 1
+
+
+def test_email_enabled_again_applies_to_new_alerts(tmp_path, monkeypatch):
+    sent, state = [], {"mode": "disabled"}
+    _intel(monkeypatch, state, sent)
+    cfg = _config(tmp_path, intel_socket="/x.sock", outbox_dir=str(tmp_path / "outbox"))
+    OB.queue_and_send([OB.verdict_alert(_result("Critical", sha="cc" * 32))], cfg)
+    assert OB.outbox_for(cfg).status()["pending"] == 0 and not sent
+    state["mode"] = "enabled"
+    OB.queue_and_send([OB.verdict_alert(_result("Critical", sha="dd" * 32))], cfg)
+    assert len(sent) == 1 and sent[0]["sha256"] == "dd" * 32
+
+
+def test_the_client_reports_an_unstated_service_as_unknown():
+    from core.intel_client import IntelClient
+    client = IntelClient.__new__(IntelClient)
+    for caps, want in (({"email": {"enabled": False}}, {"enabled": False}),
+                       ({"email": {"enabled": True}}, {"enabled": True}),
+                       ({}, {"enabled": False, "unknown": True}),
+                       ({"email": {"enabled": "no"}}, {"enabled": False, "unknown": True}),
+                       ({"unreachable": True}, {"enabled": False, "unreachable": True})):
+        client.capabilities = lambda caps=caps: caps
+        assert client.service("email") == want
 
 
 class SlowReceiver:

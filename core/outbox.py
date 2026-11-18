@@ -404,6 +404,17 @@ class Outbox:
                 continue
             try:
                 send(entry[channel])
+            except DeliveryDisabled as e:
+                # switched off, not failing: the rest of the alert stays, this part
+                # is reported (never dropped silently) and not retried
+                logger.warning("Alert %s (%s): %s; its %s part was removed from the outbox.",
+                               entry["id"], entry.get("kind"), e, channel,
+                               extra={"event": "alert_channel_disabled", "alert_id": entry["id"],
+                                      "channel": channel})
+                from engine.metrics import METRICS
+                METRICS.alert(channel, "disabled")
+                del entry["channels"][channel]
+                continue
             except Exception as e:
                 state["attempts"] += 1
                 pause = (FIRST_RETRY_SECONDS if isinstance(e, RateLimited) else
@@ -520,6 +531,19 @@ def outbox_for(config: Mapping[str, Any]) -> Outbox:
 _MAILERS: Dict[tuple, Any] = {}
 
 
+class DeliveryDisabled(Exception):
+    """The receiver says this channel is switched off (not a temporary failure)."""
+
+
+def email_disabled(fields: Dict[str, Any]) -> None:
+    raise DeliveryDisabled("e-mail delivery is not configured on the intel service")
+
+
+def usable(sender: Optional[Sender]) -> bool:
+    """True when new alerts may be queued for this sender's channel."""
+    return sender is not None and sender is not email_disabled
+
+
 def _intel_unreachable(fields: Dict[str, Any]) -> None:
     from .intel_client import IntelError
     raise IntelError("the intel service is unreachable; the e-mail alert stays queued")
@@ -537,11 +561,18 @@ def senders_for(config: Mapping[str, Any]) -> Dict[str, Optional[Sender]]:
         from .intel_client import client_from_config
         client = client_from_config(dict(config))
         email = client.service("email") if client is not None else {}
-        if client is not None and email.get("enabled"):
+        enabled = email.get("enabled")
+        if client is not None and enabled is True and not email.get("unreachable"):
             out["email"] = client.alert_email
-        elif email.get("unreachable"):
-            # Unknown while the intel service is down: queue the e-mail alert
-            # anyway, so it is retried with backoff instead of being lost.
+        elif client is not None and enabled is False and not email.get("unreachable") \
+                and not email.get("unknown"):
+            # RV-15: intel answered (authenticated) that it has no e-mail settings:
+            # nothing new is queued, and e-mail parts already queued are reported
+            # and removed instead of waiting for the 24 h expiry
+            out["email"] = email_disabled
+        elif client is not None:
+            # Unknown (intel down, an error, or an answer without the setting):
+            # queue the e-mail alert anyway, so it is retried with backoff
             out["email"] = _intel_unreachable
     else:
         from .mailer import SmtpMailer, email_configured
@@ -563,7 +594,7 @@ def queue_and_send(alerts: Iterable[Dict[str, Any]], config: Mapping[str, Any]) 
         senders = senders_for(config)
         box = outbox_for(config)
         for alert in alerts:
-            wanted = channels_for(alert, config, senders["email"] is not None)
+            wanted = channels_for(alert, config, usable(senders["email"]))
             try:
                 box.enqueue(alert, wanted)
             except Exception as e:  # the others are still queued, and what is due is sent
