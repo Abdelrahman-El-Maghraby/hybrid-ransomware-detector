@@ -1,8 +1,9 @@
 # Current task handoff
 
-- Status: **second review pass done (2026-11-18): RV-1 to RV-12 fixed or
-  improved locally, RV-13 to RV-15 recorded; paused for owner decisions** (K8S-1
-  option E, RV-13, a test cluster, a CI run). Section "Second review pass" at the
+- Status: **third pass done (2026-11-19): RV-13 to RV-17 and RV-S1 to RV-S4 fixed
+  locally, RV-S5 not reproduced; option E resolved on paper, not approved or built;
+  paused for owner decisions** (option E, a test cluster, a CI run). Section
+  "Third pass" at the end. Before it: second review pass (2026-11-18). Section "Second review pass" at the
   end. Earlier: optional Kubernetes deployment implemented and statically validated
   (2026-11-18). Runtime validation on a cluster is
   pending. Not ready for merge and not production ready. Latest: section
@@ -2652,18 +2653,42 @@ action.
   Caddy's parsing of `51MiB` (documentation only).
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Third pass (2026-11-19, Claude Code)
+
+- **Brief:** [tasks/repository-audit-2026-11-18.md](tasks/repository-audit-2026-11-18.md#6-third-pass-2026-11-19)
+  section 6; register rows RV-13 to RV-17 and RV-S1 to RV-S5.
+- **Agent:** Claude Code, the only editor; no subagents. Branch
+  `review/production-hardening`, local only; started at `1cf68c2`, clean tree, no
+  K8S-1 work present. Nothing pushed, merged or deployed; no cluster contacted.
+- **Commits (local):** `9f37e26` gate network opt-in and the test network guard
+  (RV-16); `727ad00` web payloads past the limits (RV-13); `9265d52` delivery
+  records and stable ids (RV-14); `81f0e9e` e-mail disabled on intel (RV-15);
+  `f4e98ca` truncated pages (RV-S1); `e849f3b` worker results naming another file
+  (RV-S2); `27b6872` the provenance test's VirusTotal look-up (RV-17); `ea88274`
+  spare refill (RV-S3); `f576af7` upload deadline (RV-S4); `e3e001b` option E
+  transport contract and the offline gate in the guide. Last implementation
+  commit: `e3e001b`. Then this record (register, matrix, brief, OPERATIONS,
+  CHANGELOG).
+- **Behaviour changes:** web pages with payloads past the limits or cut at 20 MB
+  are `partial`; a worker result naming another file fails the scan; uploads
+  must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s); e-mail `Message-ID` is
+  derived from the alert id; with e-mail off on intel, queued e-mail is removed
+  with a warning; the gate refuses live probes without the manifests' settings.
+  No weight, threshold, coverage or schema-version change.
+- **Checks:** VERIFICATION_MATRIX section 6. Safe suite at `e3e001b` under the
+  network guard: 2,058 passed, 0 failed, 0 errors, 8 skipped, 4 deselected (573 s).
+- **Pending, not verified anywhere:** Windows, Linux, CI, Docker, Caddy (its
+  upload time-outs and the 51 MiB cap), any cluster; option E in its entirety.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-Owner decisions, each independent:
-
-1. **K8S-1:** approve option E (intel in its own Deployment behind TLS on one
-   port; analysis gets one egress rule; a client HTTPS transport), keep A (no
-   intel on Kubernetes) or choose D. Nothing is built before the decision.
-2. **RV-13:** approve an additive web-result field (`payloads_skipped`) so dropped
-   payloads make the scan partial.
-3. Whether to run `verify-cluster.sh` on a dedicated test cluster, and to push the
-   branch and dispatch `tests.yml` and `quality.yml` for the Windows and Linux
-   checks (not a pull request, which would start the fuzz campaigns).
-4. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
+1. **Option E (K8S-1):** approve building it as specified in the decision record
+   (intel behind TLS on one port by Service ClusterIP, certificate checked by
+   configured name, one analysis egress rule), keep Kubernetes without intel, or
+   choose another option. Nothing is built before the decision.
+2. Whether to run `verify-cluster.sh` on a dedicated test cluster, and to push the
+   branch and dispatch `tests.yml` and `quality.yml` (not a pull request).
+3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
 
 No step runs without approval.

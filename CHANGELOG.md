@@ -29,8 +29,9 @@ no version or date is assigned. Finding IDs and evidence:
 
 - More scans are reported as `partial` when part of a file was not inspected
   (cut streams, unread CHM pages, oversized XML or relationship parts, IMAP size
-  limits, unusable LLM replies, a web page's payloads at the nesting limit). The
-  result schema is unchanged.
+  limits, unusable LLM replies, a web page's payloads at the nesting limit, payloads
+  beyond a page's five-payload limit, a page cut at its 20 MB read limit). Web
+  results gain an additive `skipped` list; the schema version is unchanged.
 - Workers reply with bounded, checked JSON instead of pickle; an upload is read
   only after its token is checked.
 - The API and intel refuse non-finite or negative numeric limits at start-up, and
@@ -38,15 +39,26 @@ no version or date is assigned. Finding IDs and evidence:
   empty (it used to fall back to `AEGIS_API_TOKEN`).
 - The bundled proxy's body limit is 51 MiB (was 52 MB, below the API's 50 MiB
   file limit).
+- An upload must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s by default), or
+  the API answers 408 and frees the scan slot.
+- Alert retries carry stable identifiers: a webhook `Idempotency-Key` header and
+  an e-mail `Message-ID` derived from the alert id. Delivery is at least once.
+- With e-mail switched off on the intel service, e-mail alerts are no longer
+  queued, and e-mail already queued is removed with a warning.
+- The Kubernetes isolation gate probes the network only when the manifests ask
+  for it (`AEGIS_GATE_LIVE`, `AEGIS_GATE_TARGETS`); run elsewhere it refuses.
 - CI: the bandit gate also scans `deploy/`; the dependency audit runs daily.
 
 ### Fixed
 
 - A worker that kept sending progress messages ran past the scan time limit and
-  memory watchdog; a worker that failed to start left its temporary folder.
+  memory watchdog; a worker that failed to start left its temporary folder; a
+  worker's result naming another file is refused (auto-quarantine acted on that
+  path).
 - Alert outbox: a malformed entry, a failed rewrite or a temporary read error no
   longer blocks or deletes other alerts; an alert that cannot be queued no longer
-  drops the rest of its batch.
+  drops the rest of its batch; a delivered channel whose record failed is not
+  sent again.
 - Linear-time pattern checks for web, script, mail and embedded content; bounded
   CHM, OCR and declared-size handling; special files no longer hang a scan.
 - Sandbox, VirusTotal and LLM waits are bounded by the worker's remaining time,

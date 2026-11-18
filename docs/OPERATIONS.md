@@ -209,9 +209,19 @@ refused by quarantine. This is inspection after an event, not guaranteed prevent
 **Send test e-mail**. Desktop mail goes directly to SMTP over verified TLS.
 Passwords are saved to the OS keyring. Delivery status shows pending and expired
 alerts. Failed channels retry from `OUTBOX_DIR`; the default lifetime is
-`OUTBOX_MAX_AGE_HOURS=24`. A receiver should deduplicate by alert id: delivery
-cannot guarantee exactly once if the receiver accepts a message but its reply
-is lost.
+`OUTBOX_MAX_AGE_HOURS=24`. Delivery is **at least once**, never exactly once. A
+channel is recorded as delivered (`sent/<alert id>.<channel>`, and in memory)
+immediately after the receiver accepts it, so a failed rewrite of the queue
+entry does not repeat it. It can still be sent twice when: the receiver accepted
+it but its reply was lost; the process stopped between the send and that record;
+or neither the record nor the entry could be written and the process restarted.
+Retries carry the same identifiers, so receivers can deduplicate: the webhook
+body's `alert_id` and the `Idempotency-Key` header; for e-mail, the
+`X-Aegis-Alert-Id` header and a `Message-ID` derived from the alert id. When the
+intel service states that it has no e-mail settings (Docker), e-mail alerts are
+not queued, and e-mail already queued is removed with a warning naming each
+alert (metric `email_disabled`); a connection failure or time-out keeps them
+queued.
 
 **Quarantine keys:** use the key export/import controls on **Protection**, or
 the CLI commands in section 6. Keep the encrypted backup apart from the vault;

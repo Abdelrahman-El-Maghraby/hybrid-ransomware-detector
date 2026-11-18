@@ -214,3 +214,22 @@ pass.
    tests/test_api_auth.py tests/test_ci_workflows.py tests/test_deployment.py`
    with the requirements installed; record the Python version and `kubectl
    version --client`.
+
+## 6. Third pass (2026-11-19)
+
+At `e3e001b` (last implementation commit), same machine and settings as section 5,
+run from a separate worktree of that commit:
+
+| Check | Result |
+|---|---|
+| Safe suite (same selection and deselections), now with the conftest guard that fails any test reaching beyond this machine | **2,058 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 1 third-party warning, 573 s; the same 8 platform skips; no outside network attempt recorded |
+| The guard's first full run (at `9f37e26`) | 2,040 passed, **1 error**: the provenance test's real VirusTotal look-up (RV-17), fixed in `27b6872` |
+| Ruff, mypy (69 files), bandit gate with `deploy/`, `bash -n`, base render + checker | clean |
+| `test_smoke.py` (outside pytest, so not under the guard; it blanks every key and service setting itself) | ALL SMOKE TESTS PASSED |
+| Each fix's tests against the code before it | failed before, pass after (RV-13: 4, RV-14: 5, RV-15: 4, RV-16: 21, RV-S1, RV-S2, RV-S3, RV-S4) |
+| Loopback runtime probe of RV-S4 (uvicorn on 127.0.0.1, one slot) | before: 503 while a stalled upload held the slot (over 20 s); after, with a 3 s deadline: 200 |
+
+Evidence classes: the outbox, intel and gate checks are unit tests with
+stand-ins; RV-S2 and the worker fixes ran real worker processes with inert
+stand-in scanners; RV-S4 ran the real API on loopback. Nothing ran on a cluster,
+on Windows or Linux, or through Caddy or Docker.

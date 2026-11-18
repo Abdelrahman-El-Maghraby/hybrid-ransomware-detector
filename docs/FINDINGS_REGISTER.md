@@ -6,7 +6,8 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
+Current code baseline: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
+RV-S4 fixed, [brief](tasks/repository-audit-2026-11-18.md#6-third-pass-2026-11-19)). Before it: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
 [brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)). Before it: `b6966f8` (review of thirteen items, 2026-11-17; see
 [the task brief](tasks/review-items-2026-11-17.md) and the
 [verification matrix](VERIFICATION_MATRIX.md)). Earlier baselines: `72aa761`
@@ -92,6 +93,15 @@ a regression test that failed before it and passes after it, on this Mac only.
 | RV-10 | Alert outbox: a valid-JSON entry of the wrong shape blocked every later alert; a failed rewrite (disk full) starved later alerts; any read error deleted the alert; an alert that could not be queued dropped the rest of its batch and the flush | `27fd74f` |
 | RV-11 | `verify-cluster.sh`: no refusal of shared namespaces, no capability preflight, no positive control for network probes, nothing showing readiness reacting after start-up, no upload-limit or secret-separation check (improvement) | `98db3aa` (not run on a cluster) |
 | RV-12 | Kubernetes isolation contract and limits, runtime procedure, K8S-1 decision record; CHANGELOG entry for this branch (RA-9) | `7761b94`, `8f61050` |
+| RV-13 | A web page's payloads beyond the fifth, or over `MAX_PAYLOAD_BYTES`, were dropped without a completeness reason. The limit is unchanged; past it candidates are only recognised by magic bytes, so the count is determined; an additive `web.skipped` list (like `embedded.skipped`; `scan_results` are free-form, `schema_version` stays 1.4) becomes a partial reason that reaches enclosing archives, reports, alerts and the GUI label | `727ad00` |
+| RV-14 | A delivered alert channel was recorded only by rewriting its entry; when that failed, every later run resent it. Each delivery is now remembered in the process and recorded as `sent/<id>.<channel>` at once; retries carry stable ids (webhook `Idempotency-Key`, an e-mail `Message-ID` from the alert id, previously random). Remaining window (at-least-once): a stop between the send and its record, or neither record nor entry writable plus a restart | `9265d52` |
+| RV-15 | Intel without SMTP: e-mail queued while intel was down waited 24 h for an expiry error. Only an authenticated `email.enabled: false` now means disabled: nothing new is queued and queued e-mail parts are removed with a warning and a `disabled` metric (other channels stay); errors, time-outs and answers without the setting (`unknown`) keep retrying; re-enabling applies to new alerts | `81f0e9e` |
+| RV-16 | Running `isolation_gate.py` outside a Pod (a local smoke test, 2026-11-18) connected to its built-in public addresses. Live probes now need `AEGIS_GATE_LIVE=1` and an explicit `AEGIS_GATE_TARGETS` (manifests only, required by the checker); otherwise they refuse before opening a socket; `posture` mode is offline. The test suite fails any test that reaches beyond this machine | `9f37e26` |
+| RV-17 | Found by that guard: every safe-suite run sent a real VirusTotal hash look-up with a dummy key (`test_external_services_are_named_but_secrets_never_leak` scanned once before replacing the call) | `27b6872` |
+| RV-S1 | Confirmed: a page cut at the 20 MB read limit was reported complete (reproduced with a lowered limit); now partial | `f4e98ca` |
+| RV-S2 | Confirmed: a worker's final result could name another file; auto-quarantine then removed that file (reproduced with an inert decoy). Such a reply now fails the scan and the worker is replaced | `e849f3b` |
+| RV-S3 | Code path confirmed, no realistic trigger found: an exception from `scan_isolated` left the API's spare pool one short; the refill is now in `finally` (test injects the exception) | `ea88274` |
+| RV-S4 | Confirmed on loopback: a stalled authenticated upload held its scan slot until the client disconnected (M4 takes the slot before reading). The form must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s), else 408 and the slot is released; Caddy's own time-outs not checked | `f576af7` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -102,9 +112,6 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 | ID | Description | Why it stays open | Next action |
 |---|---|---|---|
 | 27.5 / B4 | Long fuzz campaigns ended in out-of-memory failures | Restricted: replay only in the isolated VM | VM investigation, separately authorized |
-| RV-13 | A web page's payloads beyond the fifth (`MAX_PAYLOADS`) or over `MAX_PAYLOAD_BYTES` are dropped with no completeness reason, so the scan reads `complete` (reproduced: 7 `data:` ZIPs, 5 scanned, no reason) | Recording the count needs a new field in the web result: a result-schema addition | Owner decision: add `payloads_skipped` (additive) and a partial reason |
-| RV-14 | After a failed rewrite of an outbox entry, its already-delivered channel is sent again on each run until the write succeeds; a crash between send and rewrite also resends | At-least-once delivery by design; intel's de-duplication is in memory only | Document that receivers de-duplicate by `alert_id`; optionally record the delivered channel before sending |
-| RV-15 | Docker with intel but no SMTP on intel: an e-mail alert queued while intel was unreachable waits 24 h and is then logged at ERROR as not delivered | The outbox cannot know intel's e-mail setting while intel is down | Drop the e-mail channel when intel answers with e-mail disabled |
 
 ### Documented ambiguities (left unchanged on purpose)
 
@@ -141,11 +148,7 @@ none is implemented.
 | S-03 | Concurrent canary checks race on the last signature | Still not reproduced. Because I-4 runs the scheduled check on its own thread (and the real-time watcher already ran one), the compare-and-set now runs under a lock (`f8af202`); the two-thread test still passes |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
 | H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
-| RV-S1 | A web page cut at 20 MB (`truncated`) is not a completeness reason; today the fuzzy layer's equal 20 MB limit makes such a scan partial anyway | Not reproduced with a raised `fuzzy_max_bytes` |
-| RV-S2 | A worker's final `ok` result is not checked to name the file it was given (snapshots are) | Needs a compromised worker; not reproduced |
-| RV-S3 | If `scan_isolated` raises, the API's spare worker is used but not refilled | No realistic trigger found |
-| RV-S4 | The API scan slot is taken before the multipart body is read, so slow authenticated uploads can hold every slot | Proxy time-outs not checked |
-| RV-S5 | The outbox writes without `fsync`; a power loss could leave an empty file, which is then removed as corrupt | Not reproduced |
+| RV-S5 | The outbox writes without `fsync`; a power loss could leave an empty file | Not reproduced (no power-loss test here). Checked the consequence: an empty entry is removed with an ERROR naming the alert id, so the loss would be visible, not silent. Uncertainty: whether the platform's file system can leave an empty renamed file |
 
 ## 4. Deferred improvements (not started on purpose)
 
@@ -199,7 +202,8 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
   Atheris campaigns; a push plus manual dispatch would not).
 - Exit code 2's three meanings and the IMAP fetch retry: kept as they are.
 - When to drop Python 3.9 (kept for now).
-- **K8S-1:** the intel transport on Kubernetes. Without it, Kubernetes has no
+- **K8S-1** (still not approved; its transport contract is now resolved in the
+  decision record): the intel transport on Kubernetes. Without it, Kubernetes has no
   VirusTotal, LLM, CAPE or e-mail alerts. Decision record with five options in
   [KUBERNETES](KUBERNETES.md#decision-record-k8s-1-how-analysis-could-reach-intel-proposed-not-approved).
   **Recommended: option E**: intel in its own Deployment behind a TLS proxy on one

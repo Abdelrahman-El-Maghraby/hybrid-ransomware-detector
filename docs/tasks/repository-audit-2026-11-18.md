@@ -105,3 +105,32 @@ shrinks the current checkout (Git history keeps them), and removing a
 re-exported name needs an owner decision about the `gui` import surface. The two
 `_env_number` helpers (RA-7) are identical again after RV-7 and stay separate
 (the API and intel are deployed separately). No file was removed or moved.
+
+## 6. Third pass (2026-11-19)
+
+Same branch, local commits only, started at `1cf68c2`; last implementation
+commit `e3e001b`. Authorized: repairs for RV-13, RV-14, RV-15 and unintended
+network activity in local verification; triage of RV-S1 to RV-S5; option E only
+if already approved. No push, deployment, cluster, malware, fuzzing or OOM work;
+no weight, threshold or inspection-coverage change.
+
+**Option E was not approved** (no record says so, and this request makes it
+conditional), so it was not implemented. Its transport contract is now resolved
+in the [decision record](../KUBERNETES.md#decision-record-k8s-1-how-analysis-could-reach-intel-proposed-not-approved).
+No K8S-1 implementation work existed in the tree; nothing was overwritten.
+
+| Item | Outcome | Evidence |
+|---|---|---|
+| RV-13 | Fixed, additive `web.skipped`; schema version kept (scan_results are free-form) | tests at, above and over the size limit, through a ZIP, report, alert payload, GUI label, schema validation |
+| RV-14 | Fixed; at-least-once window documented in OPERATIONS | failure before sending; send then failed record; restart; the double-failure window; stable ids |
+| RV-15 | Fixed | disabled, unavailable, unstated, disabled after queueing (other channel kept), re-enabled |
+| Network in local verification | Fixed (RV-16) and a suite-wide guard added, which found RV-17 | 21 refusal and offline tests; the guarded safe suite |
+| RV-S1 | Confirmed, fixed | inert page, lowered read limit |
+| RV-S2 | Confirmed, fixed (more serious than suspected: auto-quarantine acted on the path) | inert stand-in worker and decoy file |
+| RV-S3 | Code path confirmed, no realistic trigger; fixed | injected exception |
+| RV-S4 | Confirmed on loopback, fixed with an upload deadline | loopback probe: 503 for over 20 s before; with a 3 s deadline the next upload gets 200 |
+| RV-S5 | Not reproduced; consequence checked (visible ERROR, alert lost) | empty entry stand-in |
+
+Limits of this pass: the network guard covers the test process, not worker
+processes started by tests; Caddy, Docker, Windows, Linux and any cluster were
+not run.
