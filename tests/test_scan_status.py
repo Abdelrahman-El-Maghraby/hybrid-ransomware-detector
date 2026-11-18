@@ -208,6 +208,33 @@ def test_reasons_are_capped():
     assert reasons[-1]["reason"] == "151 more reason(s) not listed"
 
 
+@pytest.mark.parametrize("key,box", [
+    ("web", {"payloads": [{"name": "payload1.zip"}]}),
+    ("archive", {"member_count": 3}),
+    ("mail", {"attachment_count": 1}),
+    ("embedded", {"members": [{"name": "a"}]}),
+])
+def test_members_left_at_the_nesting_limit_make_the_scan_partial(key, box):
+    """A web page's embedded payloads are its members: at the nesting limit they are
+    not scanned, which used to be reported as complete for web pages only."""
+    class Ctx:
+        display = "outer.zip!/msg.eml!/page.html"
+
+    class Scanner:
+        max_nesting = 2
+    for depth, expected in ((2, 1), (1, 0)):
+        Ctx.depth = depth
+        out: list = []
+        C._budget_gaps(Scanner(), {key: dict(box)}, Ctx(), out)
+        assert len(out) == expected
+        if expected:
+            assert out[0]["status"] == "partial" and "nesting limit (2)" in out[0]["reason"]
+    out = []
+    Ctx.depth = 2
+    C._budget_gaps(Scanner(), {key: dict(box, deep_scanned=1)}, Ctx(), out)
+    assert out == []
+
+
 # ------------------------------------------------------------- how it is shown
 def test_clean_but_incomplete_never_reads_as_plain_clean(scanner, tmp_path):
     from aegis_gui.formatting import first_gap, verdict_text

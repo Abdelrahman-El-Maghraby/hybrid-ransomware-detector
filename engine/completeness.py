@@ -189,7 +189,8 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
                               f"{box['not_scanned_budget']} member(s) over the scan budget: "
                               "listed, not scanned"))
         if (ctx.depth >= scanner.max_nesting and not box.get("deep_scanned")
-                and (box.get("member_count") or box.get("attachment_count") or box.get("members"))):
+                and (box.get("member_count") or box.get("attachment_count") or box.get("members")
+                     or box.get("payloads"))):              # web pages name theirs payloads
             out.append(reason(PARTIAL, ctx.display, key,
                               f"nesting limit ({scanner.max_nesting}) reached: members listed, "
                               "not scanned"))
