@@ -1,7 +1,10 @@
 # Current task handoff
 
-- Status: **optional Kubernetes deployment implemented and statically validated;
-  paused for owner decisions** (2026-11-18). Runtime validation on a cluster is
+- Status: **second review pass done (2026-11-18): RV-1 to RV-12 fixed or
+  improved locally, RV-13 to RV-15 recorded; paused for owner decisions** (K8S-1
+  option E, RV-13, a test cluster, a CI run). Section "Second review pass" at the
+  end. Earlier: optional Kubernetes deployment implemented and statically validated
+  (2026-11-18). Runtime validation on a cluster is
   pending. Not ready for merge and not production ready. Latest: section
   "Optional Kubernetes deployment (2026-11-18)" at the end; the thirteen-item
   review (2026-11-17) before it is complete.
@@ -2619,10 +2622,48 @@ action.
   Windows and CI not run. Kubernetes runtime validation still pending.
 - Uncommitted: none. `.arena/` unrelated and preserved.
 
+## Second review pass (2026-11-18, Claude Code)
+
+- **Brief:** [tasks/repository-audit-2026-11-18.md](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)
+  section 5 (what was checked, what was read and not read, clean-up decisions);
+  findings RV-1 to RV-15 and RV-S1 to RV-S5 in the [register](FINDINGS_REGISTER.md).
+- **Agent:** Claude Code, the only editor (three read-only review subagents,
+  no edits by them). Branch `review/production-hardening`, local only; started at
+  `4fecfbf`. Nothing pushed, merged, published or deployed; no cluster contacted.
+- **Commits (local):** `fc16933` Windows-portable Kubernetes tests (RV-1);
+  `06d544f` bandit over `deploy/`, gate write probe removed (RV-2, RV-3);
+  `ec971c8` worker limits after progress messages, failed-start clean-up (RV-4,
+  RV-5); `eb9f494` web payloads at the nesting limit are partial (RV-6);
+  `fd5dc72` API/intel numeric limits and token-file fallback (RV-7, RV-8);
+  `ddd3239` proxy cap 51 MiB (RV-9); `27fd74f` outbox robustness (RV-10);
+  `98db3aa` `verify-cluster.sh` safety and controls (RV-11); `7761b94` Kubernetes
+  contract, procedure and K8S-1 decision record; `8f61050` CHANGELOG (RV-12).
+  Last implementation commit: `8f61050`. Then this record.
+- **Behaviour changes to note:** a web page's payloads at the nesting limit now
+  make the scan `partial` (status and reason only; regression corpus unchanged);
+  the API and intel refuse to start on `nan`, `inf` or negative limits, an upload
+  limit of 0, or an unreadable `AEGIS_API_TOKEN_FILE`; the bundled proxy accepts
+  bodies up to 51 MiB. No detection weight, threshold, coverage or schema change.
+- **Checks:** VERIFICATION_MATRIX section 5. Safe suite at `8f61050`: 2,014 passed, 0 failed, 8 skipped, 4 deselected (550 s).
+  Ruff, mypy, the bandit gate with `deploy/`, `bash -n`, manifest render and
+  checker: clean. Not run: Windows, Linux, CI, Docker, Caddy, any cluster.
+- **Pending, not verified anywhere:** Windows (procedure in the matrix, section 5);
+  every runtime property on a cluster (procedure in [KUBERNETES](KUBERNETES.md#verify));
+  Caddy's parsing of `51MiB` (documentation only).
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-Owner decisions: K8S-1 (intel transport on Kubernetes) and whether to approve a
-dedicated test cluster for `deploy/kubernetes/verify-cluster.sh --restart-test`
-and a `content-update.sh` run with a test-signed pack; then the earlier decisions
-in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6. No step runs without
-approval.
+Owner decisions, each independent:
+
+1. **K8S-1:** approve option E (intel in its own Deployment behind TLS on one
+   port; analysis gets one egress rule; a client HTTPS transport), keep A (no
+   intel on Kubernetes) or choose D. Nothing is built before the decision.
+2. **RV-13:** approve an additive web-result field (`payloads_skipped`) so dropped
+   payloads make the scan partial.
+3. Whether to run `verify-cluster.sh` on a dedicated test cluster, and to push the
+   branch and dispatch `tests.yml` and `quality.yml` for the Windows and Linux
+   checks (not a pull request, which would start the fuzz campaigns).
+4. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
+
+No step runs without approval.

@@ -59,7 +59,8 @@ available), **history** (an earlier revision only).
 | Base and example overlay render (`kubectl kustomize`, client 1.36.1, Kustomize 5.8.1, offline) | passed here |
 | `check_manifests.py` invariants; the checker rejects weakened copies; the gate's classification; scripts refuse to run without context and namespace | passed here (`tests/test_kubernetes.py`, 61 tests) |
 | Schema validation against a server, admission (`restricted`) | pending: no cluster; no offline schema validator installed |
-| NetworkPolicy enforcement, isolation gate in a Pod, `fsGroup` on real storage, probes, shutdown, `content-update.sh`, `verify-cluster.sh` | pending: needs an approved test cluster |
+| NetworkPolicy enforcement, isolation gate in a Pod, `fsGroup` on real storage, probes, shutdown, `content-update.sh`, `verify-cluster.sh` | pending: needs an approved test cluster; procedure in [KUBERNETES](KUBERNETES.md#verify) (disposable labelled namespaces, positive controls, drift and restart tests) |
+| `verify-cluster.sh` refusals (shared namespaces, unlabelled namespace for changing checks, Kubernetes before 1.29) and that only read-only calls happen then | passed here with a recording kubectl stand-in (no cluster) |
 | Image provides `sh` and `find` for the analysis start command | pending: Docker not running here |
 | Intel on Kubernetes | not implemented: owner decision K8S-1 |
 
@@ -163,3 +164,53 @@ settings as `062262a`:
 | Markdown relative links (script) | none broken |
 | The Windows fix itself | not run on Windows (no CI run); the old form's `SyntaxError` was reproduced here with a Windows-style path |
 
+
+## 5. Second review pass (2026-11-18)
+
+At `8f61050` (last implementation commit; the documents after it change no
+code), macOS 27.2.1 on Apple Silicon, Python 3.14.2, scratch HOME and TMPDIR,
+`env -i PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`, bytecode disabled,
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`:
+
+| Check | Result |
+|---|---|
+| Safe suite (same selection and deselections as section 3) | **2,014 passed, 0 failed, 8 skipped, 4 deselected**, 1 third-party warning, 550 s; the same 8 skips as section 3 (34 tests more than at `5d01232`) |
+| Ruff (tracked Python files; the untracked `.arena/` is excluded), mypy (69 files) | clean |
+| Bandit gate as CI now runs it (`... RansomwareScanner.py deploy -ll`) | clean, no warnings; three `nosec B108` lines, each one literal `/tmp` that is compared or whose mount options are read |
+| `tests/test_kubernetes.py` with `-X warn_default_encoding -W error::EncodingWarning` | 72 passed |
+| Each fix's regression test against the code before the fix | failed before, passes after (RV-1 gate test with `os.getuid` removed; RV-2, RV-4 to RV-10, the CI bandit test) |
+| `bash -n` on every deploy script; base render + `check_manifests.py`; base rendered into another namespace | clean; passes; passes. The example overlay is refused on its placeholders, as intended |
+| Markdown links and anchors (script) | no new break; the six README emoji anchors this checker always flags remain |
+
+Not run: Windows, Linux, CI, Docker, any cluster, Caddy, `test_smoke.py`, the
+coverage gate as CI runs it.
+
+### Windows verification (pending; the procedure)
+
+Nothing in this pass ran on Windows. Checking RA-1 and RV-1 on macOS with a
+Windows-style path or with `os.getuid` removed is a simulation, not a Windows
+pass.
+
+1. CI, without the restricted fuzz campaigns: after the owner pushes the branch,
+   start the workflows manually (a pull request would also start `parser-fuzz`,
+   because the branch changes `core/` and `engine/`):
+   `gh workflow run tests.yml --ref review/production-hardening` and
+   `gh workflow run quality.yml --ref review/production-hardening`.
+2. Expected evidence in the `windows-latest` jobs (Python 3.9 and 3.12), whose
+   log lists failures and skips (`-rfs`):
+   - no `FAILED` or `ERROR` line;
+   - `tests/test_kubernetes.py`: skipped only `test_scripts_*` and
+     `test_verify_*` that need bash (reason "bash scripts"), and, if the runner
+     has no `kubectl`, the render and `prepare-state` tests (reason "kubectl not
+     installed"); `test_the_deployment_docs_link_the_kubernetes_guide`,
+     `test_the_gate_flags_external_settings` and
+     `test_the_gate_content_write_check_fails_and_leaves_nothing` must not be
+     skipped;
+   - the new worker, outbox and API tests pass (`test_a_worker_that_keeps_sending_messages_is_still_stopped_at_the_limit`,
+     `test_a_worker_that_fails_to_start_leaves_no_temp_folder`, the four outbox
+     tests in `tests/test_alerts.py`, the settings tests in `tests/test_api_auth.py`).
+3. On a local Windows machine instead: `py -3.12 -m pytest -q -rfs
+   tests/test_kubernetes.py tests/test_workers.py tests/test_alerts.py
+   tests/test_api_auth.py tests/test_ci_workflows.py tests/test_deployment.py`
+   with the requirements installed; record the Python version and `kubectl
+   version --client`.

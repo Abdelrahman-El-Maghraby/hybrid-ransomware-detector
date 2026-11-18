@@ -56,3 +56,52 @@ None.
 ## 4. Checks
 
 Recorded in `docs/VERIFICATION_MATRIX.md` section 4 and the handoff.
+
+## 5. Second pass (2026-11-18)
+
+Same branch, local commits only; started at `4fecfbf`, last implementation
+commit `8f61050`. Request: verify the first pass's conclusions, review the
+highest-risk application paths it did not read, extend the security gate to
+`deploy/`, review the Kubernetes isolation critically, turn K8S-1 into a
+decision record, prepare runtime (cluster) and Windows verification, write the
+CHANGELOG entry. No push, cluster, install, malware, fuzzing or OOM work; no
+detection-weight, threshold, coverage or schema change. Findings RV-1 to RV-15
+and RV-S1 to RV-S5 are in the [register](../FINDINGS_REGISTER.md).
+
+### 5.1 The first pass's conclusions, checked
+
+| Claim | Finding |
+|---|---|
+| RA-1 made the Kubernetes tests portable to Windows | **Incomplete.** The path and skip changes in `f20de01` are correct, and the bash skips cover only bash-specific tests. Two Windows failures remained: `test_the_deployment_docs_link_the_kubernetes_guide` read `README.md` with the locale encoding (its first bytes, an emoji, include 0x8F, which cp1252 cannot decode), and `posture_checks()` calls `os.getuid` in an existing test. Fixed as RV-1 without skipping the portable logic. A scan of every test for encoding-less reads of non-cp1252 repository files found no other case |
+| Platform skips cover only platform-specific behaviour | Holds after RV-1: the bash and POSIX-permission checks are skipped or guarded; the YAML, checker, gate and text checks run everywhere |
+| "bandit on `deploy/kubernetes` is clean locally" | True at `-ll`; the CI gate still excluded `deploy/` (now RV-3) |
+| The documents state the Kubernetes limits | Mostly. One overclaim: the requirements table implied the gate always catches a missing policy; it does so through cluster DNS and the API server, not the internet probes. The contract and its limits are now one section of [KUBERNETES](../KUBERNETES.md#isolation-contract-and-its-limits) |
+| Test revision vs document revisions | The safe-suite run "at `5d01232`" includes the code of `f20de01`; `5d01232` and `4fecfbf` changed documents only. The Windows fix was never run on Windows |
+
+### 5.2 What this pass read (source level) and what it did not
+
+| Path | Read | Not read |
+|---|---|---|
+| API admission, auth, limits, temp files | `api/server.py`, `api/limits.py`, `api/probe.py` in full; `engine/secret_store.py`, `engine/config.py`; Starlette's form parser and uvicorn's socket binding | intel endpoints in depth |
+| Workers | `engine/workers.py`: reply protocol, `_IsolatedScan`, `_Worker`, failure and stopped results | `engine/helper_processes.py` internals |
+| Containers and completeness | `engine/containers.py`, `engine/completeness.py` in full; the extractor's admission and limit checks; `detectors/web_content.py` payloads | the per-format walks (7z, RAR, ISO, pkg, DMG) |
+| Scoring and results for failed or partial scans | `engine/staging.py` assembly, `engine/scanner.py` targets, report completeness lines | weights and rules (out of scope) |
+| Alerts and outbox | `core/outbox.py` in full; `core/mailer.py` sending; `core/intel_client.py` alert calls; `_Alerts`; `core/outputs.py` delivery | `core/response.py`, `core/cloud.py`, GUI alert state |
+| Configuration and secrets across deployments | API and intel settings, token files, Compose and Kubernetes environments | desktop keyring paths |
+| State and restart | API start-up, stale `api.sock` (asyncio replaces a socket file; a regular file fails safely), emptyDir and claim lifetimes | Windows service restart |
+| Kubernetes | manifests, gate, checker, both scripts, Caddyfile; rendered into another namespace | anything on a cluster |
+
+Three narrow read-only reviews (API and configuration; workers and extraction;
+alerts) ran in parallel; every defect they reported was re-read in the code and
+reproduced by a regression test that fails before its fix, except RV-13 to
+RV-15, which are recorded, not fixed. This is not an exhaustive security audit.
+
+### 5.3 Clean-up decisions
+
+Rechecked consumers: the three screenshots (RA-5) are referenced by no tracked
+file; `severity_color` and `severity_bar` (RA-6) are called nowhere but are
+re-exported by `gui.py`'s `import *`. Both are kept: removing tracked files only
+shrinks the current checkout (Git history keeps them), and removing a
+re-exported name needs an owner decision about the `gui` import surface. The two
+`_env_number` helpers (RA-7) are identical again after RV-7 and stay separate
+(the API and intel are deployed separately). No file was removed or moved.

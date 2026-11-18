@@ -6,7 +6,8 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `b6966f8` (review of thirteen items, 2026-11-17; see
+Current code baseline: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
+[brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)). Before it: `b6966f8` (review of thirteen items, 2026-11-17; see
 [the task brief](tasks/review-items-2026-11-17.md) and the
 [verification matrix](VERIFICATION_MATRIX.md)). Earlier baselines: `72aa761`
 ([local validation](tasks/reliability-local-validation.md)), `88b2db1`.
@@ -79,6 +80,18 @@ a regression test that failed before it and passes after it, on this Mac only.
 | D44 | Architecture: deployment and trust-boundary diagram; `scan_directory()` in the flowchart; Graphify page marked as a `72aa761` snapshot | `fde684c` |
 | RA-1 | The Kubernetes volume and script tests could not pass on Windows (a `C:\` path compiled as Python source, `os.geteuid`, bash without a Windows skip); repository audit, [brief](tasks/repository-audit-2026-11-18.md) | `f20de01` (macOS only; CI not run) |
 | RA-2 to RA-4 | Documentation: six diagrams, Kubernetes in the architecture, project map and release-scope table, current test counts | `5d01232` |
+| RV-1 | Windows, missed by RA-1: `test_kubernetes.py` read `README.md` with the locale encoding (cp1252 cannot decode its byte 0x8F), and the gate tests called `os.getuid` through `posture_checks()`. Every read now names UTF-8 (the module passes with `-X warn_default_encoding -W error::EncodingWarning`); a stand-in uid keeps the portable logic tested on Windows instead of skipping it. Second review pass, [brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18) | `fc16933` (macOS, with `getuid` removed to simulate; CI not run) |
+| RV-2 | `isolation_gate.py verify` left its write-probe file in the detection content when that folder was writable | `06d544f` |
+| RV-3 | The bandit gate did not scan `deploy/` (RA-10); three `nosec` comments were malformed (prose parsed as test IDs) | `06d544f` (CI not run) |
+| RV-4 | A worker that sent valid progress messages faster than the 50 ms poll was never stopped at the scan time limit or by the memory watchdog, and its late "complete" result was accepted (reproduced: 33 s with a 2 s limit) | `ec971c8` |
+| RV-5 | A worker whose process failed to start left its temporary folder and pipes | `ec971c8` |
+| RV-6 | A web page at the nesting limit (e.g. ZIP > EML > HTML with a `data:` ZIP) was reported `complete` although its payloads were not scanned; the rule did not know their key (`payloads`). Status only; scores unchanged (regression corpus passes) | `eb9f494` |
+| RV-7 | API and intel numeric limits accepted `nan`, `inf` and negative values: the token lockout and rate limits silently off, `-1` MB refused every upload, `nan` stopped the start with a traceback | `fd5dc72` |
+| RV-8 | With `AEGIS_API_TOKEN_FILE` set but missing or empty, the API fell back to `AEGIS_API_TOKEN` (environment or `.env`) | `fd5dc72` |
+| RV-9 | The proxy cap `52MB` (Caddy: 52,000,000 bytes) was below the API's 50 MiB file limit; such uploads got the proxy's 413, uncounted | `ddd3239` (Caddy not run) |
+| RV-10 | Alert outbox: a valid-JSON entry of the wrong shape blocked every later alert; a failed rewrite (disk full) starved later alerts; any read error deleted the alert; an alert that could not be queued dropped the rest of its batch and the flush | `27fd74f` |
+| RV-11 | `verify-cluster.sh`: no refusal of shared namespaces, no capability preflight, no positive control for network probes, nothing showing readiness reacting after start-up, no upload-limit or secret-separation check (improvement) | `98db3aa` (not run on a cluster) |
+| RV-12 | Kubernetes isolation contract and limits, runtime procedure, K8S-1 decision record; CHANGELOG entry for this branch (RA-9) | `7761b94`, `8f61050` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -89,6 +102,9 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 | ID | Description | Why it stays open | Next action |
 |---|---|---|---|
 | 27.5 / B4 | Long fuzz campaigns ended in out-of-memory failures | Restricted: replay only in the isolated VM | VM investigation, separately authorized |
+| RV-13 | A web page's payloads beyond the fifth (`MAX_PAYLOADS`) or over `MAX_PAYLOAD_BYTES` are dropped with no completeness reason, so the scan reads `complete` (reproduced: 7 `data:` ZIPs, 5 scanned, no reason) | Recording the count needs a new field in the web result: a result-schema addition | Owner decision: add `payloads_skipped` (additive) and a partial reason |
+| RV-14 | After a failed rewrite of an outbox entry, its already-delivered channel is sent again on each run until the write succeeds; a crash between send and rewrite also resends | At-least-once delivery by design; intel's de-duplication is in memory only | Document that receivers de-duplicate by `alert_id`; optionally record the delivered channel before sending |
+| RV-15 | Docker with intel but no SMTP on intel: an e-mail alert queued while intel was unreachable waits 24 h and is then logged at ERROR as not delivered | The outbox cannot know intel's e-mail setting while intel is down | Drop the e-mail channel when intel answers with e-mail disabled |
 
 ### Documented ambiguities (left unchanged on purpose)
 
@@ -125,16 +141,24 @@ none is implemented.
 | S-03 | Concurrent canary checks race on the last signature | Still not reproduced. Because I-4 runs the scheduled check on its own thread (and the real-time watcher already ran one), the compare-and-set now runs under a lock (`f8af202`); the two-thread test still passes |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
 | H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
+| RV-S1 | A web page cut at 20 MB (`truncated`) is not a completeness reason; today the fuzzy layer's equal 20 MB limit makes such a scan partial anyway | Not reproduced with a raised `fuzzy_max_bytes` |
+| RV-S2 | A worker's final `ok` result is not checked to name the file it was given (snapshots are) | Needs a compromised worker; not reproduced |
+| RV-S3 | If `scan_isolated` raises, the API's spare worker is used but not refilled | No realistic trigger found |
+| RV-S4 | The API scan slot is taken before the multipart body is read, so slow authenticated uploads can hold every slot | Proxy time-outs not checked |
+| RV-S5 | The outbox writes without `fsync`; a power loss could leave an empty file, which is then removed as corrupt | Not reproduced |
 
 ## 4. Deferred improvements (not started on purpose)
 
 The other twelve I-1 file types; I-2 ordering for mail attachments; automatic lock updates
 (Dependabot, or a workflow that opens a PR); replacing `httpx` for the Starlette
 test-client warning (a dependency change); shipping the placeholder fuzzy-signature
-sample in a wheel (it matches nothing). From the repository audit (RA-5, RA-6, RA-9, RA-10 in its
-[brief](tasks/repository-audit-2026-11-18.md)): three screenshots no document references, two
-unused GUI helpers kept for `gui`'s import surface, a CHANGELOG entry for this branch
-(write once, before merge), bandit over `deploy/`.
+sample in a wheel (it matches nothing). From the repository audit (RA-5, RA-6 in its
+[brief](tasks/repository-audit-2026-11-18.md); RA-9 and RA-10 are done as RV-12 and RV-3):
+three screenshots no document references, two unused GUI helpers kept for `gui`'s import
+surface. From the second pass: outbox caps and permanent-error classification (intel
+403/422, webhook 4xx are retried for 24 h; intel's 429 gets exponential backoff), wall-clock
+expiry, leftover `.alert.*.tmp` files, `chmod 0700` on a user-chosen outbox folder; refusing a
+non-ASCII API token at start-up; deriving the proxy cap from `AEGIS_API_MAX_UPLOAD_MB`.
 
 ## 5. Verification that needs another platform or service
 
@@ -142,7 +166,7 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
 
 - **CI:** no workflow has run on any commit after `3e5a3f2`; the daily audit (I-3)
   and the release job (M16, I-B2, the pip change) run only on GitHub.
-- **Windows:** M2, M9, M20, M24 (what mail clients and archive tools save), M30
+- **Windows:** RV-1 and RA-1 (the Kubernetes tests; procedure in VERIFICATION_MATRIX section 5), M2, M9, M20, M24 (what mail clients and archive tools save), M30
   names, L-A5 order, L-E6 (only a stand-in kernel32 was used), the Job Object path for
   L-E5, worker pipes (M18), toasts, containment, autostart.
 - **Linux:** the worker process groups (L-E5) and the rest of the suite (no CI run).
@@ -175,10 +199,13 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
   Atheris campaigns; a push plus manual dispatch would not).
 - Exit code 2's three meanings and the IMAP fetch retry: kept as they are.
 - When to drop Python 3.9 (kept for now).
-- **K8S-1:** the intel transport on Kubernetes. Intel reaches analysis only over a
-  Unix socket, which cannot cross Pods without weakening isolation, so the
-  Kubernetes deployment runs without intel (no VirusTotal, LLM, CAPE or e-mail
-  alerts). Proposal (TCP with TLS and the token, one egress rule from the analysis
-  Pod, fixed address, no DNS) in [KUBERNETES](KUBERNETES.md#intel-external-services);
-  approve, reject or amend before anything is built.
+- **K8S-1:** the intel transport on Kubernetes. Without it, Kubernetes has no
+  VirusTotal, LLM, CAPE or e-mail alerts. Decision record with five options in
+  [KUBERNETES](KUBERNETES.md#decision-record-k8s-1-how-analysis-could-reach-intel-proposed-not-approved).
+  **Recommended: option E**: intel in its own Deployment behind a TLS proxy on one
+  port; analysis gets exactly one egress rule (TCP 9443 to the intel Pods, by
+  fixed ClusterIP, no DNS); a client HTTPS transport in `core/intel_client.py`
+  (Docker unchanged). Consequence: analysis gains one authenticated network path
+  where Docker has a socket. Approve E, keep A (no intel), or choose D (file queue
+  on shared storage, no network, large redesign).
 - Whether to run `deploy/kubernetes/verify-cluster.sh` on a dedicated test cluster.
