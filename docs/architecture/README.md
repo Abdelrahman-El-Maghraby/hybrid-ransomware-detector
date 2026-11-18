@@ -1,8 +1,9 @@
 # Architecture diagrams
 
-Five diagrams of Aegis Sentinel (four UML views and a deployment view), drawn from
-the code and checked against it. They describe the code at commit `b6966f8`
-on `review/production-hardening`. Class, method and message names are the ones in
+Six diagrams of Aegis Sentinel (four UML views and two deployment views), drawn
+from the code and checked against it. Diagrams 1 to 5 describe the code at commit
+`b6966f8` on `review/production-hardening`; diagram 6 describes the optional
+Kubernetes manifests in `deploy/kubernetes/` at commit `00c0639`. Class, method and message names are the ones in
 the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 
 | # | Diagram | Question it answers | Drawing | Definition |
@@ -12,8 +13,9 @@ the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 | 3 | Activity diagram | How does one file get a verdict? | [3-activity-diagram.svg](uml-diagram-sources/3-activity-diagram.svg) | [d3_activity_diagram.py](uml-diagram-sources/d3_activity_diagram.py) |
 | 4 | Flowchart | How does the whole system fit together? | [4-system-flowchart.svg](uml-diagram-sources/4-system-flowchart.svg) | [d4_system_flowchart.py](uml-diagram-sources/d4_system_flowchart.py) |
 | 5 | Deployment and trust boundaries | Where does each part run, and what separates it? | [5-deployment-trust-boundaries.svg](uml-diagram-sources/5-deployment-trust-boundaries.svg) | [d5_deployment_trust_boundaries.py](uml-diagram-sources/d5_deployment_trust_boundaries.py) |
+| 6 | Kubernetes deployment and trust boundaries (optional) | What separates the parts in a cluster? | [6-kubernetes-trust-boundaries.svg](uml-diagram-sources/6-kubernetes-trust-boundaries.svg) | [d6_kubernetes_trust_boundaries.py](uml-diagram-sources/d6_kubernetes_trust_boundaries.py) |
 
-All five on one page, with zoom and the checked facts under each diagram:
+All six on one page, with zoom and the checked facts under each diagram:
 [ARCHITECTURE_UML_DIAGRAMS.html](ARCHITECTURE_UML_DIAGRAMS.html). Open it in a
 browser; it is self-contained and loads nothing from the network.
 
@@ -180,6 +182,28 @@ Output behaviour that differs by entry point, and why:
 - **CAPE:** the operator's own server, in its own isolated environment: submitted
   files are executed there.
 
+### 6. Kubernetes (optional; `deploy/kubernetes/`, [KUBERNETES](../KUBERNETES.md))
+
+- One Pod `aegis-analysis` (one replica, `Recreate`) with two containers:
+  `analysis` (`python -m api.server`, uid 10001) and `proxy` (Caddy with
+  `deploy/Caddyfile`, uid 10003, port 8443), joined by `api.sock` in a
+  memory-backed emptyDir, as in Docker. An init container `isolation-gate` runs
+  `isolation_gate.py` (ConfigMap `aegis-isolation-gate`) before them, and the
+  analysis readiness probe runs it again.
+- The containers share the Pod's network namespace; NetworkPolicy applies to the
+  Pod: default deny, ingress TCP 8443 to this Pod only, no egress. It needs an
+  enforcing network plugin and cannot block the Pod's own node. Docker's
+  `network_mode: none` has no equivalent here; the gate fails the Pod while the
+  internet, DNS, the Kubernetes API or the metadata address answers.
+- Secrets `aegis-api-token` (analysis only) and `aegis-tls` (proxy only), created
+  by the operator; no service-account token, no Role. Claims
+  `aegis-analysis-state` and `aegis-content` are `ReadWriteOncePod`; content is
+  read-only in analysis and written only by the Job `aegis-content-update` while
+  analysis is scaled to zero. `/tmp` is a 2 GiB memory-backed emptyDir without
+  `noexec`, cleared when the container starts.
+- No intel service: VirusTotal, the LLM, CAPE and e-mail alerts are not available
+  on Kubernetes (owner decision K8S-1). Not yet run on a cluster.
+
 ## Rebuilding and keeping them true
 
 ```sh
@@ -187,7 +211,7 @@ cd docs/architecture/uml-diagram-sources
 python3 build_diagrams.py
 ```
 
-Python 3.9 or later, standard library only. The script writes the five SVG files
+Python 3.9 or later, standard library only. The script writes the six SVG files
 and the HTML page, and stops when a label no longer fits its box, two nodes
 overlap or a connector runs through an unrelated node.
 
@@ -203,7 +227,8 @@ graph the diagrams were drawn from: 6,366 nodes covering all 253 Python files at
 commit `72aa761`, grouped into named communities. It is a **snapshot of
 `72aa761`** and the page says so; it does not include the later code changes
 listed in [HANDOFF](../HANDOFF.md) (the background scheduler, the folder monitor's
-partial batches, the evaluation summary, the layer-order check and a GUI label). It is a single page; it loads
+partial batches, the evaluation summary, the layer-order check and a GUI label), nor
+the optional Kubernetes deployment in `deploy/kubernetes/`. It is a single page; it loads
 the `vis-network` 9.1.6 library from unpkg, so it needs an internet connection.
 It is a generated snapshot: the raw `graph.json` and Graphify cache are not kept
 in the repository. After the code changes, rebuild the graph with Graphify and
@@ -220,3 +245,5 @@ replace this file, or the page will describe older code.
 ![System flowchart](uml-diagram-sources/4-system-flowchart.svg)
 
 ![Deployment and trust boundaries](uml-diagram-sources/5-deployment-trust-boundaries.svg)
+
+![Kubernetes deployment and trust boundaries](uml-diagram-sources/6-kubernetes-trust-boundaries.svg)

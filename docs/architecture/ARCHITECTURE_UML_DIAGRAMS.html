@@ -69,7 +69,7 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <body>
 <div class="wrap">
 <header class="page">
-<h1>Aegis Sentinel architecture in five diagrams</h1>
+<h1>Aegis Sentinel architecture in six diagrams</h1>
 <p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and how the whole system fits together and where each part runs. Every class, method and message name is the one in the code, read at the commit below.</p>
 <ul class="facts">
 <li><b>Branch</b><code>review/production-hardening</code></li>
@@ -83,6 +83,7 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <a href="#activity-diagram">3. Activity diagram: how does one file get a verdict?</a>
 <a href="#system-flowchart">4. Flowchart: how does the whole system fit together?</a>
 <a href="#deployment">5. Deployment: where does each part run, and what separates it?</a>
+<a href="#kubernetes">6. Kubernetes (optional): what separates the parts in a cluster?</a>
 <a class="alt" href="#graphify">Graphify network (reference)</a>
 <a class="alt" href="#editing">Editing the diagrams</a>
 </nav>
@@ -3506,6 +3507,399 @@ NOTES: List[str] = [
 </code></pre></div>
 </details>
 </section>
+<section class="diagram" id="kubernetes">
+<h2>6. Kubernetes (optional): what separates the parts in a cluster?</h2>
+<p>The optional Kubernetes deployment in deploy/kubernetes, drawn on its own so the Docker view above stays as it is. A purple frame is a Pod: one network namespace, which is what a NetworkPolicy controls, so the proxy and analysis containers share one interface. A thick red frame is a container. There is no intel service on Kubernetes yet, so no external service is reachable or configured. These manifests have not been run on a cluster.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/6-kubernetes-trust-boundaries.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="6. Kubernetes (optional): what separates the parts in a cluster?" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d6" width="1600" height="1090" viewBox="0 0 1600 1090" role="img" aria-labelledby="d6-title d6-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d6-title">Kubernetes deployment: Pods, containers and what separates them</title>
+<desc id="d6-desc">Kubernetes deployment and trust-boundary diagram of Aegis Sentinel: one Pod with the TLS proxy and the analysis service joined by a Unix socket, an isolation-gate init container, two single-Pod claims, a content Job, and the destinations the NetworkPolicy blocks.</desc>
+<rect x="0" y="0" width="1600" height="1090" fill="#ffffff"/>
+<g id="d6-frame">
+<rect x="760" y="12" width="820" height="62" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<rect x="1280" y="22" width="40" height="16" fill="#eff6ff" rx="3" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="774" y="48" width="40" height="16" fill="#ffffff" rx="3" stroke="#7c3aed" stroke-width="2"/>
+<rect x="1230" y="48" width="40" height="16" fill="#f0fdf4" rx="3" stroke="#b91c1c" stroke-width="3"/>
+<rect x="20" y="90" width="1190" height="980" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="110" font-size="13" fill="#0f172a" font-weight="700">Kubernetes cluster: namespace aegis-sentinel</text>
+<text x="32" y="126.9" font-size="12" fill="#334155">Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the analysis Pod only; no egress anywhere. Enforced only by a network plugin that implements it.</text>
+<rect x="290" y="150" width="700" height="670" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="1.4"/>
+<text x="302" y="170" font-size="13" fill="#0f172a" font-weight="700">Pod aegis-analysis: one replica, Recreate</text>
+<text x="302" y="186.9" font-size="12" fill="#334155">No service-account token; fsGroup 10001; RuntimeDefault seccomp; grace period 330 s.</text>
+<rect x="590" y="556" width="380" height="110" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="602" y="576" font-size="13" fill="#0f172a" font-weight="700">Workers, same uid 10001</text>
+<rect x="1230" y="90" width="350" height="980" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1242" y="110" font-size="13" fill="#0f172a" font-weight="700">Outside the namespace</text>
+<text x="1242" y="126.9" font-size="12" fill="#334155">What the analysis Pod must not reach.</text>
+</g>
+<g id="d6-edge">
+<path d="M774,30 L818,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="818,30 808,34.2 808,25.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M920,30 L964,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="954,34.6 964,30 954,25.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M150,240 L150,290" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="150,290 145.8,280 154.2,280" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M260,348 L310,348" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="310,348 300,352.2 300,343.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M425,450 L425,470" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="425,470 420.8,460 429.2,460" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M540,503 L590,503" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="590,503 580,507.2 580,498.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M590,347.2 L540,347.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550,342.6 540,347.2 550,351.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,536 L780,596" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="780,596 775.8,586 784.2,586" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M970,342 L1010,342" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1000,346.6 1010,342 1000,337.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1010,458 L970,458" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="980,453.4 970,458 980,462.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M990,898 L1092,898 Q1100,898 1100,890 L1100,506" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1104.6,516 1100,506 1095.4,516" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M970,240 L1250,240" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,244.6 1250,240 1240,235.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d6-node">
+<text x="826" y="34" font-size="12" fill="#0f172a">file content</text>
+<text x="972" y="34" font-size="12" fill="#0f172a">results, reads and writes, checks (metadata)</text>
+<text x="1328" y="34" font-size="12" fill="#0f172a">process separation, not a security boundary</text>
+<text x="822" y="60" font-size="12" fill="#0f172a">Pod: one network namespace; NetworkPolicy applies here</text>
+<text x="1278" y="60" font-size="12" fill="#0f172a">container: own user, mounts, processes</text>
+<rect x="40" y="170" width="220" height="70" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="201.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">API client</text>
+<text x="150" y="218.4" font-size="12.5" fill="#0f172a" text-anchor="middle">HTTPS, bearer token</text>
+<rect x="40" y="290" width="220" height="116" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="319.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Service aegis-sentinel :8443</text>
+<text x="150" y="336.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ClusterIP in the base;</text>
+<text x="150" y="353.2" font-size="12.5" fill="#0f172a" text-anchor="middle">LoadBalancer or NodePort with</text>
+<text x="150" y="369.7" font-size="12.5" fill="#0f172a" text-anchor="middle">externalTrafficPolicy Local keeps</text>
+<text x="150" y="386.2" font-size="12.5" fill="#0f172a" text-anchor="middle">the client address</text>
+<polygon points="40,440 248,440 260,452 260,553 40,553" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="248,440 248,452 260,452" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="459.6" font-size="12" fill="#0f172a">The node: the kubelet runs the exec</text>
+<text x="49" y="475.7" font-size="12" fill="#0f172a">probes. NetworkPolicy always</text>
+<text x="49" y="491.7" font-size="12" fill="#0f172a">allows traffic between a Pod and its</text>
+<text x="49" y="507.8" font-size="12" fill="#0f172a">own node. The kubelet&#x27;s</text>
+<text x="49" y="523.9" font-size="12" fill="#0f172a">podPidsLimit is the only process</text>
+<text x="49" y="540" font-size="12" fill="#0f172a">limit.</text>
+<rect x="40" y="600" width="220" height="104" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="615.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">ConfigMaps</text>
+<text x="150" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-analysis-config (settings,</text>
+<text x="150" y="648.9" font-size="12.5" fill="#0f172a" text-anchor="middle">public rule-pack keys) and</text>
+<text x="150" y="665.4" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-isolation-gate</text>
+<text x="150" y="681.9" font-size="12.5" fill="#0f172a" text-anchor="middle">(isolation_gate.py), mounted</text>
+<text x="150" y="698.4" font-size="12.5" fill="#0f172a" text-anchor="middle">read-only</text>
+<rect x="40" y="730" width="220" height="122" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="753.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Secrets, created by the</text>
+<text x="150" y="771.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">operator</text>
+<text x="150" y="788.6" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-api-token (analysis only),</text>
+<text x="150" y="805.1" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-tls (proxy only); stored in</text>
+<text x="150" y="821.6" font-size="12.5" fill="#0f172a" text-anchor="middle">etcd: encryption at rest and RBAC</text>
+<text x="150" y="838.1" font-size="12.5" fill="#0f172a" text-anchor="middle">are the cluster&#x27;s</text>
+<rect x="310" y="205" width="660" height="70" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: isolation-gate (uid 10001)</text>
+<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">fails while the internet, DNS, the Kubernetes API or the metadata address answers; runs again in every</text>
+<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">readiness probe</text>
+<rect x="310" y="300" width="230" height="150" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="425" y="346.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
+<text x="425" y="363.7" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003; port 8443; TLS ends</text>
+<text x="425" y="380.2" font-size="12.5" fill="#0f172a" text-anchor="middle">here.</text>
+<text x="425" y="396.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Secret aegis-tls; emptyDirs /data,</text>
+<text x="425" y="413.2" font-size="12.5" fill="#0f172a" text-anchor="middle">/config.</text>
+<rect x="310" y="470" width="230" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="425" y="499.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">emptyDir api-socket</text>
+<text x="425" y="516.4" font-size="12.5" fill="#0f172a" text-anchor="middle">api.sock; this Pod only</text>
+<rect x="590" y="300" width="380" height="236" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="780" y="381.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">analysis: api.server (_ScanService)</text>
+<text x="780" y="398.4" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; listens on api.sock only; no egress.</text>
+<text x="780" y="414.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Secret aegis-api-token only. AEGIS_PROFILE production,</text>
+<text x="780" y="431.4" font-size="12.5" fill="#0f172a" text-anchor="middle">LLM_PROVIDER none.</text>
+<text x="780" y="447.9" font-size="12.5" fill="#0f172a" text-anchor="middle">/tmp: memory-backed emptyDir, 2 GiB, without noexec; cleared</text>
+<text x="780" y="464.4" font-size="12.5" fill="#0f172a" text-anchor="middle">at every start.</text>
+<rect x="605" y="596" width="350" height="56" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="780" y="620.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers</text>
+<text x="780" y="637.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time and memory limits; a fresh one per upload</text>
+<polygon points="310,690 958,690 970,702 970,739 310,739" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="958,690 958,702 970,702" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="319" y="709.6" font-size="12" fill="#0f172a">The containers share the Pod&#x27;s network: the proxy and analysis have the same interface and neither may send</text>
+<text x="319" y="725.7" font-size="12" fill="#0f172a">anything out. Analysis opens no port; the proxy reaches it only through the socket.</text>
+<rect x="1010" y="300" width="180" height="84" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1100" y="321.5" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">PVC</text>
+<text x="1100" y="339.3" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">aegis-analysis-state</text>
+<text x="1100" y="356.1" font-size="12.5" fill="#0f172a" text-anchor="middle">ReadWriteOncePod, 2 GiB:</text>
+<text x="1100" y="372.6" font-size="12.5" fill="#0f172a" text-anchor="middle">the log file</text>
+<rect x="1010" y="410" width="180" height="96" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1100" y="438.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">PVC aegis-content</text>
+<text x="1100" y="454.9" font-size="12.5" fill="#0f172a" text-anchor="middle">ReadWriteOncePod, 1 GiB:</text>
+<text x="1100" y="471.4" font-size="12.5" fill="#0f172a" text-anchor="middle">rule packs; read-only in</text>
+<text x="1100" y="487.9" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis</text>
+<rect x="290" y="850" width="700" height="96" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="640" y="886.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Job aegis-content-update (on demand)</text>
+<text x="640" y="903.2" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; no egress. Runs only while analysis is scaled to zero (content-update.sh); installs a signed pack from the</text>
+<text x="640" y="919.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ConfigMap aegis-rulepack-import with --update-rules.</text>
+<polygon points="40,975 1178,975 1190,987 1190,1024 40,1024" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1178,975 1178,987 1190,987" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="994.6" font-size="12" fill="#0f172a">Not deployed on Kubernetes: the intel service. VirusTotal, the LLM, CAPE and e-mail alerts are off. Adding them needs a network path from the analysis Pod: owner decision K8S-1 (docs/KUBERNETES.md,</text>
+<text x="49" y="1010.7" font-size="12" fill="#0f172a">&quot;Intel&quot;).</text>
+<rect x="1250" y="170" width="310" height="110" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="205.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Blocked by NetworkPolicy</text>
+<text x="1405" y="221.9" font-size="12.5" fill="#0f172a" text-anchor="middle">the internet (IPv4, IPv6), public and cluster DNS,</text>
+<text x="1405" y="238.4" font-size="12.5" fill="#0f172a" text-anchor="middle">the Kubernetes API, cloud metadata</text>
+<text x="1405" y="254.9" font-size="12.5" fill="#0f172a" text-anchor="middle">169.254.169.254; the gate checks each one</text>
+<rect x="1250" y="330" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="357.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1405" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<rect x="1250" y="416" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="443.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM: OpenAI or Ollama</text>
+<text x="1405" y="460.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<rect x="1250" y="502" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="529.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1405" y="546.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<rect x="1250" y="588" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="615.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1405" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<polygon points="1250,684 1548,684 1560,696 1560,749 1250,749" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,684 1548,696 1560,696" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1259" y="703.6" font-size="12" fill="#0f172a">The Docker deployment reaches these through its</text>
+<text x="1259" y="719.7" font-size="12" fill="#0f172a">intel container (diagram 5). On Kubernetes no part of</text>
+<text x="1259" y="735.7" font-size="12" fill="#0f172a">Aegis Sentinel holds their credentials.</text>
+</g>
+<g id="d6-label">
+<rect x="127.6" y="255.8" width="44.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="150" y="269.3" font-size="12" fill="#0f172a" text-anchor="middle">upload</text>
+<rect x="546" y="324" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="565" y="337.5" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="785.1" y="536.8" width="129.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="850" y="550.3" font-size="12" fill="#0f172a" text-anchor="middle">file path; JSON replies</text>
+<rect x="1080" y="690.8" width="40" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1100" y="704.3" font-size="12" fill="#0f172a" text-anchor="middle">writes</text>
+<rect x="1061.1" y="216.8" width="97.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1110" y="230.3" font-size="12" fill="#0f172a" text-anchor="middle">must not answer</text>
+</g>
+<g id="d6-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Kubernetes deployment: Pods, containers and what separates them</text>
+<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit 00c0639.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>One Pod, two containers: analysis (python -m api.server, uid 10001) and proxy (the aegis-sentinel-proxy image with deploy/Caddyfile, uid 10003), joined by api.sock in a memory-backed emptyDir, as in docker-compose.yml (deploy/kubernetes/base/analysis.yaml).</li>
+<li>Containers in one Pod share its network namespace, and NetworkPolicy applies to Pods, not containers. aegis-default-deny selects every Pod for ingress and egress with no rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress (deploy/kubernetes/base/networkpolicy.yaml).</li>
+<li>The init container isolation-gate and the analysis readiness probe run isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds or a DNS answer fails them. Liveness asks only /health on the socket.</li>
+<li>Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode 0440; automountServiceAccountToken false; no Role. No external-service credential exists in this deployment (check_manifests.py refuses one).</li>
+<li>Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the content read-only (both in the volume and the mount). The content Job (deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only while analysis is scaled to zero.</li>
+<li>Differences from Docker (diagram 5): a Pod interface exists where Docker has none; /tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; intel is not deployed. Runtime behaviour on a cluster is unverified (deploy/kubernetes/verify-cluster.sh).</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d6_kubernetes_trust_boundaries.py"><code>uml-diagram-sources/d6_kubernetes_trust_boundaries.py</code></a> (the definition) and <a href="uml-diagram-sources/6-kubernetes-trust-boundaries.svg"><code>uml-diagram-sources/6-kubernetes-trust-boundaries.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d6_kubernetes_trust_boundaries.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 6 - Kubernetes deployment and trust boundaries (optional deployment).
+
+The manifests in deploy/kubernetes/ (docs/KUBERNETES.md): one Pod with the
+analysis service and the TLS proxy, an init container that checks the network
+isolation, two claims, and an on-demand content Job. The Docker deployment is
+diagram 5 and is not redrawn here. Every element is taken from the manifests
+named in the notes.
+
+A purple frame is a Pod: one network namespace, the unit NetworkPolicy applies
+to (enforced by the cluster&#x27;s network plugin). A thick red frame is a container:
+its own user, mounts and processes, but the Pod&#x27;s network. A dashed frame is
+process separation inside one container user: not a security boundary.
+
+Edit the texts and coordinates below, then run `python3 build_diagrams.py`.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import Box, Diagram
+
+TITLE = &quot;Kubernetes deployment: Pods, containers and what separates them&quot;
+
+PROC = &quot;#eff6ff&quot;        # a process
+CONT = &quot;#f0fdf4&quot;        # a container
+STORE = &quot;#f8fafc&quot;       # claims, volumes, API objects
+EXT = &quot;#f1f5f9&quot;         # an external service this deployment does not reach
+BLOCK = &quot;#fee2e2&quot;       # destinations the policy blocks
+BOUND = &quot;#b91c1c&quot;       # container boundary stroke
+POD = &quot;#7c3aed&quot;         # Pod (network namespace) stroke
+SOFT = &quot;#64748b&quot;        # process-separation stroke
+
+
+def container(d: Diagram, x: float, y: float, w: float, h: float, title: str,
+              body: List[str], name: str) -&gt; Box:
+    &quot;&quot;&quot;A container: thick solid boundary, title and wrapped body.&quot;&quot;&quot;
+    return d.titled(x, y, w, title, body, h=h, fill=CONT, stroke=BOUND, sw=3, rx=6, name=name)
+
+
+def build(meta: dict) -&gt; Diagram:
+    d = Diagram(&quot;d6&quot;, 1600, 1090, TITLE,
+                f&quot;The optional Kubernetes deployment (deploy/kubernetes). Branch &quot;
+                f&quot;{meta[&#x27;branch&#x27;]}, manifests at commit {meta[&#x27;k8s_commit&#x27;]}.&quot;,
+                &quot;Kubernetes deployment and trust-boundary diagram of Aegis Sentinel: one Pod &quot;
+                &quot;with the TLS proxy and the analysis service joined by a Unix socket, an &quot;
+                &quot;isolation-gate init container, two single-Pod claims, a content Job, and the &quot;
+                &quot;destinations the NetworkPolicy blocks.&quot;)
+    d.title_block()
+
+    # ---------------------------------------------------------------- legend
+    lx, ly = 760, 22
+    d.rect(lx, ly - 10, 820, 62, &quot;#f8fafc&quot;, &quot;#94a3b8&quot;, 1, 6, &quot;frame&quot;)
+    d.edge([(lx + 14, ly + 8), (lx + 58, ly + 8)], &quot;flow&quot;, check=False)
+    d.text(lx + 66, ly + 12, &quot;file content&quot;, 12)
+    d.edge([(lx + 160, ly + 8), (lx + 204, ly + 8)], &quot;msg&quot;, check=False)
+    d.text(lx + 212, ly + 12, &quot;results, reads and writes, checks (metadata)&quot;, 12)
+    d.rect(lx + 520, ly, 40, 16, PROC, SOFT, 1.4, 3, &quot;frame&quot;, &quot;6 4&quot;)
+    d.text(lx + 568, ly + 12, &quot;process separation, not a security boundary&quot;, 12)
+    d.rect(lx + 14, ly + 26, 40, 16, &quot;#ffffff&quot;, POD, 2, 3, &quot;frame&quot;)
+    d.text(lx + 62, ly + 38, &quot;Pod: one network namespace; NetworkPolicy applies here&quot;, 12)
+    d.rect(lx + 470, ly + 26, 40, 16, CONT, BOUND, 3, 3, &quot;frame&quot;)
+    d.text(lx + 518, ly + 38, &quot;container: own user, mounts, processes&quot;, 12)
+
+    # ---------------------------------------------------------------- cluster
+    d.frame(20, 90, 1190, 980, &quot;Kubernetes cluster: namespace aegis-sentinel&quot;,
+            sub=&quot;Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the &quot;
+                &quot;analysis Pod only; no egress anywhere. Enforced only by a network plugin &quot;
+                &quot;that implements it.&quot;)
+    client = d.titled(40, 170, 220, &quot;API client&quot;, &quot;HTTPS, bearer token&quot;, h=70, fill=STORE)
+    svc = d.titled(40, 290, 220, &quot;Service aegis-sentinel :8443&quot;,
+                   [&quot;ClusterIP in the base; LoadBalancer or NodePort with &quot;
+                    &quot;externalTrafficPolicy Local keeps the client address&quot;],
+                   h=116, fill=STORE, name=&quot;service&quot;)
+    d.note(40, 440, 220,
+           [&quot;The node: the kubelet runs the exec probes. NetworkPolicy always allows traffic &quot;
+            &quot;between a Pod and its own node. The kubelet&#x27;s podPidsLimit is the only process &quot;
+            &quot;limit.&quot;])
+    d.titled(40, 600, 220, &quot;ConfigMaps&quot;,
+             [&quot;aegis-analysis-config (settings, public rule-pack keys) and &quot;
+              &quot;aegis-isolation-gate (isolation_gate.py), mounted read-only&quot;],
+             h=104, fill=STORE, name=&quot;configmaps&quot;)
+    d.titled(40, 730, 220, &quot;Secrets, created by the operator&quot;,
+             [&quot;aegis-api-token (analysis only), aegis-tls (proxy only); stored in etcd: &quot;
+              &quot;encryption at rest and RBAC are the cluster&#x27;s&quot;],
+             h=122, fill=STORE, name=&quot;secrets&quot;)
+
+    d.frame(290, 150, 700, 670, &quot;Pod aegis-analysis: one replica, Recreate&quot;,
+            stroke=POD, fill=&quot;#faf5ff&quot;,
+            sub=&quot;No service-account token; fsGroup 10001; RuntimeDefault seccomp; &quot;
+                &quot;grace period 330 s.&quot;)
+    gate = container(d, 310, 205, 660, 70, &quot;init: isolation-gate (uid 10001)&quot;,
+                     [&quot;fails while the internet, DNS, the Kubernetes API or the metadata &quot;
+                      &quot;address answers; runs again in every readiness probe&quot;], &quot;gate&quot;)
+    proxy = container(d, 310, 300, 230, 150, &quot;proxy (Caddy)&quot;,
+                      [&quot;uid 10003; port 8443; TLS ends here.&quot;,
+                       &quot;Secret aegis-tls; emptyDirs /data, /config.&quot;], &quot;proxy&quot;)
+    sock = d.titled(310, 470, 230, &quot;emptyDir api-socket&quot;, &quot;api.sock; this Pod only&quot;, h=66,
+                    fill=STORE, name=&quot;socket&quot;)
+    analysis = container(d, 590, 300, 380, 236, &quot;analysis: api.server (_ScanService)&quot;,
+                         [&quot;uid 10001; listens on api.sock only; no egress.&quot;,
+                          &quot;Secret aegis-api-token only. AEGIS_PROFILE production, &quot;
+                          &quot;LLM_PROVIDER none.&quot;,
+                          &quot;/tmp: memory-backed emptyDir, 2 GiB, &quot;  # noqa: S108
+                          &quot;without noexec; cleared at every start.&quot;],
+                         &quot;analysis&quot;)
+    d.frame(590, 556, 380, 110, &quot;Workers, same uid 10001&quot;, stroke=SOFT, dash=&quot;6 4&quot;,
+            fill=&quot;#ffffff&quot;)
+    worker = d.titled(605, 596, 350, &quot;Scan workers&quot;,
+                      &quot;time and memory limits; a fresh one per upload&quot;, h=56, fill=PROC,
+                      name=&quot;worker&quot;)
+    d.note(310, 690, 660,
+           [&quot;The containers share the Pod&#x27;s network: the proxy and analysis have the same &quot;
+            &quot;interface and neither may send anything out. Analysis opens no port; the &quot;
+            &quot;proxy reaches it only through the socket.&quot;])
+
+    state = d.titled(1010, 300, 180, &quot;PVC aegis-analysis-state&quot;,
+                     &quot;ReadWriteOncePod, 2 GiB: the log file&quot;, h=84, fill=STORE, name=&quot;state&quot;)
+    content = d.titled(1010, 410, 180, &quot;PVC aegis-content&quot;,
+                       &quot;ReadWriteOncePod, 1 GiB: rule packs; read-only in analysis&quot;, h=96,
+                       fill=STORE, name=&quot;content&quot;)
+    job = container(d, 290, 850, 700, 96, &quot;Job aegis-content-update (on demand)&quot;,
+                    [&quot;uid 10001; no egress. Runs only while analysis is scaled to zero &quot;
+                     &quot;(content-update.sh); installs a signed pack from the ConfigMap &quot;
+                     &quot;aegis-rulepack-import with --update-rules.&quot;], &quot;job&quot;)
+    d.note(40, 975, 1150,
+           [&quot;Not deployed on Kubernetes: the intel service. VirusTotal, the LLM, CAPE and &quot;
+            &quot;e-mail alerts are off. Adding them needs a network path from the analysis Pod: &quot;
+            &quot;owner decision K8S-1 (docs/KUBERNETES.md, \&quot;Intel\&quot;).&quot;])
+
+    d.edge([client.b(), svc.t()], &quot;flow&quot;, &quot;upload&quot;, (150, 265), (client, svc))
+    py = svc.cy
+    d.edge([svc.r(), (proxy.left, py)], &quot;flow&quot;, ends=(svc, proxy), name=&quot;service to proxy&quot;)
+    d.edge([proxy.b(), sock.t()], &quot;flow&quot;, ends=(proxy, sock), name=&quot;proxy to socket&quot;)
+    d.edge([sock.r(), (analysis.left, sock.cy)], &quot;flow&quot;, ends=(sock, analysis),
+           name=&quot;socket to analysis&quot;)
+    ry = analysis.side(&quot;left&quot;, 0.2)[1]
+    d.edge([(analysis.left, ry), (proxy.right, ry)], &quot;msg&quot;, ends=(analysis, proxy),
+           name=&quot;result to proxy&quot;)
+    d.label(565, ry - 14, &quot;result&quot;, 12)
+    d.edge([analysis.b(), worker.t()], &quot;flow&quot;, &quot;file path; JSON replies&quot;, (850, 546),
+           (analysis, worker))
+    d.edge([(analysis.right, state.cy), state.l()], &quot;msg&quot;, ends=(analysis, state),
+           name=&quot;analysis to state&quot;)
+    d.edge([content.l(), (analysis.right, content.cy)], &quot;msg&quot;, ends=(content, analysis),
+           name=&quot;content to analysis&quot;)
+    d.edge([job.r(), (1100, job.cy), (1100, content.bottom)], &quot;msg&quot;, &quot;writes&quot;, (1100, 700),
+           (job, content))
+
+    # ------------------------------------------------- outside the namespace
+    d.frame(1230, 90, 350, 980, &quot;Outside the namespace&quot;,
+            sub=&quot;What the analysis Pod must not reach.&quot;)
+    blocked = d.titled(1250, 170, 310, &quot;Blocked by NetworkPolicy&quot;,
+                       [&quot;the internet (IPv4, IPv6), public and cluster DNS, the Kubernetes &quot;
+                        &quot;API, cloud metadata 169.254.169.254; the gate checks each one&quot;],
+                       h=110, fill=BLOCK, name=&quot;blocked&quot;)
+    gy = gate.cy
+    d.edge([gate.r(), (blocked.left, gy)], &quot;msg&quot;, &quot;must not answer&quot;, (1110, gy - 14),
+           (gate, blocked))
+    y = 330
+    for title in (&quot;VirusTotal&quot;, &quot;LLM: OpenAI or Ollama&quot;, &quot;CAPE sandbox&quot;, &quot;SMTP server&quot;):
+        d.titled(1250, y, 310, title, &quot;not configured, not reachable: no intel&quot;, h=62,
+                 fill=EXT, name=title)
+        y += 86
+    d.note(1250, y + 10, 310,
+           [&quot;The Docker deployment reaches these through its intel container (diagram 5). &quot;
+            &quot;On Kubernetes no part of Aegis Sentinel holds their credentials.&quot;])
+    return d
+
+
+NOTES: List[str] = [
+    &quot;One Pod, two containers: analysis (python -m api.server, uid 10001) and proxy (the &quot;
+    &quot;aegis-sentinel-proxy image with deploy/Caddyfile, uid 10003), joined by api.sock in a &quot;
+    &quot;memory-backed emptyDir, as in docker-compose.yml (deploy/kubernetes/base/analysis.yaml).&quot;,
+    &quot;Containers in one Pod share its network namespace, and NetworkPolicy applies to Pods, &quot;
+    &quot;not containers. aegis-default-deny selects every Pod for ingress and egress with no &quot;
+    &quot;rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress &quot;
+    &quot;(deploy/kubernetes/base/networkpolicy.yaml).&quot;,
+    &quot;The init container isolation-gate and the analysis readiness probe run &quot;
+    &quot;isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds &quot;
+    &quot;or a DNS answer fails them. Liveness asks only /health on the socket.&quot;,
+    &quot;Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode &quot;
+    &quot;0440; automountServiceAccountToken false; no Role. No external-service credential &quot;
+    &quot;exists in this deployment (check_manifests.py refuses one).&quot;,
+    &quot;Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the &quot;
+    &quot;content read-only (both in the volume and the mount). The content Job &quot;
+    &quot;(deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only &quot;
+    &quot;while analysis is scaled to zero.&quot;,
+    &quot;Differences from Docker (diagram 5): a Pod interface exists where Docker has none; &quot;
+    &quot;/tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; &quot;
+    &quot;intel is not deployed. Runtime behaviour on a cluster is unverified &quot;
+    &quot;(deploy/kubernetes/verify-cluster.sh).&quot;,
+]
+</code></pre></div>
+</details>
+</section>
 <section class="ref" id="graphify">
 <h2>Graphify network (reference)</h2>
 <p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, 15,577 edges and 335 communities, built from the tracked source, tests and configuration with no LLM. Before drawing, the graph was built again from a <code>git archive</code> of <code>b6966f8</code> and compared with the stored one: the same nodes, the same edges and the same communities.</p>
@@ -3515,7 +3909,7 @@ NOTES: List[str] = [
 <section class="ref" id="editing">
 <h2>Editing the diagrams</h2>
 <ul>
-<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The five SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
+<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The six SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
 <li>The build stops when a label no longer fits its box, when two nodes overlap or when a connector runs through a node it is not attached to.</li>
 <li>The SVG files are plain SVG with real text, so they also open in Inkscape, Figma or draw.io for a one-off change. A later build overwrites such changes.</li>
 </ul>

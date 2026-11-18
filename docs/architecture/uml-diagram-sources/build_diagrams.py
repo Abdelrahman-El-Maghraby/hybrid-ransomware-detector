@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build the five Aegis Sentinel architecture diagrams and the page that shows them.
+"""Build the six Aegis Sentinel architecture diagrams and the page that shows them.
 
-    python3 build_diagrams.py            write the five .svg files here and
+    python3 build_diagrams.py            write the six .svg files here and
                                          ../ARCHITECTURE_UML_DIAGRAMS.html
     python3 build_diagrams.py --check    also write ../ARCHITECTURE_UML_DIAGRAMS.check.html,
                                          a copy that measures every label in the browser and
@@ -9,7 +9,8 @@
                                          the report at the top, then delete it; never commit it)
 
 Sources: d1_class_diagram.py, d2_use_case_diagram.py, d3_activity_diagram.py,
-d4_system_flowchart.py and d5_deployment_trust_boundaries.py. umlkit.py is the
+d4_system_flowchart.py, d5_deployment_trust_boundaries.py and
+d6_kubernetes_trust_boundaries.py. umlkit.py is the
 drawing toolkit. Standard library only.
 
 The build stops with exit code 1 when a diagram has a layout problem (a label
@@ -34,6 +35,9 @@ META = {
     "code_commit": "b6966f8",
     "code_commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
     "built": "2026-11-17",
+    # Diagram 6 draws deploy/kubernetes/, which is newer than the code baseline above.
+    "k8s_commit": "00c0639",
+    "k8s_built": "2026-11-18",
 }
 
 DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
@@ -70,6 +74,14 @@ DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
      "(time and memory limits, crash containment) inside one user: it is not a security "
      "boundary. A thick red frame is a container, an OS-enforced boundary. The chips on each "
      "external service say which mode reaches it; in Docker only the intel container does."),
+    ("d6_kubernetes_trust_boundaries", "6-kubernetes-trust-boundaries.svg", "kubernetes",
+     "6. Kubernetes (optional): what separates the parts in a cluster?",
+     "The optional Kubernetes deployment in deploy/kubernetes, drawn on its own so the Docker "
+     "view above stays as it is. A purple frame is a Pod: one network namespace, which is "
+     "what a NetworkPolicy controls, so the proxy and analysis containers share one "
+     "interface. A thick red frame is a container. There is no intel service on Kubernetes "
+     "yet, so no external service is reachable or configured. These manifests have not been "
+     "run on a cluster."),
 ]
 
 CSS = """
@@ -242,7 +254,7 @@ def page(items, check: bool) -> str:
         "<title>Aegis Sentinel architecture diagrams</title>",
         f"<style>{CSS}</style>", "</head>", "<body>", '<div class="wrap">',
         '<header class="page">',
-        "<h1>Aegis Sentinel architecture in five diagrams</h1>",
+        "<h1>Aegis Sentinel architecture in six diagrams</h1>",
         '<p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and '
         "how the whole system fits together and where each part runs. Every class, method and "
         "message name is the one in "
@@ -317,7 +329,7 @@ def page(items, check: bool) -> str:
         "<ul>",
         "<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: "
         "texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in "
-        "that folder. The five SVG files and this page are written again. Python 3.9 or later; "
+        "that folder. The six SVG files and this page are written again. Python 3.9 or later; "
         "nothing to install.</li>",
         "<li>The build stops when a label no longer fits its box, when two nodes overlap or "
         "when a connector runs through a node it is not attached to.</li>",

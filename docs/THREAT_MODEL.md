@@ -27,7 +27,7 @@ what the code does about each, and what is left.
 6. **The analysis service** (assume compromised): in the Docker deployment it opens
    the hostile files, so a parser exploit is planned for. It has no network and
    no external-service secret; the intel service treats its requests as untrusted
-   input (section 10).
+   input (section 10). The optional Kubernetes deployment differs: section 14.
 
 ## Threats and mitigations
 
@@ -389,6 +389,38 @@ Mitigated (TMA-7, `core/cloud.py`; owner decisions D-D1 to D-D3):
 - An uploaded report or log is only as trustworthy as the host that produced it
   (TMA-1): uploads are not tamper-evident.
 
+### 14. Optional Kubernetes deployment (section 10 on another platform)
+*The same parser compromise, in the analysis Pod of `deploy/kubernetes/`
+([KUBERNETES](KUBERNETES.md)).*
+
+The analysis service and the TLS proxy share one Pod; intel is not deployed, so
+the Pod holds no external-service credential and no intel token, and the
+production profile sends nothing outside.
+
+- **Network.** The Pod has an interface; a default-deny NetworkPolicy with no
+  egress rule is the only barrier, and it is only as good as the cluster's
+  network plugin. An init container and the readiness probe
+  (`isolation_gate.py`) keep the Pod out of service while the internet, public or
+  cluster DNS, the Kubernetes API or the metadata address answers. They detect a
+  missing or late policy; they do not stop code already running in the Pod.
+- **Not blockable here:** traffic to and from the Pod's own node, which
+  NetworkPolicy always allows (node-local services, the kubelet's port), and the
+  proxy container, which shares the Pod's network namespace (it listens on 8443
+  and holds the TLS key, not the API token).
+- **Less to rely on than Docker:** `/tmp` is not `noexec` (a written file can be
+  run; capabilities and no-new-privileges still apply), the process limit is the
+  node's `podPidsLimit`, and Secrets are protected by the cluster's RBAC and
+  encryption-at-rest settings, not by this repository.
+- **The same:** non-root, read-only root, every capability dropped,
+  `allowPrivilegeEscalation: false`, the runtime's default seccomp profile,
+  read-only detection content, no service-account token, restricted Pod Security
+  admission, memory and CPU limits, one fresh worker per upload.
+
+*Residual:* everything in section 10, plus the points above. Adding intel needs a
+network path from this Pod (owner decision K8S-1 in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md)). Runtime behaviour on a cluster is
+unverified until `deploy/kubernetes/verify-cluster.sh` has run.
+
 ## Changes in 4.8: TMA-1 to TMA-7
 
 Owner decision D-G (`docs/PROJECT_REVIEW.md` section 24.9). Each entry is either a
@@ -419,6 +451,7 @@ residual risk.
 | Parser exploit forges the result of the file that exploited it | Low | Fresh worker per API upload; cached external answers live only in intel |
 | Parser exploit spends the intel quotas | Low | Per-operation rate limits; uploads and sandbox stay off unless needed |
 | Container or kernel escape | Medium | Patched host kernel and Docker; a dedicated VM per deployment |
+| Kubernetes: analysis isolation depends on NetworkPolicy enforcement; node-local traffic always allowed; `/tmp` not `noexec` (section 14) | Medium | An enforcing network plugin, `podPidsLimit`, a sandboxed RuntimeClass; run `verify-cluster.sh`; Docker Compose where `network_mode: none` is required |
 | A compromised parser edits local logs, reports or queued alerts (TMA-1) | Low | Ship logs off the host; treat uploads as host-attested only |
 | Monitored folder flooded: events dropped, files not scanned until they change (TMA-5) | Low | Watch specific folders; raise `WATCH_MAX_QUEUE` |
 | Alert metadata at the mail provider; forged alerts from a compromised parser (TMA-6) | Low | Choose the SMTP provider deliberately; caps; a separate mailbox |
