@@ -106,10 +106,14 @@ def test_rule_pack_and_override_are_named(tmp_path):
 
 
 def test_external_services_are_named_but_secrets_never_leak(tmp_path, monkeypatch):
-    scanner, r = _scan(tmp_path, "e.pdf", make_pdf("x"), **SECRETS)
+    # The VirusTotal call is replaced before the first scan: the key is configured,
+    # and an earlier version of this test scanned once first, which sent a real
+    # hash look-up to www.virustotal.com (found by the conftest network guard).
+    scanner = RS.RansomwareScanner(_config(tmp_path, cache_enabled=False, **SECRETS))
     monkeypatch.setattr(scanner, "scan_file_with_virustotal",
                         lambda path, hashes: scanner._vt_empty(not_found=True))
     p = tmp_path / "e.pdf"
+    p.write_bytes(make_pdf("x"))
     r = scanner.scan_file(str(p))
     assert r["provenance"]["external_services"]["virustotal"] == "hash look-up"
     text = json.dumps(r) + scanner.generate_report([r])
