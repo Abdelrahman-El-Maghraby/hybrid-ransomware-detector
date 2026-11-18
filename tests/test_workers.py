@@ -45,6 +45,20 @@ def test_hang_and_crash_become_findings_and_the_scan_continues(tmp_path):
     assert res["ok1.pdf"]["verdict"] == "Clean" and res["ok2.pdf"]["verdict"] == "Clean"
 
 
+def test_a_worker_that_keeps_sending_messages_is_still_stopped_at_the_limit(tmp_path):
+    """Every valid progress message used to end the step before the time and memory
+    checks, so a worker sending them faster than the poll interval ran on and its
+    late "complete" result was accepted."""
+    import time
+    s = _setup(tmp_path, ["chatty.pdf"], scan_timeout_seconds=2, scan_workers=1)
+    started = time.monotonic()
+    res = {r["file_name"]: r for r in s.scan_all_directories()}
+    assert time.monotonic() - started < 20          # the stand-in chats for 30 s
+    r = res["chatty.pdf"]
+    assert r["scan_status"] == "failed" and r["verdict"] == "Medium"
+    assert "timed out" in r["scan_results"]["scan_failed"]["reason"]
+
+
 def test_a_killed_worker_leaves_no_extracted_files(tmp_path):
     """A worker killed mid-scan never runs its own clean-up; the parent removes the
     worker's temporary folder, so hostile files cannot fill /tmp one timeout at a time."""
@@ -124,3 +138,22 @@ print(len(res))
                          timeout=240, cwd=tmp_path)
     assert out.stdout.strip().splitlines()[-1] == "3", out.stderr[-2000:]
     assert runs.read_text().count("run") == 1
+
+
+def test_a_worker_that_fails_to_start_leaves_no_temp_folder(tmp_path, monkeypatch):
+    """The folder is made before the process starts; when start() raises (no
+    resources, spawn refused) nothing owns it, so it is removed at once."""
+    import multiprocessing as mp
+    import tempfile
+
+    import engine.workers as W
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(W, "_SWEPT", True)
+    ctx = mp.get_context("spawn")
+
+    def refuse(self):
+        raise OSError("cannot start")
+    monkeypatch.setattr(ctx.Process, "start", refuse)
+    with pytest.raises(OSError):
+        W._Worker(ctx, {}, 0)
+    assert [p.name for p in tmp_path.iterdir()] == []

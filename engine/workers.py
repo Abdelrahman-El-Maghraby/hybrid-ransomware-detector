@@ -813,8 +813,15 @@ class _Worker:
         self.proc = ctx.Process(target=_worker_main,
                                 args=(config, memory_mb, child, self.temp_dir, level),
                                 daemon=True)
-        with _START_LOCK, _main_not_reimported():
-            self.proc.start()
+        try:
+            with _START_LOCK, _main_not_reimported():
+                self.proc.start()
+        except BaseException:
+            # no process owns the folder, so the stale-folder sweep would keep it
+            child.close()
+            self.parent.close()
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+            raise
         child.close()
         self.created = time.monotonic()
         self.path: Optional[str] = None
@@ -1193,25 +1200,28 @@ class _IsolatedScan:
             self._dispatch(w)
         self._collect_helpers(w)
         kind, payload = self._receive(w)
+        # A progress message is handled and then the time and memory limits are still
+        # checked: a worker that kept sending messages faster than POLL_SECONDS would
+        # otherwise never reach them and could run past the scan limit.
+        progressed = True
         if kind == "log":
             replay_worker_logs(payload)
-            return True
-        if kind == "ready":
+        elif kind == "ready":
             w.ready = True
             w.note_group()
             METRICS.worker_start(True, time.monotonic() - w.created)
-            return True
-        if kind == "clear":
+        elif kind == "clear":
             w.provisional, w.settled = None, False
-            return True
-        if kind in ("container", "member", "provisional", "settled", "sandbox", "external", "completed"):
+        elif kind in ("container", "member", "provisional", "settled", "sandbox", "external",
+                      "completed"):
             if w.path is not None:
                 if kind in ("provisional", "settled", "completed") and payload["file_path"] != w.path:
                     self._fail(w.path, "invalid reply: snapshot belongs to another file", w.evidence)
                     w.path = None
                     return self._replace(i)
                 self._progress(w, kind, payload)
-            return True
+        else:
+            progressed = False
         if kind in ("ok", "error"):
             path, w.path = w.path, None
             if path is not None:
@@ -1221,8 +1231,11 @@ class _IsolatedScan:
                     self._fail(path, payload or "scan error", w.evidence)
             return True
         invalid = kind == "invalid"
-        dead = (invalid or kind == "dead" or not w.proc.is_alive()
-                or (not w.ready and time.monotonic() - w.created > self.START_SECONDS))
+        # After a message, a worker that has just exited may still have its result in
+        # the pipe: it is judged dead on a later step that receives nothing.
+        dead = not progressed and (invalid or kind == "dead" or not w.proc.is_alive()
+                                   or (not w.ready
+                                       and time.monotonic() - w.created > self.START_SECONDS))
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
         over_memory = not dead and self._over_memory(w)
         if not (dead or overdue or over_memory):

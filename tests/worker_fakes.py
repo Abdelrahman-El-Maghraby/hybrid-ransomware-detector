@@ -45,6 +45,11 @@ class MisbehavingScanner(RansomwareScanner):
             if name.startswith("helperexit"):
                 os._exit(3)
             time.sleep(600)
+        if name.startswith("chatty"):            # a looping worker that keeps sending
+            end = time.monotonic() + 30          # valid progress messages, then claims
+            while time.monotonic() < end:        # a complete result long after the limit
+                self.clear_provisional_listener()
+                time.sleep(0.01)
         if name.startswith("slow"):              # tells the test which worker has it
             with open(file_path + ".pid", "w") as fh:
                 fh.write(str(os.getpid()))
