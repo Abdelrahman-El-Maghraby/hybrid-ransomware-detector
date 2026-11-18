@@ -342,15 +342,43 @@ class Outbox:
                 return counts
             self._prune_sent()
             for path in sorted(self.pending.glob("*.json")):
-                self._flush_one(path, senders, counts)
+                try:
+                    self._flush_one(path, senders, counts)
+                except Exception as e:      # one entry must not stop the ones behind it
+                    logger.error("Alert file %s could not be processed (%s: %s); it is "
+                                 "retried on the next run.", path.name, type(e).__name__, e,
+                                 extra={"event": "alert_flush_error"})
+                    counts["waiting"] += 1
         return counts
 
     def _flush_one(self, path: Path, senders: Mapping[str, Optional[Sender]],
                    counts: Dict[str, int]) -> None:
         now = self._clock()
         try:
-            entry = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            # often temporary (a scanner or indexer holding the file, too many open
+            # files): keep the alert, unless it is older than the maximum age
+            try:
+                stale = time.time() - path.stat().st_mtime > self.max_age
+            except OSError:
+                stale = False
+            if stale:
+                logger.error("Alert file %s could not be read for %.0f h (%s): dropped.",
+                             path.name, self.max_age / 3600, type(e).__name__,
+                             extra={"event": "alert_expired", "alert_id": path.stem})
+                path.unlink(missing_ok=True)
+                counts["expired"] += 1
+            else:
+                logger.warning("Alert file %s cannot be read now (%s); retried later.",
+                               path.name, type(e).__name__)
+                counts["waiting"] += 1
+            return
+        try:
+            entry = json.loads(text)
+            if not _well_formed(entry):
+                raise ValueError("not an outbox entry")
+        except ValueError as e:
             logger.error("Unreadable alert file %s (%s): removed.", path.name, type(e).__name__)
             path.unlink(missing_ok=True)
             return
@@ -445,6 +473,18 @@ def channels_for(alert: Mapping[str, Any], config: Mapping[str, Any],
     return out
 
 
+def _well_formed(entry: Any) -> bool:
+    """The shape enqueue() writes; anything else is treated like corrupt JSON."""
+    if not (isinstance(entry, dict) and isinstance(entry.get("id"), str)
+            and isinstance(entry.get("channels"), dict)
+            and isinstance(entry.get("created", 0), (int, float))):
+        return False
+    return all(c in entry and isinstance(st, dict)
+               and isinstance(st.get("attempts"), int)
+               and isinstance(st.get("next"), (int, float))
+               for c, st in entry["channels"].items())
+
+
 def outbox_for(config: Mapping[str, Any]) -> Outbox:
     from engine.config import APP_DIR
     return Outbox(str(config.get("outbox_dir") or APP_DIR / "outbox"),
@@ -498,7 +538,16 @@ def queue_and_send(alerts: Iterable[Dict[str, Any]], config: Mapping[str, Any]) 
         box = outbox_for(config)
         for alert in alerts:
             wanted = channels_for(alert, config, senders["email"] is not None)
-            box.enqueue(alert, wanted)
+            try:
+                box.enqueue(alert, wanted)
+            except Exception as e:  # the others are still queued, and what is due is sent
+                logger.error("Alert %s (%s) could not be queued for %s (%s: %s): not "
+                             "delivered.", alert.get("id"), alert.get("kind"),
+                             ", ".join(wanted) or "no channel", type(e).__name__, e,
+                             extra={"event": "alert_not_queued", "alert_id": alert.get("id")})
+                from engine.metrics import METRICS
+                for channel in wanted:
+                    METRICS.alert(channel, "not_queued")
         return box.flush(senders)
     except Exception as e:
         logger.error("Alert outbox: %s: %s", type(e).__name__, e,

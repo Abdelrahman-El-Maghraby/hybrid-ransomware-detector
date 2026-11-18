@@ -74,7 +74,8 @@ class Metrics:
             self.record_result(r)
 
     def alert(self, channel: str, outcome: str) -> None:
-        """An outbox delivery attempt: sent, failed (retried later) or expired."""
+        """An outbox delivery attempt: sent, failed (retried later), expired, or not_queued
+        (the alert could not be saved, so it was not delivered)."""
         with self._lock:
             self.alerts[(channel, outcome)] += 1
 

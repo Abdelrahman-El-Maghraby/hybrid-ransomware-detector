@@ -705,3 +705,75 @@ def test_webhook_errors_name_the_host_not_the_url_path(caplog):
         post_alert({"a": 1}, url, session=_Refusing())
     assert SECRET_PATH not in str(info.value) and "xoxb" not in str(info.value)
     assert "ConnectionError" in str(info.value) and "hooks.example.invalid" in str(info.value)
+
+
+# ------------------------------------------------- one bad entry or write does not lose the rest
+def _two_alerts():
+    return (OB.verdict_alert(_result(sha="aa" * 32)), OB.verdict_alert(_result(sha="bb" * 32)))
+
+
+def test_a_malformed_entry_does_not_stop_the_alerts_behind_it(tmp_path, clock):
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    good, _ = _two_alerts()
+    box.enqueue(good, ["webhook"])
+    (box.pending / "0000.json").write_text('{"id": "0000"}', encoding="utf-8")   # sorts first
+    counts = box.flush({"webhook": hook, "email": None})
+    assert counts["sent"] == 1 and hook.got[0]["alert_id"] == good["id"]
+    assert not (box.pending / "0000.json").exists()          # removed like corrupt JSON
+
+
+def test_a_failed_rewrite_does_not_starve_later_alerts(tmp_path, clock, monkeypatch):
+    box, hook, mail = _box(tmp_path, clock), Receiver(up=True), Receiver()
+    first, second = sorted(_two_alerts(), key=lambda a: a["id"])
+    box.enqueue(first, ["webhook", "email"])
+    box.enqueue(second, ["webhook"])
+    real = box._write
+
+    def disk_full(path, entry):
+        if path.stem == first["id"]:
+            raise OSError(28, "No space left on device")
+        real(path, entry)
+    monkeypatch.setattr(box, "_write", disk_full)
+    box.flush({"webhook": hook, "email": mail})
+    assert second["id"] in [p["alert_id"] for p in hook.got]
+
+
+def test_a_temporary_read_error_keeps_the_alert(tmp_path, clock, monkeypatch):
+    from pathlib import Path
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    alert, _ = _two_alerts()
+    box.enqueue(alert, ["webhook"])
+    real = Path.read_text
+
+    def busy(self, *a, **k):
+        if self.parent == box.pending:
+            raise PermissionError(13, "in use by another process")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", busy)
+    assert box.flush({"webhook": hook, "email": None})["waiting"] == 1
+    assert (box.pending / f"{alert['id']}.json").exists()
+    monkeypatch.setattr(Path, "read_text", real)
+    assert box.flush({"webhook": hook, "email": None})["sent"] == 1
+
+
+def test_an_alert_that_cannot_be_queued_does_not_drop_the_batch(tmp_path, clock, monkeypatch,
+                                                                caplog):
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    first, second = _two_alerts()
+    real = box.enqueue
+
+    def refuse_first(alert, channels):
+        if alert["id"] == first["id"]:
+            raise PermissionError(13, "outbox not writable")
+        return real(alert, channels)
+    monkeypatch.setattr(box, "enqueue", refuse_first)
+    monkeypatch.setattr(OB, "outbox_for", lambda config: box)
+    monkeypatch.setattr(OB, "senders_for", lambda config: {"webhook": hook, "email": None})
+    monkeypatch.setattr(OB, "channels_for", lambda alert, config, email: ["webhook"])
+    before = METRICS.snapshot()["alerts"].get("webhook_not_queued", 0)
+    with caplog.at_level(logging.ERROR, logger="RansomwareScanner"):
+        counts = OB.queue_and_send([first, second], {})
+    assert counts["sent"] == 1 and hook.got[0]["alert_id"] == second["id"]
+    assert any(first["id"] in r.getMessage() and "not delivered" in r.getMessage()
+               for r in caplog.records)
+    assert METRICS.snapshot()["alerts"]["webhook_not_queued"] == before + 1
