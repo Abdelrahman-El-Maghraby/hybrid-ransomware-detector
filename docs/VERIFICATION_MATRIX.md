@@ -152,3 +152,14 @@ existing-volume tests, these documents), same machine and settings,
 Not run: anything against a cluster, image builds, `verify-cluster.sh`,
 `content-update.sh`.
 
+At `5d01232` (repository audit: Windows-portable Kubernetes tests and document
+corrections; [brief](tasks/repository-audit-2026-11-18.md)), same machine and
+settings as `062262a`:
+
+| Check | Result |
+|---|---|
+| Safe suite (same selection and deselections as section 3) | **1,980 passed, 0 failed, 8 skipped, 4 deselected**, 1 warning, 553 s; the same 8 skips |
+| Ruff (tracked Python files), mypy (69 files), bandit gate | clean |
+| Markdown relative links (script) | none broken |
+| The Windows fix itself | not run on Windows (no CI run); the old form's `SyntaxError` was reproduced here with a Windows-style path |
+

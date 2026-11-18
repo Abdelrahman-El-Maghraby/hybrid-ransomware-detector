@@ -77,6 +77,8 @@ a regression test that failed before it and passes after it, on this Mac only.
 | Layer order | Ordering dependencies between layers were implicit; now declared and checked (no layer moved) | `8686cd2` |
 | D43 | Protection and support wording: extraction "sandbox", worker isolation, monitoring after a write, the dated 0.7% figure, `--scan-imap` in Docker, the GUI "Protection on" label | `b6966f8` |
 | D44 | Architecture: deployment and trust-boundary diagram; `scan_directory()` in the flowchart; Graphify page marked as a `72aa761` snapshot | `fde684c` |
+| RA-1 | The Kubernetes volume and script tests could not pass on Windows (a `C:\` path compiled as Python source, `os.geteuid`, bash without a Windows skip); repository audit, [brief](tasks/repository-audit-2026-11-18.md) | `f20de01` (macOS only; CI not run) |
+| RA-2 to RA-4 | Documentation: six diagrams, Kubernetes in the architecture, project map and release-scope table, current test counts | `5d01232` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -129,7 +131,10 @@ none is implemented.
 The other twelve I-1 file types; I-2 ordering for mail attachments; automatic lock updates
 (Dependabot, or a workflow that opens a PR); replacing `httpx` for the Starlette
 test-client warning (a dependency change); shipping the placeholder fuzzy-signature
-sample in a wheel (it matches nothing).
+sample in a wheel (it matches nothing). From the repository audit (RA-5, RA-6, RA-9, RA-10 in its
+[brief](tasks/repository-audit-2026-11-18.md)): three screenshots no document references, two
+unused GUI helpers kept for `gui`'s import surface, a CHANGELOG entry for this branch
+(write once, before merge), bandit over `deploy/`.
 
 ## 5. Verification that needs another platform or service
 

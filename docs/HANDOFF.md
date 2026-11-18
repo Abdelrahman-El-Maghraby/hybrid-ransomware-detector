@@ -2604,6 +2604,21 @@ action.
   the image's `sh` and `find` (Docker not running).
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Repository audit (2026-11-18, Claude Code)
+
+- Brief and findings RA-1 to RA-10: [tasks/repository-audit-2026-11-18.md](tasks/repository-audit-2026-11-18.md);
+  register section 1 (RA-1 to RA-4) and section 4 (the optional items).
+- Commits (local only): `f20de01` (Kubernetes tests portable to Windows: a
+  Windows temp path compiled as Python source, `os.geteuid`, bash scripts
+  without a Windows skip), `5d01232` (documents), then this record.
+- No file removed or moved; no application code, detection, schema or isolation
+  change. Coverage: tool checks across all code; full re-inspection of
+  `deploy/kubernetes/`; the rest targeted (see the brief's coverage table).
+- Checks at `5d01232`: safe suite 1,980 passed, 0 failed, 8 skipped, 4
+  deselected (553 s); ruff, mypy, bandit clean (VERIFICATION_MATRIX section 4).
+  Windows and CI not run. Kubernetes runtime validation still pending.
+- Uncommitted: none. `.arena/` unrelated and preserved.
+
 ## Exact next action (current)
 
 Owner decisions: K8S-1 (intel transport on Kubernetes) and whether to approve a
