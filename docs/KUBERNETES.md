@@ -223,7 +223,13 @@ Two kinds of evidence, kept apart:
 
 - **Static** (this repository, no cluster): `check_manifests.py`, the rendered
   base and overlay, and `tests/test_kubernetes.py`. They show what the YAML
-  requests, not what a cluster does with it.
+  requests, not what a cluster does with it. None of them opens a network
+  connection: `isolation_gate.py` probes only when `AEGIS_GATE_LIVE=1` and an
+  explicit `AEGIS_GATE_TARGETS` list are set (the manifests set both for the init
+  container and the analysis container); anywhere else its network modes refuse
+  with exit 2 before opening a socket. `isolation_gate.py posture` checks a
+  container's hardening without any network, and the test suite fails any test
+  that reaches beyond this machine.
 - **Runtime** (an approved, dedicated test cluster): `verify-cluster.sh`.
   **Nobody has run it yet**; every runtime property below is unverified until
   someone does.
@@ -554,7 +560,8 @@ Security Standard and ties both Pods to one node.
   the intel Pod. Analysis holds the intel token (as in Docker) and the CA that
   signed intel's certificate. The analysis proxy shares analysis's network and
   can reach 9443 too, but holds no intel token and gets 401.
-- *Application change*: an `AEGIS_INTEL_URL=https://IP:9443` alternative to
+- *Application change*: an `AEGIS_INTEL_URL=https://CLUSTER-IP:9443` (the intel
+  **Service's** ClusterIP, never a Pod IP) alternative to
   `AEGIS_INTEL_SOCKET` with `AEGIS_INTEL_CA_FILE` and `AEGIS_INTEL_SERVER_NAME`
   in `core/intel_client.py` (TLS 1.2+, certificate and name verified, no proxy
   environment variables honoured, the same reply-size limits), and the matching
@@ -578,13 +585,36 @@ Security Standard and ties both Pods to one node.
 internal TLS port, where Docker gives it a socket. Authentication (token) and
 what intel will do for analysis are the same as in Docker; reachability now
 also depends on NetworkPolicy enforcement, which the existing gate already
-requires.
+requires. **Kubernetes analysis then has a restricted, authenticated network path
+to one internal port; it does not have Docker's `network_mode: none` isolation.**
+
+**Transport contract for option E** (resolved here; option E is still not approved
+and nothing of it is built):
+
+| Concern | Decision |
+|---|---|
+| Endpoint | The intel Service's ClusterIP and port 9443, set by the operator in the analysis Deployment's fixed `env` (not the ConfigMap, never from a scan or an API caller). The ClusterIP is stable for the Service's lifetime; intel Pods are replaced behind it (kube-proxy or the plugin maps it to the current endpoints). Pod IPs are never configured. Pinning `spec.clusterIP` in the overlay keeps it stable across a re-created Service |
+| No DNS for analysis | The client connects to the IP literal and verifies the certificate against `AEGIS_INTEL_SERVER_NAME` (for example `aegis-intel.aegis-sentinel.svc`), passed as the TLS server name: Python's `ssl` checks the name from that parameter, not from the address, so hostname verification stays on without a lookup. The certificate carries that DNS name (an IP SAN would break when the Service is re-created) |
+| Identity | TLS 1.2 or later, `CERT_REQUIRED`, hostname checked, trust only `AEGIS_INTEL_CA_FILE` (a private CA; not the system store). Any failure is an `IntelError`; there is no plaintext or unverified fallback, and an `http://` URL or a host name is refused by the configuration check |
+| Token | Sent only on the connection to the configured address. Redirects are not followed (`http.client` does not, and a 3xx is an error), and proxy variables (`HTTPS_PROXY`, `NO_PROXY`) are ignored, so the token cannot reach another origin |
+| Bounds | The socket client's limits apply unchanged: per-call time-outs, reply-size cap, `AEGIS_INTEL_MAX_UPLOAD_MB`, intel's own destination allowlist and rate limits |
+| Retries | No hidden retries: lookups, uploads, sandbox submissions and e-mail are each attempted once per call; the outbox retries e-mail with the same alert id, and intel de-duplicates by it (in memory) |
+| NetworkPolicy and the Service | Policies match Pods, so the analysis egress rule names the intel Pods (`podSelector`) and the target port 9443, not the Service. Calico, Cilium and Antrea evaluate ClusterIP traffic after it is translated to the Pod address; this must be shown on the chosen plugin (cluster test 4 below), because a plugin that evaluates the pre-translation address would block the path (safe failure) or need a different rule |
+| Intel Pod topology | Intel's TLS proxy and intel share the intel Pod's network; intel's ingress rule admits only the analysis Pods on 9443, and its egress rule applies to both containers. The proxy holds only intel's TLS key |
+| Start-up and restarts | Analysis readiness does not depend on intel. While intel starts or restarts, calls fail fast with `IntelError`: layers report "unreachable" and the scan is partial, the outbox keeps e-mail queued. A call in flight when intel restarts fails and is not retried |
+| Certificate rotation | The CA file is read when a client is created (per scan configuration), so a new intel leaf certificate from the same CA needs no analysis restart. A CA change needs both CAs in the file for the overlap |
+| Docker | Unchanged: `AEGIS_INTEL_SOCKET` stays the default and the only transport there |
 
 **Tests required before it can be called isolated.**
 
-1. Unit: the HTTPS client refuses a wrong CA, a wrong name, a plain-HTTP URL, a
-   host name that needs DNS, and proxy variables; the same reply limits as the
-   socket client; Docker settings unchanged.
+1. Unit (local TLS server on loopback with a test CA): the HTTPS client refuses a
+   wrong CA, a wrong server name, an expired certificate, a plain-HTTP URL, a host
+   name that needs DNS, a 3xx reply (and does not send the token to its
+   `Location`), and ignores proxy variables; a wrong token gives 401 as an
+   `IntelError`; a server that stalls hits the call's time-out; a refused
+   connection is "unreachable"; uploads are sent once; the same reply limits as
+   the socket client; with only `AEGIS_INTEL_SOCKET` set, behaviour is identical
+   to today (the existing socket tests).
 2. Static: `check_manifests.py` rejects a second analysis egress rule, a wider
    port or selector, intel ingress from anything but analysis, intel egress to
    cluster ranges or the metadata address, and any external setting in analysis;
