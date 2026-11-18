@@ -42,6 +42,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -70,11 +71,18 @@ OPERATIONS = ("capabilities", "vt_lookup", "vt_upload", "llm_analyze", "sandbox_
 MAX_SENT_IDS = 10_000                      # remembered e-mail alert ids (de-duplication)
 
 
-def _env_number(name: str, default: float) -> float:
+def _env_number(name: str, default: float, positive: bool = False) -> float:
+    """A numeric setting. nan, inf and negative values are refused (L-E2 for the API):
+    they pass or fail every comparison and switched rate limits and the lockout off."""
+    raw = os.getenv(name, "")
     try:
-        return float(os.getenv(name, "") or default)
+        number = float(raw or default)
     except ValueError:
         raise RuntimeError(f"{name} must be a number") from None
+    if not math.isfinite(number) or number < 0 or (positive and number <= 0):
+        raise RuntimeError(f"{name}={raw!r} must be a finite number "
+                           f"{'above 0' if positive else 'of at least 0'}")
+    return number
 
 
 def _origins(*urls: str) -> List[str]:
@@ -337,7 +345,7 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         raise RuntimeError("Set AEGIS_INTEL_TOKEN (or AEGIS_INTEL_TOKEN_FILE) to a random "
                            "value of at least 32 characters.")
     service = service or IntelService(config or CONFIG)
-    max_upload = int(_env_number("AEGIS_INTEL_MAX_UPLOAD_MB", 100) * 1024 * 1024)
+    max_upload = int(_env_number("AEGIS_INTEL_MAX_UPLOAD_MB", 100, positive=True) * 1024 * 1024)
     buckets = TokenBuckets(_env_number("AEGIS_INTEL_RATE_PER_MINUTE", 120),
                            int(_env_number("AEGIS_INTEL_BURST", 20)))
     app = FastAPI(title="Aegis Sentinel intel", version=ENGINE_VERSION,

@@ -45,6 +45,7 @@ from __future__ import annotations
 import atexit
 import hmac
 import logging
+import math
 import os
 import queue
 import re
@@ -66,14 +67,21 @@ from engine.readiness import readiness
 from engine.workers import ISOLATION_UNAVAILABLE, IsolationUnavailable
 
 
-def _env_number(name: str, default: float) -> float:
+def _env_number(name: str, default: float, positive: bool = False) -> float:
+    """A numeric setting. nan, inf and negative values are refused (L-E2 for the API):
+    they pass or fail every comparison and switched rate limits and the lockout off."""
+    raw = os.getenv(name, "")
     try:
-        return float(os.getenv(name, "") or default)
+        number = float(raw or default)
     except ValueError:
         raise RuntimeError(f"{name} must be a number") from None
+    if not math.isfinite(number) or number < 0 or (positive and number <= 0):
+        raise RuntimeError(f"{name}={raw!r} must be a finite number "
+                           f"{'above 0' if positive else 'of at least 0'}")
+    return number
 
 
-MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50)
+MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50, positive=True)
 MULTIPART_OVERHEAD = 64 * 1024              # form boundaries and headers around the file
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 logger = logging.getLogger("RansomwareScanner")
@@ -373,7 +381,12 @@ def create_app(config: Optional[Dict] = None, token: Optional[str] = None,
     check_config(config or CONFIG, env_problems=None if config is None else ())
     if token is None:                 # AEGIS_API_TOKEN, or AEGIS_API_TOKEN_FILE (a Docker secret)
         from engine.secret_store import from_environment
-        token = from_environment("AEGIS_API_TOKEN") or os.getenv("AEGIS_API_TOKEN", "")
+        token = from_environment("AEGIS_API_TOKEN") or ""
+        if not token and os.getenv("AEGIS_API_TOKEN_FILE"):
+            # a configured secret file that is missing or empty must not fall back to
+            # another token (an old value in the environment or .env)
+            raise RuntimeError("AEGIS_API_TOKEN_FILE is set but cannot be read or is empty")
+        token = token or os.getenv("AEGIS_API_TOKEN", "")
     if not token or len(token) < 16:
         raise RuntimeError("Set AEGIS_API_TOKEN to a random value of at least 16 characters.")
     concurrent = int(_env_number("AEGIS_API_MAX_CONCURRENT_SCANS", 2))

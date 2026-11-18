@@ -168,3 +168,48 @@ def test_token_can_come_from_a_secret_file(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN"):
         create_app(_config(tmp_path), isolate=False)
+
+
+@pytest.mark.parametrize("module", ["api.server", "api.intel"])
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-5"])
+def test_abuse_limit_settings_refuse_nan_inf_and_negative(monkeypatch, module, value):
+    """nan made the lockout window and every rate limit pass silently (min(burst,
+    nan) is burst; nan comparisons are false) and -1 MB answered every upload 413."""
+    pytest.importorskip("fastapi")
+    import importlib
+    mod = importlib.import_module(module)
+    monkeypatch.setenv("AEGIS_TEST_NUMBER", value)
+    with pytest.raises(RuntimeError, match="AEGIS_TEST_NUMBER"):
+        mod._env_number("AEGIS_TEST_NUMBER", 5)
+    monkeypatch.setenv("AEGIS_TEST_NUMBER", "0")
+    assert mod._env_number("AEGIS_TEST_NUMBER", 5) == 0          # 0 = no limit, as documented
+    with pytest.raises(RuntimeError, match="above 0"):
+        mod._env_number("AEGIS_TEST_NUMBER", 5, positive=True)
+    monkeypatch.delenv("AEGIS_TEST_NUMBER")
+    assert mod._env_number("AEGIS_TEST_NUMBER", 5) == 5
+
+
+def test_lockout_settings_are_checked_when_the_app_is_built(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    monkeypatch.setenv("AEGIS_API_AUTH_WINDOW_SECONDS", "nan")
+    with pytest.raises(RuntimeError, match="AEGIS_API_AUTH_WINDOW_SECONDS"):
+        create_app(_config(tmp_path), token="t" * 32, isolate=False)
+
+
+@pytest.mark.parametrize("problem", ["missing", "empty"])
+def test_an_unreadable_token_file_does_not_fall_back_to_another_token(tmp_path, monkeypatch,
+                                                                      problem):
+    """A configured secret file that is missing or empty must stop the start, not
+    quietly accept an older AEGIS_API_TOKEN from the environment or .env."""
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    secret = tmp_path / "api_token"
+    if problem == "empty":
+        secret.write_text("\n", encoding="utf-8")
+    monkeypatch.setenv("AEGIS_API_TOKEN", "o" * 32)
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(secret))
+    with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN_FILE"):
+        create_app(_config(tmp_path), isolate=False)
