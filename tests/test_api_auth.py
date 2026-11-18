@@ -236,3 +236,23 @@ def test_a_used_spare_is_replaced_even_when_the_scan_raises(tmp_path, monkeypatc
     with pytest.raises(RuntimeError):
         svc.scan(str(tmp_path / "x"), "x")
     assert refills == [1]
+
+
+def test_a_stalled_upload_gives_up_its_slot(monkeypatch):
+    """RV-S4: the slot is taken before the body is read (M4); an authenticated client
+    that stopped sending held it for good (reproduced on loopback). The body must now
+    arrive within AEGIS_API_UPLOAD_SECONDS."""
+    pytest.importorskip("fastapi")
+    import asyncio
+
+    from fastapi import HTTPException
+
+    import api.server as server
+    monkeypatch.setattr(server, "UPLOAD_SECONDS", 0.2)
+
+    class Stalled:
+        async def form(self, **kwargs):
+            await asyncio.sleep(30)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(server._scan_upload(Stalled(), None, None))
+    assert e.value.status_code == 408

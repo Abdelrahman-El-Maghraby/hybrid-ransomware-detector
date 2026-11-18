@@ -42,6 +42,7 @@ Security
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import hmac
 import logging
@@ -82,6 +83,9 @@ def _env_number(name: str, default: float, positive: bool = False) -> float:
 
 
 MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50, positive=True)
+# RV-S4: the scan slot is taken before the body is read (M4), so the body must
+# arrive within this time; a stalled upload otherwise held its slot for good
+UPLOAD_SECONDS = _env_number("AEGIS_API_UPLOAD_SECONDS", 600, positive=True)
 MULTIPART_OVERHEAD = 64 * 1024              # form boundaries and headers around the file
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 logger = logging.getLogger("RansomwareScanner")
@@ -335,7 +339,11 @@ async def _scan_upload(request: Request, service: _ScanService, alerts: _Alerts)
     work folder of its own and scan it. Starlette's spooled copies are closed
     and the work folder removed whatever happens."""
     try:
-        form = await request.form(max_files=1, max_fields=10)
+        form = await asyncio.wait_for(request.form(max_files=1, max_fields=10), UPLOAD_SECONDS)
+    except asyncio.TimeoutError:
+        METRICS.reject("upload_timeout")
+        raise HTTPException(status_code=408, detail=f"the upload did not arrive within "
+                                                     f"{UPLOAD_SECONDS:g} s") from None
     except HTTPException:
         raise
     except Exception:
