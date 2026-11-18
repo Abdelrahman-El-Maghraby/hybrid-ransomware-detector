@@ -15,6 +15,16 @@ at all leaves that Pod connected. This script checks the effect, not the YAML:
                                                      operator check (kubectl exec): the
                                                      gate, extra destinations, and the
                                                      container's own hardening
+    python /opt/aegis-k8s/isolation_gate.py posture  the hardening checks only; opens no
+                                                     network connection
+
+The network modes are live probes and run only when the environment asks for them
+explicitly: AEGIS_GATE_LIVE=1 and AEGIS_GATE_TARGETS (a comma-separated list of
+tcp:HOST:PORT, udp53:HOST and dns:NAME entries), both set by the Kubernetes
+manifests. Without them every network mode refuses (exit 2) before a socket is
+opened; there is no built-in list of public addresses to fall back on. In live mode
+the cluster DNS servers (/etc/resolv.conf) and the API server
+(KUBERNETES_SERVICE_HOST) are probed as well.
 
 A connection that succeeds, or a DNS server that answers, is a failure. A time-out,
 "no route" or a refused connection counts as blocked. The gate guards against
@@ -109,17 +119,47 @@ def parse_target(text: str) -> Tuple[str, int]:
     return host, int(port)
 
 
+LIVE_ENV = "AEGIS_GATE_LIVE"
+TARGETS_ENV = "AEGIS_GATE_TARGETS"
+
+
+def parse_targets(text: str) -> List[Tuple[str, Callable]]:
+    """AEGIS_GATE_TARGETS entries as (name, probe). ValueError on a bad entry."""
+    checks: List[Tuple[str, Callable]] = []
+    for raw in (t.strip() for t in text.split(",")):
+        if not raw:
+            continue
+        kind, _, rest = raw.partition(":")
+        if kind == "tcp":
+            host, port = parse_target(rest)
+            checks.append((f"tcp {rest}", lambda h=host, p=port: tcp_probe(h, p)))
+        elif kind == "udp53" and rest and all(c.isalnum() or c in ".:[]-" for c in rest):
+            server = rest.strip("[]")
+            checks.append((f"udp {rest}:53", lambda s=server: udp_dns_probe(s)))
+        elif kind == "dns" and rest and all(c.isalnum() or c in ".-" for c in rest):
+            checks.append((f"dns {rest}", lambda n=rest: resolve_probe(n)))
+        else:
+            raise ValueError(f"not a gate target (tcp:HOST:PORT, udp53:HOST, dns:NAME): {raw!r}")
+    return checks
+
+
+def live_problem() -> Optional[str]:
+    """Why the live network probes must not run, or None."""
+    if os.environ.get(LIVE_ENV) != "1":
+        return (f"live network probes are off ({LIVE_ENV}=1 and {TARGETS_ENV} are set "
+                "only by the Kubernetes manifests)")
+    try:
+        if not parse_targets(os.environ.get(TARGETS_ENV, "")):
+            return f"{TARGETS_ENV} names no destination"
+    except ValueError as e:
+        return str(e)
+    return None
+
+
 def network_checks(extra: Tuple[Tuple[str, int], ...] = ()) -> List[Tuple[str, Callable]]:
-    checks: List[Tuple[str, Callable]] = [
-        ("tcp 1.1.1.1:443 (internet)", lambda: tcp_probe("1.1.1.1", 443)),
-        ("tcp 8.8.8.8:53 (internet DNS)", lambda: tcp_probe("8.8.8.8", 53)),
-        ("udp 8.8.8.8:53 (internet DNS)", lambda: udp_dns_probe("8.8.8.8")),
-        ("tcp [2606:4700:4700::1111]:443 (internet, IPv6)",
-         lambda: tcp_probe("2606:4700:4700::1111", 443)),
-        ("tcp 169.254.169.254:80 (cloud metadata)", lambda: tcp_probe("169.254.169.254", 80)),
-        ("dns www.virustotal.com", lambda: resolve_probe("www.virustotal.com")),
-        ("dns kubernetes.default.svc", lambda: resolve_probe("kubernetes.default.svc")),
-    ]
+    """The configured destinations plus the cluster's own (live mode only; main()
+    refuses before this when live_problem() is not None)."""
+    checks = parse_targets(os.environ.get(TARGETS_ENV, ""))
     api_host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
     api_port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
     if api_host and api_port.isdigit():
@@ -239,6 +279,16 @@ def report(role: str, results: List[Result]) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     mode = args[0] if args else ""
+    if mode == "posture":
+        code = report("analysis", posture_checks())
+        for line in info_lines():
+            print(f"INFO  analysis {line}")
+        return code
+    if mode in ("gate", "ready", "verify"):
+        problem = live_problem()
+        if problem:
+            print(f"refused: {problem}; nothing was contacted", file=sys.stderr)
+            return 2
     if mode == "gate":
         return report("gate", run_network())
     if mode == "ready":

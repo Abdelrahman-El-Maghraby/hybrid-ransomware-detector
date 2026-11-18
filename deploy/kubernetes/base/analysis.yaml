@@ -87,6 +87,11 @@ spec:
           imagePullPolicy: IfNotPresent
           command: [python, /opt/aegis-k8s/isolation_gate.py, gate]
           securityContext: *hardened
+          # The live probes run only where these are set (here and in analysis,
+          # for the readiness probe): outside destinations that must not answer.
+          env:
+            - {name: AEGIS_GATE_LIVE, value: "1"}
+            - {name: AEGIS_GATE_TARGETS, value: "tcp:1.1.1.1:443,tcp:8.8.8.8:53,udp53:8.8.8.8,tcp:[2606:4700:4700::1111]:443,tcp:169.254.169.254:80,dns:www.virustotal.com,dns:kubernetes.default.svc"}
           resources:
             requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
             limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 64Mi}
@@ -115,6 +120,9 @@ spec:
             - {name: AEGIS_API_TOKEN_FILE, value: /run/secrets/aegis/api_token}
             # safe: only the proxy in this Pod can reach the socket
             - {name: AEGIS_API_TRUST_PROXY, value: "1"}
+            # the readiness probe's live isolation checks (isolation_gate.py)
+            - {name: AEGIS_GATE_LIVE, value: "1"}
+            - {name: AEGIS_GATE_TARGETS, value: "tcp:1.1.1.1:443,tcp:8.8.8.8:53,udp53:8.8.8.8,tcp:[2606:4700:4700::1111]:443,tcp:169.254.169.254:80,dns:www.virustotal.com,dns:kubernetes.default.svc"}
           resources:
             # Main process + AEGIS_API_MAX_CONCURRENT_SCANS x WORKER_MEMORY_MB +
             # spares x ~200 MB + the /tmp emptyDir (memory-backed, counted here):

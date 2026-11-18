@@ -33,7 +33,78 @@ os.environ["LLM_PROVIDER"] = "none"               # never call a real LLM in tes
 os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
 
 
+import ipaddress  # noqa: E402
+import socket  # noqa: E402
+
 import pytest  # noqa: E402  (after the environment is set)
+
+# --------------------------------------------------------------- no outside network
+# The safe suite must not contact anything beyond this machine. Every connect, UDP
+# send or name lookup aimed elsewhere is refused (the code sees an unreachable
+# network, so nothing leaves) and recorded, and the test that made it fails. A test
+# that deliberately exercises a refused outside address marks itself
+# `expects_blocked_network`. Worker processes started by a test are not covered.
+_BLOCKED: list = []
+_LOCAL_NAMES = {"localhost", "localhost.localdomain", "ip6-localhost", ""}
+
+
+def _local_host(host) -> bool:
+    if not isinstance(host, str):
+        return True                      # AF_UNIX path (bytes) or an abstract name
+    host = host.split("%", 1)[0].strip("[]").lower()
+    if host in _LOCAL_NAMES:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_unspecified
+
+
+def _outside(sock, address) -> bool:
+    if getattr(socket, "AF_UNIX", None) is not None and sock.family == socket.AF_UNIX:
+        return False
+    return isinstance(address, tuple) and not _local_host(address[0])
+
+
+def _guard(name, real):
+    def call(self, address, *rest):
+        target = rest[-1] if name == "sendto" and rest else address
+        if _outside(self, target):
+            _BLOCKED.append(f"{name} {target!r}")
+            raise OSError(101, f"test network guard: {target!r} is outside this machine")
+        return real(self, address, *rest)
+    return call
+
+
+for _name in ("connect", "connect_ex", "sendto"):
+    setattr(socket.socket, _name, _guard(_name, getattr(socket.socket, _name)))
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    if host is not None and not _local_host(host.decode() if isinstance(host, bytes) else host):
+        _BLOCKED.append(f"getaddrinfo {host!r}")
+        raise socket.gaierror(socket.EAI_NONAME, f"test network guard: {host!r} not resolved")
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+socket.getaddrinfo = _guarded_getaddrinfo
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "expects_blocked_network: the test deliberately "
+                            "reaches for an outside address; the guard still blocks it")
+
+
+@pytest.fixture(autouse=True)
+def _no_outside_network(request):
+    start = len(_BLOCKED)
+    yield
+    attempts = _BLOCKED[start:]
+    del _BLOCKED[start:]
+    if attempts and request.node.get_closest_marker("expects_blocked_network") is None:
+        pytest.fail("outside network attempted (blocked): " + "; ".join(attempts[:5]))
 
 
 @pytest.fixture(autouse=True)

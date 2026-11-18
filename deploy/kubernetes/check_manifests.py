@@ -41,6 +41,10 @@ FORBIDDEN_KINDS = {"HorizontalPodAutoscaler", "Role", "ClusterRole", "RoleBindin
                    "ClusterRoleBinding", "Ingress", "PodDisruptionBudget"}
 CONTENT_PATH = "/var/lib/aegis/RansomwareScanner/data"
 SCRATCH = "/tmp"  # noqa: S108  # nosec B108  # a mount path compared in manifests, never opened
+# Outside destinations the isolation gate must probe (isolation_gate.py live mode)
+GATE_TARGETS = {"tcp:1.1.1.1:443", "tcp:8.8.8.8:53", "udp53:8.8.8.8",
+                "tcp:[2606:4700:4700::1111]:443", "tcp:169.254.169.254:80",
+                "dns:www.virustotal.com", "dns:kubernetes.default.svc"}
 PLACEHOLDER = re.compile(r"SET-VERSION-IN-OVERLAY|REPLACE")
 
 
@@ -173,6 +177,17 @@ def check_pod(obj: Dict[str, Any], pod: Dict[str, Any], allow_placeholders: bool
     return p
 
 
+def _gate_settings(owner: str, c: Dict[str, Any]) -> List[str]:
+    """The gate probes only when told to, and only the listed destinations."""
+    env = {e.get("name"): e.get("value") for e in c.get("env") or []}
+    name = c.get("name")
+    if env.get("AEGIS_GATE_LIVE") != "1":
+        return [f"{owner}: container {name} runs the isolation gate without AEGIS_GATE_LIVE=1"]
+    listed = {t.strip() for t in str(env.get("AEGIS_GATE_TARGETS") or "").split(",") if t.strip()}
+    missing = sorted(GATE_TARGETS - listed)
+    return [f"{owner}: container {name} AEGIS_GATE_TARGETS lacks {missing}"] if missing else []
+
+
 def _check_analysis(owner, c, pod, mounts, volumes, secrets) -> List[str]:
     p: List[str] = []
     env = {e.get("name"): e.get("value") for e in c.get("env") or []}
@@ -205,6 +220,8 @@ def _check_analysis(owner, c, pod, mounts, volumes, secrets) -> List[str]:
              if "isolation_gate.py" in " ".join(map(str, i.get("command") or []))]
     if not gates:
         p.append(f"{owner}: no isolation-gate init container")
+    for runner in [c] + gates:
+        p += _gate_settings(owner, runner)
     timeout = 300
     grace = pod.get("terminationGracePeriodSeconds", 30)
     if grace < timeout:

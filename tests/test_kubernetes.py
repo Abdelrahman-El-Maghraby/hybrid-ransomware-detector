@@ -288,6 +288,11 @@ BREAKS = {
     "egress": lambda d: find(d, "NetworkPolicy", "aegis-allow-https")["spec"].update(
         egress=[{}], policyTypes=["Ingress", "Egress"]),
     "default-deny": lambda d: d.remove(find(d, "NetworkPolicy", "aegis-default-deny")),
+    "gate not live": lambda d: [e.update(value="0") for e in container(d, "analysis")["env"]
+                                if e["name"] == "AEGIS_GATE_LIVE"],
+    "gate target dropped": lambda d: [
+        e.update(value=e["value"].replace("tcp:169.254.169.254:80,", ""))
+        for e in pod(d)["initContainers"][1]["env"] if e["name"] == "AEGIS_GATE_TARGETS"],
     "one replica": lambda d: find(d, "Deployment")["spec"].update(replicas=2),
     "Recreate": lambda d: find(d, "Deployment")["spec"].update(strategy={"type": "RollingUpdate"}),
     "access modes": lambda d: find(d, "PersistentVolumeClaim")["spec"].update(
@@ -420,6 +425,72 @@ def test_the_gate_content_write_check_fails_and_leaves_nothing(monkeypatch, tmp_
     monkeypatch.setattr(gate, "CONTENT", str(tmp_path / "missing" / "data"))
     res = dict((n, ok) for n, ok, _ in gate.posture_checks())
     assert res["cannot write detection content"] is True
+
+
+# ------------------------------------------------- no live probe unless asked for
+
+class _NoSockets:
+    """Any socket creation or name lookup fails the test: proof nothing was contacted."""
+
+    def __init__(self, monkeypatch):
+        def refuse(*a, **k):
+            raise AssertionError("the gate opened a socket or looked up a name")
+        monkeypatch.setattr(gate.socket, "socket", refuse)
+        monkeypatch.setattr(gate.socket, "getaddrinfo", refuse)
+
+
+@pytest.mark.parametrize("live,targets", [(None, None), ("1", None), ("1", ""), ("0", "tcp:10.0.0.1:443"),
+                                          ("1", "http://example.org")])
+@pytest.mark.parametrize("mode", [["gate"], ["ready"], ["verify"], ["verify", "10.0.0.1:443"]])
+def test_live_modes_refuse_without_explicit_configuration(monkeypatch, capsys, live, targets, mode):
+    """No built-in public address to fall back on: without AEGIS_GATE_LIVE=1 and a
+    valid AEGIS_GATE_TARGETS (set only by the manifests) nothing is contacted."""
+    for name, value in (("AEGIS_GATE_LIVE", live), ("AEGIS_GATE_TARGETS", targets)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    _NoSockets(monkeypatch)
+    assert gate.main(mode) == 2
+    assert "nothing was contacted" in capsys.readouterr().err
+
+
+def test_posture_mode_opens_no_connection(monkeypatch, posix_ids, tmp_path):
+    monkeypatch.setattr(gate, "CONTENT", str(tmp_path / "missing"))
+    _NoSockets(monkeypatch)
+    assert gate.main(["posture"]) in (0, 1)       # results depend on this machine
+
+
+def test_loading_the_gate_and_the_checker_contacts_nothing(monkeypatch):
+    import socket as real
+    def refuse(*a, **k):
+        raise AssertionError("network at import")
+    monkeypatch.setattr(real, "socket", refuse)
+    monkeypatch.setattr(real, "getaddrinfo", refuse)
+    _load("aegis_k8s_gate_fresh", K8S / "base" / "isolation_gate.py")
+    _load("aegis_k8s_check_fresh", K8S / "check_manifests.py")
+
+
+def test_configured_targets_are_probed_and_cluster_ones_added(monkeypatch, tmp_path):
+    monkeypatch.setenv("AEGIS_GATE_TARGETS", "tcp:192.0.2.1:443,udp53:192.0.2.53,dns:example.invalid")
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "443")
+    conf = tmp_path / "resolv.conf"
+    conf.write_text("nameserver 10.96.0.10\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "nameservers", lambda path=str(conf): ["10.96.0.10"])
+    names = [n for n, _ in gate.network_checks((("10.0.0.5", 80),))]
+    assert names == ["tcp 192.0.2.1:443", "udp 192.0.2.53:53", "dns example.invalid",
+                     "tcp 10.96.0.1:443 (Kubernetes API)", "udp 10.96.0.10:53 (cluster DNS)",
+                     "tcp 10.96.0.10:53 (cluster DNS)", "tcp 10.0.0.5:80 (operator target)"]
+
+
+@needs_kubectl
+def test_the_manifests_list_every_required_gate_target(base):
+    for spec in (container(base, "analysis"), pod(base)["initContainers"][1]):
+        env = {e["name"]: e["value"] for e in spec["env"]}
+        assert env["AEGIS_GATE_LIVE"] == "1"
+        assert set(env["AEGIS_GATE_TARGETS"].split(",")) == checker.GATE_TARGETS
+        gate.parse_targets(env["AEGIS_GATE_TARGETS"])     # every entry parses
 
 
 def test_the_gate_names_no_unknown_mode():
