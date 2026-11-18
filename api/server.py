@@ -268,7 +268,8 @@ class _Alerts:
     def __init__(self, config: Dict):
         from core.mailer import email_configured
         self.config = dict(config, webhook_url="")
-        self.enabled = bool(self.config.get("intel_socket")) or email_configured(self.config)
+        from core.intel_client import intel_configured
+        self.enabled = intel_configured(self.config) or email_configured(self.config)
         if self.enabled:
             threading.Thread(target=self._retry, name="aegis-alert-outbox", daemon=True).start()
 

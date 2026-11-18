@@ -224,7 +224,7 @@ def _watch(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
     if not dirs:
         return
     production = str(cfg.get("profile") or "").strip().lower() == "production"
-    if cfg.get("intel_socket") or production:
+    if _with_intel(cfg) or production:
         errors.append("WATCH_DIRS is a desktop feature; the Docker edition and the REST API "
                       "have no folder monitoring (decision D-B)")
     if not WATCHDOG_AVAILABLE:
@@ -245,7 +245,7 @@ def _cloud(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
     if not cfg.get("cloud_upload"):
         return
     production = str(cfg.get("profile") or "").strip().lower() == "production"
-    if cfg.get("intel_socket") or production:
+    if _with_intel(cfg) or production:
         errors.append("CLOUD_UPLOAD is a desktop feature; the Docker edition keeps its own "
                       "log shipping (decision D-D2)")
     endpoint = str(cfg.get("cloud_endpoint") or "")
@@ -287,7 +287,7 @@ def _paths(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> No
     dirs = cfg.get("scan_directories")
     if dirs is not None and not isinstance(dirs, (list, tuple)):
         errors.append("scan_directories must be a list of folders")
-    elif dirs and not cfg.get("intel_socket"):         # the Docker edition has no folder scans
+    elif dirs and not _with_intel(cfg):         # the Docker edition has no folder scans
         for d in dirs:
             if not os.path.isdir(d):
                 warnings.append(f"SCAN_DIRECTORIES: {d} is not a folder (skipped by scans)")
@@ -354,7 +354,7 @@ def _profile(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> 
     if rules and not Path(rules).is_dir():
         errors.append(f"YARA_RULES_DIR={rules} does not exist: the production profile "
                       "requires the YARA layer")
-    if str(cfg.get("llm_provider") or "auto").strip().lower() == "auto" and not cfg.get("intel_socket"):
+    if str(cfg.get("llm_provider") or "auto").strip().lower() == "auto" and not _with_intel(cfg):
         errors.append("LLM_PROVIDER=auto can fall back to a cloud LLM when the local one is not "
                       "reachable; the production profile needs an explicit choice: none, "
                       "ollama or openai")
@@ -375,19 +375,38 @@ INTEL_OWNED = (("virustotal_api_key", "VIRUSTOTAL_API_KEY"), ("chatgpt_api_key",
                ("alert_email_from", "ALERT_EMAIL_FROM"))
 
 
+def _with_intel(cfg: Mapping[str, Any]) -> bool:
+    from core.intel_client import intel_configured
+    return intel_configured(cfg)
+
+
 def _intel(cfg: Mapping[str, Any], errors: List[str], warnings: List[str]) -> None:
-    """With AEGIS_INTEL_SOCKET the external services are the intel service's: the
-    analysis side needs the token and must not hold their secrets (in the
-    production profile that is an error - the point is that a compromised parser
-    finds no key to steal)."""
-    if not cfg.get("intel_socket"):
+    """With AEGIS_INTEL_SOCKET (Docker) or AEGIS_INTEL_URL (Kubernetes) the external
+    services are the intel service's: the analysis side needs the token and must
+    not hold their secrets (in the production profile that is an error - the point
+    is that a compromised parser finds no key to steal)."""
+    if not _with_intel(cfg):
         return
+    via = "AEGIS_INTEL_SOCKET" if cfg.get("intel_socket") else "AEGIS_INTEL_URL"
+    if cfg.get("intel_socket") and cfg.get("intel_url"):
+        errors.append("AEGIS_INTEL_SOCKET and AEGIS_INTEL_URL are both set: choose one "
+                      "transport (the socket in Docker, the URL in Kubernetes)")
+    if cfg.get("intel_url"):
+        from core.intel_client import TlsEndpoint
+        try:
+            endpoint = TlsEndpoint.parse(str(cfg["intel_url"]), str(cfg.get("intel_ca_file") or ""),
+                                         str(cfg.get("intel_server_name") or ""))
+        except ValueError as e:
+            errors.append(str(e))
+        else:
+            if not os.access(endpoint.ca_file, os.R_OK):
+                errors.append(f"AEGIS_INTEL_CA_FILE={endpoint.ca_file} cannot be read")
     from engine.secret_store import from_environment
     if not (cfg.get("intel_token") or from_environment("AEGIS_INTEL_TOKEN")):
-        errors.append("AEGIS_INTEL_SOCKET is set but AEGIS_INTEL_TOKEN (or _FILE) is not")
+        errors.append(f"{via} is set but AEGIS_INTEL_TOKEN (or _FILE) is not")
     held = [env for key, env in INTEL_OWNED if cfg.get(key)]
     if held:
-        text = (f"{', '.join(held)} set on the analysis side: with AEGIS_INTEL_SOCKET these "
+        text = (f"{', '.join(held)} set on the analysis side: with {via} these "
                 "belong to the intel service only")
         production = str(cfg.get("profile") or "").strip().lower() == "production"
         (errors if production else warnings).append(text)

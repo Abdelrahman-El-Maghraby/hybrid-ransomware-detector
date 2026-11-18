@@ -557,7 +557,8 @@ def senders_for(config: Mapping[str, Any]) -> Dict[str, Optional[Sender]]:
     if config.get("webhook_url"):
         url, secret = str(config["webhook_url"]), str(config.get("webhook_secret") or "")
         out["webhook"] = lambda payload: post_alert(payload, url, secret)
-    if config.get("intel_socket"):
+    from .intel_client import intel_configured
+    if intel_configured(config):
         from .intel_client import client_from_config
         client = client_from_config(dict(config))
         email = client.service("email") if client is not None else {}

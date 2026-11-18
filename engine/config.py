@@ -227,6 +227,12 @@ CONFIG = {
     # the LLM and the sandbox through the intel service on this Unix socket
     # (api/intel.py; the token is AEGIS_INTEL_TOKEN or AEGIS_INTEL_TOKEN_FILE).
     "intel_socket": _getenv("AEGIS_INTEL_SOCKET", ""),
+    # Kubernetes (option E): the same service over TLS on one port instead of the
+    # socket: https://SERVICE-CLUSTER-IP:PORT, the private CA and the certificate's
+    # name (core/intel_client.py, docs/KUBERNETES.md)
+    "intel_url": _getenv("AEGIS_INTEL_URL", ""),
+    "intel_ca_file": _getenv("AEGIS_INTEL_CA_FILE", ""),
+    "intel_server_name": _getenv("AEGIS_INTEL_SERVER_NAME", ""),
     # Optional JavaScript emulation with box-js. Runs the attacker's script in a
     # Node sandbox: enable inside an analysis VM / container only.
     "emulation_enabled": _env_bool("EMULATION_ENABLED", False),

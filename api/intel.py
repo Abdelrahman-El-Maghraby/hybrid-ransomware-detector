@@ -449,7 +449,7 @@ def main() -> None:
     try:
         # its own settings, checked like the analysis service's (AEGIS_INTEL_SOCKET is
         # where this service listens, not a client setting here)
-        check_config(dict(CONFIG, intel_socket=""))
+        check_config(dict(CONFIG, intel_socket="", intel_url=""))
         app = create_intel_app()
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-intel: {e}") from e

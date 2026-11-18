@@ -9,19 +9,34 @@ classes here have the same interface as the in-process ones, so the pipeline doe
 not change: IntelLLMBackend is an LLMBackend, IntelSandbox has CapeClient's
 analyze(), and the VirusTotal layer calls IntelClient.vt_lookup / vt_upload.
 
-Without AEGIS_INTEL_SOCKET (desktop, CLI) nothing here is used.
+Kubernetes (docs/KUBERNETES.md, decision record K8S-1, option E): intel runs in
+its own Pod and the analysis Pod reaches it over TLS on one port instead, with
+AEGIS_INTEL_URL (https://SERVICE-CLUSTER-IP:PORT, an IP literal: analysis has no
+DNS), AEGIS_INTEL_CA_FILE (a private CA; the system store is not used) and
+AEGIS_INTEL_SERVER_NAME (the name the certificate must carry, checked although
+the connection goes to an address). TLS 1.2 or later, the certificate and name
+verified, no plaintext or unverified fallback, no redirects (http.client follows
+none; any status but 200 is an error), proxy variables ignored, no retries. The
+token goes only to that address. The Unix socket stays the Docker transport.
+
+Without either (desktop, CLI) nothing here is used.
 """
 
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import json
 import logging
 import os
+import re
 import socket
+import ssl
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 from detectors.llm_backends import LLMBackend, _empty_analysis
 
@@ -92,10 +107,111 @@ def unix_request(path: str, method: str, url: str, body: Optional[bytes] = None,
         conn.close()
 
 
+_SERVER_NAME = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)"
+                          r"(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$")
+
+
+@dataclass(frozen=True)
+class TlsEndpoint:
+    """Where intel listens in Kubernetes, and how its certificate is checked."""
+    host: str                # an IP literal (the intel Service's ClusterIP)
+    port: int
+    ca_file: str
+    server_name: str
+
+    @classmethod
+    def parse(cls, url: str, ca_file: str, server_name: str) -> TlsEndpoint:
+        """ValueError unless url is https://IP:PORT (nothing else) and the CA file
+        and a DNS server name are given."""
+        parts = urlsplit(str(url or "").strip())
+        if parts.scheme != "https":
+            raise ValueError("AEGIS_INTEL_URL must be an https:// URL (no plaintext)")
+        if parts.username or parts.password or parts.query or parts.fragment \
+                or parts.path not in ("", "/"):
+            raise ValueError("AEGIS_INTEL_URL must be https://IP:PORT with nothing else")
+        host = parts.hostname or ""
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            raise ValueError("AEGIS_INTEL_URL needs an IP address (the intel Service's "
+                             "ClusterIP): analysis does no DNS look-ups") from None
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        if not port:
+            raise ValueError("AEGIS_INTEL_URL needs an explicit port")
+        if not ca_file:
+            raise ValueError("AEGIS_INTEL_URL needs AEGIS_INTEL_CA_FILE (the CA that signed "
+                             "intel's certificate)")
+        name = str(server_name or "").strip().lower().rstrip(".")
+        if not _SERVER_NAME.match(name) or _is_ip(name):
+            raise ValueError("AEGIS_INTEL_URL needs AEGIS_INTEL_SERVER_NAME, the DNS name in "
+                             "intel's certificate")
+        return cls(host, port, str(ca_file), name)
+
+    def context(self) -> ssl.SSLContext:
+        """Read for every connection, so a renewed CA bundle applies at once."""
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)          # verifies by default
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.load_verify_locations(cafile=self.ca_file)          # this CA only
+        return ctx
+
+
+def _is_ip(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
+
+
+class _TlsConnection(http.client.HTTPConnection):
+    """HTTP over TLS to an address, with the certificate checked against a name."""
+
+    def __init__(self, endpoint: TlsEndpoint, timeout: float):
+        super().__init__(endpoint.server_name, endpoint.port, timeout=timeout)
+        self.endpoint = endpoint
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self.endpoint.host, self.endpoint.port),
+                                        timeout=self.timeout)
+        try:
+            self.sock = self.endpoint.context().wrap_socket(
+                sock, server_hostname=self.endpoint.server_name)
+        except BaseException:
+            sock.close()
+            raise
+
+
+def tls_request(endpoint: TlsEndpoint, method: str, url: str, body: Optional[bytes] = None,
+                headers: Optional[Dict[str, str]] = None,
+                timeout: float = 30) -> Tuple[int, bytes]:
+    """One HTTPS request to intel: (status, body). Nothing is sent before the
+    certificate and its name are verified."""
+    conn = _TlsConnection(endpoint, timeout)
+    try:
+        try:
+            conn.connect()
+        except OSError as e:                # refused, time-out, or TLS verification
+            raise NotConnected(f"{type(e).__name__}: {e}") from e
+        conn.request(method, url, body=body, headers=headers or {})
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    finally:
+        conn.close()
+
+
 class IntelClient:
     def __init__(self, socket_path: str, token: str, timeout: float = 60,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 tls: Optional[TlsEndpoint] = None):
+        if bool(socket_path) == bool(tls):
+            raise ValueError("an intel client needs exactly one transport")
         self.socket_path, self.token, self.timeout = socket_path, token, timeout
+        self.tls = tls
         self._clock = clock
         self._caps: Optional[Dict] = None
         self._caps_failed_at: Optional[float] = None
@@ -112,8 +228,12 @@ class IntelClient:
         elif data is not None:
             send["Content-Type"] = "application/octet-stream"
         try:
-            status, raw = unix_request(self.socket_path, method, url, body, send,
-                                       timeout or self.timeout)
+            if self.tls is not None:
+                status, raw = tls_request(self.tls, method, url, body, send,
+                                          timeout or self.timeout)
+            else:
+                status, raw = unix_request(self.socket_path, method, url, body, send,
+                                           timeout or self.timeout)
         except NotConnected as e:
             raise IntelError(f"intel service unreachable ({type(e.__cause__).__name__})",
                              delivered=False) from None
@@ -329,11 +449,28 @@ def _submission(d: Dict[str, Any], default: str = "") -> str:
     return "possible"
 
 
+def intel_configured(config: Any) -> bool:
+    """True when the external services are the intel service's (Docker socket or
+    Kubernetes TLS), so the analysis side holds none of their settings."""
+    return bool(config.get("intel_socket") or config.get("intel_url"))
+
+
 def client_from_config(config: Dict) -> Optional[IntelClient]:
-    """An IntelClient when AEGIS_INTEL_SOCKET is set, else None (in-process lookups)."""
+    """An IntelClient for AEGIS_INTEL_SOCKET (Docker) or AEGIS_INTEL_URL (Kubernetes),
+    else None (in-process lookups). The configuration check refuses an invalid URL
+    or both at once before this runs; here an invalid URL gives no client."""
     path = str(config.get("intel_socket") or "")
-    if not path:
+    url = str(config.get("intel_url") or "")
+    if not path and not url:
         return None
     from engine.secret_store import from_environment
     token = str(config.get("intel_token") or from_environment("AEGIS_INTEL_TOKEN") or "")
-    return IntelClient(path, token)
+    if path:
+        return IntelClient(path, token)
+    try:
+        endpoint = TlsEndpoint.parse(url, str(config.get("intel_ca_file") or ""),
+                                     str(config.get("intel_server_name") or ""))
+    except ValueError as e:
+        logger.error("Intel service not used: %s", e)
+        return None
+    return IntelClient("", token, tls=endpoint)

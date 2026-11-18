@@ -105,7 +105,8 @@ def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None)
         except Exception as e:
             logger.error("JSON Lines output %s could not be written: %s", path, e,
                          extra={"event": "jsonl_error"})
+    from .intel_client import intel_configured
     from .mailer import email_configured
     from .outbox import queue_and_send, results_alerts
-    if config.get("webhook_url") or email_configured(config) or config.get("intel_socket"):
+    if config.get("webhook_url") or email_configured(config) or intel_configured(config):
         queue_and_send(results_alerts(results), config)
