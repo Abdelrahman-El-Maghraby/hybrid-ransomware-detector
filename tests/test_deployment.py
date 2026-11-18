@@ -139,3 +139,19 @@ def test_the_non_docker_server_install_uses_the_server_lock():
     doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text(encoding="utf-8")
     installs = [line.strip() for line in doc.splitlines() if "pip install" in line and "-r " in line]
     assert installs == ["/opt/aegis/venv/bin/pip install --require-hashes -r requirements-server.lock"]
+
+
+def test_the_proxy_cap_is_above_the_api_upload_limit():
+    """Caddy parses sizes with go-humanize: MB is 1,000,000 bytes, MiB 1,048,576. A
+    52MB cap stopped 50 MiB uploads at the proxy with its own 413 instead of the
+    API's answer (and the API's metrics never saw them)."""
+    import re
+    units = {"": 1, "b": 1, "kb": 1000, "kib": 1024, "mb": 1000 ** 2, "mib": 1024 ** 2,
+             "gb": 1000 ** 3, "gib": 1024 ** 3}
+    text = (ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+    number, unit = re.search(r"max_size\s+(\d+)\s*([A-Za-z]*)", text).groups()
+    cap = int(number) * units[unit.lower()]
+    from api.server import MULTIPART_OVERHEAD
+    api_body_limit = 50 * 1024 * 1024 + MULTIPART_OVERHEAD      # AEGIS_API_MAX_UPLOAD_MB default
+    assert cap >= api_body_limit
+    assert cap <= api_body_limit + 2 * 1024 * 1024               # still a tight outer bound

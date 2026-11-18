@@ -61,7 +61,7 @@ you are likely to change:
 | `AEGIS_ANALYSIS_MEMORY`, `AEGIS_ANALYSIS_CPUS` | 6g, 2 | limits of the analysis service |
 | `AEGIS_TMP_SIZE` | 2g | extraction sandbox (tmpfs; counts against the memory limit) |
 | `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_SPARE_WORKERS` | 2, 2 | parallel scans; workers started ahead |
-| `AEGIS_API_MAX_UPLOAD_MB`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | 50, 300, 2048 | per-upload limits; the bundled proxy also stops bodies at 52 MB (`deploy/Caddyfile`) |
+| `AEGIS_API_MAX_UPLOAD_MB`, `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | 50, 300, 2048 | per-upload limits; the bundled proxy also stops bodies at 51 MiB (`deploy/Caddyfile`) |
 | `VT_UPLOAD_UNKNOWN`, `LLM_PROVIDER`, `OLLAMA_HOST`, `SANDBOX_URL` | false, none, -, - | external services (intel only; `docs/DATA_POLICY.md`) |
 | `LOG_FORMAT` | text | `json` for one JSON object per log line |
 

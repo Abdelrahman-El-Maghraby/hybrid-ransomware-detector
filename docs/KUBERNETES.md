@@ -182,7 +182,7 @@ ConfigMap gets a new name, so the Pod restarts with it.
 `AEGIS_PROFILE=production`, `LLM_PROVIDER=none`, the socket paths and
 `AEGIS_API_TRUST_PROXY=1` are set in the Deployment, not in the ConfigMap: they
 define the isolation. When you raise `AEGIS_API_MAX_UPLOAD_MB` past 50, the proxy
-still stops bodies at 52 MB (`deploy/Caddyfile`, baked into the proxy image):
+still stops bodies at 51 MiB (`deploy/Caddyfile`, baked into the proxy image):
 change both and rebuild the proxy image. When you raise `SCAN_TIMEOUT_SECONDS`,
 raise `terminationGracePeriodSeconds` with it (the checker assumes 300 s).
 
@@ -495,7 +495,7 @@ built; until then Kubernetes runs without external services.
 | Ready flips to false; `kubectl describe pod` shows the readiness probe output with `FAIL blocked:` | Isolation stopped holding (policy deleted or plugin changed); the Pod is out of service until it holds again |
 | Ready false, gate lines pass | `/ready` is 503: `kubectl exec ... -c analysis -- python -m api.probe /run/aegis/api/api.sock /ready`, or `curl /ready` with the token for every check |
 | Every client gets 429 after a few wrong tokens | The API sees one address for everyone (port-forward, TLS passthrough, `externalTrafficPolicy: Cluster`); see Access |
-| 413 on uploads under `AEGIS_API_MAX_UPLOAD_MB` | The proxy's 52 MB cap in `deploy/Caddyfile` |
+| 413 on uploads under `AEGIS_API_MAX_UPLOAD_MB` | The proxy's 51 MiB cap in `deploy/Caddyfile` (raised past 50 MiB) |
 | Permission denied under `/var/lib/aegis` | The storage driver ignores `fsGroup` (Storage) |
 | Content Job stays Pending | The analysis Pod still holds the claim: use `content-update.sh`, which scales it down |
 

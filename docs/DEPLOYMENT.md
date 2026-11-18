@@ -75,7 +75,7 @@ Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it):
 (`AEGIS_ANALYSIS_MEMORY` 6g, `AEGIS_ANALYSIS_CPUS` 2, `AEGIS_TMP_SIZE` 2g,
 `AEGIS_INTEL_MEMORY`, `AEGIS_INTEL_CPUS`), scan limits (`SCAN_TIMEOUT_SECONDS`,
 `WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB` (the
-bundled proxy also stops bodies at 52 MB, `deploy/Caddyfile`: raise both together),
+bundled proxy also stops bodies at 51 MiB, `deploy/Caddyfile`: raise both together),
 `AEGIS_API_SPARE_WORKERS`, `AEGIS_STOP_GRACE`) and
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
@@ -244,7 +244,7 @@ tokens would then lock everyone out.
 ```caddyfile
 aegis.example.internal {
     request_body {
-        max_size 51MB
+        max_size 51MiB      # MiB: Caddy's MB is 1,000,000 bytes, below a 50 MiB upload
     }
     reverse_proxy 127.0.0.1:8765 {
         header_up X-Forwarded-For {remote_host}

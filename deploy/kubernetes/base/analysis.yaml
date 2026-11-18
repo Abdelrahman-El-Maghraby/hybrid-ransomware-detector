@@ -152,7 +152,7 @@ spec:
           image: aegis-sentinel-proxy
           imagePullPolicy: IfNotPresent
           # deploy/Caddyfile, baked into the image: TLS on 8443 with the files in
-          # /etc/caddy/tls, request bodies up to 52 MB, reverse proxy to api.sock.
+          # /etc/caddy/tls, request bodies up to 51 MiB, reverse proxy to api.sock.
           securityContext:
             <<: *hardened
             runAsUser: 10003
