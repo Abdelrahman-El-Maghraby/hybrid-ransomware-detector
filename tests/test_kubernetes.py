@@ -25,6 +25,10 @@ ROOT = Path(__file__).resolve().parent.parent
 K8S = ROOT / "deploy" / "kubernetes"
 KUBECTL = shutil.which("kubectl")
 needs_kubectl = pytest.mark.skipif(KUBECTL is None, reason="kubectl not installed")
+# As in tests/test_operations_fixes.py: the operator scripts are bash, run on Linux
+# or macOS; Windows runners may resolve `bash` to WSL.
+needs_bash = pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
+                                reason="bash scripts")
 
 
 def _load(name: str, path: Path):
@@ -198,7 +202,7 @@ def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
     assert code == _prepare(_job())["command"][2]
     home = tmp_path / "home"
     home.mkdir()
-    run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(home))],
+    run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", home.as_posix())],
                          capture_output=True, text=True, timeout=30)
     assert run.returncode == 0, run.stderr
     assert (home / "RansomwareScanner" / "data").is_dir()
@@ -207,11 +211,12 @@ def test_prepare_state_creates_the_folders_or_fails_clearly(base, tmp_path):
     (locked / "RansomwareScanner" / "data").mkdir(parents=True)
     (locked / "RansomwareScanner").chmod(0o555)
     try:
-        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(locked))],
+        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", locked.as_posix())],
                              capture_output=True, text=True, timeout=30)
     finally:
         (locked / "RansomwareScanner").chmod(0o755)
-    if os.geteuid() != 0:                     # root ignores the mode
+    # root ignores the mode, and Windows has no POSIX directory permissions
+    if os.name == "posix" and os.geteuid() != 0:
         assert run.returncode == 1 and "is not writable by uid" in run.stderr
 
 
@@ -228,7 +233,7 @@ def test_prepare_state_keeps_an_existing_volume_as_it_is(base, tmp_path):
     app.chmod(0o750)
     before = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
     for _ in range(2):
-        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", str(home))],
+        run = subprocess.run([sys.executable, "-c", code.replace("/var/lib/aegis", home.as_posix())],
                              capture_output=True, text=True, timeout=30)
         assert run.returncode == 0, run.stderr
     after = {p: (p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in home.rglob("*")}
@@ -400,11 +405,13 @@ def test_the_gate_names_no_unknown_mode():
 
 # ------------------------------------------------------------------ operator scripts
 
+@needs_bash
 @pytest.mark.parametrize("script", ["verify-cluster.sh", "content-update.sh"])
 def test_scripts_are_valid_bash(script):
     subprocess.run(["bash", "-n", str(K8S / script)], check=True, timeout=30)
 
 
+@needs_bash
 @pytest.mark.parametrize("script,args", [
     ("verify-cluster.sh", []),
     ("verify-cluster.sh", ["--namespace", "aegis-sentinel", "--token-file", "t", "--ca-file", "c"]),
