@@ -19,6 +19,10 @@ verified, no plaintext or unverified fallback, no redirects (http.client follows
 none; any status but 200 is an error), proxy variables ignored, no retries. The
 token goes only to that address. The Unix socket stays the Docker transport.
 
+On both transports a reply is read with a size limit (MAX_REPLY_BYTES, 1 MiB) and
+in the identity encoding only; an oversized, compressed, cut-short or (for a 200)
+non-JSON reply is an IntelError, never an empty success.
+
 Without either (desktop, CLI) nothing here is used.
 """
 
