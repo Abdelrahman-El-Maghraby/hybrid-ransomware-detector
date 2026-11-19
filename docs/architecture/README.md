@@ -3,7 +3,8 @@
 Six diagrams of Aegis Sentinel (four UML views and two deployment views), drawn
 from the code and checked against it. Diagrams 1 to 5 describe the code at commit
 `b6966f8` on `review/production-hardening`; diagram 6 describes the optional
-Kubernetes manifests in `deploy/kubernetes/` at commit `817d3b9`. Class, method and message names are the ones in
+Kubernetes manifests in `deploy/kubernetes/` at commit `706ea8a` (the base; the optional
+intel component is described in text, not drawn). Class, method and message names are the ones in
 the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 
 | # | Diagram | Question it answers | Drawing | Definition |

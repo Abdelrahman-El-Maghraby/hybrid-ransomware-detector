@@ -435,10 +435,14 @@ production profile sends nothing outside.
   read-only detection content, no service-account token, restricted Pod Security
   admission, memory and CPU limits, one fresh worker per upload.
 
-*Residual:* everything in section 10, plus the points above. Adding intel needs a
+*Residual:* everything in section 10, plus the points above. With intel, the
 network path from this Pod (owner decision K8S-1 in
-[FINDINGS_REGISTER](FINDINGS_REGISTER.md)). Runtime behaviour on a cluster is
-unverified until `deploy/kubernetes/verify-cluster.sh` has run.
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md), option E) and the cluster properties
+it relies on: Service address translation before policy, enforcement of both
+ingress and egress, and Pod, Service and node ranges inside intel's excluded
+ranges ([KUBERNETES](KUBERNETES.md#intel-external-services), assumptions). Runtime
+behaviour on a cluster is unverified until `deploy/kubernetes/verify-cluster.sh`
+has run.
 
 ## Changes in 4.8: TMA-1 to TMA-7
 

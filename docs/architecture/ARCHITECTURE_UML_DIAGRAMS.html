@@ -3530,7 +3530,7 @@ NOTES: List[str] = [
 <rect x="1230" y="48" width="40" height="16" fill="#f0fdf4" rx="3" stroke="#b91c1c" stroke-width="3"/>
 <rect x="20" y="90" width="1190" height="980" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
 <text x="32" y="110" font-size="13" fill="#0f172a" font-weight="700">Kubernetes cluster: namespace aegis-sentinel</text>
-<text x="32" y="126.9" font-size="12" fill="#334155">Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the analysis Pod only; no egress anywhere. Enforced only by a network plugin that implements it.</text>
+<text x="32" y="126.9" font-size="12" fill="#334155">Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the analysis Pod only; no egress in the base. Enforced only by a network plugin that implements it.</text>
 <rect x="290" y="150" width="700" height="670" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="1.4"/>
 <text x="302" y="170" font-size="13" fill="#0f172a" font-weight="700">Pod aegis-analysis: one replica, Recreate</text>
 <text x="302" y="186.9" font-size="12" fill="#334155">No service-account token; fsGroup 10001; RuntimeDefault seccomp; grace period 330 s.</text>
@@ -3646,8 +3646,8 @@ NOTES: List[str] = [
 <text x="640" y="919.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ConfigMap aegis-rulepack-import with --update-rules.</text>
 <polygon points="40,975 1178,975 1190,987 1190,1024 40,1024" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
 <polyline points="1178,975 1178,987 1190,987" fill="none" stroke="#92400e" stroke-width="1.2"/>
-<text x="49" y="994.6" font-size="12" fill="#0f172a">Not deployed on Kubernetes: the intel service. VirusTotal, the LLM, CAPE and e-mail alerts are off. Adding them needs a network path from the analysis Pod: owner decision K8S-1 (docs/KUBERNETES.md,</text>
-<text x="49" y="1010.7" font-size="12" fill="#0f172a">&quot;Intel&quot;).</text>
+<text x="49" y="994.6" font-size="12" fill="#0f172a">Optional, not drawn: components/intel (option E of K8S-1) adds an intel Pod (intel and its TLS proxy on 9443) with its own egress; analysis then gets one egress rule, TLS to it with a private CA and the intel</text>
+<text x="49" y="1010.7" font-size="12" fill="#0f172a">token (docs/KUBERNETES.md, &quot;Intel&quot;). Without it, VirusTotal, the LLM, CAPE and e-mail alerts are off.</text>
 <rect x="1250" y="170" width="310" height="110" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1405" y="205.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Blocked by NetworkPolicy</text>
 <text x="1405" y="221.9" font-size="12.5" fill="#0f172a" text-anchor="middle">the internet (IPv4, IPv6), public and cluster DNS,</text>
@@ -3655,21 +3655,22 @@ NOTES: List[str] = [
 <text x="1405" y="254.9" font-size="12.5" fill="#0f172a" text-anchor="middle">169.254.169.254; the gate checks each one</text>
 <rect x="1250" y="330" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1405" y="357.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
-<text x="1405" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<text x="1405" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
 <rect x="1250" y="416" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1405" y="443.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM: OpenAI or Ollama</text>
-<text x="1405" y="460.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<text x="1405" y="460.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
 <rect x="1250" y="502" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1405" y="529.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
-<text x="1405" y="546.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
+<text x="1405" y="546.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
 <rect x="1250" y="588" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1405" y="615.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
-<text x="1405" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">not configured, not reachable: no intel</text>
-<polygon points="1250,684 1548,684 1560,696 1560,749 1250,749" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<text x="1405" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
+<polygon points="1250,684 1548,684 1560,696 1560,765 1250,765" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
 <polyline points="1548,684 1548,696 1560,696" fill="none" stroke="#92400e" stroke-width="1.2"/>
 <text x="1259" y="703.6" font-size="12" fill="#0f172a">The Docker deployment reaches these through its</text>
-<text x="1259" y="719.7" font-size="12" fill="#0f172a">intel container (diagram 5). On Kubernetes no part of</text>
-<text x="1259" y="735.7" font-size="12" fill="#0f172a">Aegis Sentinel holds their credentials.</text>
+<text x="1259" y="719.7" font-size="12" fill="#0f172a">intel container (diagram 5). On Kubernetes only the</text>
+<text x="1259" y="735.7" font-size="12" fill="#0f172a">optional intel Pod holds their credentials; the analysis</text>
+<text x="1259" y="751.8" font-size="12" fill="#0f172a">Pod never does.</text>
 </g>
 <g id="d6-label">
 <rect x="127.6" y="255.8" width="44.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
@@ -3685,7 +3686,7 @@ NOTES: List[str] = [
 </g>
 <g id="d6-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Kubernetes deployment: Pods, containers and what separates them</text>
-<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit 817d3b9.</text>
+<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit 706ea8a.</text>
 </g>
 </svg>
 
@@ -3696,9 +3697,9 @@ NOTES: List[str] = [
 <li>One Pod, two containers: analysis (python -m api.server, uid 10001) and proxy (the aegis-sentinel-proxy image with deploy/Caddyfile, uid 10003), joined by api.sock in a memory-backed emptyDir, as in docker-compose.yml (deploy/kubernetes/base/analysis.yaml).</li>
 <li>Containers in one Pod share its network namespace, and NetworkPolicy applies to Pods, not containers. aegis-default-deny selects every Pod for ingress and egress with no rule; aegis-allow-https admits TCP 8443 to the analysis Pod. No policy allows egress (deploy/kubernetes/base/networkpolicy.yaml).</li>
 <li>The init container prepare-state creates RansomwareScanner/data in the state claim as uid 10001 (the runtime would create that mount point as root). Then isolation-gate and the analysis readiness probe run isolation_gate.py from the ConfigMap aegis-isolation-gate: a connection that succeeds or a DNS answer fails them. Liveness asks only /health on the socket.</li>
-<li>Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode 0440; automountServiceAccountToken false; no Role. No external-service credential exists in this deployment (check_manifests.py refuses one).</li>
+<li>Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode 0440; automountServiceAccountToken false; no Role. No external-service credential exists in this Pod (check_manifests.py refuses one); with components/intel, only the intel Pod holds them.</li>
 <li>Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the content read-only (both in the volume and the mount). The content Job (deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only while analysis is scaled to zero.</li>
-<li>Differences from Docker (diagram 5): a Pod interface exists where Docker has none; /tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; intel is not deployed. Runtime behaviour on a cluster is unverified (deploy/kubernetes/verify-cluster.sh).</li>
+<li>Differences from Docker (diagram 5): a Pod interface exists where Docker has none; /tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; intel is optional and reached over TLS on one port instead of a socket. Runtime behaviour on a cluster is unverified (deploy/kubernetes/verify-cluster.sh).</li>
 </ul></div>
 </details>
 <p class="files">Editable sources: <a href="uml-diagram-sources/d6_kubernetes_trust_boundaries.py"><code>uml-diagram-sources/d6_kubernetes_trust_boundaries.py</code></a> (the definition) and <a href="uml-diagram-sources/6-kubernetes-trust-boundaries.svg"><code>uml-diagram-sources/6-kubernetes-trust-boundaries.svg</code></a> (the drawing, with its text kept as text).</p>
@@ -3771,7 +3772,7 @@ def build(meta: dict) -&gt; Diagram:
     # ---------------------------------------------------------------- cluster
     d.frame(20, 90, 1190, 980, &quot;Kubernetes cluster: namespace aegis-sentinel&quot;,
             sub=&quot;Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the &quot;
-                &quot;analysis Pod only; no egress anywhere. Enforced only by a network plugin &quot;
+                &quot;analysis Pod only; no egress in the base. Enforced only by a network plugin &quot;
                 &quot;that implements it.&quot;)
     client = d.titled(40, 170, 220, &quot;API client&quot;, &quot;HTTPS, bearer token&quot;, h=70, fill=STORE)
     svc = d.titled(40, 290, 220, &quot;Service aegis-sentinel :8443&quot;,
@@ -3831,9 +3832,10 @@ def build(meta: dict) -&gt; Diagram:
                      &quot;(content-update.sh); installs a signed pack from the ConfigMap &quot;
                      &quot;aegis-rulepack-import with --update-rules.&quot;], &quot;job&quot;)
     d.note(40, 975, 1150,
-           [&quot;Not deployed on Kubernetes: the intel service. VirusTotal, the LLM, CAPE and &quot;
-            &quot;e-mail alerts are off. Adding them needs a network path from the analysis Pod: &quot;
-            &quot;owner decision K8S-1 (docs/KUBERNETES.md, \&quot;Intel\&quot;).&quot;])
+           [&quot;Optional, not drawn: components/intel (option E of K8S-1) adds an intel Pod &quot;
+            &quot;(intel and its TLS proxy on 9443) with its own egress; analysis then gets one &quot;
+            &quot;egress rule, TLS to it with a private CA and the intel token (docs/KUBERNETES.md, &quot;
+            &quot;\&quot;Intel\&quot;). Without it, VirusTotal, the LLM, CAPE and e-mail alerts are off.&quot;])
 
     d.edge([client.b(), svc.t()], &quot;flow&quot;, &quot;upload&quot;, (150, 265), (client, svc))
     py = svc.cy
@@ -3866,12 +3868,13 @@ def build(meta: dict) -&gt; Diagram:
            (gate, blocked))
     y = 330
     for title in (&quot;VirusTotal&quot;, &quot;LLM: OpenAI or Ollama&quot;, &quot;CAPE sandbox&quot;, &quot;SMTP server&quot;):
-        d.titled(1250, y, 310, title, &quot;not configured, not reachable: no intel&quot;, h=62,
+        d.titled(1250, y, 310, title, &quot;off in the base; only via the optional intel Pod&quot;, h=62,
                  fill=EXT, name=title)
         y += 86
     d.note(1250, y + 10, 310,
            [&quot;The Docker deployment reaches these through its intel container (diagram 5). &quot;
-            &quot;On Kubernetes no part of Aegis Sentinel holds their credentials.&quot;])
+            &quot;On Kubernetes only the optional intel Pod holds their credentials; the analysis &quot;
+            &quot;Pod never does.&quot;])
     return d
 
 
@@ -3890,14 +3893,16 @@ NOTES: List[str] = [
     &quot;or a DNS answer fails them. Liveness asks only /health on the socket.&quot;,
     &quot;Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode &quot;
     &quot;0440; automountServiceAccountToken false; no Role. No external-service credential &quot;
-    &quot;exists in this deployment (check_manifests.py refuses one).&quot;,
+    &quot;exists in this Pod (check_manifests.py refuses one); with components/intel, only the &quot;
+    &quot;intel Pod holds them.&quot;,
     &quot;Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the &quot;
     &quot;content read-only (both in the volume and the mount). The content Job &quot;
     &quot;(deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only &quot;
     &quot;while analysis is scaled to zero.&quot;,
     &quot;Differences from Docker (diagram 5): a Pod interface exists where Docker has none; &quot;
     &quot;/tmp is an emptyDir without noexec; the process limit is the node&#x27;s podPidsLimit; &quot;
-    &quot;intel is not deployed. Runtime behaviour on a cluster is unverified &quot;
+    &quot;intel is optional and reached over TLS on one port instead of a socket. Runtime &quot;
+    &quot;behaviour on a cluster is unverified &quot;
     &quot;(deploy/kubernetes/verify-cluster.sh).&quot;,
 ]
 </code></pre></div>

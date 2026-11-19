@@ -37,6 +37,7 @@ Contents: [Architecture](#architecture) ·
    |                                                    content claim: ro |
    +-----------------------------------------------------------------------+
    NetworkPolicy: ingress TCP 8443 only; no egress at all
+     (with components/intel: one egress rule, TLS to the intel Pod on 9443)
    Job aegis-content-update (on demand): the only writer of the content claim
 ```
 
@@ -44,13 +45,13 @@ Read from the code (`docker-compose.yml`, `api/server.py`, `api/intel.py`,
 `core/intel_client.py`, `engine/validation.py`):
 
 - The proxy reaches the API over the Unix socket `api.sock`; the analysis service
-  listens on nothing else. Analysis reaches intel only over `intel.sock`
-  (`core/intel_client.py` speaks HTTP over a Unix socket and nothing else).
-- The analysis service runs correctly without intel: with `AEGIS_INTEL_SOCKET`
-  unset and `LLM_PROVIDER=none`, the production profile's configuration check
-  passes and the external layers are simply off. E-mail alerts need intel
-  (`_Alerts` in `api/server.py` is off without `AEGIS_INTEL_SOCKET` or SMTP
-  settings).
+  listens on nothing else. In Docker, analysis reaches intel only over
+  `intel.sock`; with `components/intel` on Kubernetes, over HTTPS to one address
+  (`core/intel_client.py`: `AEGIS_INTEL_SOCKET` or `AEGIS_INTEL_URL`, never both).
+- The analysis service runs correctly without intel: with neither transport set
+  and `LLM_PROVIDER=none`, the production profile's configuration check passes
+  and the external layers are simply off. E-mail alerts need intel (`_Alerts` in
+  `api/server.py` is off without an intel transport or SMTP settings).
 
 **Decision.** One Pod holds the analysis service and the TLS proxy, joined by
 the Unix socket in a Pod-local emptyDir, as in Docker. The Pod has no egress:
@@ -68,7 +69,7 @@ Alternatives considered and rejected:
 |---|---|
 | analysis and intel in one Pod (Unix socket in an emptyDir) | Containers in a Pod share one network namespace and NetworkPolicy applies to Pods, not containers: giving intel egress gives the hostile-file parser the same egress |
 | intel in its own Pod, socket on a shared volume | A Unix socket works only on one node's file system; a shared claim does not carry it between nodes, and a `hostPath` socket is refused by the restricted Pod Security Standard and ties both Pods to one node |
-| intel over TCP within the cluster | Changes the application's transport and gives the analysis Pod a network path; a trust-boundary change that needs the owner's decision first (proposal below) |
+| intel over TCP within the cluster | Changes the application's transport and gives the analysis Pod a network path. The owner approved it in its restricted form, TLS to one port (option E, [Intel](#intel-external-services)); it is optional, and the base stays without it |
 | proxy in its own Pod, analysis on TCP (`AEGIS_API_HOST`/`AEGIS_API_PORT`, already supported) | Analysis would accept connections from the network, and `AEGIS_API_TRUST_PROXY=1` would then rely on a NetworkPolicy alone to stop clients from forging `X-Forwarded-For` |
 | TLS at an Ingress controller | A second proxy: the API trusts exactly one (the last `X-Forwarded-For` entry), and the Ingress controller would hold the certificate outside this namespace |
 | Helm chart | The configuration has few variables; one Kustomize base and an overlay keep one format with no templating |
@@ -239,7 +240,14 @@ Two kinds of evidence, kept apart:
 ### Runtime procedure (operator-run, disposable namespaces, inert files only)
 
 1. Choose a test cluster and the context name explicitly. The script never reads
-   or changes the current context; every call names `--context`.
+   or changes the current context; every call names `--context`. Build both
+   images from the revision under test (`docker build --target server` and
+   `--target proxy`), make them available to the cluster (a test registry, or
+   `kind load docker-image` for a local kind cluster), and note the server image's
+   digest: its registry digest, or for a locally loaded image its image ID
+   (`docker image inspect -f '{{.Id}}' IMAGE`). The script refuses to start without
+   it and stops if any analysis or intel container runs another image, so an older
+   build cannot pass as this revision.
 2. Create two empty namespaces and mark them disposable. The script refuses
    `default` and `kube-*`, and runs no changing check without this label:
 
@@ -254,12 +262,18 @@ Two kinds of evidence, kept apart:
 3. Deploy into `aegis-verify` with an overlay that sets `namespace: aegis-verify`
    (Secrets as in [Secrets and TLS](#secrets-and-tls), with a test token and a
    test CA). This is the **fresh-volume** start: `prepare-state` creates the
-   state folders on new claims.
+   state folders on new claims. With `components/intel` (copy
+   `overlays/example-intel`): a free Service address, a test CA and an intel
+   certificate for `aegis-intel.aegis-verify.svc`, and `AEGIS_INTEL_SERVER_NAME`
+   set to that name in the overlay (`check_manifests.py` refuses a name that does
+   not match the namespace); the intel credentials file entries may be empty, so
+   no external service is contacted.
 4. Run the checks:
 
    ```bash
    deploy/kubernetes/verify-cluster.sh --context "$CTX" --namespace aegis-verify \
        --token-file ~/aegis-test/api_token --ca-file ~/aegis-test/ca.pem \
+       --image-digest "$SERVER_IMAGE_DIGEST" --proxy-digest "$PROXY_IMAGE_DIGEST" \
        --server-name aegis.test --control-namespace aegis-verify-control \
        --drift-test --restart-test
    ```
@@ -279,6 +293,7 @@ for), and that the operator may do what the selected checks need
 | Area | Check | Kind |
 |---|---|---|
 | Objects | the live objects pass `check_manifests.py`; no Role, RoleBinding or autoscaler | read |
+| Images | every container of the analysis and intel Pods (init containers too) runs `--image-digest` (the proxies `--proxy-digest` when given); otherwise the run **stops** | read |
 | Start | rollout completes, Pod Ready, `prepare-state` ran; the state folder belongs to uid 10001 (fresh volume); the socket's mode and owner are printed | read |
 | Isolation | `isolation_gate.py verify` inside analysis: not root, no capabilities, no-new-privileges, seccomp, read-only root, no service-account token, no external setting, content read-only and not writable, and the internet, DNS, the API server, the metadata address and every `--probe` do not answer | read |
 | Secrets | analysis sees its token and not the TLS key; the proxy sees its certificate (positive control) and not the token | read |
@@ -286,6 +301,15 @@ for), and that the operator may do what the selected checks need
 | Controlled network (`--control-namespace`) | a listener and a client Pod in the control namespace: the client reaches the listener and resolves cluster DNS (**positive controls**), and only then does "analysis cannot reach the listener" count; if the positive control fails the result is *inconclusive*, not a pass | creates 2 Pods, 1 Service |
 | After start-up (`--drift-test`) | a NetworkPolicy that allows DNS egress is added: readiness must take the Pod out of service (within 180 s), and it must return when the policy is removed | creates 1 NetworkPolicy |
 | Restart (`--restart-test`) | the Pod is deleted once: shutdown time printed (grace 330 s), a marker in the state claim survives, `/tmp` is new, the rule-pack version is unchanged (**existing-volume** restart) | deletes 1 Pod |
+| Intel (when `aegis-intel` exists) | rollout and images; analysis's own client reaches intel with its token (200, the **positive control**), then a wrong token gets 401 and a wrong certificate name gets no connection; secrets per container (analysis: intel token and CA, not intel's credentials; intel: credentials, not the TLS key; intel proxy: its certificate only); with `--control-namespace`: a control Pod cannot reach intel, and intel cannot reach analysis 8443 once a control Pod is shown to reach it | read |
+| Intel restart (`--restart-test` with intel) | the intel Pod is deleted once: analysis's call fails instead of hanging, analysis stays Ready and scans an inert file; intel's replacement has the marker in its state claim and answers through the same address; shutdown time printed (grace 630 s) | deletes 1 Pod |
+
+Results: `PASS`, `FAIL`, `INFO` (printed, not judged) and `INCONCLUSIVE` (a
+negative check whose positive control did not succeed, so a blocked attempt
+proves nothing). Exit 0 when every check passed; 1 when one failed; 2 when the
+script refused to start; 3 when nothing failed but something was inconclusive.
+A run without `--control-namespace` with intel deployed ends with 3, because
+"intel cannot reach analysis" then has no positive control.
 
 Not covered by the script, and still to be checked by hand on that cluster:
 shutdown while a scan is in progress (start a large inert upload, delete the
@@ -293,6 +317,22 @@ Pod, expect the reply before the grace period ends); resource use under two
 concurrent scans; behaviour when the storage class ignores `fsGroup` (expect the
 `prepare-state` error). Traffic to the Pod's own node cannot be blocked by
 NetworkPolicy at all, so no probe of the node proves anything about it.
+
+### Expected results on the test cluster
+
+What a correct deployment shows. Nobody has observed these yet; they are the
+pass criteria for the first run, not results.
+
+| Area | How | Expected |
+|---|---|---|
+| Fresh-volume start | step 3, new claims | `prepare-state` exits 0; the state folder belongs to uid 10001; analysis and (with intel) intel become Ready; intel's state folder is printed (group 10002 through `fsGroup`) and is writable in the restart test |
+| TLS and token | script, "through TLS" and "intel over TLS" | API: `/health` 200, `/version` 401 without or with a wrong token, `/ready` 200. Intel: 200 with analysis's token, 401 with a wrong one, `unreachable` when the client expects another certificate name (nothing is sent) |
+| Inert file scan | script, `POST /scan` of a short text file | 200, verdict `Clean`; with every intel service off, the scan is complete and `external_services` names none |
+| Denied connections | `isolation_gate.py verify`, `--control-namespace` | every gate probe blocked; the control Pod reaches its listener (positive) while analysis does not; the control Pod cannot reach intel; intel cannot reach analysis 8443 while a control Pod can. Any positive control that fails turns its negative into `INCONCLUSIVE` |
+| Intel restart, unavailability | `--restart-test` with intel | while no intel Pod runs: analysis's call returns `unreachable` within its time-out, analysis stays Ready, the inert scan still returns 200 (external layers report the outage). Afterwards the same address answers 200 again. A client whose capabilities request failed waits 30 s before asking again (`RETRY_CAPABILITIES_SECONDS`), so a scan worker started during the outage may report external layers off for up to that long after intel returns |
+| State and clean-up | `--restart-test` | markers in both state claims survive their Pod's replacement; `/tmp` is new; the rule-pack version is unchanged; on exit the script removes its markers and the objects it created, and nothing else |
+| Graceful shutdown | `--restart-test` | the printed shutdown times are below 330 s (analysis) and 630 s (intel); an idle Pod should stop within seconds. Shutdown during a scan is the manual check above |
+| Certificate rotation | by hand, after the script passed | (1) a new intel leaf from the same CA: replace `aegis-intel-tls`, `rollout restart deployment/aegis-intel`; analysis needs no restart, and the intel check of the script still gives 200. (2) A CA change: put old and new CA in `aegis-intel-ca`, wait for the kubelet to update the mounted file (up to about a minute), then replace the leaf and restart intel; 200 throughout. (3) Negative: a leaf from a CA that is not in `aegis-intel-ca` must give `unreachable`, never 200. Restore the working certificate afterwards. The API's own certificate (`aegis-tls`): replace and restart analysis, then `/health` through the port-forward with the new CA |
 
 ## Rule packs
 
@@ -416,6 +456,12 @@ ones unless you prune them). Neither rolls back detection content.
   renew it), then restart the Deployment: Caddy runs with its admin API off and
   does not reload the files by itself. Renew well before expiry; the restart is an
   outage (see Upgrade).
+- **Intel (with `components/intel`):** the intel token is one Secret,
+  `aegis-intel-token`, mounted by analysis and intel: replace it, then restart
+  both Deployments (intel reads it once at start-up; analysis reads it whenever
+  a scanner is built, so its processes would otherwise mix old and new). Until
+  both have restarted, calls may get 401 and the outbox keeps e-mail queued. Intel's certificate and CA: see
+  [Intel](#intel-external-services), "Certificate rotation".
 - **Rule-pack signing keys:** change `RULEPACK_PUBLIC_KEYS` in the overlay and
   apply; procedure and key-compromise recovery in [RULE_PACKS](RULE_PACKS.md).
 
@@ -555,6 +601,43 @@ client reads `ca.crt` on every connection, so a renewed CA bundle in
 `aegis-intel-ca` applies without restarting analysis (put old and new CA in it
 during a CA change).
 
+**Assumptions the manifests cannot check** (each is a cluster property; record
+it for the cluster you run on, and treat it as unverified until
+`verify-cluster.sh` has run there):
+
+- **Service address translation.** The analysis rule names the intel *Pods* and
+  port 9443; analysis connects to the Service's ClusterIP. This works where the
+  plugin evaluates policy after kube-proxy (or its own service handling) has
+  translated the address to the Pod's, as Calico, Cilium and Antrea do. A plugin
+  that matched the ClusterIP itself would block the path (the 200 check fails),
+  not widen it.
+- **Ingress and egress enforcement.** Intel's isolation needs both directions
+  enforced: ingress (only analysis may connect) and egress (no private ranges).
+  Some plugins or modes enforce only one.
+- **Cluster ranges inside the excluded ones.** Intel's default route excludes
+  `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7` and
+  the link-local and loopback ranges. That keeps intel away from Pods, Services
+  and nodes only where they use those ranges. A cluster with Pod, Service or node
+  addresses elsewhere (public IPv4 ranges, global IPv6 such as EKS in IPv6 mode)
+  needs them added to `except` in the overlay. Intel's ports are 443, 465 and 587
+  only, so analysis's 8443 is unreachable in any case; other cluster services on
+  those ports would not be.
+- **A public API server or node address** (some managed clusters expose the API
+  server on a public address on 443): intel can open a connection to it. Intel
+  has no service-account token, so it can make only unauthenticated requests.
+- **Cluster DNS** is the `kube-dns`-labelled Pods in `kube-system` (CoreDNS in
+  most distributions). NodeLocal DNSCache (a link-local address on the node) is
+  not covered by intel's DNS rule, and intel's look-ups then fail; that is a
+  safe failure for analysis, and the operator adds a rule for it.
+- **Shared Pod network.** Within each Pod the containers share one network:
+  analysis's TLS proxy can reach intel on 9443 (but holds no intel token), and
+  intel's TLS proxy shares intel's egress. "Containers" here are separated by
+  user, mounts and secrets, not by network.
+- **Detection, not enforcement.** The init gate and the readiness probe sample
+  the network at start-up and every 30 s; they do not enforce anything between
+  samples (see [Isolation contract](#isolation-contract-and-its-limits)), and
+  intel has no gate of its own.
+
 ### Decision record K8S-1: how analysis reaches intel (option E, approved and implemented)
 
 Approved by the owner on 2026-11-19 and implemented as `components/intel`; not
@@ -575,7 +658,7 @@ Security Standard and ties both Pods to one node.
 
 | Option | Analysis network | Application change | Verdict |
 |---|---|---|---|
-| A. No intel (today) | none | none | Safe default; no external services or e-mail alerts |
+| A. No intel (the base without `components/intel`) | none | none | Safe default; no external services or e-mail alerts |
 | B. Intel and analysis in one Pod, socket in an emptyDir | the Pod gets intel's egress | none | **Rejected**: the hostile-file parser would share intel's egress, which no enforceable mechanism separates |
 | C. Socket on a shared claim or `hostPath` | none | none | **Rejected**: does not work across nodes; `hostPath` breaks the restricted standard |
 | D. Exchange files through a shared ReadWriteMany claim (queue folders) | none | large: every intel call is synchronous today (lookups, LLM, sandbox wait) and would become an asynchronous queue with its own timeouts; adds RWX storage and its locking semantics | Keeps "no network" but costs a redesign and a storage dependency; reconsider only if B and E are refused |
@@ -639,15 +722,24 @@ to one internal port; it does not have Docker's `network_mode: none` isolation.*
 | No DNS for analysis | The client connects to the IP literal and verifies the certificate against `AEGIS_INTEL_SERVER_NAME` (for example `aegis-intel.aegis-sentinel.svc`), passed as the TLS server name: Python's `ssl` checks the name from that parameter, not from the address, so hostname verification stays on without a lookup. The certificate carries that DNS name (an IP SAN would break when the Service is re-created) |
 | Identity | TLS 1.2 or later, `CERT_REQUIRED`, hostname checked, trust only `AEGIS_INTEL_CA_FILE` (a private CA; not the system store). Any failure is an `IntelError`; there is no plaintext or unverified fallback, and an `http://` URL or a host name is refused by the configuration check |
 | Token | Sent only on the connection to the configured address. Redirects are not followed (`http.client` does not, and a 3xx is an error), and proxy variables (`HTTPS_PROXY`, `NO_PROXY`) are ignored, so the token cannot reach another origin |
-| Bounds | The socket client's limits apply unchanged: per-call time-outs, reply-size cap, `AEGIS_INTEL_MAX_UPLOAD_MB`, intel's own destination allowlist and rate limits |
+| Bounds | The socket client's limits apply unchanged: a per-call time-out (on each socket operation, including the TLS handshake; it bounds a stalled peer, not the total time of a reply that keeps trickling in), `AEGIS_INTEL_MAX_UPLOAD_MB` (intel's body limit, with the intel proxy's cap at 101 MiB above it), intel's own destination allowlist and rate limits. **Neither transport caps the size of intel's reply** (`resp.read()`): the reply comes from the authenticated intel service. Correction from the review of 2026-11-19: this row earlier listed a "reply-size cap" that does not exist in either client |
 | Retries | No hidden retries: lookups, uploads, sandbox submissions and e-mail are each attempted once per call; the outbox retries e-mail with the same alert id, and intel de-duplicates by it (in memory) |
 | NetworkPolicy and the Service | Policies match Pods, so the analysis egress rule names the intel Pods (`podSelector`) and the target port 9443, not the Service. Calico, Cilium and Antrea evaluate ClusterIP traffic after it is translated to the Pod address; this must be shown on the chosen plugin (cluster test 4 below), because a plugin that evaluates the pre-translation address would block the path (safe failure) or need a different rule |
 | Intel Pod topology | Intel's TLS proxy and intel share the intel Pod's network; intel's ingress rule admits only the analysis Pods on 9443, and its egress rule applies to both containers. The proxy holds only intel's TLS key |
 | Start-up and restarts | Analysis readiness does not depend on intel. While intel starts or restarts, calls fail fast with `IntelError`: layers report "unreachable" and the scan is partial, the outbox keeps e-mail queued. A call in flight when intel restarts fails and is not retried |
-| Certificate rotation | The CA file is read when a client is created (per scan configuration), so a new intel leaf certificate from the same CA needs no analysis restart. A CA change needs both CAs in the file for the overlap |
+| Certificate rotation | The CA file is read for every connection (`TlsEndpoint.context()`), so a new intel leaf certificate from the same CA needs no analysis restart, and a renewed `aegis-intel-ca` applies once the kubelet has updated the mounted file. A CA change needs both CAs in the file for the overlap. Intel's proxy (Caddy, admin API off) reads its certificate at start: replace `aegis-intel-tls`, then restart intel |
 | Docker | Unchanged: `AEGIS_INTEL_SOCKET` stays the default and the only transport there |
 
-**Tests required before it can be called isolated.**
+**Tests required before it can be called isolated.** Status after the review
+of 2026-11-19: 1 and 2 are implemented and pass locally
+(`tests/test_intel_tls.py`, `tests/test_kubernetes.py`); 3 is implemented for the
+positive control (`verify` fails when intel does not answer) but cannot probe
+"another port of the intel Pod", because intel listens on no other port and a
+refusal there would prove nothing; 4 is implemented in `verify-cluster.sh` except
+three items: the analysis proxy's 401 (the proxy image has no client to run it;
+the token, not the network, is what refuses it), analysis reaching intel's other
+ports (same reason as 3), and the stand-in external service allowlisted by CIDR.
+None of 3 or 4 has run on a cluster.
 
 1. Unit (local TLS server on loopback with a test CA): the HTTPS client refuses a
    wrong CA, a wrong server name, an expired certificate, a plain-HTTP URL, a host
@@ -671,7 +763,7 @@ to one internal port; it does not have Docker's `network_mode: none` isolation.*
    allowlisted by CIDR, intel reaches it and analysis does not; the drift test
    with intel deployed.
 
-Until the owner approves option E (or chooses A or D), Kubernetes runs without
+Without `components/intel` (option A, the base), Kubernetes runs without
 external services.
 
 ## Troubleshooting
@@ -690,6 +782,10 @@ external services.
 | 413 on uploads under `AEGIS_API_MAX_UPLOAD_MB` | The proxy's 51 MiB cap in `deploy/Caddyfile` (raised past 50 MiB) |
 | Permission denied under `/var/lib/aegis` | The storage driver ignores `fsGroup` (Storage) |
 | Content Job stays Pending | The analysis Pod still holds the claim: use `content-update.sh`, which scales it down |
+| Scans report intel "unreachable" (`SSLCertVerificationError` in the analysis log) | Intel's certificate is not for `AEGIS_INTEL_SERVER_NAME` (it must name `aegis-intel.NAMESPACE.svc`), or not signed by a CA in `aegis-intel-ca` |
+| Scans report intel "unreachable" (time-out or refused) | The intel Pod is not Ready, the Service address in `AEGIS_INTEL_URL` differs from the Service's `clusterIP`, or the plugin does not apply the analysis egress rule to Service traffic ([Intel](#intel-external-services), assumptions) |
+| Intel calls get HTTP 401 | Analysis and intel read different tokens: restart both after replacing `aegis-intel-token` |
+| `aegis-intel` Pod stuck in `ContainerCreating` | A Secret (`aegis-intel-token`, `aegis-intel-credentials`, `aegis-intel-tls`) or the ConfigMap `aegis-intel-ca` (for analysis) is missing |
 
 Logs: `kubectl logs deployment/aegis-analysis -c analysis` (JSON lines,
 `LOG_FORMAT=json`), `-c proxy`, `-c prepare-state`, `-c isolation-gate`.

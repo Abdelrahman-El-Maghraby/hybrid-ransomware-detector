@@ -39,3 +39,5 @@ fuzzing, detection changes.
 
 [VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 7. Runtime on a cluster
 is pending and needs separate authorisation.
+
+Reviewed on 2026-11-19: [review brief](kubernetes-option-e-review-2026-11-19.md) (findings K8S-R1 to K8S-R5).

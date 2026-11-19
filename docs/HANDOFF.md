@@ -1,8 +1,9 @@
 # Current task handoff
 
-- Status: **option E implemented locally (2026-11-19): intel on Kubernetes over
-  TLS as an optional component; runtime verification pending** (a test cluster,
-  CI). Section "Option E" at the end. Before it: the third pass (2026-11-19). Before it: second review pass (2026-11-18). Section "Second review pass" at the
+- Status: **option E implemented and reviewed locally (2026-11-19): intel on
+  Kubernetes over TLS as an optional component; five review findings fixed
+  (K8S-R1 to K8S-R5); runtime verification pending** (a test cluster, CI).
+  Sections "Option E" and "Review of option E" at the end. Before it: the third pass (2026-11-19). Before it: second review pass (2026-11-18). Section "Second review pass" at the
   end. Earlier: optional Kubernetes deployment implemented and statically validated
   (2026-11-18). Runtime validation on a cluster is
   pending. Not ready for merge and not production ready. Latest: section
@@ -2707,13 +2708,42 @@ action.
   certificate rotation in a cluster, `verify-cluster.sh`'s intel checks.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Review of option E (2026-11-19, Claude Code)
+
+- **Brief:** [tasks/kubernetes-option-e-review-2026-11-19.md](tasks/kubernetes-option-e-review-2026-11-19.md);
+  register rows K8S-R1 to K8S-R5; VERIFICATION_MATRIX section 8.
+- **Scope:** review and verify option E; fix confirmed defects; prepare the
+  cluster run and the Windows/Linux CI run. No new features. Not authorised:
+  push, dispatch, PR, images, cluster, deployment, malware, restricted fuzzing,
+  OOM reproduction, detection or schema changes.
+- **Agent:** Claude Code, the only editor. Branch `review/production-hardening`,
+  local only; started at `0898a8a`. Nothing pushed, dispatched, published or
+  deployed; no cluster contacted.
+- **Commits (local):** `bc5d971` checker (split default routes), the cluster
+  script (image digest, positive controls, intel checks and restart),
+  example-intel's certificate name, stale comments, tests; `ef3a5c4` the Linux
+  CI guard against skipped Kubernetes render tests. Last implementation commit:
+  `ef3a5c4`. Then this record (guide, DEPLOYMENT, threat model, diagram 6,
+  CHANGELOG, register, matrix, brief).
+- **Results (local):** safe suite at `ef3a5c4`: **2,122 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 587 s (2,112 plus the 10 new tests); the same 8 platform skips and the one Starlette deprecation warning; no outside network attempt; 137
+  Kubernetes tests; a dry run of `verify-cluster.sh` against a fake `kubectl`
+  (flow only); static gates clean.
+- **Pending, not verified anywhere:** every runtime property on a cluster, the
+  intel proxy's Caddyfile in a container, Docker (`docker.yml`), Windows, Linux,
+  CI. Open for the owner: the intel client's missing reply-size cap
+  (K8S-R4).
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-1. Whether to run `verify-cluster.sh` (with `--control-namespace`, and with the
-   intel component deployed) on a dedicated test cluster: separate approval.
-2. Whether to push the branch and dispatch `tests.yml` and `quality.yml` for the
-   Windows and Linux checks (not a pull request, which would start the fuzz
-   campaigns).
-3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
+1. The owner chooses the test environment for `verify-cluster.sh` (a local kind
+   cluster with Calico needs `kind` installed; a managed cluster has a cost and
+   is created by the owner) and approves the run described in the review brief,
+   section 7.
+2. Whether to push the branch and dispatch `tests.yml`, `quality.yml` and
+   `docker.yml` on it (review brief, section 8; not a pull request, which would
+   start the fuzz campaigns).
+3. The reply-size cap for the intel client (K8S-R4) and the earlier decisions
+   in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
 
 No step runs without approval.

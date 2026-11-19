@@ -65,7 +65,7 @@ def build(meta: dict) -> Diagram:
     # ---------------------------------------------------------------- cluster
     d.frame(20, 90, 1190, 980, "Kubernetes cluster: namespace aegis-sentinel",
             sub="Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the "
-                "analysis Pod only; no egress anywhere. Enforced only by a network plugin "
+                "analysis Pod only; no egress in the base. Enforced only by a network plugin "
                 "that implements it.")
     client = d.titled(40, 170, 220, "API client", "HTTPS, bearer token", h=70, fill=STORE)
     svc = d.titled(40, 290, 220, "Service aegis-sentinel :8443",
@@ -125,9 +125,10 @@ def build(meta: dict) -> Diagram:
                      "(content-update.sh); installs a signed pack from the ConfigMap "
                      "aegis-rulepack-import with --update-rules."], "job")
     d.note(40, 975, 1150,
-           ["Not deployed on Kubernetes: the intel service. VirusTotal, the LLM, CAPE and "
-            "e-mail alerts are off. Adding them needs a network path from the analysis Pod: "
-            "owner decision K8S-1 (docs/KUBERNETES.md, \"Intel\")."])
+           ["Optional, not drawn: components/intel (option E of K8S-1) adds an intel Pod "
+            "(intel and its TLS proxy on 9443) with its own egress; analysis then gets one "
+            "egress rule, TLS to it with a private CA and the intel token (docs/KUBERNETES.md, "
+            "\"Intel\"). Without it, VirusTotal, the LLM, CAPE and e-mail alerts are off."])
 
     d.edge([client.b(), svc.t()], "flow", "upload", (150, 265), (client, svc))
     py = svc.cy
@@ -160,12 +161,13 @@ def build(meta: dict) -> Diagram:
            (gate, blocked))
     y = 330
     for title in ("VirusTotal", "LLM: OpenAI or Ollama", "CAPE sandbox", "SMTP server"):
-        d.titled(1250, y, 310, title, "not configured, not reachable: no intel", h=62,
+        d.titled(1250, y, 310, title, "off in the base; only via the optional intel Pod", h=62,
                  fill=EXT, name=title)
         y += 86
     d.note(1250, y + 10, 310,
            ["The Docker deployment reaches these through its intel container (diagram 5). "
-            "On Kubernetes no part of Aegis Sentinel holds their credentials."])
+            "On Kubernetes only the optional intel Pod holds their credentials; the analysis "
+            "Pod never does."])
     return d
 
 
@@ -184,13 +186,15 @@ NOTES: List[str] = [
     "or a DNS answer fails them. Liveness asks only /health on the socket.",
     "Secrets: aegis-api-token mounted only in analysis, aegis-tls only in proxy, both mode "
     "0440; automountServiceAccountToken false; no Role. No external-service credential "
-    "exists in this deployment (check_manifests.py refuses one).",
+    "exists in this Pod (check_manifests.py refuses one); with components/intel, only the "
+    "intel Pod holds them.",
     "Claims aegis-analysis-state and aegis-content are ReadWriteOncePod; analysis mounts the "
     "content read-only (both in the volume and the mount). The content Job "
     "(deploy/kubernetes/jobs/content-update.yaml) is the only writer and can mount it only "
     "while analysis is scaled to zero.",
     "Differences from Docker (diagram 5): a Pod interface exists where Docker has none; "
     "/tmp is an emptyDir without noexec; the process limit is the node's podPidsLimit; "
-    "intel is not deployed. Runtime behaviour on a cluster is unverified "
+    "intel is optional and reached over TLS on one port instead of a socket. Runtime "
+    "behaviour on a cluster is unverified "
     "(deploy/kubernetes/verify-cluster.sh).",
 ]

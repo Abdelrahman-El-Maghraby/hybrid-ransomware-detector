@@ -254,3 +254,29 @@ Pending: everything at run time on a cluster (`verify-cluster.sh` with
 the token, intel-to-analysis blocked, intel unreachable from another
 namespace); the intel proxy's Caddy configuration in a container; the plugin's
 treatment of ClusterIP traffic under the egress rule.
+
+## 8. Review of option E (2026-11-19)
+
+At `ef3a5c4` (the review's fixes on top of `706ea8a`), same machine and settings
+as section 5. **Local results only: nothing ran on a cluster, in Docker, on
+Windows or Linux, through Caddy, or in CI.** Findings K8S-R1 to K8S-R5 in the
+[register](FINDINGS_REGISTER.md); brief
+[tasks/kubernetes-option-e-review-2026-11-19.md](tasks/kubernetes-option-e-review-2026-11-19.md).
+
+| Check | Kind | Result |
+|---|---|---|
+| Safe suite under the network guard (command as in section 5, from a separate worktree of `ef3a5c4`) | local | **2,122 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 587 s (2,112 plus the 10 new tests); the same 8 platform skips and the one Starlette deprecation warning; no outside network attempt |
+| `tests/test_kubernetes.py` (137, was 127): two split default routes refused, a narrow intel rule accepted, the digest arguments, the image check run against canned container statuses (match, older image, proxy digest), the order of positive controls and the gated intel Pod deletion | static, offline render | passed; before the checker fix the two split-route tests failed (the gap reproduced) |
+| `verify-cluster.sh` end to end against a fake `kubectl` and `curl` (scratch only, not committed): the full run with `--control-namespace --drift-test --restart-test` and intel; a wrong `--image-digest`; no control namespace | dry run, no cluster | 62 passes and exit 0; the wrong image stops after the first Pod (exit 1); without a control namespace exit 3 (`INCONCLUSIVE` intel-to-analysis). Deletes: only its own objects, plus the two Pods of the restart test; both markers removed on exit. It shows the script's flow, not any cluster behaviour |
+| The script's in-Pod intel snippet, run locally against a closed loopback port | local | `unreachable` for the token, wrong-token and wrong-name modes (it parses and uses the client API) |
+| `tests/test_kubernetes.py` and `tests/test_intel_tls.py` on a copy with every text file converted to CRLF (what a Windows checkout gets without `.gitattributes`) | local emulation, not Windows | everything passed except the bash-script tests, which `tests.yml` skips on Windows |
+| Python 3.9 grammar of every Python file changed since `c3dc658` (`ast.parse(feature_version=(3, 9))`) | static | passed; no 3.9 interpreter here, so not run on 3.9 |
+| Renders: base, `overlays/example`, `overlays/example-intel`; the intel overlay moved to another namespace without the certificate name | `kubectl kustomize` (offline) | all three pass with placeholders allowed; the moved overlay is refused ("AEGIS_INTEL_SERVER_NAME must be aegis-intel.aegis-verify.svc") |
+| Diagram 6 rebuilt; `build_diagrams.py --check` measured in headless Chrome | local | layout check passed; 974 labels, 0 wider than their box |
+| Ruff, mypy (69 files), bandit gate with `deploy/`, `bash -n` on every deploy script, workflow YAML parses, `tests/test_ci_workflows.py` | static | clean / passed |
+
+Unchanged by the review and still pending: everything on a cluster
+(`verify-cluster.sh` as in [KUBERNETES](KUBERNETES.md#runtime-procedure-operator-run-disposable-namespaces-inert-files-only),
+with the expected results listed there), the intel proxy's Caddyfile in a
+container, Docker (the socket transport is unchanged in code; `docker.yml` has
+not run on this branch), Windows, Linux and CI.

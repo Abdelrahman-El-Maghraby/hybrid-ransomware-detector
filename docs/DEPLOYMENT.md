@@ -5,9 +5,11 @@ deployment (section 0), a plain install with systemd (sections 1-3), logs and
 metrics. Everything here is optional; the desktop app and the CLI need none of it.
 
 Kubernetes is an optional alternative with its own guide,
-[KUBERNETES](KUBERNETES.md): one Pod with the analysis service and the TLS proxy,
-no egress, and no external services yet. Docker Compose (below) stays the
-reference deployment; the Kubernetes manifests have not been run on a cluster.
+[KUBERNETES](KUBERNETES.md): one Pod with the analysis service and the TLS proxy
+and no egress; external services only with the optional intel component, reached
+over TLS on one port (a different isolation contract from Docker's
+`network_mode: none`). Docker Compose (below) stays the reference deployment; the
+Kubernetes manifests have not been run on a cluster.
 
 ## 0. Docker: the supported deployment
 

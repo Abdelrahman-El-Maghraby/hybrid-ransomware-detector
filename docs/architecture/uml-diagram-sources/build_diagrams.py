@@ -36,8 +36,8 @@ META = {
     "code_commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
     "built": "2026-11-17",
     # Diagram 6 draws deploy/kubernetes/, which is newer than the code baseline above.
-    "k8s_commit": "817d3b9",
-    "k8s_built": "2026-11-18",
+    "k8s_commit": "706ea8a",
+    "k8s_built": "2026-11-19",
 }
 
 DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it

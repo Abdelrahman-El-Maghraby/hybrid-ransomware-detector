@@ -51,7 +51,14 @@ no version or date is assigned. Finding IDs and evidence:
   queued, and e-mail already queued is removed with a warning.
 - The Kubernetes isolation gate probes the network only when the manifests ask
   for it (`AEGIS_GATE_LIVE`, `AEGIS_GATE_TARGETS`); run elsewhere it refuses.
-- CI: the bandit gate also scans `deploy/`; the dependency audit runs daily.
+- CI: the bandit gate also scans `deploy/`; the dependency audit runs daily; the
+  Linux test jobs fail when the Kubernetes render tests are skipped for a missing
+  `kubectl`.
+- `deploy/kubernetes/verify-cluster.sh` needs `--image-digest` (the build under
+  test) and stops when a container runs another image; with intel deployed it
+  checks a wrong certificate name, the secrets in the intel Pod and an intel
+  restart, counts a blocked connection only after its positive control, and
+  exits 3 when a result is inconclusive.
 
 ### Fixed
 
@@ -74,6 +81,9 @@ no version or date is assigned. Finding IDs and evidence:
   file name is flagged.
 - Many smaller reliability fixes in the CLI, GUI delivery, IMAP, rule packs,
   backups and deployment scripts (see the register).
+- The Kubernetes manifest checker accepted an intel egress range that covers a
+  private range without being a default route (for example `0.0.0.0/1` plus
+  `128.0.0.0/1`), which let intel reach cluster addresses.
 
 ## [4.8.0] — pending release
 
