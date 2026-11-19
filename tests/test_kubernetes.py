@@ -591,6 +591,33 @@ def test_verify_changes_nothing_in_an_unlabelled_namespace(tmp_path, flag):
 
 
 @needs_bash
+def test_restart_test_needs_the_label_on_the_test_deployment_itself(tmp_path):
+    """Review 2026-11-19: a disposable namespace label alone does not allow
+    deleting Pods; the Deployment and its template must carry it too. The fake
+    cluster's Deployment has no such label: the run stops after read-only calls."""
+    run, calls = _verify(tmp_path, ["--namespace", "aegis-test", "--restart-test"],
+                         label="disposable")
+    assert run.returncode == 2 and "Deployment aegis-analysis" in run.stderr, run.stderr
+    assert "namespace label alone" in run.stderr
+    assert calls and all(any(r in f" {c} " for r in _READ_ONLY + (" get deployment ",))
+                         for c in calls), calls
+
+
+def test_each_pod_deletion_is_checked_against_its_test_deployment():
+    """Every Pod the script deletes is first traced to a labelled Deployment
+    (Pod -> ReplicaSet -> Deployment), just before the delete."""
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
+    for var, deployment in (("old", "aegis-analysis"), ("old_ipod", "aegis-intel")):
+        guard = text.index(f'pod_of_test_deployment "${var}" {deployment}')
+        delete = text.index(f'delete pod "${var}"')
+        assert guard < delete and "refuse" in text[guard:delete]
+    fn = text[text.index("pod_of_test_deployment() {"):]
+    fn = fn[:fn.index("\n}") + 2]
+    assert 'ownerReferences[?(@.kind=="ReplicaSet")]' in fn
+    assert 'ownerReferences[?(@.kind=="Deployment")]' in fn and "deployment_is_disposable" in fn
+
+
+@needs_bash
 def test_verify_refuses_a_cluster_older_than_1_29(tmp_path):
     run, calls = _verify(tmp_path, ["--namespace", "aegis-test"], minor="28+")
     assert run.returncode == 2 and "1.29 or later" in run.stderr

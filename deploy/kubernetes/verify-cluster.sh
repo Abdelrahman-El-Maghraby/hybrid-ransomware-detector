@@ -37,7 +37,10 @@
 #
 # The changing options run only in namespaces labelled
 # aegis-sentinel.io/verification=disposable by the operator, never in default or
-# kube-*. Every kubectl call names --context and a namespace; the current context
+# kube-*. --restart-test also needs that label on the test deployment itself (the
+# Deployments and their Pod templates; the test overlay adds it, docs/KUBERNETES.md),
+# and deletes a Pod only after checking that it belongs, through its ReplicaSet,
+# to such a labelled Deployment: the namespace label alone never authorises it. Every kubectl call names --context and a namespace; the current context
 # is not read or changed. The token goes to curl in a header file, never on a
 # command line, and is never printed. Only objects this run created (named with
 # its random marker) are deleted, on exit as well. Exit 0 only when every check
@@ -151,9 +154,32 @@ if [ -n "$cns" ]; then
     || refuse "$cns lacks the label aegis-sentinel.io/verification=disposable"
 fi
 can() { [ "$(k auth can-i "$@" 2>/dev/null)" = "yes" ] || refuse "not allowed: $* in $ns"; }
+# The test deployment's own mark: the Deployment and its Pod template both carry
+# aegis-sentinel.io/verification=disposable.
+deployment_is_disposable() {  # NAME
+  [ "$(k get deployment "$1" -o jsonpath='{.metadata.labels.aegis-sentinel\.io/verification}/{.spec.template.metadata.labels.aegis-sentinel\.io/verification}' 2>/dev/null)" = "disposable/disposable" ]
+}
+# POD is a Pod of the labelled Deployment NAME (Pod -> ReplicaSet -> Deployment),
+# checked immediately before the Pod is deleted.
+pod_of_test_deployment() {  # POD NAME
+  local rs owner
+  [ "$(k get pod "$1" -o jsonpath='{.metadata.labels.aegis-sentinel\.io/verification}' 2>/dev/null)" = disposable ] || return 1
+  rs="$(k get pod "$1" -o jsonpath='{.metadata.ownerReferences[?(@.kind=="ReplicaSet")].name}' 2>/dev/null)"
+  [ -n "$rs" ] || return 1
+  owner="$(k get replicaset "$rs" -o jsonpath='{.metadata.ownerReferences[?(@.kind=="Deployment")].name}' 2>/dev/null)"
+  [ "$owner" = "$2" ] && deployment_is_disposable "$2"
+}
 canc() { [ "$(kc auth can-i "$@" 2>/dev/null)" = "yes" ] || refuse "not allowed: $* in $cns"; }
 can get pods; can create pods/exec; can create pods/portforward; can get deployments
-[ -n "$restart" ] && can delete pods
+if [ -n "$restart" ]; then
+  can delete pods; can get replicasets
+  deployment_is_disposable aegis-analysis \
+    || refuse "--restart-test: Deployment aegis-analysis (and its Pod template) lacks the label aegis-sentinel.io/verification=disposable; a namespace label alone does not allow deleting its Pods"
+  if k get deployment aegis-intel >/dev/null 2>&1; then
+    deployment_is_disposable aegis-intel \
+      || refuse "--restart-test: Deployment aegis-intel (and its Pod template) lacks the label aegis-sentinel.io/verification=disposable"
+  fi
+fi
 [ -n "$drift" ] && { can create networkpolicies; can delete networkpolicies; }
 [ -n "$cns" ] && { canc create pods; canc create services; canc delete pods; canc delete services
                    canc create pods/exec; canc get pods; }
@@ -468,6 +494,8 @@ if [ -n "$restart" ] && [ -n "$intel_ip" ] && [ -n "$ipod" ]; then
   k exec "$ipod" -c intel -- python -c "import sys; open('/var/lib/aegis-intel/'+sys.argv[1],'w').write('x')" "$marker" \
     && pass "marker written to intel's state claim (writable by uid 10002)" || fail "intel state claim not writable"
   old_ipod="$ipod" start="$(date +%s)"
+  pod_of_test_deployment "$old_ipod" aegis-intel \
+    || refuse "$old_ipod is not a Pod of the labelled test Deployment aegis-intel; nothing deleted"
   k delete pod "$old_ipod" --wait=false >/dev/null || fail "intel Pod deletion"
   away=""
   for _ in $(seq 1 30); do                   # Recreate: no intel Pod for a while
@@ -507,6 +535,8 @@ if [ -n "$restart" ]; then
   in_analysis "import sys; [open(d+sys.argv[1],'w').write('x') for d in ('/var/lib/aegis/','/tmp/')]" "$marker" \
     && pass "markers written" || fail "markers written"
   old="$pod" start="$(date +%s)"
+  pod_of_test_deployment "$old" aegis-analysis \
+    || refuse "$old is not a Pod of the labelled test Deployment aegis-analysis; nothing deleted"
   k delete pod "$old" --wait=true --timeout=400s >/dev/null || fail "Pod deletion"
   echo "INFO  shutdown of $old took $(( $(date +%s) - start )) s (grace period 330 s)"
   pod=""
