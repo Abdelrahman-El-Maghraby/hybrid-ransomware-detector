@@ -540,7 +540,10 @@ esac
 """
 
 
-def _verify(tmp_path, args, minor="31", label=""):
+DIGEST = "sha256:" + "ab" * 32
+
+
+def _verify(tmp_path, args, minor="31", label="", digest=("--image-digest", DIGEST)):
     stub = tmp_path / "kubectl"
     stub.write_text(_FAKE_KUBECTL, encoding="utf-8")
     stub.chmod(0o755)
@@ -551,7 +554,7 @@ def _verify(tmp_path, args, minor="31", label=""):
                AEGIS_FAKE_MINOR=minor, AEGIS_FAKE_LABEL=label)
     run = subprocess.run(["bash", str(K8S / "verify-cluster.sh"), "--context", "kind-test",
                           "--token-file", str(tmp_path / "token"), "--ca-file",
-                          str(tmp_path / "ca.pem"), "--yes", *args],
+                          str(tmp_path / "ca.pem"), "--yes", *digest, *args],
                          capture_output=True, encoding="utf-8", timeout=60,
                          stdin=subprocess.DEVNULL, env=env)
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
@@ -601,12 +604,78 @@ def test_verify_deletes_only_what_it_created():
     import re
     deletes = [line.strip() for line in text.splitlines()
                if re.search(r"(^|\s)kc? delete ", line) and not line.lstrip().startswith("#")]
-    allowed = ('delete "${item#* }"', 'delete pod "$old"', 'delete networkpolicy "$marker-drift"')
+    allowed = ('delete "${item#* }"', 'delete pod "$old"', 'delete pod "$old_ipod"',
+               'delete networkpolicy "$marker-drift"')
     assert deletes and all(any(a in d for a in allowed) for d in deletes), deletes
     assert "delete -l" not in text and not re.search(r"--all(\s|$)", text)
     for created in ('created+=("$cns pod/$marker-$role")', 'created+=("$cns service/$marker")',
                     'created+=("$ns networkpolicy/$marker-drift")'):
         assert created in text
+
+
+@needs_bash
+@pytest.mark.parametrize("digest,why", [
+    ((), "--image-digest are required"),
+    (("--image-digest", "latest"), "sha256: and 64 hex digits"),
+    (("--image-digest", "sha256:" + "AB" * 32), "bad digest"),
+    (("--image-digest", DIGEST, "--proxy-digest", "sha256:12"), "sha256: and 64 hex digits"),
+])
+def test_verify_needs_the_digest_of_the_build_under_test(tmp_path, digest, why):
+    """Review 2026-11-19: without the digest the run could describe an older image."""
+    run, calls = _verify(tmp_path, ["--namespace", "aegis-test"], digest=digest)
+    assert run.returncode == 2 and why in run.stderr, run.stderr
+    assert calls == []
+
+
+def _check_images(tmp_path, statuses, proxy=""):
+    """Runs the script's own check_images() against canned container statuses."""
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
+    import re
+    fn = re.search(r"^check_images\(\) \{.*?^\}$", text, re.S | re.M).group(0)
+    (tmp_path / "statuses").write_text(statuses, encoding="utf-8")
+    script = ("set -u\nfails=0\npass() { echo \"PASS  $*\"; }\n"
+              "fail() { echo \"FAIL  $*\"; fails=$((fails + 1)); }\n"
+              f"k() {{ cat '{(tmp_path / 'statuses').as_posix()}'; }}\n"
+              f"image_digest={DIGEST}\nproxy_digest={proxy}\n{fn}\n"
+              "check_images aegis-analysis-1\necho \"reached the end\"\n")
+    return subprocess.run(["bash", "-c", script], capture_output=True, encoding="utf-8",
+                          timeout=30, stdin=subprocess.DEVNULL)
+
+
+@needs_bash
+def test_verify_stops_when_a_container_runs_another_image(tmp_path):
+    good = f"docker.io/library/aegis-sentinel@{DIGEST}"
+    run = _check_images(tmp_path, f"prepare-state {good}\nisolation-gate {good}\n"
+                                  f"analysis {DIGEST}\nproxy caddy@sha256:{'cd' * 32}\n")
+    assert run.returncode == 0 and "reached the end" in run.stdout
+    assert run.stdout.count("PASS") == 3 and "INFO  aegis-analysis-1/proxy runs" in run.stdout
+    old = f"registry.example/aegis-sentinel@sha256:{'ef' * 32}"
+    run = _check_images(tmp_path, f"prepare-state {good}\nisolation-gate {old}\nanalysis {good}\n")
+    assert run.returncode == 1 and "reached the end" not in run.stdout
+    assert "FAIL  aegis-analysis-1/isolation-gate runs" in run.stdout and "stopped" in run.stdout
+    run = _check_images(tmp_path, f"analysis {good}\nproxy caddy@sha256:{'cd' * 32}\n",
+                        proxy="sha256:" + "00" * 32)
+    assert run.returncode == 1 and "FAIL  aegis-analysis-1/proxy" in run.stdout
+
+
+def test_verify_checks_the_image_of_every_pod_it_inspects():
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
+    assert text.count('check_images "$pod"') >= 2 and text.count('check_images "$ipod"') >= 2
+    # the intel Pod is deleted only by the opt-in restart test
+    gate, delete = text.index('if [ -n "$restart" ] && [ -n "$intel_ip" ]'), text.index(
+        'delete pod "$old_ipod"')
+    assert gate < delete < text.index('echo "== controlled restart"')
+
+
+def test_verify_counts_a_negative_only_after_its_positive_control():
+    """A blocked probe is a result only where something shows the destination
+    answers; otherwise the run reports INCONCLUSIVE and exits 3, never a pass."""
+    text = (K8S / "verify-cluster.sh").read_text(encoding="utf-8")
+    assert "exit 3" in text and 'inconclusive() {' in text
+    ok, wrong = text.index('[ "$first" = 200 ] && intel_ok=1'), text.index('"$call" wrong')
+    assert ok < wrong
+    positive = text.index('pass "positive control: a Pod in $cns reaches analysis')
+    assert positive < text.index('expect "intel cannot reach analysis')
 
 
 def test_scripts_never_switch_the_current_context():
@@ -772,6 +841,14 @@ INTEL_BREAKS = {
         "to"][0]["ipBlock"]["except"].remove("169.254.0.0/16"),
     "reach 10.0.0.0/8": lambda d: find(d, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"][1][
         "to"][0]["ipBlock"]["except"].remove("10.0.0.0/8"),
+    # a default route split in two halves is still a default route (review 2026-11-19)
+    "0.0.0.0/1 lets intel reach 10.0.0.0/8": lambda d: find(
+        d, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"][1].update(
+        to=[{"ipBlock": {"cidr": "0.0.0.0/1", "except": ["0.0.0.0/8", "127.0.0.0/8"]}},
+            {"ipBlock": {"cidr": "128.0.0.0/1", "except": ["169.254.0.0/16"]}}]),
+    "8000::/1 lets intel reach fc00::/7": lambda d: find(
+        d, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"][1].update(
+        to=[{"ipBlock": {"cidr": "8000::/1", "except": ["fe80::/10"]}}]),
     "intel may reach no pod": lambda d: find(d, "NetworkPolicy", "aegis-intel-egress")["spec"][
         "egress"].append({"to": [{"podSelector": {"matchLabels": checker.ANALYSIS_LABELS}}],
                           "ports": [{"protocol": "TCP", "port": 8443}]}),
@@ -800,6 +877,21 @@ def test_the_checker_rejects_a_weakened_intel_deployment(with_intel, what):
     problems = checker.check(docs)
     assert problems, f"{what}: accepted"
     assert any(what.lower() in p.lower() for p in problems), (what, problems)
+
+
+@needs_kubectl
+def test_a_narrow_internal_intel_destination_is_accepted(with_intel):
+    """An operator's own rule for CAPE or Ollama (one private address and port) is
+    what the guide asks for; only routes wide enough to cover a cluster range are
+    refused, and link-local or loopback never."""
+    docs = _filled(with_intel)
+    egress = find(docs, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"]
+    egress.append({"to": [{"ipBlock": {"cidr": "10.20.30.40/32"}}],
+                   "ports": [{"protocol": "TCP", "port": 8000}]})
+    assert checker.check(docs) == []
+    egress.append({"to": [{"ipBlock": {"cidr": "169.254.169.254/32"}}],
+                   "ports": [{"protocol": "TCP", "port": 80}]})
+    assert any("169.254.0.0/16" in p for p in checker.check(docs))
 
 
 def test_the_base_still_has_no_intel_and_no_egress(base):

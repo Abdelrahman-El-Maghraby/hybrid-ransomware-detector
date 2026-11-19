@@ -52,3 +52,6 @@ patches:
               - name: analysis
                 env:
                   - {name: AEGIS_INTEL_URL, value: "https://REPLACE-INTEL-CLUSTER-IP:9443"}
+                  # aegis-intel.NAMESPACE.svc, the name in intel's certificate:
+                  # change it with the namespace (check_manifests.py compares them)
+                  - {name: AEGIS_INTEL_SERVER_NAME, value: aegis-intel.aegis-sentinel.svc}

@@ -1,8 +1,9 @@
 # The analysis Pod: the API server and its scan workers (container `analysis`) and
 # the TLS proxy (container `proxy`), joined by a Unix socket in a Pod-local
-# emptyDir exactly as in docker-compose.yml. The intel service is not part of the
-# Kubernetes deployment: external services (VirusTotal, LLM, CAPE, e-mail alerts)
-# stay off here until its transport is decided (docs/KUBERNETES.md, "Intel").
+# emptyDir exactly as in docker-compose.yml. The base has no intel service: external
+# services (VirusTotal, LLM, CAPE, e-mail alerts) are off unless an overlay adds
+# components/intel, which gives this Pod one egress rule, TLS to intel on 9443
+# (docs/KUBERNETES.md, "Intel", option E).
 #
 # One replica, replaced with Recreate: the state and content claims are
 # ReadWriteOncePod, and rate limits and the token lockout live in this process.

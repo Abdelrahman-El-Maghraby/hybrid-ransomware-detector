@@ -490,11 +490,18 @@ def _ip_block(x: Dict[str, Any], block: Dict[str, Any]) -> List[str]:
         excepts = [ipaddress.ip_network(str(e), strict=False) for e in block.get("except") or []]
     except ValueError:
         return [f"{_name(x)}: not an address range: {block}"]
-    guarded = GUARDED_NETS if cidr.prefixlen == 0 else ALWAYS_GUARDED
     p = []
-    for net in guarded:
-        if net.version == cidr.version and cidr.overlaps(net) and not any(
-                e.version == net.version and net.subnet_of(e) for e in excepts):
+    for net in GUARDED_NETS:
+        # Link-local and loopback: never, not even one address. The private ranges:
+        # whenever the rule covers the whole range (a default route, or one split
+        # into halves such as 0.0.0.0/1); a narrower private rule is the operator's
+        # own internal destination (CAPE, Ollama).
+        if net.version != cidr.version or not cidr.overlaps(net):
+            continue
+        if net not in ALWAYS_GUARDED and not cidr.supernet_of(net):  # type: ignore[arg-type]
+            continue
+        if not any(e.version == net.version and net.subnet_of(e)  # type: ignore[arg-type]
+                   for e in excepts):
             p.append(f"{_name(x)}: {cidr} lets intel reach {net}; exclude it")
     return p
 

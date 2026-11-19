@@ -48,7 +48,7 @@ API_SOCKET = os.environ.get("AEGIS_API_SOCKET", "/run/aegis/api/api.sock")
 CONTENT = "/var/lib/aegis/RansomwareScanner/data"
 SCRATCH = "/tmp"  # noqa: S108  # nosec B108  # only its mount options are read
 # Names of settings that belong to the external services. None of them may reach the
-# analysis container: Kubernetes has no intel service yet (docs/KUBERNETES.md).
+# analysis container; those are intel's (docs/KUBERNETES.md, "Intel").
 EXTERNAL_SETTINGS = ("VIRUSTOTAL_API_KEY", "OPENAI_API_KEY", "SANDBOX_URL", "SANDBOX_TOKEN",
                      "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO",
                      "ALERT_EMAIL_FROM", "AEGIS_INTEL_TOKEN", "AEGIS_INTEL_SOCKET",
