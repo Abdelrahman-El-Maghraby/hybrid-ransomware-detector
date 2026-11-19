@@ -267,7 +267,17 @@ Two kinds of evidence, kept apart:
    certificate for `aegis-intel.aegis-verify.svc`, and `AEGIS_INTEL_SERVER_NAME`
    set to that name in the overlay (`check_manifests.py` refuses a name that does
    not match the namespace); the intel credentials file entries may be empty, so
-   no external service is contacted.
+   no external service is contacted. For `--restart-test`, mark the test
+   deployment itself in that overlay; the script deletes a Pod only when it
+   belongs to a Deployment carrying this label on itself and its Pod template (a
+   namespace label alone is not enough):
+
+   ```yaml
+   labels:
+     - pairs: {aegis-sentinel.io/verification: disposable}
+       includeSelectors: false
+       includeTemplates: true
+   ```
 4. Run the checks:
 
    ```bash
@@ -300,9 +310,9 @@ for), and that the operator may do what the selected checks need
 | API over TLS | `/health` 200; `/version` 401 without and with a wrong token; `/ready` 200; an inert text file scanned Clean; one byte over `AEGIS_API_MAX_UPLOAD_MB` gets the **API's** JSON 413 (so the proxy's cap is above it) | read |
 | Controlled network (`--control-namespace`) | a listener and a client Pod in the control namespace: the client reaches the listener and resolves cluster DNS (**positive controls**), and only then does "analysis cannot reach the listener" count; if the positive control fails the result is *inconclusive*, not a pass | creates 2 Pods, 1 Service |
 | After start-up (`--drift-test`) | a NetworkPolicy that allows DNS egress is added: readiness must take the Pod out of service (within 180 s), and it must return when the policy is removed | creates 1 NetworkPolicy |
-| Restart (`--restart-test`) | the Pod is deleted once: shutdown time printed (grace 330 s), a marker in the state claim survives, `/tmp` is new, the rule-pack version is unchanged (**existing-volume** restart) | deletes 1 Pod |
+| Restart (`--restart-test`) | refused unless the Deployments and their Pod templates carry `aegis-sentinel.io/verification=disposable`; just before the deletion, the Pod is traced through its ReplicaSet to that Deployment. Then the Pod is deleted once: shutdown time printed (grace 330 s), a marker in the state claim survives, `/tmp` is new, the rule-pack version is unchanged (**existing-volume** restart) | deletes 1 Pod |
 | Intel (when `aegis-intel` exists) | rollout and images; analysis's own client reaches intel with its token (200, the **positive control**), then a wrong token gets 401 and a wrong certificate name gets no connection; secrets per container (analysis: intel token and CA, not intel's credentials; intel: credentials, not the TLS key; intel proxy: its certificate only); with `--control-namespace`: a control Pod cannot reach intel, and intel cannot reach analysis 8443 once a control Pod is shown to reach it | read |
-| Intel restart (`--restart-test` with intel) | the intel Pod is deleted once: analysis's call fails instead of hanging, analysis stays Ready and scans an inert file; intel's replacement has the marker in its state claim and answers through the same address; shutdown time printed (grace 630 s) | deletes 1 Pod |
+| Intel restart (`--restart-test` with intel) | the same label and ownership checks for `aegis-intel`; the intel Pod is deleted once: analysis's call fails instead of hanging, analysis stays Ready and scans an inert file; intel's replacement has the marker in its state claim and answers through the same address; shutdown time printed (grace 630 s) | deletes 1 Pod |
 
 Results: `PASS`, `FAIL`, `INFO` (printed, not judged) and `INCONCLUSIVE` (a
 negative check whose positive control did not succeed, so a blocked attempt
@@ -722,7 +732,7 @@ to one internal port; it does not have Docker's `network_mode: none` isolation.*
 | No DNS for analysis | The client connects to the IP literal and verifies the certificate against `AEGIS_INTEL_SERVER_NAME` (for example `aegis-intel.aegis-sentinel.svc`), passed as the TLS server name: Python's `ssl` checks the name from that parameter, not from the address, so hostname verification stays on without a lookup. The certificate carries that DNS name (an IP SAN would break when the Service is re-created) |
 | Identity | TLS 1.2 or later, `CERT_REQUIRED`, hostname checked, trust only `AEGIS_INTEL_CA_FILE` (a private CA; not the system store). Any failure is an `IntelError`; there is no plaintext or unverified fallback, and an `http://` URL or a host name is refused by the configuration check |
 | Token | Sent only on the connection to the configured address. Redirects are not followed (`http.client` does not, and a 3xx is an error), and proxy variables (`HTTPS_PROXY`, `NO_PROXY`) are ignored, so the token cannot reach another origin |
-| Bounds | The socket client's limits apply unchanged: a per-call time-out (on each socket operation, including the TLS handshake; it bounds a stalled peer, not the total time of a reply that keeps trickling in), `AEGIS_INTEL_MAX_UPLOAD_MB` (intel's body limit, with the intel proxy's cap at 101 MiB above it), intel's own destination allowlist and rate limits. **Neither transport caps the size of intel's reply** (`resp.read()`): the reply comes from the authenticated intel service. Correction from the review of 2026-11-19: this row earlier listed a "reply-size cap" that does not exist in either client |
+| Bounds | The socket client's limits apply unchanged: a per-call time-out (on each socket operation, including the TLS handshake; it bounds a stalled peer, not the total time of a reply that keeps trickling in), `AEGIS_INTEL_MAX_UPLOAD_MB` (intel's body limit, with the intel proxy's cap at 101 MiB above it), intel's own destination allowlist and rate limits. **Reply size:** both transports read at most `MAX_REPLY_BYTES` (1 MiB) of a reply, in the identity encoding only; an oversized, compressed or cut-short reply, or a 200 that is not JSON, is an `IntelError` (owner-approved 2026-11-19, K8S-R4: intel's replies are small JSON summaries, the largest free text being the LLM's explanation). History: until then neither client had a cap, although this row listed one |
 | Retries | No hidden retries: lookups, uploads, sandbox submissions and e-mail are each attempted once per call; the outbox retries e-mail with the same alert id, and intel de-duplicates by it (in memory) |
 | NetworkPolicy and the Service | Policies match Pods, so the analysis egress rule names the intel Pods (`podSelector`) and the target port 9443, not the Service. Calico, Cilium and Antrea evaluate ClusterIP traffic after it is translated to the Pod address; this must be shown on the chosen plugin (cluster test 4 below), because a plugin that evaluates the pre-translation address would block the path (safe failure) or need a different rule |
 | Intel Pod topology | Intel's TLS proxy and intel share the intel Pod's network; intel's ingress rule admits only the analysis Pods on 9443, and its egress rule applies to both containers. The proxy holds only intel's TLS key |

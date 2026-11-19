@@ -58,7 +58,13 @@ no version or date is assigned. Finding IDs and evidence:
   test) and stops when a container runs another image; with intel deployed it
   checks a wrong certificate name, the secrets in the intel Pod and an intel
   restart, counts a blocked connection only after its positive control, and
-  exits 3 when a result is inconclusive.
+  exits 3 when a result is inconclusive. Its restart test deletes a Pod only when
+  the Pod belongs to a Deployment labelled `aegis-sentinel.io/verification=disposable`
+  (on the Deployment and its Pod template), not merely to a labelled namespace.
+- Replies from the intel service are read with a 1 MiB limit (both the Docker
+  socket and the Kubernetes HTTPS transport) and in the identity encoding only.
+  An oversized, compressed or cut-short reply, or a successful reply that is not
+  JSON (it used to read as an empty answer), is now an error of that layer.
 
 ### Fixed
 

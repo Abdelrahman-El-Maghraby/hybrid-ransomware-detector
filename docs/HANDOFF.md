@@ -1,9 +1,10 @@
 # Current task handoff
 
 - Status: **option E implemented and reviewed locally (2026-11-19): intel on
-  Kubernetes over TLS as an optional component; five review findings fixed
-  (K8S-R1 to K8S-R5); runtime verification pending** (a test cluster, CI).
-  Sections "Option E" and "Review of option E" at the end. Before it: the third pass (2026-11-19). Before it: second review pass (2026-11-18). Section "Second review pass" at the
+  Kubernetes over TLS as an optional component; review findings K8S-R1 to K8S-R6
+  fixed, including the intel reply limit; runtime verification pending** (a test
+  cluster, CI). Sections "Option E", "Review of option E" and "Reply limit and
+  restart scope" at the end. Before it: the third pass (2026-11-19). Before it: second review pass (2026-11-18). Section "Second review pass" at the
   end. Earlier: optional Kubernetes deployment implemented and statically validated
   (2026-11-18). Runtime validation on a cluster is
   pending. Not ready for merge and not production ready. Latest: section
@@ -2734,16 +2735,38 @@ action.
   (K8S-R4).
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Reply limit and restart scope (2026-11-19, Claude Code)
+
+- **Brief:** [review brief](tasks/kubernetes-option-e-review-2026-11-19.md),
+  section 9; register K8S-R4 (updated) and K8S-R6; VERIFICATION_MATRIX section 9.
+- **Approval:** the owner asked for the intel reply limit, the restart-test
+  scope, a read-only assessment of this Mac and a trigger review. Not authorised:
+  installing tools, starting Docker or a cluster, changing settings, pushing,
+  dispatching.
+- **Commits (local):** `f8a10a3` the reply limit on both transports and its
+  tests; `a1c752e` restart-test deletions only for the labelled test
+  deployment; `7f95021` the client's docstring; `d45715a` a refused reply's
+  connection closed at once (found by the suite's ResourceWarnings). Last
+  implementation commit: `d45715a`. Then this record.
+- **Results (local):** safe suite at `d45715a`: **2,161 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 645 s; the same 8 platform skips and only the known Starlette deprecation warning (no ResourceWarning); no outside network attempt; 36 reply-limit
+  tests and four mutations; 139 Kubernetes tests; dry runs of the script.
+- **This Mac:** 8 GiB RAM, Docker installed but not running, no kind: not
+  suitable for the representative cluster run (brief section 9).
+- **Before publishing:** two old commits (`a11b37c`, `74b6aef`) carry a
+  `Co-Authored-By` trailer that AGENTS.md does not allow; owner decision whether
+  to rewrite history (it changes every later hash cited in the records).
+- **Pending, not verified anywhere:** cluster, Docker, Windows, Linux, Python
+  3.9, CI.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-1. The owner chooses the test environment for `verify-cluster.sh` (a local kind
-   cluster with Calico needs `kind` installed; a managed cluster has a cost and
-   is created by the owner) and approves the run described in the review brief,
-   section 7.
-2. Whether to push the branch and dispatch `tests.yml`, `quality.yml` and
-   `docker.yml` on it (review brief, section 8; not a pull request, which would
-   start the fuzz campaigns).
-3. The reply-size cap for the intel client (K8S-R4) and the earlier decisions
-   in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
+1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is
+   too small for the representative run; brief section 9) and approves the run
+   in brief section 7.
+2. Whether to publish `review/production-hardening` (no workflow starts on that
+   push) and dispatch `tests.yml`, `quality.yml` and `docker.yml` on it; and
+   whether to remove the two `Co-Authored-By` trailers first.
+3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
 
 No step runs without approval.

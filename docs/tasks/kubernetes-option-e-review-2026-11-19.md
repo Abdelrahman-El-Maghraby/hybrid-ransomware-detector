@@ -69,9 +69,8 @@ positive control only in `verify`.
 
 ## 4. Open, recorded for the owner (not changed)
 
-- No reply-size cap in the intel client (both transports). A cap would also
-  change the Docker client; the reply comes from the authenticated intel
-  service. Owner decision.
+- ~~No reply-size cap in the intel client~~: approved by the owner and added
+  the same day (section 9).
 - Intel has no isolation gate of its own; its policies are checked statically
   and by `verify-cluster.sh` only.
 - The analysis proxy's 401 against intel, analysis to intel's other ports and a
@@ -121,7 +120,8 @@ empty credentials Secret (no external service is contacted).
 Created or changed: two namespaces labelled
 `aegis-sentinel.io/verification=disposable`; the deployment from a copy of
 `overlays/example-intel` (namespace `aegis-verify`, a free Service address, the
-certificate name); during the run, two control Pods and one Service in the
+certificate name, and the same label on the Deployments and Pod templates, which
+the restart test requires before it deletes a Pod); during the run, two control Pods and one Service in the
 control namespace, one drift NetworkPolicy, and one deletion each of the
 analysis and intel Pods. Inputs are inert: a one-line text file and a zero-filled
 file one byte over the upload limit.
@@ -148,3 +148,71 @@ deployment, built and checked in the runner; nothing published) with
 start `parser-fuzz`, a restricted campaign). The one workflow change prepared:
 the Linux test jobs fail when the Kubernetes render tests are skipped
 (`ef3a5c4`).
+
+## 9. Follow-up (2026-11-19): reply limit, restart scope, this Mac, publication
+
+Owner request: add an intel reply-size limit; restrict restart-test deletions to
+the test deployment; assess this Mac for the cluster run (read-only); recheck
+the workflow triggers before a push. Not authorised: installing tools, starting
+Docker or a cluster, changing settings, pushing, dispatching.
+
+**Reply limit** (K8S-R4, `f8a10a3`, `7f95021`, `d45715a`). Replies inspected: capabilities,
+the VirusTotal summary (`engine/external.py`), the normalised LLM analysis
+(`detectors/llm_backends._parse_analysis`: 20 elements, the explanation bounded
+only by the model's output, about 0.5 MB at most for a 128k-token context), the
+sandbox summary (`core/sandbox.SandboxResult.as_dict`: 30 signatures with
+200-character descriptions, 20 hosts), the e-mail receipt and HTTP error details:
+a few kilobytes in practice. `MAX_REPLY_BYTES` = 1 MiB on both transports
+(`read_reply`): a declared length over it is refused before reading; a body
+without one or chunked is read to limit + 1 and refused; a body shorter than its
+declared length is refused; any `Content-Encoding` but identity is refused (the
+client sends `Accept-Encoding: identity`; nothing is decompressed). With a 200
+that is not JSON, these are `IntelError` carrying the status, so the existing
+paths apply: VirusTotal errors are not cached, the LLM layer fails (partial), a
+sandbox submission stays `possible`, capabilities read as unreachable (not
+cached), e-mail stays queued. Findings already collected by other layers are
+untouched. No change for replies within the limit. A refused reply's
+connection is closed at once (`d45715a`; before it, garbage collection closed
+it, which the safe suite showed as ResourceWarnings).
+
+**Restart scope** (K8S-R6, `a1c752e`). Pod deletion needs the test label on the
+Deployment and its Pod template, and the Pod's ReplicaSet owner checked just
+before deletion.
+
+**This Mac** (read-only checks): Apple M1, 8 cores (4 performance), **8 GiB
+RAM** (about 44 % free during the check), 44 GiB free disk, macOS 27.2.1.
+Docker Desktop 4.97.0 installed, its engine **not running** (no CPU or memory
+setting stored, so its defaults apply); `kubectl` 1.36.1 installed; kind,
+minikube, k3d, colima, helm and the Calico and Cilium CLIs not installed.
+Assessment: **not suitable for the representative run.** The analysis Pod
+requests 6 GiB of memory (request equals limit, matching Docker's 6 GiB), intel
+512 MiB to 1 GiB, plus the kind control plane and Calico, inside a Docker VM
+that must leave macOS memory: more than 8 GiB of RAM allows. A reduced
+functional run would need a test-only overlay lowering the analysis memory
+(with `WORKER_MEMORY_MB` and the scan concurrency) to fit a VM of about 5-6 GiB;
+it would exercise isolation, TLS, intel, restarts and clean-up but not the
+production sizing or behaviour under memory pressure, and it would make this
+Mac swap. Recommended instead: a machine or a small test cluster with at least
+16 GiB (for example one node of 4 vCPU and 16 GiB), chosen and paid for by the
+owner.
+
+**Publication** (read-only checks; nothing pushed). The remote has `main`
+(`bd46fff`) and `validation/v4.8-remaining` (`3e5a3f2`, PR #46); it has no
+`review/production-hardening`. Pushing it would publish every local commit
+since `3e5a3f2`: 163 commits at this follow-up's last code commit, about 260
+files (tests, docs, deploy, detectors, engine, core, GUI, tools, rules,
+`.github`), all authored as the owner. Triggers in the branch's own workflow
+files: `tests.yml` and `quality.yml` run on pushes to `main` and on pull
+requests; `docker.yml` on pushes to `main`, `integration/**`, `fix/**`,
+`area/**` and on pull requests; `parser-fuzz` on pull requests touching `fuzz/`,
+`detectors/`, `core/`, `engine/` or `requirements.lock`; `release.yml` on `v*`
+tags; `dependency-audit.yml` on a schedule; all can be dispatched. None uses
+`workflow_run`, `repository_dispatch` or `workflow_call`. So pushing
+`review/production-hardening` alone (no tags; `push.followTags` is not set)
+starts no workflow; opening a pull request would start `tests`, `quality`,
+`docker` and `parser-fuzz`. Repository-side settings (for example a code
+scanning default setup) cannot be seen from here. Before publishing: two
+earlier commits (`a11b37c`, `74b6aef`) carry a `Co-Authored-By` trailer that
+AGENTS.md does not allow; removing it would rewrite every later commit and the
+hashes the records cite, so it needs the owner's decision. The diff contains no
+private key, cloud key or token pattern, and `.env.example` has no values.

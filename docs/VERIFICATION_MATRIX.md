@@ -280,3 +280,21 @@ Unchanged by the review and still pending: everything on a cluster
 with the expected results listed there), the intel proxy's Caddyfile in a
 container, Docker (the socket transport is unchanged in code; `docker.yml` has
 not run on this branch), Windows, Linux and CI.
+
+## 9. Intel reply limit and restart-test scope (2026-11-19)
+
+At `d45715a`, same machine and settings as section 5. **Local results only:
+nothing ran on a cluster, in Docker, on Windows or Linux, on Python 3.9, or in
+CI.** Findings K8S-R4 and K8S-R6; brief section 9.
+
+| Check | Kind | Result |
+|---|---|---|
+| Safe suite at `7f95021` (before the last fix) | local | 2,160 passed, 0 failed, 0 errors, 8 skipped, 4 deselected, 604 s; but **5 new ResourceWarnings**: a refused reply's socket was closed only by garbage collection. Fixed in `d45715a` |
+| Safe suite under the network guard (command as in section 5, from a separate worktree of `d45715a`) | local | **2,161 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 645 s; the same 8 platform skips and only the known Starlette deprecation warning (no ResourceWarning); no outside network attempt |
+| `tests/test_intel_reply_limit.py` (36): a raw loopback server sends exact bytes. Empty, small and exactly-at-limit replies with Content-Length, without it and chunked; one byte over in all three framings; a 10 GiB declared length refused at once with the connection held open; a body longer than declared read only to its length; 3 MiB without a length stopped at the limit; shorter than declared; a chunked body cut short; gzip, deflate and br refused; `Accept-Encoding: identity` sent. Through `IntelClient` on a Unix socket: a normal reply unchanged, exactly 1 MiB accepted, 1 MiB + JSON over refused in three framings with status 200, lying lengths not read as `{}`, a 500 keeps its status, capabilities not cached, the LLM layer fails, a sandbox submission stays `possible`, a VirusTotal error is not cached; a refused reply's connection closed while the exception still exists | local, bounded (at most a few MiB, 10 s socket time-outs) | 36 passed (the Unix-socket ones are skipped on Windows); the closing test fails at `7f95021` |
+| `tests/test_intel_tls.py`: an oversized reply over TLS | real TLS on loopback | passed |
+| Weakened clients: `resp.read()` again; no shorter-than-declared check; a non-JSON 200 read as `{}`; any encoding accepted | mutation | 10, 2, 1 and 3 tests failed respectively; the reviewed file restored byte for byte |
+| `tests/test_kubernetes.py` (139): restart test refused without the label on the Deployment; the ownership check precedes each Pod deletion | static and a recording `kubectl` stub | passed |
+| `verify-cluster.sh` dry runs against a fake `kubectl` (scratch only) | dry run, no cluster | full run exit 0 (62 passes); a Pod owned by another Deployment: refused (exit 2) before its deletion, only the script's own control objects deleted; an unlabelled intel Deployment: refused in the preflight, nothing changed |
+| Ruff, mypy, bandit with `deploy/`, `bash -n`, Python 3.9 grammar of the changed files | static | clean |
+| This Mac's resources, Docker and cluster tools | read-only | brief section 9: 8 GiB RAM; Docker installed, not running; no kind |
