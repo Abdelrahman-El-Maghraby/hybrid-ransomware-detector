@@ -335,5 +335,6 @@ NOTES: List[str] = [
     "Each _Worker starts a child process that builds its own RansomwareScanner; _IsolatedScan "
     "keeps the caller's scanner only to build failure results and to call on_result().",
     "The scanner's sandbox attribute is a CapeClient, or an IntelSandbox when the intel service "
-    "is used (Docker); its llm_backend is then an IntelLLMBackend.",
+    "is used (Docker over a Unix socket, or Kubernetes option E over TLS: TlsEndpoint); its "
+    "llm_backend is then an IntelLLMBackend.",
 ]

@@ -1,10 +1,12 @@
 # Architecture overview
 
 A short, defensible tour of how Aegis Sentinel is built and why. Each section
-ends with the files to read. The same structure as six diagrams (class, use
-case, activity, system flowchart, Docker deployment and trust boundaries, and the
-optional Kubernetes deployment), with the facts also stated in text, is in
-[architecture/README.md](architecture/README.md).
+ends with the files to read. The same structure as eleven diagrams (class, use
+case, activity, system flowchart, Docker deployment and trust boundaries, the
+optional Kubernetes deployment, and focused views of one file's sequence, the layer
+data flow, nested containers, scoring versus completeness and Kubernetes option E),
+with the facts also stated in text, is in [architecture/README.md](architecture/README.md).
+The full technical overview (PDF) is in [security-overview](security-overview/README.md).
 
 ## 1. One file, one context, many independent layers
 

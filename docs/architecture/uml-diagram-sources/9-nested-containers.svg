@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d9" width="1600" height="830" viewBox="0 0 1600 830" role="img" aria-labelledby="d9-title d9-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d9-title">Nested containers: one e-mail, one archive, two members</title>
+<desc id="d9-desc">Containment tree of an e-mail with an encrypted archive attachment holding a document and a script; what goes down (passwords, depth, budgets) and what comes back up (member summaries, worst-member evidence, incomplete reasons).</desc>
+<rect x="0" y="0" width="1600" height="830" fill="#ffffff"/>
+<g id="d9-back">
+<rect x="24" y="92" width="1000" height="210" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="114" font-size="13" fill="#334155" font-weight="700">depth 0  (top-level file)</text>
+<rect x="24" y="318" width="1000" height="240" fill="#ffffff" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="340" font-size="13" fill="#334155" font-weight="700">depth 1  (attachment)</text>
+<rect x="24" y="574" width="1000" height="150" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="596" font-size="13" fill="#334155" font-weight="700">depth 2  (archive members)</text>
+</g>
+<g id="d9-frame">
+<rect x="1060" y="92" width="516" height="632" fill="#fffbeb" rx="8" stroke="#b45309" stroke-width="1.4"/>
+<text x="1072" y="112" font-size="13" fill="#0f172a" font-weight="700">What comes back up, per level</text>
+</g>
+<g id="d9-edge">
+<path d="M520,216 L520,356" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="520,356 515.8,346 524.2,346" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M400,458 L400,582 Q400,590 392,590 L288,590 Q280,590 280,598 L280,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="280,612 275.8,602 284.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M640,458 L640,582 Q640,590 648,590 L752,590 Q760,590 760,598 L760,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="760,612 755.8,602 764.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d9-node">
+<rect x="220" y="130" width="600" height="86" fill="#dbeafe" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="520" y="153.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">invoice.eml (MailHandler: ContainerLayer &#x27;mail&#x27;)</text>
+<text x="520" y="169.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Sender checks (SPF / DKIM / DMARC from the top Authentication-Results), display-name spoof,</text>
+<text x="520" y="186.4" font-size="12.5" fill="#0f172a" text-anchor="middle">reply-to, deceptive links, risky attachment names. The body becomes ctx.text for prompt-guard and the</text>
+<text x="520" y="202.9" font-size="12.5" fill="#0f172a" text-anchor="middle">LLM. &quot;Password: 4471&quot; in the body is offered to the archive below.</text>
+<rect x="220" y="356" width="600" height="102" fill="#e0e7ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="520" y="378.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">invoice.eml!/docs.zip (ArchiveHandler: &#x27;archive&#x27;)</text>
+<text x="520" y="395.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Opened into a private temp folder by ContainerExtractor: password tried from the message, then</text>
+<text x="520" y="412.2" font-size="12.5" fill="#0f172a" text-anchor="middle">common ones; zip-slip and device names refused; nested archives expanded by the extractor itself</text>
+<text x="520" y="428.7" font-size="12.5" fill="#0f172a" text-anchor="middle">(archive_max_depth 3); 100 MB total, 500 entries, ratio 100x; risky members get the scan budget</text>
+<text x="520" y="445.2" font-size="12.5" fill="#0f172a" text-anchor="middle">(archive_scan_members 25) first.</text>
+<rect x="60" y="612" width="440" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="280" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">...docs.zip!/report.docm</text>
+<text x="280" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Full pipeline at depth 2: macro (olevba), YARA, integrity, prompt-guard,</text>
+<text x="280" y="668.4" font-size="12.5" fill="#0f172a" text-anchor="middle">relationships, QR, ML, LLM. Its own containers would only be listed: depth</text>
+<text x="280" y="684.9" font-size="12.5" fill="#0f172a" text-anchor="middle">2 = max_nesting.</text>
+<rect x="540" y="612" width="440" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="760" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">...docs.zip!/pay.js</text>
+<text x="760" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Full pipeline at depth 2: script categories (download, execute, recovery...),</text>
+<text x="760" y="668.4" font-size="12.5" fill="#0f172a" text-anchor="middle">obfuscation, YARA. Emulation only if enabled (off by default; it runs the</text>
+<text x="760" y="684.9" font-size="12.5" fill="#0f172a" text-anchor="middle">script in box-js).</text>
+<rect x="1078" y="132" width="480" height="69" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="154.9" font-size="13.5" fill="#0f172a" font-weight="700">Member summary</text>
+<text x="1088" y="171.7" font-size="12.5" fill="#0f172a">name, verdict, risk_score, hashes, first 8 indicators, scan_status; archive flags</text>
+<text x="1088" y="188.2" font-size="12.5" fill="#0f172a">(double extension, RTLO, executable) attached.</text>
+<rect x="1078" y="213" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="236.1" font-size="13.5" fill="#0f172a" font-weight="700">Worst-member evidence</text>
+<text x="1088" y="252.9" font-size="12.5" fill="#0f172a">the member with the highest risk score: its contributions are copied into the</text>
+<text x="1088" y="269.4" font-size="12.5" fill="#0f172a">container&#x27;s signal (.worst) and re-scored with a prefix:</text>
+<text x="1088" y="285.9" font-size="12.5" fill="#0f172a">archive_member:macro_autoexec, then mail_attachment:archive_member:...</text>
+<rect x="1078" y="311" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="334.1" font-size="13.5" fill="#0f172a" font-weight="700">Completeness</text>
+<text x="1088" y="350.9" font-size="12.5" fill="#0f172a">each member&#x27;s incomplete_reasons join ctx.member_reasons; the container</text>
+<text x="1088" y="367.4" font-size="12.5" fill="#0f172a">takes the most severe status: failed &gt; locked &gt; partial &gt; unsupported &gt; complete.</text>
+<text x="1088" y="383.9" font-size="12.5" fill="#0f172a">An encrypted member never opened is &#x27;locked&#x27;.</text>
+<rect x="1078" y="409" width="480" height="53" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="432.1" font-size="13.5" fill="#0f172a" font-weight="700">Provenance</text>
+<text x="1088" y="448.9" font-size="12.5" fill="#0f172a">what members sent outside (provenance.shared) is listed with member_path.</text>
+<rect x="1078" y="474" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="497.1" font-size="13.5" fill="#0f172a" font-weight="700">In a worker</text>
+<text x="1088" y="513.9" font-size="12.5" fill="#0f172a">for the top-level file only, the worker reports &#x27;container&#x27; (its own findings) and</text>
+<text x="1088" y="530.4" font-size="12.5" fill="#0f172a">&#x27;member&#x27; (each direct member done), so a time-out keeps them as partial</text>
+<text x="1088" y="546.9" font-size="12.5" fill="#0f172a">evidence.</text>
+<polygon points="60,744 1008,744 1020,756 1020,809 60,809" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1008,744 1008,756 1020,756" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="69" y="763.6" font-size="12" fill="#0f172a">Limits that stop the descent: max_nesting 2 (members of a depth-2 container are listed, not scanned); per-container scan budgets (archive 25, mail 25, web 5, embedded</text>
+<text x="69" y="779.7" font-size="12" fill="#0f172a">25); mail_max_attachments 50 and the shared 100 MB byte budget. Every member left out becomes an incomplete reason, so the top-level result reads &#x27;partial&#x27; (or &#x27;locked&#x27;),</text>
+<text x="69" y="795.7" font-size="12" fill="#0f172a">never plain &#x27;complete&#x27;.</text>
+</g>
+<g id="d9-label">
+<rect x="553.7" y="276.8" width="172.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="290.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(attachment, depth 1)</text>
+<rect x="441.5" y="580.8" width="157" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="520" y="594.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(member, depth 2)</text>
+</g>
+<g id="d9-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Nested containers: one e-mail, one archive, two members</text>
+<text x="24" y="63" font-size="13" fill="#334155">Illustrative inert example; behaviour read from engine/containers.py and detectors/container_extractor.py at commit d45715a.</text>
+</g>
+</svg>

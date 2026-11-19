@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d11" width="1600" height="715" viewBox="0 0 1600 715" role="img" aria-labelledby="d11-title d11-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d11-title">Option E: the analysis Pod talks to intel over TLS on one port</title>
+<desc id="d11-desc">Kubernetes option E: analysis container connects by fixed ClusterIP to the intel Service on 9443, verifies the intel certificate by name against a private CA, authenticates with a bearer token; NetworkPolicies allow only that path; intel alone reaches the external services.</desc>
+<rect x="0" y="0" width="1600" height="715" fill="#ffffff"/>
+<g id="d11-frame">
+<rect x="24" y="92" width="1150" height="600" fill="#ffffff" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="36" y="112" font-size="13" fill="#0f172a" font-weight="700">Namespace aegis-sentinel (Pod Security: restricted; default-deny NetworkPolicy)</text>
+<rect x="48" y="140" width="470" height="400" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="2.2"/>
+<text x="62" y="162" font-size="13" fill="#7c3aed" font-weight="700">Pod aegis-analysis (unchanged base + patch)</text>
+<rect x="790" y="140" width="360" height="400" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="2.2"/>
+<text x="804" y="162" font-size="13" fill="#7c3aed" font-weight="700">Pod aegis-intel (optional)</text>
+</g>
+<g id="d11-edge">
+<path d="M282,237 L282,277" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="277.4,267 282,277 286.6,267" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M492,306.5 L560,306.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="560,306.5 550,310.7 550,302.3" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M970,270 L970,310" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="965.4,300 970,310 974.6,300" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M750,334 L812,334" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="812,334 802,338.2 802,329.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,174 Q1180,166 1188,166 L1210,166" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,170.6 1210,166 1200,161.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,242 Q1180,234 1188,234 L1210,234" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,238.6 1210,234 1200,229.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,318 Q1180,310 1188,310 L1210,310" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,314.6 1210,310 1200,305.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1175.8,377.5 Q1180,377.5 1180,381.8 L1180,381.8 Q1180,386 1184.2,386 L1210,386" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,390.6 1210,386 1200,381.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d11-node">
+<rect x="72" y="184" width="420" height="53" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="282" y="207.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy, uid 10003)</text>
+<text x="282" y="223.9" font-size="12.5" fill="#0f172a" text-anchor="middle">TLS on 8443 for API clients; forwards to api.sock</text>
+<rect x="72" y="277" width="420" height="119" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="82" y="300.1" font-size="13.5" fill="#0f172a" font-weight="700">analysis (api.server + workers, uid 10001)</text>
+<text x="82" y="316.9" font-size="12.5" fill="#0f172a">AEGIS_INTEL_URL = https://&lt;fixed ClusterIP&gt;:9443 (no DNS lookup)</text>
+<text x="82" y="333.4" font-size="12.5" fill="#0f172a">AEGIS_INTEL_SERVER_NAME = aegis-intel.aegis-sentinel.svc</text>
+<text x="82" y="349.9" font-size="12.5" fill="#0f172a">AEGIS_INTEL_CA_FILE from ConfigMap aegis-intel-ca</text>
+<text x="82" y="366.4" font-size="12.5" fill="#0f172a">AEGIS_INTEL_TOKEN_FILE from Secret aegis-intel-token</text>
+<text x="82" y="382.9" font-size="12.5" fill="#0f172a">no external-service key; LLM_PROVIDER=none in its own env</text>
+<rect x="72" y="414" width="420" height="100" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="82" y="437.2" font-size="13.5" fill="#0f172a" font-weight="700">What the client enforces (core/intel_client.py)</text>
+<text x="82" y="453.5" font-size="12" fill="#0f172a">TLS 1.2+, certificate required, name checked against SERVER_NAME,</text>
+<text x="82" y="469.3" font-size="12" fill="#0f172a">only the private CA trusted (re-read on every connection); no redirects, no</text>
+<text x="82" y="485.1" font-size="12" fill="#0f172a">proxy variables, no retries; reply at most 1 MiB, identity encoding, JSON</text>
+<text x="82" y="501" font-size="12" fill="#0f172a">object with status 200, else an error</text>
+<rect x="560" y="300" width="190" height="68" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="655" y="322" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Service aegis-intel</text>
+<text x="655" y="338.5" font-size="12.5" fill="#0f172a" text-anchor="middle">ClusterIP (fixed)</text>
+<text x="655" y="355" font-size="12.5" fill="#0f172a" text-anchor="middle">port 9443</text>
+<rect x="812" y="184" width="316" height="86" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="970" y="207.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel-proxy (Caddy, uid 10003)</text>
+<text x="970" y="223.9" font-size="12.5" fill="#0f172a" text-anchor="middle">TLS 1.2/1.3 on 9443 with Secret aegis-intel-tls (leaf</text>
+<text x="970" y="240.4" font-size="12.5" fill="#0f172a" text-anchor="middle">for aegis-intel.&lt;ns&gt;.svc); body cap 101 MiB; to</text>
+<text x="970" y="256.9" font-size="12.5" fill="#0f172a" text-anchor="middle">intel.sock</text>
+<rect x="812" y="310" width="316" height="135" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="970" y="332.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel (api.intel, uid 10002)</text>
+<text x="970" y="349.7" font-size="12.5" fill="#0f172a" text-anchor="middle">token &gt;= 32 chars (Secret aegis-intel-token),</text>
+<text x="970" y="366.2" font-size="12.5" fill="#0f172a" text-anchor="middle">compared in constant time; fixed operations only:</text>
+<text x="970" y="382.7" font-size="12.5" fill="#0f172a" text-anchor="middle">VirusTotal lookup/upload, LLM analyze, sandbox</text>
+<text x="970" y="399.2" font-size="12.5" fill="#0f172a" text-anchor="middle">submit/poll, alert e-mail; per-operation rate limits;</text>
+<text x="970" y="415.7" font-size="12.5" fill="#0f172a" text-anchor="middle">keys from Secret aegis-intel-credentials; answer</text>
+<text x="970" y="432.2" font-size="12.5" fill="#0f172a" text-anchor="middle">cache on claim aegis-intel-state</text>
+<rect x="560" y="400" width="190" height="131" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="655" y="422.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">NetworkPolicies</text>
+<text x="655" y="439.1" font-size="12" fill="#0f172a" text-anchor="middle">analysis egress: only TCP</text>
+<text x="655" y="455" font-size="12" fill="#0f172a" text-anchor="middle">9443 to component=intel</text>
+<text x="655" y="470.8" font-size="12" fill="#0f172a" text-anchor="middle">intel ingress: only 9443 from</text>
+<text x="655" y="486.6" font-size="12" fill="#0f172a" text-anchor="middle">analysis</text>
+<text x="655" y="502.5" font-size="12" fill="#0f172a" text-anchor="middle">intel egress: kube-dns 53; 443,</text>
+<text x="655" y="518.3" font-size="12" fill="#0f172a" text-anchor="middle">465, 587 to public addresses</text>
+<polygon points="48,560 1136,560 1148,572 1148,641 48,641" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1136,560 1136,572 1148,572" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="57" y="579.6" font-size="12" fill="#0f172a">Requires a network plugin that enforces ingress and egress policy and evaluates it after ClusterIP translation (Calico, Cilium and Antrea do). Without enforcement the analysis Pod has full network</text>
+<text x="57" y="595.7" font-size="12" fill="#0f172a">access; the isolation gate (init container and readiness probe) then fails the Pod because DNS, the API server or the internet answers. The gate is a sample, not a proof. Analysis readiness does not</text>
+<text x="57" y="611.7" font-size="12" fill="#0f172a">depend on intel: while intel is down, external layers report &#x27;unreachable&#x27; and the scan is partial.</text>
+<text x="57" y="627.8" font-size="12" fill="#0f172a">Rotation: a new leaf from the same CA needs an intel restart only; a CA change uses both CAs in aegis-intel-ca during the overlap; a new token needs both Deployments restarted.</text>
+<text x="1210" y="120" font-size="13" fill="#334155" font-weight="700">Reached only by intel</text>
+<rect x="1210" y="140" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="162.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1390" y="179.2" font-size="12" fill="#0f172a" text-anchor="middle">SHA-256 lookup; upload only with VT_UPLOAD_UNKNOWN</text>
+<rect x="1210" y="208" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="230.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM (OpenAI or Ollama)</text>
+<text x="1390" y="247.2" font-size="12" fill="#0f172a" text-anchor="middle">up to 8,000 characters of text</text>
+<rect x="1210" y="276" width="360" height="68" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="299" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1390" y="315.3" font-size="12" fill="#0f172a" text-anchor="middle">the whole file; an internal server needs its own egress rule in</text>
+<text x="1390" y="331.1" font-size="12" fill="#0f172a" text-anchor="middle">the overlay</text>
+<rect x="1210" y="360" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="382.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1390" y="399.2" font-size="12" fill="#0f172a" text-anchor="middle">metadata-only alert e-mail over TLS</text>
+<rect x="1210" y="448" width="360" height="68" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="471" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Blocked for both Pods</text>
+<text x="1390" y="487.3" font-size="12" fill="#0f172a" text-anchor="middle">cloud metadata 169.254.169.254, link-local, loopback, private</text>
+<text x="1390" y="503.1" font-size="12" fill="#0f172a" text-anchor="middle">ranges (intel), everything except 9443 to intel (analysis)</text>
+</g>
+<g id="d11-label">
+<rect x="308.1" y="247.8" width="127.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="372" y="261.3" font-size="12" fill="#0f172a" text-anchor="middle">api.sock (Unix socket)</text>
+<rect x="507.5" y="261.6" width="41" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="528" y="275.1" font-size="12" fill="#0f172a" text-anchor="middle">TLS +</text>
+<text x="528" y="290.5" font-size="12" fill="#0f172a" text-anchor="middle">token</text>
+<rect x="990.5" y="280.8" width="59" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1020" y="294.3" font-size="12" fill="#0f172a" text-anchor="middle">intel.sock</text>
+</g>
+<g id="d11-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Option E: the analysis Pod talks to intel over TLS on one port</text>
+<text x="24" y="63" font-size="13" fill="#334155">Optional component deploy/kubernetes/components/intel, commit a1c752e. Implemented and statically checked; NOT yet run on a cluster.</text>
+</g>
+</svg>

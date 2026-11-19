@@ -1,0 +1,11 @@
+{
+  "edition": "Public technical edition",
+  "title": "Aegis Sentinel: Technical Overview",
+  "subtitle": "How the hybrid file-analysis engine works, what it guarantees, how it is deployed, and what has and has not been verified. For a security engineer who is new to the repository.",
+  "date": "19 November 2026",
+  "baseline": "Code d45715a (last change to application code); documentation and manifests reviewed at e012d3f, branch review/production-hardening (local, not pushed). Engine 4.8.0, result schema 1.4, indicator registry 2026.10.23-1.",
+  "scope": "The implemented system only: engine, detection layers, scoring, completeness, workers, interfaces, external services, protection features and the Docker and Kubernetes deployments. Proposed work is labelled as proposed.",
+  "audience": "Security engineers joining the project. Familiarity with malware analysis, TLS and containers is assumed; the project's own terms are explained before use.",
+  "running": "Aegis Sentinel technical overview · baseline d45715a / e012d3f",
+  "cover_note": "Status labels used throughout: <span class=\"st st-impl\">Implemented</span> in the code; <span class=\"st st-local\">Tested locally</span> by the repository's tests on one macOS arm64 host; <span class=\"st st-ci\">Verified in CI</span> on GitHub runners (last run on an older commit, 3e5a3f2); <span class=\"st st-pending\">Not verified</span> on the platform, service or cluster in question; <span class=\"st st-opt\">Optional / off by default</span>; <span class=\"st st-prop\">Proposed</span>, not built. Paths are relative to the repository root. No malware was executed and no cluster or external service was contacted to write this document."
+}

@@ -227,6 +227,6 @@
 </g>
 <g id="d5-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Deployment: where each part runs, and what separates it</text>
-<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>

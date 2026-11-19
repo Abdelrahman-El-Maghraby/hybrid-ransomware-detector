@@ -1,11 +1,12 @@
 # Architecture diagrams
 
-Six diagrams of Aegis Sentinel (four UML views and two deployment views), drawn
-from the code and checked against it. Diagrams 1 to 5 describe the code at commit
-`b6966f8` on `review/production-hardening`; diagram 6 describes the optional
-Kubernetes manifests in `deploy/kubernetes/` at commit `706ea8a` (the base; the optional
-intel component is described in text, not drawn). Class, method and message names are the ones in
-the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
+Eleven diagrams of Aegis Sentinel (UML views, focused data-flow views and deployment
+views), drawn from the code and checked against it. All of them were reviewed on
+2026-11-19 against commit `e012d3f` on `review/production-hardening` (application code
+last changed in `d45715a`; `deploy/kubernetes/` in `a1c752e`); the review record is
+[DIAGRAM_REVIEW](../security-overview/DIAGRAM_REVIEW.md). Class, method and message names
+are the ones in the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md); the full
+technical overview (PDF) is in [security-overview](../security-overview/README.md).
 
 | # | Diagram | Question it answers | Drawing | Definition |
 |---|---|---|---|---|
@@ -15,8 +16,13 @@ the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md).
 | 4 | Flowchart | How does the whole system fit together? | [4-system-flowchart.svg](uml-diagram-sources/4-system-flowchart.svg) | [d4_system_flowchart.py](uml-diagram-sources/d4_system_flowchart.py) |
 | 5 | Deployment and trust boundaries | Where does each part run, and what separates it? | [5-deployment-trust-boundaries.svg](uml-diagram-sources/5-deployment-trust-boundaries.svg) | [d5_deployment_trust_boundaries.py](uml-diagram-sources/d5_deployment_trust_boundaries.py) |
 | 6 | Kubernetes deployment and trust boundaries (optional) | What separates the parts in a cluster? | [6-kubernetes-trust-boundaries.svg](uml-diagram-sources/6-kubernetes-trust-boundaries.svg) | [d6_kubernetes_trust_boundaries.py](uml-diagram-sources/d6_kubernetes_trust_boundaries.py) |
+| 7 | Sequence: one file across processes | Which process does what, and what crosses the pipe? | [7-one-file-sequence.svg](uml-diagram-sources/7-one-file-sequence.svg) | [d7_one_file_sequence.py](uml-diagram-sources/d7_one_file_sequence.py) |
+| 8 | Layers, context and evidence | How do layers share data without calling each other? | [8-layer-context-evidence.svg](uml-diagram-sources/8-layer-context-evidence.svg) | [d8_layer_context_evidence.py](uml-diagram-sources/d8_layer_context_evidence.py) |
+| 9 | Nested containers | What goes down and comes back up through e-mail, archive and members? | [9-nested-containers.svg](uml-diagram-sources/9-nested-containers.svg) | [d9_nested_containers.py](uml-diagram-sources/d9_nested_containers.py) |
+| 10 | Scoring versus completeness | How do the risk score and the scan status relate? | [10-scoring-vs-completeness.svg](uml-diagram-sources/10-scoring-vs-completeness.svg) | [d10_scoring_vs_completeness.py](uml-diagram-sources/d10_scoring_vs_completeness.py) |
+| 11 | Kubernetes option E | How does analysis reach intel in a cluster? | [11-option-e-intel.svg](uml-diagram-sources/11-option-e-intel.svg) | [d11_option_e_intel.py](uml-diagram-sources/d11_option_e_intel.py) |
 
-All six on one page, with zoom and the checked facts under each diagram:
+All eleven on one page, with zoom and the checked facts under each diagram:
 [ARCHITECTURE_UML_DIAGRAMS.html](ARCHITECTURE_UML_DIAGRAMS.html). Open it in a
 browser; it is self-contained and loads nothing from the network.
 
@@ -104,7 +110,9 @@ read in the files named.
 7. Meanwhile the parent's `_step()` reads each reply (JSON, checked by
    `check_reply()`), keeps member evidence and the latest snapshot, and checks the
    time limit and, on macOS, the worker's memory.
-8. How the wait ends: an `ok` reply gives the worker's result. At the time limit a
+8. How the wait ends: an `ok` reply gives the worker's result, provided it names the file
+   that was sent (RV-S2: a result or snapshot for another file is refused and the file gets
+   `failure_result()`). At the time limit a
    `settled` or `completed` snapshot is kept as the result, a `provisional` one
    becomes a partial result through `stopped_result()`, and no snapshot gives
    `failure_result()`. An `error` or invalid reply, a dead worker or the memory
@@ -206,7 +214,26 @@ Output behaviour that differs by entry point, and why:
 - Intel is optional (`components/intel`, option E of K8S-1): intel in its own Pod
   behind a TLS proxy on 9443; analysis gets one egress rule to it and verifies its
   certificate by name with a private CA. Without the component there are no
-  external services. Not yet run on a cluster.
+  external services. Not yet run on a cluster. Drawn as diagram 11.
+
+### 7 to 11. Focused views (added 2026-11-19)
+
+- **7, sequence:** entry point, `_IsolatedScan`, worker process, pipeline, services. The
+  parent sends the path and `None`; the worker sends size-limited JSON messages checked by
+  `check_reply()`; at the time limit a settled or completed snapshot is kept, a provisional
+  one becomes `stopped_result()`, none gives `failure_result()`.
+- **8, layer flow:** `scan_file()` runs the 22 layers on one `ScanContext`; each writes a
+  `scan_results` entry and a typed signal; heavy layers run on copies merged back in pipeline
+  order; `_assemble()` scores, assesses and records provenance once.
+- **9, nested containers:** an illustrative e-mail with an encrypted archive: passwords from
+  the body, `max_nesting` 2, per-container budgets; member summaries, the worst member's
+  prefixed contributions and members' incomplete reasons come back up.
+- **10, scoring versus completeness:** contributions, category caps, the semantic-only clamp
+  and the allowlist give the risk score and band; `assess()` gives `scan_status`
+  independently; they meet only in `verdict_label`.
+- **11, option E:** fixed ClusterIP on 9443, server-name check against a private CA, bearer
+  token, 1 MiB replies, NetworkPolicies allowing only that path; intel alone reaches
+  VirusTotal, the LLM, CAPE and SMTP.
 
 ## Rebuilding and keeping them true
 
@@ -215,7 +242,7 @@ cd docs/architecture/uml-diagram-sources
 python3 build_diagrams.py
 ```
 
-Python 3.9 or later, standard library only. The script writes the six SVG files
+Python 3.9 or later, standard library only. The script writes the eleven SVG files
 and the HTML page, and stops when a label no longer fits its box, two nodes
 overlap or a connector runs through an unrelated node.
 
@@ -227,7 +254,7 @@ repository.
 ## Graphify code graph
 
 [`graphify-code-graph.html`](graphify-code-graph.html) is the interactive code
-graph the diagrams were drawn from: 6,366 nodes covering all 253 Python files at
+graph diagrams 1 to 5 were first drawn from: 6,366 nodes covering all 253 Python files at
 commit `72aa761`, grouped into named communities. It is a **snapshot of
 `72aa761`** and the page says so; it does not include the later code changes
 listed in [HANDOFF](../HANDOFF.md) (the background scheduler, the folder monitor's
@@ -235,7 +262,10 @@ partial batches, the evaluation summary, the layer-order check and a GUI label),
 the optional Kubernetes deployment in `deploy/kubernetes/`. It is a single page; it loads
 the `vis-network` 9.1.6 library from unpkg, so it needs an internet connection.
 It is a generated snapshot: the raw `graph.json` and Graphify cache are not kept
-in the repository. After the code changes, rebuild the graph with Graphify and
+in the repository. A code-only rebuild of `e012d3f` on 2026-11-19 (8,038 nodes over 334
+files, including tests, docs and manifests) found the same hubs; it was used to navigate
+and not committed, because its communities are unlabelled without the LLM step
+([DIAGRAM_REVIEW](../security-overview/DIAGRAM_REVIEW.md)). After the code changes, rebuild the graph with Graphify and
 replace this file, or the page will describe older code.
 
 ## The drawings
@@ -251,3 +281,13 @@ replace this file, or the page will describe older code.
 ![Deployment and trust boundaries](uml-diagram-sources/5-deployment-trust-boundaries.svg)
 
 ![Kubernetes deployment and trust boundaries](uml-diagram-sources/6-kubernetes-trust-boundaries.svg)
+
+![One file across processes](uml-diagram-sources/7-one-file-sequence.svg)
+
+![Layers, context and evidence](uml-diagram-sources/8-layer-context-evidence.svg)
+
+![Nested containers](uml-diagram-sources/9-nested-containers.svg)
+
+![Scoring versus completeness](uml-diagram-sources/10-scoring-vs-completeness.svg)
+
+![Kubernetes option E](uml-diagram-sources/11-option-e-intel.svg)

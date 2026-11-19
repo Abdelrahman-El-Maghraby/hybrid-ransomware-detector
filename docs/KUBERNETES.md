@@ -85,7 +85,7 @@ Alternatives considered and rejected:
 | Kubelet `podPidsLimit` (for example 512) | Kubernetes has no per-Pod or per-container process limit in the Pod spec; Docker's `pids_limit` has no Pod-spec equivalent | A fork bomb in a parser is bounded only by the node's settings |
 | Secret encryption at rest, and RBAC that limits who can read Secrets or create Pods in the namespace | Secrets are stored unencrypted in etcd by default; anyone who can create a Pod in the namespace can read its Secrets | The API token and TLS key are readable by more people than intended |
 | A container runtime with a default seccomp profile (containerd, CRI-O) | `seccompProfile: RuntimeDefault` | Admission refuses the Pod under `restricted` |
-| About 1.2 CPU and 6.5 GiB memory free on one node, plus 3 GiB of claims | [Resources](#resources-and-shutdown) | The Pod stays Pending |
+| About 1.2 CPU and 6.5 GiB memory free on one node, plus 3 GiB of claims (base; the optional intel component adds about 0.3 CPU and 0.6 GiB of requests and a 1 GiB claim) | [Resources](#resources-and-shutdown) | The Pod stays Pending |
 
 Optional, stronger isolation for the analysis Pod: a sandboxed runtime through a
 `RuntimeClass` (gVisor, Kata Containers) and user namespaces (`hostUsers: false`)
@@ -126,7 +126,8 @@ reaches the Pod as the ConfigMap `aegis-isolation-gate`, generated from
 ## Secrets and TLS
 
 Nothing in the repository creates a Secret, and `check_manifests.py` fails if a
-rendered manifest contains one. Create two before the first deployment; the Pod
+rendered manifest contains one. Create two before the first deployment (the optional
+intel component needs three more: [Intel](#intel-external-services)); the Pod
 does not start without them:
 
 ```bash
@@ -152,7 +153,8 @@ repository.
 | `aegis-api-token` (key `api_token`) | `analysis` only | `/run/secrets/aegis/api_token`, mode 0440, read through `AEGIS_API_TOKEN_FILE` |
 | `aegis-tls` (`tls.crt`, `tls.key`) | `proxy` only | `/etc/caddy/tls/cert.pem` and `key.pem` (the paths in `deploy/Caddyfile`), mode 0440 |
 
-No external-service credential exists in this deployment. Secrets are files,
+No external-service credential exists in the base deployment; with the optional
+intel component they exist only in the intel Pod. Secrets are files,
 never environment variables, so child processes and `kubectl describe` do not
 show them. The service account mounts no token (no workload uses the Kubernetes
 API) and no Role is bound.
@@ -680,7 +682,8 @@ Security Standard and ties both Pods to one node.
   on `intel.sock` in a Pod-local emptyDir) and a TLS proxy container (the same
   hardened Caddy image) that terminates TLS on 9443 and forwards to the socket,
   with its own request-size cap above `AEGIS_INTEL_MAX_UPLOAD_MB`. Same hardening
-  as analysis; its own ServiceAccount without a token; a ReadWriteOncePod claim
+  as analysis; the same `aegis-sentinel` ServiceAccount, which mounts no token and
+  has no Role (as built; the record first said its own); a ReadWriteOncePod claim
   for its cache; one replica (its rate limits and e-mail caps are in-process).
 - *Network*: analysis gets **one** egress rule: TCP 9443 to Pods labelled as
   intel (podSelector), nothing else; no DNS (the client uses the Service's

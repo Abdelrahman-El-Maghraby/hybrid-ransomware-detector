@@ -217,8 +217,8 @@ def build(meta: dict) -> Diagram:
     for ext in (vt, llm, cape):
         d.edge([(s4.right, ext.cy), ext.l()], "msg", ends=(s4, ext))
     ty = 1064
-    for row in ("Reached directly, or", "through the intel", "service over a Unix",
-                "socket (Docker)."):
+    for row in ("Reached directly, or", "through intel: a Unix", "socket (Docker) or TLS",
+                "(Kubernetes, option E)."):
         d.text(1500, ty, row, 12, anchor="middle", fill=MUTED)
         ty += 16
 

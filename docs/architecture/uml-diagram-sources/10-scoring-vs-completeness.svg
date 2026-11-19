@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d10" width="1600" height="750" viewBox="0 0 1600 750" role="img" aria-labelledby="d10-title d10-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d10-title">Scoring versus completeness: two independent answers</title>
+<desc id="d10-desc">Two parallel flows: contributions become a capped risk score and a verdict band; completeness reasons become a scan status; the two meet only in verdict_label.</desc>
+<rect x="0" y="0" width="1600" height="750" fill="#ffffff"/>
+<g id="d10-frame">
+<rect x="24" y="92" width="760" height="490" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="36" y="112" font-size="13" fill="#0f172a" font-weight="700">How risky?  ScoringMatrix.score(signals)</text>
+<rect x="816" y="92" width="760" height="490" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="828" y="112" font-size="13" fill="#0f172a" font-weight="700">How much was inspected?  assess(scanner, ctx)</text>
+</g>
+<g id="d10-edge">
+<path d="M404,209 L404,235" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,235 399.8,225 408.2,225" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,304 L404,330" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,330 399.8,320 408.2,320" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,399 L404,425" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,425 399.8,415 408.2,415" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,226 L1196,252" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,252 1191.8,242 1200.2,242" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,305 L1196,331" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,331 1191.8,321 1200.2,321" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,400 L1196,426" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,426 1191.8,416 1200.2,416" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,554 L404,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,612 399.8,602 408.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,495 L1196,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,612 1191.8,602 1200.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d10-node">
+<rect x="48" y="140" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="162.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">1 Contributions</text>
+<text x="404" y="179.7" font-size="12.5" fill="#0f172a" text-anchor="middle">23 scorer functions; each fired indicator adds points in one category: technical, reputation, semantic, statistical or dynamic.</text>
+<text x="404" y="196.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Containers add their worst member&#x27;s contributions with a prefix.</text>
+<rect x="48" y="235" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="257.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">2 Category caps, then the total</text>
+<text x="404" y="274.7" font-size="12.5" fill="#0f172a" text-anchor="middle">technical 100, reputation 80, semantic 24, statistical 20, dynamic 100; the capped categories are added and clamped to</text>
+<text x="404" y="291.2" font-size="12.5" fill="#0f172a" text-anchor="middle">100.</text>
+<rect x="48" y="330" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="352.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">3 Safeguards</text>
+<text x="404" y="369.7" font-size="12.5" fill="#0f172a" text-anchor="middle">No technical, reputation or dynamic points: at most 49 (Medium), however confident the LLM or the ML rule engine.</text>
+<text x="404" y="386.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Allowlisted SHA-256: 0, findings kept for reference, unless the MD5 is also in the local malware database.</text>
+<rect x="48" y="425" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="447.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">4 risk_score 0-100 and the verdict band</text>
+<text x="404" y="464.7" font-size="12.5" fill="#0f172a" text-anchor="middle">severity_score = risk / 10 (legacy); is_malicious = any positive contribution. The score is a weighted indicator total, not a</text>
+<text x="404" y="481.2" font-size="12.5" fill="#0f172a" text-anchor="middle">probability.</text>
+<rect x="48" y="512" width="136" height="42" fill="#f1f5f9" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="116" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Clean</text>
+<text x="116" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">0</text>
+<rect x="192" y="512" width="136" height="42" fill="#dcfce7" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="260" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Low</text>
+<text x="260" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">1-24</text>
+<rect x="336" y="512" width="136" height="42" fill="#fef9c3" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Medium</text>
+<text x="404" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">25-49</text>
+<rect x="480" y="512" width="136" height="42" fill="#fed7aa" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="548" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">High</text>
+<text x="548" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">50-79</text>
+<rect x="624" y="512" width="136" height="42" fill="#fecaca" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="692" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Critical</text>
+<text x="692" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">80-100</text>
+<rect x="840" y="140" width="712" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="163.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">1 Reasons, from every source</text>
+<text x="1196" y="179.9" font-size="12.5" fill="#0f172a" text-anchor="middle">layer errors and skips; an applicable layer that is unavailable; a parser &#x27;could not analyse&#x27;; an external service error or</text>
+<text x="1196" y="196.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time-out; members not unpacked (limits, missing decompressor, encrypted); members over the scan budget or the nesting</text>
+<text x="1196" y="212.9" font-size="12.5" fill="#0f172a" text-anchor="middle">limit; a truncated web page; members&#x27; own reasons.</text>
+<rect x="840" y="252" width="712" height="53" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="275.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">2 The most severe status wins</text>
+<text x="1196" y="291.9" font-size="12.5" fill="#0f172a" text-anchor="middle">failed &gt; locked &gt; partial &gt; unsupported &gt; complete (members included). At most 100 reasons are listed.</text>
+<rect x="840" y="331" width="712" height="69" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="353.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">3 Not a gap</text>
+<text x="1196" y="370.7" font-size="12.5" fill="#0f172a" text-anchor="middle">a heavy layer skipped at 100/100 or for an allowlisted file; a layer that does not apply to the type; an optional layer</text>
+<text x="1196" y="387.2" font-size="12.5" fill="#0f172a" text-anchor="middle">switched off (recorded in provenance).</text>
+<rect x="840" y="426" width="712" height="69" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="448.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">4 scan_status</text>
+<text x="1196" y="465.7" font-size="12.5" fill="#0f172a" text-anchor="middle">complete: every applicable, enabled layer ran. failed: the worker timed out, crashed, hit the memory limit, sent an invalid</text>
+<text x="1196" y="482.2" font-size="12.5" fill="#0f172a" text-anchor="middle">reply, or no worker could start. The status never changes the score, verdict or quarantine.</text>
+<rect x="300" y="612" width="1000" height="53" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="800" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">verdict_label: where the two meet</text>
+<text x="800" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">complete: &quot;High&quot; | partial: &quot;Clean (partial scan)&quot; | failed: &quot;Medium (failed scan)&quot; (scan_failed 25 points, or the findings kept before the failure if they score higher)</text>
+<text x="800" y="702" font-size="12.5" fill="#334155" text-anchor="middle">Alerts follow the same split: a verdict alert at or above High (default); a separate scan_failed or incomplete-scan notice, kind &#x27;detection: false&#x27;.</text>
+<text x="800" y="724" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Clean with a complete scan means no indicator fired; it does not prove the file is safe.</text>
+</g>
+<g id="d10-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Scoring versus completeness: two independent answers</text>
+<text x="24" y="63" font-size="13" fill="#334155">detectors/scoring.py, detectors/indicators.yaml (registry 2026.10.23-1), engine/completeness.py. Code at commit d45715a.</text>
+</g>
+</svg>

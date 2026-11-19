@@ -2759,6 +2759,36 @@ action.
   3.9, CI.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Technical overview and diagram review (2026-11-19, Claude Code)
+
+- **Brief:** documentation and architecture-verification task: a technical overview PDF for
+  an incoming security engineer, every architecture diagram reviewed against the code,
+  reproducible build. No application behaviour, detection rule, weight, threshold, coverage
+  or schema change; no push, deployment or cluster contact.
+- **Baseline:** code `d45715a`, tree reviewed at `e012d3f` (Kubernetes manifests `a1c752e`).
+- **Added:** `docs/security-overview/` (PDF `AEGIS_SENTINEL_TECHNICAL_OVERVIEW.pdf`, 62
+  pages; Markdown sources in `src/`; `facts.py` reads quoted numbers from the code and the
+  build fails on drift; `build_overview.py` builds the PDF with headless Chrome; README;
+  `DIAGRAM_REVIEW.md`). Diagrams 7 to 11 added (sequence, layer flow, nested containers,
+  scoring versus completeness, option E).
+- **Corrected:** diagram 3 (RV-S2 guard; intel TLS note), diagrams 1 and 4 (intel transport
+  also TLS), the diagram-6 page text (said no intel on Kubernetes), `build_diagrams.py`
+  baseline; `docs/KUBERNETES.md` (intel shares the `aegis-sentinel` ServiceAccount, not its
+  own; base-only resource and secret statements now name what intel adds);
+  `docs/architecture/README.md`, `ARCHITECTURE.md`, `PROJECT_MAP.md`, `AGENTS.md` diagram
+  counts.
+- **Checks run (this Mac):** `build_overview.py` (facts check, 11 diagrams without layout
+  problems, PDF checks: text on every page, 99 bookmarks, 75 links, no placeholders); every
+  page rendered and inspected; scans for paths, e-mail addresses, key patterns and bidi
+  characters: none; Markdown links: none broken; ruff and mypy clean on the new Python
+  files; bandit: no finding in new files (one existing B108 note in
+  `d6_kubernetes_trust_boundaries.py`, a label string). Test collection: 2,190 tests. The
+  test suite was **not** re-run (no application change); the overview quotes the recorded
+  run at `d45715a`.
+- **Graphify:** a code-only rebuild of `e012d3f` (no LLM) in a temporary folder was used to
+  navigate; the committed graph page was not replaced (its communities would be unlabelled).
+- **Uncommitted:** none from this task after its commit. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is

@@ -69,13 +69,13 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <body>
 <div class="wrap">
 <header class="page">
-<h1>Aegis Sentinel architecture in six diagrams</h1>
+<h1>Aegis Sentinel architecture in eleven diagrams</h1>
 <p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and how the whole system fits together and where each part runs. Every class, method and message name is the one in the code, read at the commit below.</p>
 <ul class="facts">
 <li><b>Branch</b><code>review/production-hardening</code></li>
-<li><b>Baseline commit</b><code>b6966f8</code> <span title="b6966f83a0b9552d0e6d9f431f842175b2f3cf7c">(documentation checkpoint)</span></li>
-<li><b>Code last changed in</b><code>b6966f8</code> Later commits change documentation only.</li>
-<li><b>Drawn</b>2026-11-17, from the source files and the Graphify graph</li>
+<li><b>Baseline commit</b><code>e012d3f</code> <span title="e012d3fb63c573303815e5b2068238d69f1c405d">(documentation checkpoint)</span></li>
+<li><b>Code last changed in</b><code>d45715a</code> Later commits change documentation only.</li>
+<li><b>Drawn</b>2026-11-19, from the source files and the Graphify graph</li>
 </ul>
 <nav class="toc" aria-label="Diagrams">
 <a href="#class-diagram">1. Class diagram: what makes up the scanner?</a>
@@ -84,6 +84,11 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <a href="#system-flowchart">4. Flowchart: how does the whole system fit together?</a>
 <a href="#deployment">5. Deployment: where does each part run, and what separates it?</a>
 <a href="#kubernetes">6. Kubernetes (optional): what separates the parts in a cluster?</a>
+<a href="#sequence">7. Sequence: one file across processes</a>
+<a href="#layer-flow">8. Layers, the shared context and how evidence becomes a result</a>
+<a href="#nested">9. Nested containers: e-mail, archive, members</a>
+<a href="#scoring">10. Scoring versus completeness</a>
+<a href="#option-e">11. Kubernetes option E: analysis to intel over TLS</a>
 <a class="alt" href="#graphify">Graphify network (reference)</a>
 <a class="alt" href="#editing">Editing the diagrams</a>
 </nav>
@@ -672,7 +677,7 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 </g>
 <g id="d1-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Class diagram: What makes up the scanner?</text>
-<text x="24" y="63" font-size="13" fill="#334155">The classes on the scan path, with their names in the code. Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">The classes on the scan path, with their names in the code. Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>
 
@@ -687,7 +692,7 @@ footer { margin: 22px 0 36px; font-size: 14px; color: #334155; }
 <li>Layer and ContainerHandler are plain base classes whose methods raise NotImplementedError; only LLMBackend is declared abstract (ABC).</li>
 <li>The six *_listener attributes are callbacks that _worker_main() sets inside a worker process; they send the pipe messages shown in the activity diagram.</li>
 <li>Each _Worker starts a child process that builds its own RansomwareScanner; _IsolatedScan keeps the caller&#x27;s scanner only to build failure results and to call on_result().</li>
-<li>The scanner&#x27;s sandbox attribute is a CapeClient, or an IntelSandbox when the intel service is used (Docker); its llm_backend is then an IntelLLMBackend.</li>
+<li>The scanner&#x27;s sandbox attribute is a CapeClient, or an IntelSandbox when the intel service is used (Docker over a Unix socket, or Kubernetes option E over TLS: TlsEndpoint); its llm_backend is then an IntelLLMBackend.</li>
 </ul></div>
 </details>
 <p class="files">Editable sources: <a href="uml-diagram-sources/d1_class_diagram.py"><code>uml-diagram-sources/d1_class_diagram.py</code></a> (the definition) and <a href="uml-diagram-sources/1-class-diagram.svg"><code>uml-diagram-sources/1-class-diagram.svg</code></a> (the drawing, with its text kept as text).</p>
@@ -1030,7 +1035,8 @@ NOTES: List[str] = [
     &quot;Each _Worker starts a child process that builds its own RansomwareScanner; _IsolatedScan &quot;
     &quot;keeps the caller&#x27;s scanner only to build failure results and to call on_result().&quot;,
     &quot;The scanner&#x27;s sandbox attribute is a CapeClient, or an IntelSandbox when the intel service &quot;
-    &quot;is used (Docker); its llm_backend is then an IntelLLMBackend.&quot;,
+    &quot;is used (Docker over a Unix socket, or Kubernetes option E over TLS: TlsEndpoint); its &quot;
+    &quot;llm_backend is then an IntelLLMBackend.&quot;,
 ]
 </code></pre></div>
 </details>
@@ -1251,7 +1257,7 @@ NOTES: List[str] = [
 </g>
 <g id="d2-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Use-case diagram: Who uses the system, and for what?</text>
-<text x="24" y="63" font-size="13" fill="#334155">Actors and external systems outside the boundary, user goals inside. Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Actors and external systems outside the boundary, user goals inside. Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>
 
@@ -1725,13 +1731,14 @@ NOTES: List[str] = [
 <text x="1480" y="1231.3" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
 <text x="1480" y="1247.5" font-size="12" fill="#0f172a" text-anchor="middle">runs the file and</text>
 <text x="1480" y="1263.3" font-size="12" fill="#0f172a" text-anchor="middle">returns a report</text>
-<polygon points="1390,1320 1558,1320 1570,1332 1570,1417 1390,1417" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polygon points="1390,1320 1558,1320 1570,1332 1570,1433 1390,1433" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
 <polyline points="1558,1320 1558,1332 1570,1332" fill="none" stroke="#92400e" stroke-width="1.2"/>
 <text x="1399" y="1339.6" font-size="12" fill="#0f172a">Docker: the worker has no</text>
 <text x="1399" y="1355.7" font-size="12" fill="#0f172a">network. These calls go</text>
 <text x="1399" y="1371.7" font-size="12" fill="#0f172a">through the intel service</text>
 <text x="1399" y="1387.8" font-size="12" fill="#0f172a">(api/intel.py) over a Unix</text>
-<text x="1399" y="1403.9" font-size="12" fill="#0f172a">socket.</text>
+<text x="1399" y="1403.9" font-size="12" fill="#0f172a">socket; on Kubernetes with</text>
+<text x="1399" y="1420" font-size="12" fill="#0f172a">option E, over TLS.</text>
 <polygon points="430,1643 560,1599 690,1643 560,1687" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
 <text x="560" y="1639.4" font-size="12.5" fill="#0f172a" text-anchor="middle">How did the</text>
 <text x="560" y="1655.6" font-size="12.5" fill="#0f172a" text-anchor="middle">wait end?</text>
@@ -1840,12 +1847,13 @@ NOTES: List[str] = [
 <text x="646" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">[time limit passed;</text>
 <text x="646" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">snapshot still</text>
 <text x="646" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">provisional]</text>
-<rect x="746" y="1729.1" width="112.1" height="79.8" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
-<text x="802" y="1742.6" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;error&#x27; or invalid</text>
-<text x="802" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">reply, dead worker,</text>
-<text x="802" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">memory limit, or</text>
-<text x="802" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">time limit with</text>
-<text x="802" y="1804" font-size="12" fill="#0f172a" text-anchor="middle">no snapshot]</text>
+<rect x="750.4" y="1721.4" width="103.3" height="95.2" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="802" y="1734.9" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;error&#x27; or invalid</text>
+<text x="802" y="1750.3" font-size="12" fill="#0f172a" text-anchor="middle">reply, a result for</text>
+<text x="802" y="1765.6" font-size="12" fill="#0f172a" text-anchor="middle">another file, dead</text>
+<text x="802" y="1781" font-size="12" fill="#0f172a" text-anchor="middle">worker, memory</text>
+<text x="802" y="1796.4" font-size="12" fill="#0f172a" text-anchor="middle">limit, or time limit</text>
+<text x="802" y="1811.7" font-size="12" fill="#0f172a" text-anchor="middle">with no snapshot]</text>
 <rect x="385.7" y="2145.1" width="120.5" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
 <text x="446" y="2158.6" font-size="12" fill="#334155" text-anchor="middle">the stopped worker&#x27;s</text>
 <text x="446" y="2174" font-size="12" fill="#334155" text-anchor="middle">flow ends here</text>
@@ -1860,7 +1868,7 @@ NOTES: List[str] = [
 </g>
 <g id="d3-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Activity diagram: How does one file get a verdict?</text>
-<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>
 
@@ -1871,6 +1879,7 @@ NOTES: List[str] = [
 <li>The worker runs the fast layers one after another, then emulation, ml, llm and virustotal together on up to four threads (_run_together, engine/staging.py). In a worker with a sandbox configured, the sandbox layer runs last, on its own.</li>
 <li>A provisional snapshot is sent only while every layer still running is VirusTotal or the LLM (_publish_pending); a stalled parser, classifier or emulator is treated as a failure, not as an external time-out.</li>
 <li>At the time limit the parent keeps a settled or completed snapshot as it is, turns a provisional one into a partial result with stopped_result(), and falls back to failure_result() when it holds none (_IsolatedScan._step).</li>
+<li>RV-S2: an &#x27;ok&#x27; result, or a provisional, settled or completed snapshot, whose file_path is not the file this worker was given is refused as an invalid reply and the file gets failure_result(); the path drives automatic quarantine in the parent.</li>
 <li>failure_result() scores the scan_failed indicator (25 points, Medium). Member evidence reported before the failure is kept when it scores higher.</li>
 <li>In the code the result is handed to on_result() first and the stopped worker is replaced straight after; the fork shows that both happen.</li>
 <li>Automatic quarantine belongs to collect(), the on_result callback of _scan_targets(). scan_one() and the REST API pass their own callback, so they never quarantine.</li>
@@ -2075,7 +2084,7 @@ def build(meta: dict) -&gt; Diagram:
     d.edge([(c6.right, cape.cy), cape.l()], &quot;msg&quot;, ends=(c6, cape))
     d.note(1390, cape.bottom + 44, 180, [
         &quot;Docker: the worker has no network. These calls go through the intel service &quot;
-        &quot;(api/intel.py) over a Unix socket.&quot;])
+        &quot;(api/intel.py) over a Unix socket; on Kubernetes with option E, over TLS.&quot;])
 
     # -------------------------------------------- parent: how the wait ended
     d5 = d.decision(560, watch_b + 78, 260, 88, [&quot;How did the&quot;, &quot;wait end?&quot;], DECISION,
@@ -2100,8 +2109,8 @@ def build(meta: dict) -&gt; Diagram:
         (b4, [&quot;[&#x27;ok&#x27; reply]&quot;]),
         (b6, [&quot;[time limit passed;&quot;, &quot;snapshot settled&quot;, &quot;or completed]&quot;]),
         (b7, [&quot;[time limit passed;&quot;, &quot;snapshot still&quot;, &quot;provisional]&quot;]),
-        (b5, [&quot;[&#x27;error&#x27; or invalid&quot;, &quot;reply, dead worker,&quot;, &quot;memory limit, or&quot;, &quot;time limit with&quot;,
-              &quot;no snapshot]&quot;]),
+        (b5, [&quot;[&#x27;error&#x27; or invalid&quot;, &quot;reply, a result for&quot;, &quot;another file, dead&quot;, &quot;worker, memory&quot;,
+              &quot;limit, or time limit&quot;, &quot;with no snapshot]&quot;]),
     ]
     for box, rows in guards:
         d.edge([(box.cx, bus), box.t()], &quot;flow&quot;, rows, (box.cx, bus + 56), (box,),
@@ -2202,6 +2211,9 @@ NOTES: List[str] = [
     &quot;At the time limit the parent keeps a settled or completed snapshot as it is, turns a &quot;
     &quot;provisional one into a partial result with stopped_result(), and falls back to &quot;
     &quot;failure_result() when it holds none (_IsolatedScan._step).&quot;,
+    &quot;RV-S2: an &#x27;ok&#x27; result, or a provisional, settled or completed snapshot, whose file_path &quot;
+    &quot;is not the file this worker was given is refused as an invalid reply and the file gets &quot;
+    &quot;failure_result(); the path drives automatic quarantine in the parent.&quot;,
     &quot;failure_result() scores the scan_failed indicator (25 points, Medium). Member evidence &quot;
     &quot;reported before the failure is kept when it scores higher.&quot;,
     &quot;In the code the result is handed to on_result() first and the stopped worker is replaced &quot;
@@ -2517,9 +2529,9 @@ NOTES: List[str] = [
 <rect x="1432" y="992" width="136" height="40" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
 <text x="1500" y="1016.7" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
 <text x="1500" y="1064" font-size="12" fill="#334155" text-anchor="middle">Reached directly, or</text>
-<text x="1500" y="1080" font-size="12" fill="#334155" text-anchor="middle">through the intel</text>
-<text x="1500" y="1096" font-size="12" fill="#334155" text-anchor="middle">service over a Unix</text>
-<text x="1500" y="1112" font-size="12" fill="#334155" text-anchor="middle">socket (Docker).</text>
+<text x="1500" y="1080" font-size="12" fill="#334155" text-anchor="middle">through intel: a Unix</text>
+<text x="1500" y="1096" font-size="12" fill="#334155" text-anchor="middle">socket (Docker) or TLS</text>
+<text x="1500" y="1112" font-size="12" fill="#334155" text-anchor="middle">(Kubernetes, option E).</text>
 <polygon points="465,1370 600,1310 735,1370 600,1430" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
 <text x="600" y="1366.4" font-size="12.5" fill="#0f172a" text-anchor="middle">&#x27;ok&#x27; reply before</text>
 <text x="600" y="1382.6" font-size="12.5" fill="#0f172a" text-anchor="middle">the time limit?</text>
@@ -2682,7 +2694,7 @@ NOTES: List[str] = [
 </g>
 <g id="d4-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Flowchart: How does the whole system fit together?</text>
-<text x="24" y="63" font-size="13" fill="#334155">Follow a file from any intake channel to its outputs. Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Follow a file from any intake channel to its outputs. Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>
 
@@ -2919,8 +2931,8 @@ def build(meta: dict) -&gt; Diagram:
     for ext in (vt, llm, cape):
         d.edge([(s4.right, ext.cy), ext.l()], &quot;msg&quot;, ends=(s4, ext))
     ty = 1064
-    for row in (&quot;Reached directly, or&quot;, &quot;through the intel&quot;, &quot;service over a Unix&quot;,
-                &quot;socket (Docker).&quot;):
+    for row in (&quot;Reached directly, or&quot;, &quot;through intel: a Unix&quot;, &quot;socket (Docker) or TLS&quot;,
+                &quot;(Kubernetes, option E).&quot;):
         d.text(1500, ty, row, 12, anchor=&quot;middle&quot;, fill=MUTED)
         ty += 16
 
@@ -3251,7 +3263,7 @@ NOTES: List[str] = [
 </g>
 <g id="d5-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Deployment: where each part runs, and what separates it</text>
-<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>
 
@@ -3509,7 +3521,7 @@ NOTES: List[str] = [
 </section>
 <section class="diagram" id="kubernetes">
 <h2>6. Kubernetes (optional): what separates the parts in a cluster?</h2>
-<p>The optional Kubernetes deployment in deploy/kubernetes, drawn on its own so the Docker view above stays as it is. A purple frame is a Pod: one network namespace, which is what a NetworkPolicy controls, so the proxy and analysis containers share one interface. A thick red frame is a container. There is no intel service on Kubernetes yet, so no external service is reachable or configured. These manifests have not been run on a cluster.</p>
+<p>The optional Kubernetes deployment in deploy/kubernetes, drawn on its own so the Docker view above stays as it is. A purple frame is a Pod: one network namespace, which is what a NetworkPolicy controls, so the proxy and analysis containers share one interface. A thick red frame is a container. Without the optional intel component (drawn on its own in diagram 11) no external service is reachable or configured. These manifests have not been run on a cluster.</p>
 <div class="toolbar">
 <button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
 <button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
@@ -3686,7 +3698,7 @@ NOTES: List[str] = [
 </g>
 <g id="d6-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Kubernetes deployment: Pods, containers and what separates them</text>
-<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit 706ea8a.</text>
+<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit a1c752e.</text>
 </g>
 </svg>
 
@@ -3908,21 +3920,1299 @@ NOTES: List[str] = [
 </code></pre></div>
 </details>
 </section>
+<section class="diagram" id="sequence">
+<h2>7. Sequence: one file across processes</h2>
+<p>The same isolated scan as diagram 3, drawn as messages between the entry point, the parent coordinator, the worker process, the pipeline inside it and the optional services. Solid arrows are calls or the path on the pipe; dashed arrows are checked JSON messages from the worker or answers from a service.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/7-one-file-sequence.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="7. Sequence: one file across processes" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d7" width="1600" height="1010" viewBox="0 0 1600 1010" role="img" aria-labelledby="d7-title d7-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d7-title">One file across processes: an isolated scan, step by step</title>
+<desc id="d7-desc">Sequence diagram: the entry point hands a file to the parent coordinator, which starts a worker process, sends the path, receives checked JSON messages while the pipeline runs, and hands the result back.</desc>
+<rect x="0" y="0" width="1600" height="1010" fill="#ffffff"/>
+<g id="d7-frame">
+<rect x="300" y="856" width="700" height="112" fill="#ffffff" rx="4" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="300" y="856" width="52" height="22" fill="#fee2e2" rx="2" stroke="#b91c1c" stroke-width="1.2"/>
+<text x="326" y="871" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">alt</text>
+<text x="364" y="872" font-size="12" fill="#0f172a" font-weight="700">[time limit, dead worker, invalid reply, memory limit]</text>
+<text x="316" y="896" font-size="12" fill="#0f172a">settled or completed snapshot: kept as the result</text>
+<text x="316" y="914" font-size="12" fill="#0f172a">provisional snapshot: stopped_result(), status partial, waiting layers named</text>
+<text x="316" y="932" font-size="12" fill="#0f172a">no snapshot or a failure: failure_result(), status failed (scan_failed, Medium)</text>
+<text x="316" y="950" font-size="12" fill="#0f172a">then: kill the worker and its helpers, delete its temp folder, start another</text>
+</g>
+<g id="d7-edge">
+<path d="M160,156 L160,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M480,156 L480,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M800,156 L800,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M1120,156 L1120,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M1440,156 L1440,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M160,190 L480,190" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="480,190 470,194.2 470,185.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M480,234 L800,234" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="800,234 790,238.2 790,229.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,326 L480,326" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,321.4 480,326 490,330.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,366 L800,366" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="800,366 790,370.2 790,361.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,406 L1120,406" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1120,406 1110,410.2 1110,401.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,496 L480,496" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,491.4 480,496 490,500.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1120,496 L1440,496" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1440,496 1430,500.2 1430,491.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,536 L480,536" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,531.4 480,536 490,540.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1440,536 L1120,536" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1130,531.4 1120,536 1130,540.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,674 L480,674" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,669.4 480,674 490,678.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,770 L160,770" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="160,770 170,765.8 170,774.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d7-node">
+<rect x="30" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="160" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Entry point</text>
+<text x="160" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">GUI, CLI, API, monitor, IMAP</text>
+<rect x="350" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="480" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Parent: _IsolatedScan</text>
+<text x="480" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">engine/workers.py</text>
+<rect x="670" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="800" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Worker process</text>
+<text x="800" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">_worker_main, _serve</text>
+<rect x="990" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1120" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Pipeline in the worker</text>
+<text x="1120" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">scan_file, layers, _assemble</text>
+<rect x="1310" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1440" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Services (optional)</text>
+<text x="1440" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">VirusTotal, LLM, CAPE</text>
+<rect x="650" y="254" width="300" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="800" y="270.4" font-size="12" fill="#0f172a" text-anchor="middle">memory limit, own process group,</text>
+<text x="800" y="286.2" font-size="12" fill="#0f172a" text-anchor="middle">own temp folder; build the scanner</text>
+<rect x="975" y="428" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="444.4" font-size="12" fill="#0f172a" text-anchor="middle">fast layers in order; containers send</text>
+<text x="1120" y="460.2" font-size="12" fill="#0f172a" text-anchor="middle">members back through scan_file</text>
+<rect x="975" y="558" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="574.4" font-size="12" fill="#0f172a" text-anchor="middle">heavy layers on context copies;</text>
+<text x="1120" y="590.2" font-size="12" fill="#0f172a" text-anchor="middle">sandbox last, alone, in a worker</text>
+<rect x="975" y="608" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="624.4" font-size="12" fill="#0f172a" text-anchor="middle">_assemble: score, scan_status,</text>
+<text x="1120" y="640.2" font-size="12" fill="#0f172a" text-anchor="middle">provenance</text>
+<rect x="330" y="689" width="300" height="58" fill="#eff6ff" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="480" y="706.5" font-size="12" fill="#0f172a" text-anchor="middle">read_reply: at most 16 MiB of JSON;</text>
+<text x="480" y="722.3" font-size="12" fill="#0f172a" text-anchor="middle">check_reply: shape and types;</text>
+<text x="480" y="738.2" font-size="12" fill="#0f172a" text-anchor="middle">the result must name this file</text>
+<rect x="35" y="796" width="250" height="40" fill="#eff6ff" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="160" y="812.4" font-size="12" fill="#0f172a" text-anchor="middle">auto-quarantine (batch scans</text>
+<text x="160" y="828.2" font-size="12" fill="#0f172a" text-anchor="middle">only), then report and deliver</text>
+<polygon points="1060,852 1548,852 1560,864 1560,965 1060,965" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,852 1548,864 1560,864" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1069" y="871.6" font-size="12" fill="#0f172a">Parent to worker: the path, then None to stop.</text>
+<text x="1069" y="887.7" font-size="12" fill="#0f172a">Worker to parent: one JSON message each; kinds ready, log, ok, error, container,</text>
+<text x="1069" y="903.7" font-size="12" fill="#0f172a">member, provisional, settled, sandbox, external, completed, clear.</text>
+<text x="1069" y="919.8" font-size="12" fill="#0f172a">Three failed starts: no file is parsed in the parent; each gets an isolation_unavailable</text>
+<text x="1069" y="935.9" font-size="12" fill="#0f172a">result (scan_status failed).</text>
+<text x="1069" y="952" font-size="12" fill="#0f172a">ISOLATE_SCANS=0 (development only): the parent calls scan_file itself.</text>
+</g>
+<g id="d7-label">
+<rect x="247.3" y="169.8" width="145.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="320" y="183.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_isolated(targets, ...)</text>
+<rect x="569" y="213.8" width="142" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="227.3" font-size="12" fill="#0f172a" text-anchor="middle">start a spawned Process</text>
+<rect x="618.4" y="305.8" width="43.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="319.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;ready&#x27;</text>
+<rect x="578.2" y="345.8" width="123.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="359.3" font-size="12" fill="#0f172a" text-anchor="middle">file path (clock starts)</text>
+<rect x="915.9" y="385.8" width="88.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="960" y="399.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(path)</text>
+<rect x="580.3" y="475.8" width="119.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="489.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;container&#x27;, &#x27;member&#x27;</text>
+<rect x="1222.9" y="475.8" width="114.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1280" y="489.3" font-size="12" fill="#0f172a" text-anchor="middle">hash or text (opt-in)</text>
+<rect x="576.9" y="515.8" width="126.2" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="529.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;external&#x27;, &#x27;provisional&#x27;</text>
+<rect x="1256.3" y="515.8" width="47.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1280" y="529.3" font-size="12" fill="#0f172a" text-anchor="middle">answer</text>
+<rect x="579.3" y="653.8" width="121.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="667.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;completed&#x27;, &#x27;log&#x27;, &#x27;ok&#x27;</text>
+<rect x="266" y="749.8" width="108" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="320" y="763.3" font-size="12" fill="#0f172a" text-anchor="middle">on_result: collect()</text>
+</g>
+<g id="d7-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">One file across processes: an isolated scan, step by step</text>
+<text x="24" y="63" font-size="13" fill="#334155">Isolated scan (the default). Branch review/production-hardening, code at commit d45715a.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>scan_one() (GUI and CLI single file) and the REST API use the same path with their own callback, so they never quarantine automatically; folder scans, the monitor and IMAP use collect(), which does (engine/scanner.py).</li>
+<li>The REST API takes a fresh spare worker per upload (api/server.py, _ScanService).</li>
+<li>Services are reached directly on the desktop, and only through the intel service in Docker and in Kubernetes with option E.</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d7_one_file_sequence.py"><code>uml-diagram-sources/d7_one_file_sequence.py</code></a> (the definition) and <a href="uml-diagram-sources/7-one-file-sequence.svg"><code>uml-diagram-sources/7-one-file-sequence.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d7_one_file_sequence.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 7 - one file across processes (sequence diagram of an isolated scan).
+
+Read from engine/workers.py (scan_isolated, _IsolatedScan, _worker_main, _serve,
+read_reply, check_reply, _final_reply), engine/staging.py (scan_file,
+_run_heavy, _assemble), engine/containers.py (scan_container) and
+engine/scanner.py (_scan_targets, scan_one, collect).
+
+Solid arrows are calls or the path sent on the pipe; dashed arrows are JSON
+messages from the worker (each read with a size limit and checked before use)
+or answers from a service. Boxes on a lifeline are work done there.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import Diagram
+
+TITLE = &quot;One file across processes: an isolated scan, step by step&quot;
+
+HEAD = &quot;#1e293b&quot;
+PARENT = &quot;#eff6ff&quot;
+WORKER = &quot;#f0fdf4&quot;
+EXT = &quot;#f1f5f9&quot;
+NOTE = &quot;#fffbeb&quot;
+BAD = &quot;#fee2e2&quot;
+
+LANES = [  # x, title, subtitle
+    (160, &quot;Entry point&quot;, &quot;GUI, CLI, API, monitor, IMAP&quot;),
+    (480, &quot;Parent: _IsolatedScan&quot;, &quot;engine/workers.py&quot;),
+    (800, &quot;Worker process&quot;, &quot;_worker_main, _serve&quot;),
+    (1120, &quot;Pipeline in the worker&quot;, &quot;scan_file, layers, _assemble&quot;),
+    (1440, &quot;Services (optional)&quot;, &quot;VirusTotal, LLM, CAPE&quot;),
+]
+
+
+def build(meta: dict) -&gt; object:
+    d = Diagram(&quot;d7&quot;, 1600, 1010, TITLE,
+                f&quot;Isolated scan (the default). Branch {meta[&#x27;branch&#x27;]}, code at commit &quot;
+                f&quot;{meta[&#x27;code_commit&#x27;]}.&quot;,
+                &quot;Sequence diagram: the entry point hands a file to the parent coordinator, which &quot;
+                &quot;starts a worker process, sends the path, receives checked JSON messages while &quot;
+                &quot;the pipeline runs, and hands the result back.&quot;)
+    d.title_block()
+    x = {i: lx for i, (lx, _, _) in enumerate(LANES)}
+    top, bottom = 104, 862
+    for lx, title, sub in LANES:
+        d.node(lx - 130, top, 260, [title, sub], h=52, fill=HEAD, stroke=HEAD, rx=4,
+               bold=[True, False], sizes=[14, 12], fills=[&quot;#ffffff&quot;, &quot;#e2e8f0&quot;], name=title)
+        d.edge([(lx, top + 52), (lx, bottom)], &quot;dline&quot;, color=&quot;#94a3b8&quot;, sw=1.2, check=False)
+
+    def call(a: int, b: int, y: float, label: str, kind: str = &quot;flow&quot;) -&gt; None:
+        d.edge([(x[a], y), (x[b], y)], kind, label, ((x[a] + x[b]) / 2, y - 11),
+               check=False, lsize=12)
+
+    def step(lane: int, y: float, w: float, rows: List[str], fill: str, h: float = 34) -&gt; None:
+        d.node(x[lane] - w / 2, y - h / 2, w, rows, h=h, fill=fill, size=12, rx=4, pad=6,
+               track=False)
+
+    y = 190
+    call(0, 1, y, &quot;scan_isolated(targets, ...)&quot;)
+    y += 44
+    call(1, 2, y, &quot;start a spawned Process&quot;)
+    step(2, y + 40, 300, [&quot;memory limit, own process group,&quot;, &quot;own temp folder; build the scanner&quot;],
+         WORKER, 40)
+    y += 92
+    call(2, 1, y, &quot;&#x27;ready&#x27;&quot;, &quot;msg&quot;)
+    y += 40
+    call(1, 2, y, &quot;file path (clock starts)&quot;)
+    y += 40
+    call(2, 3, y, &quot;scan_file(path)&quot;)
+    step(3, y + 42, 290, [&quot;fast layers in order; containers send&quot;, &quot;members back through scan_file&quot;],
+         WORKER, 40)
+    y += 90
+    call(2, 1, y, &quot;&#x27;container&#x27;, &#x27;member&#x27;&quot;, &quot;msg&quot;)
+    call(3, 4, y, &quot;hash or text (opt-in)&quot;)
+    y += 40
+    call(2, 1, y, &quot;&#x27;external&#x27;, &#x27;provisional&#x27;&quot;, &quot;msg&quot;)
+    call(4, 3, y, &quot;answer&quot;, &quot;msg&quot;)
+    y += 40
+    step(3, y + 2, 290, [&quot;heavy layers on context copies;&quot;, &quot;sandbox last, alone, in a worker&quot;],
+         WORKER, 40)
+    y += 50
+    step(3, y + 2, 290, [&quot;_assemble: score, scan_status,&quot;, &quot;provenance&quot;], WORKER, 40)
+    y += 48
+    call(2, 1, y, &quot;&#x27;completed&#x27;, &#x27;log&#x27;, &#x27;ok&#x27;&quot;, &quot;msg&quot;)
+    y += 14
+    step(1, y + 30, 300, [&quot;read_reply: at most 16 MiB of JSON;&quot;, &quot;check_reply: shape and types;&quot;,
+                          &quot;the result must name this file&quot;], PARENT, 58)
+    y += 82
+    call(1, 0, y, &quot;on_result: collect()&quot;)
+    step(0, y + 46, 250, [&quot;auto-quarantine (batch scans&quot;, &quot;only), then report and deliver&quot;],
+         PARENT, 40)
+
+    # the alternative: the wait ends without a valid &#x27;ok&#x27;
+    ay = y + 86
+    d.rect(300, ay, 700, 112, &quot;#ffffff&quot;, &quot;#b91c1c&quot;, 1.4, 4, &quot;frame&quot;, &quot;6 4&quot;)
+    d.rect(300, ay, 52, 22, BAD, &quot;#b91c1c&quot;, 1.2, 2, &quot;frame&quot;)
+    d.text(326, ay + 15, &quot;alt&quot;, 12, True, anchor=&quot;middle&quot;, layer=&quot;frame&quot;)
+    d.text(364, ay + 16, &quot;[time limit, dead worker, invalid reply, memory limit]&quot;, 12, True,
+           layer=&quot;frame&quot;, maxw=620)
+    for i, row in enumerate([
+            &quot;settled or completed snapshot: kept as the result&quot;,
+            &quot;provisional snapshot: stopped_result(), status partial, waiting layers named&quot;,
+            &quot;no snapshot or a failure: failure_result(), status failed (scan_failed, Medium)&quot;,
+            &quot;then: kill the worker and its helpers, delete its temp folder, start another&quot;]):
+        d.text(316, ay + 40 + i * 18, row, 12, layer=&quot;frame&quot;, maxw=670)
+
+    # notes
+    d.note(1060, ay - 4, 500, [
+        &quot;Parent to worker: the path, then None to stop.&quot;,
+        &quot;Worker to parent: one JSON message each; kinds ready, log, ok, error, container, &quot;
+        &quot;member, provisional, settled, sandbox, external, completed, clear.&quot;,
+        &quot;Three failed starts: no file is parsed in the parent; each gets an &quot;
+        &quot;isolation_unavailable result (scan_status failed).&quot;,
+        &quot;ISOLATE_SCANS=0 (development only): the parent calls scan_file itself.&quot;],
+        size=12, track=False)
+    return d
+
+
+NOTES: List[str] = [
+    &quot;scan_one() (GUI and CLI single file) and the REST API use the same path with their own &quot;
+    &quot;callback, so they never quarantine automatically; folder scans, the monitor and IMAP use &quot;
+    &quot;collect(), which does (engine/scanner.py).&quot;,
+    &quot;The REST API takes a fresh spare worker per upload (api/server.py, _ScanService).&quot;,
+    &quot;Services are reached directly on the desktop, and only through the intel service in Docker &quot;
+    &quot;and in Kubernetes with option E.&quot;,
+]
+</code></pre></div>
+</details>
+</section>
+<section class="diagram" id="layer-flow">
+<h2>8. Layers, the shared context and how evidence becomes a result</h2>
+<p>Layers never call each other. The coordinator runs them on one ScanContext; each adds a report entry and a typed signal; heavy layers run on copies that are merged back; scoring, completeness and provenance are computed once, in _assemble.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/8-layer-context-evidence.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="8. Layers, the shared context and how evidence becomes a result" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d8" width="1600" height="770" viewBox="0 0 1600 770" role="img" aria-labelledby="d8-title d8-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d8-title">Layers, the shared context, and how evidence becomes a result</title>
+<desc id="d8-desc">Data-flow diagram: the coordinator runs each layer on one ScanContext; layers add report entries and typed signals; heavy layers run on copies that are merged back; _assemble scores the signals and assesses completeness.</desc>
+<rect x="0" y="0" width="1600" height="770" fill="#ffffff"/>
+<g id="d8-frame">
+<rect x="24" y="92" width="420" height="656" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="36" y="112" font-size="13" fill="#0f172a" font-weight="700">scan_file(): the coordinator</text>
+<text x="36" y="128.9" font-size="12" fill="#334155">runs the 22 layers in order</text>
+<rect x="1040" y="92" width="536" height="656" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1052" y="112" font-size="13" fill="#0f172a" font-weight="700">_assemble(ctx): once, at the end</text>
+<text x="1052" y="128.9" font-size="12" fill="#334155">no logging, no side effects</text>
+</g>
+<g id="d8-edge">
+<path d="M234,252 L234,266" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="234,266 229.8,256 238.2,256" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M234,335 L234,349" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="234,349 229.8,339 238.2,339" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M234,418 L234,432" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="234,432 229.8,422 238.2,422" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M234,501 L234,515" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="234,515 229.8,505 238.2,505" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M234,584 L234,608" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="234,608 229.8,598 238.2,598" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M760,345 L760,390" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="760,330 755,337.5 760,345 765,337.5" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M424,201 L500,201" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M424,300.5 L500,300.5" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M424,383.5 L500,383.5" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M424,466.5 L500,466.5" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M424,549.5 L500,549.5" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M424,659 L500,659" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M500,201 L500,659" fill="none" stroke="#64748b" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M500,210 L560,210" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550,214.6 560,210 550,205.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M500,445 L560,445" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550,449.6 560,445 550,440.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1308,246 L1308,286" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1308,286 1303.8,276 1312.2,276" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1308,355 L1308,395" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1308,395 1303.8,385 1312.2,385" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1308,481 L1308,521" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1308,521 1303.8,511 1312.2,511" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1308,590 L1308,630" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1308,630 1303.8,620 1312.2,620" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M960,445 L1002,445 Q1010,445 1010,437 L1010,211 Q1010,203 1018,203 L1060,203" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1050,207.6 1060,203 1050,198.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d8-node">
+<rect x="44" y="150" width="380" height="102" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="172.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">1 Identity</text>
+<text x="234" y="189.7" font-size="12.5" fill="#0f172a" text-anchor="middle">hashes -&gt; md5, sha256</text>
+<text x="234" y="206.2" font-size="12.5" fill="#0f172a" text-anchor="middle">allowlist -&gt; flag allowlisted</text>
+<text x="234" y="222.7" font-size="12.5" fill="#0f172a" text-anchor="middle">fuzzy -&gt; FuzzySignal</text>
+<text x="234" y="239.2" font-size="12.5" fill="#0f172a" text-anchor="middle">local-db -&gt; flag local_db_hit</text>
+<rect x="44" y="266" width="380" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="288.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">2 Structure</text>
+<text x="234" y="305.7" font-size="12.5" fill="#0f172a" text-anchor="middle">macro, yara, integrity,</text>
+<text x="234" y="322.2" font-size="12.5" fill="#0f172a" text-anchor="middle">elf, pe, script -&gt; one signal each</text>
+<rect x="44" y="349" width="380" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="371.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">3 Mail container</text>
+<text x="234" y="388.7" font-size="12.5" fill="#0f172a" text-anchor="middle">mail: opens the message, scans each</text>
+<text x="234" y="405.2" font-size="12.5" fill="#0f172a" text-anchor="middle">attachment, keeps the body as text</text>
+<rect x="44" y="432" width="380" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="454.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">4 Content</text>
+<text x="234" y="471.7" font-size="12.5" fill="#0f172a" text-anchor="middle">prompt-guard: extracts text + strings once</text>
+<text x="234" y="488.2" font-size="12.5" fill="#0f172a" text-anchor="middle">relationships, qr</text>
+<rect x="44" y="515" width="380" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="537.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">5 Containers</text>
+<text x="234" y="554.7" font-size="12.5" fill="#0f172a" text-anchor="middle">archive, web, embedded: members go back</text>
+<text x="234" y="571.2" font-size="12.5" fill="#0f172a" text-anchor="middle">through scan_file at depth + 1</text>
+<rect x="44" y="608" width="380" height="102" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="234" y="630.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">6 Heavy layers (heavy = True)</text>
+<text x="234" y="647.7" font-size="12.5" fill="#0f172a" text-anchor="middle">emulation, ml, llm, virustotal: skipped when allowlisted</text>
+<text x="234" y="664.2" font-size="12.5" fill="#0f172a" text-anchor="middle">or already 100/100; else concurrently, each on a copy</text>
+<text x="234" y="680.7" font-size="12.5" fill="#0f172a" text-anchor="middle">of the context, merged back in pipeline order</text>
+<text x="234" y="697.2" font-size="12.5" fill="#0f172a" text-anchor="middle">sandbox: last (alone in a worker), gate risk &gt;= 25</text>
+<rect x="560" y="150" width="400" height="180" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.6"/>
+<rect x="560" y="150" width="400" height="30" fill="#dcfce7" rx="3" stroke="#0f172a" stroke-width="1.6"/>
+<rect x="560.8" y="174" width="398.4" height="6" fill="#dcfce7" stroke="none"/>
+<line x1="560" y1="180" x2="960" y2="180" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+<text x="760" y="170" font-size="14" fill="#0f172a" font-weight="700" text-anchor="middle">ScanContext</text>
+<text x="570" y="198" font-size="12.5" fill="#0f172a">path, display (&quot;mail.eml!/a.zip!/x.js&quot;)</text>
+<text x="570" y="215.5" font-size="12.5" fill="#0f172a">depth (0 top level, +1 per container)</text>
+<text x="570" y="233" font-size="12.5" fill="#0f172a">is_archive, is_mail, is_web, embedded_kind</text>
+<text x="570" y="250.5" font-size="12.5" fill="#0f172a">data(): whole file once, up to 64 MiB</text>
+<text x="570" y="268" font-size="12.5" fill="#0f172a">hashes, text, strings</text>
+<text x="570" y="285.5" font-size="12.5" fill="#0f172a">signals: Signals</text>
+<text x="570" y="303" font-size="12.5" fill="#0f172a">result[&quot;scan_results&quot;]: report entries</text>
+<text x="570" y="320.5" font-size="12.5" fill="#0f172a">layer_log, member_reasons, member_shared</text>
+<rect x="560" y="390" width="400" height="110" fill="#ffffff" rx="3" stroke="#0f172a" stroke-width="1.6"/>
+<rect x="560" y="390" width="400" height="30" fill="#dcfce7" rx="3" stroke="#0f172a" stroke-width="1.6"/>
+<rect x="560.8" y="414" width="398.4" height="6" fill="#dcfce7" stroke="none"/>
+<line x1="560" y1="420" x2="960" y2="420" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+<text x="760" y="410" font-size="14" fill="#0f172a" font-weight="700" text-anchor="middle">Signals</text>
+<text x="570" y="438" font-size="12.5" fill="#0f172a">19 typed signals (FuzzySignal ... EmulationSignal)</text>
+<text x="570" y="455.5" font-size="12.5" fill="#0f172a">flags: allowlisted, local_db_hit, scan_failed</text>
+<text x="570" y="473" font-size="12.5" fill="#0f172a">container signals carry .worst (WorstMember)</text>
+<text x="570" y="490.5" font-size="12.5" fill="#0f172a">extra: signals of third-party layers</text>
+<polygon points="560,530 948,530 960,542 960,675 560,675" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="948,530 948,542 960,542" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="569" y="549.6" font-size="12" fill="#0f172a">Each layer does two things: its full result goes to scan_results[key]</text>
+<text x="569" y="565.7" font-size="12" fill="#0f172a">(what reports show) and its typed signal to ctx.signals (what scoring</text>
+<text x="569" y="581.7" font-size="12" fill="#0f172a">reads).</text>
+<text x="569" y="597.8" font-size="12" fill="#0f172a">A layer that raises is recorded in layer_errors and in layer_log; the</text>
+<text x="569" y="613.9" font-size="12" fill="#0f172a">scan goes on.</text>
+<text x="569" y="630" font-size="12" fill="#0f172a">Order rules (ORDER_RULES): hashes before allowlist, local-db, llm,</text>
+<text x="569" y="646.1" font-size="12" fill="#0f172a">virustotal, sandbox; mail before prompt-guard; prompt-guard before</text>
+<text x="569" y="662.1" font-size="12" fill="#0f172a">llm; sandbox last.</text>
+<rect x="1060" y="160" width="496" height="86" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1308" y="183.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">ScoringMatrix.score(signals)</text>
+<text x="1308" y="199.9" font-size="12.5" fill="#0f172a" text-anchor="middle">23 scorer functions turn signals into Contribution(indicator, category, points, detail);</text>
+<text x="1308" y="216.4" font-size="12.5" fill="#0f172a" text-anchor="middle">per-category caps; total clamped to 100; semantic or statistical evidence alone stays</text>
+<text x="1308" y="232.9" font-size="12.5" fill="#0f172a" text-anchor="middle">&lt;= 49; allowlist sets 0 unless the hash is in the malware database.</text>
+<rect x="1060" y="286" width="496" height="69" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1308" y="308.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">ScoreResult</text>
+<text x="1308" y="325.7" font-size="12.5" fill="#0f172a" text-anchor="middle">risk_score 0-100, verdict band, severity_score (legacy 0-10), is_malicious,</text>
+<text x="1308" y="342.2" font-size="12.5" fill="#0f172a" text-anchor="middle">contributions, category_totals, registry_version</text>
+<rect x="1060" y="395" width="496" height="86" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1308" y="418.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">assess(scanner, ctx)</text>
+<text x="1308" y="434.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Reads scan_results, layer states and member reasons: scan_status (complete,</text>
+<text x="1308" y="451.4" font-size="12.5" fill="#0f172a" text-anchor="middle">unsupported, partial, locked, failed) and up to 100 incomplete_reasons. Independent</text>
+<text x="1308" y="467.9" font-size="12.5" fill="#0f172a" text-anchor="middle">of the score.</text>
+<rect x="1060" y="521" width="496" height="69" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1308" y="543.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">file_provenance(scanner, ctx)</text>
+<text x="1308" y="560.7" font-size="12.5" fill="#0f172a" text-anchor="middle">layers run, not applicable, unavailable, failed, skipped; external services configured;</text>
+<text x="1308" y="577.2" font-size="12.5" fill="#0f172a" text-anchor="middle">what was sent outside (shared); isolation</text>
+<rect x="1060" y="630" width="496" height="69" fill="#e2e8f0" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1308" y="652.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">The result (api/scan_result.schema.json)</text>
+<text x="1308" y="669.7" font-size="12.5" fill="#0f172a" text-anchor="middle">verdict, risk_score, score_breakdown, scan_status, incomplete_reasons,</text>
+<text x="1308" y="686.2" font-size="12.5" fill="#0f172a" text-anchor="middle">verdict_label (&quot;Clean (partial scan)&quot;), provenance, scan_results</text>
+</g>
+<g id="d8-label">
+<rect x="445.8" y="688.1" width="108.4" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="500" y="701.6" font-size="12" fill="#334155" text-anchor="middle">each layer writes</text>
+<text x="500" y="717" font-size="12" fill="#334155" text-anchor="middle">an entry + a signal</text>
+<rect x="987" y="314.8" width="46.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1010" y="328.3" font-size="12" fill="#0f172a" text-anchor="middle">signals</text>
+</g>
+<g id="d8-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Layers, the shared context, and how evidence becomes a result</text>
+<text x="24" y="63" font-size="13" fill="#334155">engine/layers.py, engine/staging.py, detectors/scoring.py. Code at commit d45715a.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>Heavy layers: _run_heavy skips the group when the file is allowlisted (and not in the hash database) or already scores 100; otherwise _run_together runs them on a thread pool of four, each on a copy of the context, and _merge_layer copies back only what changed.</li>
+<li>In an isolated worker with a sandbox configured, the sandbox runs after the other heavy layers, on its own, so its provisional result holds their findings.</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d8_layer_context_evidence.py"><code>uml-diagram-sources/d8_layer_context_evidence.py</code></a> (the definition) and <a href="uml-diagram-sources/8-layer-context-evidence.svg"><code>uml-diagram-sources/8-layer-context-evidence.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d8_layer_context_evidence.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 8 - layers, the shared ScanContext, and how evidence becomes a result.
+
+Read from engine/layers.py (ScanContext, Layer, default_pipeline, ORDER_RULES),
+engine/staging.py (scan_file, _run_layer, _run_heavy, _run_together,
+_merge_layer, _assemble), detectors/signals.py (Signals), detectors/scoring.py
+(ScoringMatrix, ScoreResult, Contribution), engine/completeness.py (assess) and
+engine/provenance.py (file_provenance).
+
+Layers never call each other. Each writes its report entry to
+ctx.result[&quot;scan_results&quot;] and its typed signal to ctx.signals; the coordinator
+(scan_file) runs them, and scoring runs once, in _assemble.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import MUTED, Diagram
+
+TITLE = &quot;Layers, the shared context, and how evidence becomes a result&quot;
+
+FAST = &quot;#eff6ff&quot;
+HEAVY = &quot;#fef3c7&quot;
+CTX = &quot;#dcfce7&quot;
+OUT = &quot;#f5f3ff&quot;
+
+
+def build(meta: dict) -&gt; object:
+    d = Diagram(&quot;d8&quot;, 1600, 770, TITLE,
+                f&quot;engine/layers.py, engine/staging.py, detectors/scoring.py. Code at commit &quot;
+                f&quot;{meta[&#x27;code_commit&#x27;]}.&quot;,
+                &quot;Data-flow diagram: the coordinator runs each layer on one ScanContext; layers add &quot;
+                &quot;report entries and typed signals; heavy layers run on copies that are merged &quot;
+                &quot;back; _assemble scores the signals and assesses completeness.&quot;)
+    d.title_block()
+
+    # ------------------------------------------------ the pipeline (left)
+    d.frame(24, 92, 420, 656, &quot;scan_file(): the coordinator&quot;, sub=&quot;runs the 22 layers in order&quot;)
+    groups = [
+        (&quot;1  Identity&quot;, [&quot;hashes  -&gt;  md5, sha256&quot;, &quot;allowlist  -&gt;  flag allowlisted&quot;,
+                         &quot;fuzzy  -&gt;  FuzzySignal&quot;, &quot;local-db  -&gt;  flag local_db_hit&quot;]),
+        (&quot;2  Structure&quot;, [&quot;macro, yara, integrity,&quot;, &quot;elf, pe, script  -&gt;  one signal each&quot;]),
+        (&quot;3  Mail container&quot;, [&quot;mail: opens the message, scans each&quot;, &quot;attachment, keeps the body as text&quot;]),
+        (&quot;4  Content&quot;, [&quot;prompt-guard: extracts text + strings once&quot;, &quot;relationships, qr&quot;]),
+        (&quot;5  Containers&quot;, [&quot;archive, web, embedded: members go back&quot;, &quot;through scan_file at depth + 1&quot;]),
+    ]
+    y = 150.0
+    fast_boxes = []
+    for title, rows in groups:
+        b = d.titled(44, y, 380, title, rows, fill=FAST, size=12.5, name=title)
+        fast_boxes.append(b)
+        y = b.bottom + 14
+    heavy = d.titled(44, y + 10, 380, &quot;6  Heavy layers (heavy = True)&quot;,
+                     [&quot;emulation, ml, llm, virustotal: skipped when allowlisted&quot;,
+                      &quot;or already 100/100; else concurrently, each on a copy&quot;,
+                      &quot;of the context, merged back in pipeline order&quot;,
+                      &quot;sandbox: last (alone in a worker), gate risk &gt;= 25&quot;],
+                     fill=HEAVY, size=12.5, name=&quot;heavy&quot;)
+    for a, b in zip(fast_boxes, fast_boxes[1:] + [heavy]):
+        d.edge([a.b(0.5), b.t(0.5)], &quot;flow&quot;, ends=(a, b))
+
+    # ------------------------------------------------ the context (middle)
+    ctx = d.klass(560, 150, &quot;ScanContext&quot;, [
+        &quot;path, display (\&quot;mail.eml!/a.zip!/x.js\&quot;)&quot;,
+        &quot;depth (0 top level, +1 per container)&quot;,
+        &quot;is_archive, is_mail, is_web, embedded_kind&quot;,
+        &quot;data(): whole file once, up to 64 MiB&quot;,
+        &quot;hashes, text, strings&quot;,
+        &quot;signals: Signals&quot;,
+        &quot;result[\&quot;scan_results\&quot;]: report entries&quot;,
+        &quot;layer_log, member_reasons, member_shared&quot;,
+    ], [], w=400, fill=CTX)
+    sig = d.klass(560, ctx.bottom + 60, &quot;Signals&quot;, [
+        &quot;19 typed signals (FuzzySignal ... EmulationSignal)&quot;,
+        &quot;flags: allowlisted, local_db_hit, scan_failed&quot;,
+        &quot;container signals carry .worst (WorstMember)&quot;,
+        &quot;extra: signals of third-party layers&quot;,
+    ], [], w=400, fill=CTX)
+    d.edge([(ctx.cx, ctx.bottom), (ctx.cx, sig.top)], &quot;comp&quot;, ends=(ctx, sig))
+    bus = 500
+    for b in fast_boxes + [heavy]:
+        d.edge([b.r(0.5), (bus, b.cy)], &quot;line&quot;, color=&quot;#64748b&quot;, sw=1.3, check=False)
+    d.edge([(bus, fast_boxes[0].cy), (bus, heavy.cy)], &quot;line&quot;, color=&quot;#64748b&quot;, sw=1.3,
+           check=False)
+    d.edge([(bus, ctx.top + 60), (ctx.left, ctx.top + 60)], &quot;msg&quot;, ends=(ctx,), check=False)
+    d.edge([(bus, sig.cy), (sig.left, sig.cy)], &quot;msg&quot;, ends=(sig,), check=False)
+    d.label(bus, heavy.cy + 46, [&quot;each layer writes&quot;, &quot;an entry + a signal&quot;], 12,
+            fill=MUTED, check=False)
+
+    d.note(560, sig.bottom + 30, 400, [
+        &quot;Each layer does two things: its full result goes to scan_results[key] (what reports &quot;
+        &quot;show) and its typed signal to ctx.signals (what scoring reads).&quot;,
+        &quot;A layer that raises is recorded in layer_errors and in layer_log; the scan goes on.&quot;,
+        &quot;Order rules (ORDER_RULES): hashes before allowlist, local-db, llm, virustotal, sandbox; &quot;
+        &quot;mail before prompt-guard; prompt-guard before llm; sandbox last.&quot;], size=12)
+
+    # ------------------------------------------------ _assemble (right)
+    d.frame(1040, 92, 536, 656, &quot;_assemble(ctx): once, at the end&quot;, sub=&quot;no logging, no side effects&quot;)
+    sc = d.titled(1060, 160, 496, &quot;ScoringMatrix.score(signals)&quot;,
+                  [&quot;23 scorer functions turn signals into Contribution(indicator, category, &quot;
+                   &quot;points, detail); per-category caps; total clamped to 100; semantic or &quot;
+                   &quot;statistical evidence alone stays &lt;= 49; allowlist sets 0 unless the hash &quot;
+                   &quot;is in the malware database.&quot;], fill=OUT, size=12.5, name=&quot;score&quot;)
+    sr = d.titled(1060, sc.bottom + 40, 496, &quot;ScoreResult&quot;,
+                  [&quot;risk_score 0-100, verdict band, severity_score (legacy 0-10), &quot;
+                   &quot;is_malicious, contributions, category_totals, registry_version&quot;],
+                  fill=OUT, size=12.5, name=&quot;ScoreResult&quot;)
+    d.edge([sc.b(0.5), sr.t(0.5)], &quot;flow&quot;, ends=(sc, sr))
+    asx = d.titled(1060, sr.bottom + 40, 496, &quot;assess(scanner, ctx)&quot;,
+                   [&quot;Reads scan_results, layer states and member reasons: scan_status (complete, &quot;
+                    &quot;unsupported, partial, locked, failed) and up to 100 incomplete_reasons. &quot;
+                    &quot;Independent of the score.&quot;],
+                   fill=OUT, size=12.5, name=&quot;assess&quot;)
+    pv = d.titled(1060, asx.bottom + 40, 496, &quot;file_provenance(scanner, ctx)&quot;,
+                  [&quot;layers run, not applicable, unavailable, failed, skipped; external &quot;
+                   &quot;services configured; what was sent outside (shared); isolation&quot;],
+                  fill=OUT, size=12.5, name=&quot;provenance&quot;)
+    res = d.titled(1060, pv.bottom + 40, 496, &quot;The result (api/scan_result.schema.json)&quot;,
+                   [&quot;verdict, risk_score, score_breakdown, scan_status, incomplete_reasons, &quot;
+                    &quot;verdict_label (\&quot;Clean (partial scan)\&quot;), provenance, scan_results&quot;],
+                   fill=&quot;#e2e8f0&quot;, size=12.5, name=&quot;result&quot;)
+    for a, b in ((sr, asx), (asx, pv), (pv, res)):
+        d.edge([a.b(0.5), b.t(0.5)], &quot;flow&quot;, ends=(a, b))
+    d.edge([(sig.right, sig.cy), (1010, sig.cy), (1010, sc.cy), sc.l()], &quot;msg&quot;,
+           &quot;signals&quot;, (1010, (sig.cy + sc.cy) / 2), (sig, sc))
+    return d
+
+
+NOTES: List[str] = [
+    &quot;Heavy layers: _run_heavy skips the group when the file is allowlisted (and not in the &quot;
+    &quot;hash database) or already scores 100; otherwise _run_together runs them on a thread pool &quot;
+    &quot;of four, each on a copy of the context, and _merge_layer copies back only what changed.&quot;,
+    &quot;In an isolated worker with a sandbox configured, the sandbox runs after the other heavy &quot;
+    &quot;layers, on its own, so its provisional result holds their findings.&quot;,
+]
+</code></pre></div>
+</details>
+</section>
+<section class="diagram" id="nested">
+<h2>9. Nested containers: e-mail, archive, members</h2>
+<p>An illustrative e-mail with an encrypted archive holding a document and a script: what goes down (passwords, depth, budgets) and what comes back up (member summaries, the worst member&#x27;s evidence, incomplete reasons).</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/9-nested-containers.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="9. Nested containers: e-mail, archive, members" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d9" width="1600" height="830" viewBox="0 0 1600 830" role="img" aria-labelledby="d9-title d9-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d9-title">Nested containers: one e-mail, one archive, two members</title>
+<desc id="d9-desc">Containment tree of an e-mail with an encrypted archive attachment holding a document and a script; what goes down (passwords, depth, budgets) and what comes back up (member summaries, worst-member evidence, incomplete reasons).</desc>
+<rect x="0" y="0" width="1600" height="830" fill="#ffffff"/>
+<g id="d9-back">
+<rect x="24" y="92" width="1000" height="210" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="114" font-size="13" fill="#334155" font-weight="700">depth 0  (top-level file)</text>
+<rect x="24" y="318" width="1000" height="240" fill="#ffffff" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="340" font-size="13" fill="#334155" font-weight="700">depth 1  (attachment)</text>
+<rect x="24" y="574" width="1000" height="150" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="40" y="596" font-size="13" fill="#334155" font-weight="700">depth 2  (archive members)</text>
+</g>
+<g id="d9-frame">
+<rect x="1060" y="92" width="516" height="632" fill="#fffbeb" rx="8" stroke="#b45309" stroke-width="1.4"/>
+<text x="1072" y="112" font-size="13" fill="#0f172a" font-weight="700">What comes back up, per level</text>
+</g>
+<g id="d9-edge">
+<path d="M520,216 L520,356" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="520,356 515.8,346 524.2,346" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M400,458 L400,582 Q400,590 392,590 L288,590 Q280,590 280,598 L280,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="280,612 275.8,602 284.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M640,458 L640,582 Q640,590 648,590 L752,590 Q760,590 760,598 L760,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="760,612 755.8,602 764.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d9-node">
+<rect x="220" y="130" width="600" height="86" fill="#dbeafe" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="520" y="153.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">invoice.eml (MailHandler: ContainerLayer &#x27;mail&#x27;)</text>
+<text x="520" y="169.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Sender checks (SPF / DKIM / DMARC from the top Authentication-Results), display-name spoof,</text>
+<text x="520" y="186.4" font-size="12.5" fill="#0f172a" text-anchor="middle">reply-to, deceptive links, risky attachment names. The body becomes ctx.text for prompt-guard and the</text>
+<text x="520" y="202.9" font-size="12.5" fill="#0f172a" text-anchor="middle">LLM. &quot;Password: 4471&quot; in the body is offered to the archive below.</text>
+<rect x="220" y="356" width="600" height="102" fill="#e0e7ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="520" y="378.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">invoice.eml!/docs.zip (ArchiveHandler: &#x27;archive&#x27;)</text>
+<text x="520" y="395.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Opened into a private temp folder by ContainerExtractor: password tried from the message, then</text>
+<text x="520" y="412.2" font-size="12.5" fill="#0f172a" text-anchor="middle">common ones; zip-slip and device names refused; nested archives expanded by the extractor itself</text>
+<text x="520" y="428.7" font-size="12.5" fill="#0f172a" text-anchor="middle">(archive_max_depth 3); 100 MB total, 500 entries, ratio 100x; risky members get the scan budget</text>
+<text x="520" y="445.2" font-size="12.5" fill="#0f172a" text-anchor="middle">(archive_scan_members 25) first.</text>
+<rect x="60" y="612" width="440" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="280" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">...docs.zip!/report.docm</text>
+<text x="280" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Full pipeline at depth 2: macro (olevba), YARA, integrity, prompt-guard,</text>
+<text x="280" y="668.4" font-size="12.5" fill="#0f172a" text-anchor="middle">relationships, QR, ML, LLM. Its own containers would only be listed: depth</text>
+<text x="280" y="684.9" font-size="12.5" fill="#0f172a" text-anchor="middle">2 = max_nesting.</text>
+<rect x="540" y="612" width="440" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="760" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">...docs.zip!/pay.js</text>
+<text x="760" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Full pipeline at depth 2: script categories (download, execute, recovery...),</text>
+<text x="760" y="668.4" font-size="12.5" fill="#0f172a" text-anchor="middle">obfuscation, YARA. Emulation only if enabled (off by default; it runs the</text>
+<text x="760" y="684.9" font-size="12.5" fill="#0f172a" text-anchor="middle">script in box-js).</text>
+<rect x="1078" y="132" width="480" height="69" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="154.9" font-size="13.5" fill="#0f172a" font-weight="700">Member summary</text>
+<text x="1088" y="171.7" font-size="12.5" fill="#0f172a">name, verdict, risk_score, hashes, first 8 indicators, scan_status; archive flags</text>
+<text x="1088" y="188.2" font-size="12.5" fill="#0f172a">(double extension, RTLO, executable) attached.</text>
+<rect x="1078" y="213" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="236.1" font-size="13.5" fill="#0f172a" font-weight="700">Worst-member evidence</text>
+<text x="1088" y="252.9" font-size="12.5" fill="#0f172a">the member with the highest risk score: its contributions are copied into the</text>
+<text x="1088" y="269.4" font-size="12.5" fill="#0f172a">container&#x27;s signal (.worst) and re-scored with a prefix:</text>
+<text x="1088" y="285.9" font-size="12.5" fill="#0f172a">archive_member:macro_autoexec, then mail_attachment:archive_member:...</text>
+<rect x="1078" y="311" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="334.1" font-size="13.5" fill="#0f172a" font-weight="700">Completeness</text>
+<text x="1088" y="350.9" font-size="12.5" fill="#0f172a">each member&#x27;s incomplete_reasons join ctx.member_reasons; the container</text>
+<text x="1088" y="367.4" font-size="12.5" fill="#0f172a">takes the most severe status: failed &gt; locked &gt; partial &gt; unsupported &gt; complete.</text>
+<text x="1088" y="383.9" font-size="12.5" fill="#0f172a">An encrypted member never opened is &#x27;locked&#x27;.</text>
+<rect x="1078" y="409" width="480" height="53" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="432.1" font-size="13.5" fill="#0f172a" font-weight="700">Provenance</text>
+<text x="1088" y="448.9" font-size="12.5" fill="#0f172a">what members sent outside (provenance.shared) is listed with member_path.</text>
+<rect x="1078" y="474" width="480" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1088" y="497.1" font-size="13.5" fill="#0f172a" font-weight="700">In a worker</text>
+<text x="1088" y="513.9" font-size="12.5" fill="#0f172a">for the top-level file only, the worker reports &#x27;container&#x27; (its own findings) and</text>
+<text x="1088" y="530.4" font-size="12.5" fill="#0f172a">&#x27;member&#x27; (each direct member done), so a time-out keeps them as partial</text>
+<text x="1088" y="546.9" font-size="12.5" fill="#0f172a">evidence.</text>
+<polygon points="60,744 1008,744 1020,756 1020,809 60,809" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1008,744 1008,756 1020,756" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="69" y="763.6" font-size="12" fill="#0f172a">Limits that stop the descent: max_nesting 2 (members of a depth-2 container are listed, not scanned); per-container scan budgets (archive 25, mail 25, web 5, embedded</text>
+<text x="69" y="779.7" font-size="12" fill="#0f172a">25); mail_max_attachments 50 and the shared 100 MB byte budget. Every member left out becomes an incomplete reason, so the top-level result reads &#x27;partial&#x27; (or &#x27;locked&#x27;),</text>
+<text x="69" y="795.7" font-size="12" fill="#0f172a">never plain &#x27;complete&#x27;.</text>
+</g>
+<g id="d9-label">
+<rect x="553.7" y="276.8" width="172.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="290.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(attachment, depth 1)</text>
+<rect x="441.5" y="580.8" width="157" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="520" y="594.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(member, depth 2)</text>
+</g>
+<g id="d9-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Nested containers: one e-mail, one archive, two members</text>
+<text x="24" y="63" font-size="13" fill="#334155">Illustrative inert example; behaviour read from engine/containers.py and detectors/container_extractor.py at commit d45715a.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>The names are illustrative; no real sample is involved.</li>
+<li>Archive members are scanned only from the archive&#x27;s own view: nested archives were already expanded by the extractor, so ArchiveHandler.items() skips them (engine/containers.py).</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d9_nested_containers.py"><code>uml-diagram-sources/d9_nested_containers.py</code></a> (the definition) and <a href="uml-diagram-sources/9-nested-containers.svg"><code>uml-diagram-sources/9-nested-containers.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d9_nested_containers.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 9 - nested containers: an e-mail carrying an archive carrying a document
+and a script (illustrative names; no real sample).
+
+Read from engine/containers.py (scan_container, MailHandler, ArchiveHandler,
+member_summary), detectors/container_extractor.py (open, nested expansion,
+passwords, limits), detectors/scoring.py (_worst, _prefixed), engine/completeness.py
+(member reasons, precedence) and engine/workers.py (container and member messages).
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import MUTED, Diagram
+
+TITLE = &quot;Nested containers: one e-mail, one archive, two members&quot;
+
+D0 = &quot;#dbeafe&quot;
+D1 = &quot;#e0e7ff&quot;
+D2 = &quot;#f0fdf4&quot;
+UP = &quot;#fef3c7&quot;
+
+
+def build(meta: dict) -&gt; object:
+    d = Diagram(&quot;d9&quot;, 1600, 830, TITLE,
+                f&quot;Illustrative inert example; behaviour read from engine/containers.py and &quot;
+                f&quot;detectors/container_extractor.py at commit {meta[&#x27;code_commit&#x27;]}.&quot;,
+                &quot;Containment tree of an e-mail with an encrypted archive attachment holding a &quot;
+                &quot;document and a script; what goes down (passwords, depth, budgets) and what comes &quot;
+                &quot;back up (member summaries, worst-member evidence, incomplete reasons).&quot;)
+    d.title_block()
+
+    # depth bands
+    for i, (band_y, h, label) in enumerate([(92, 210, &quot;depth 0  (top-level file)&quot;),
+                                       (318, 240, &quot;depth 1  (attachment)&quot;),
+                                       (574, 150, &quot;depth 2  (archive members)&quot;)]):
+        d.rect(24, band_y, 1000, h, [&quot;#f8fafc&quot;, &quot;#ffffff&quot;, &quot;#f8fafc&quot;][i], &quot;#94a3b8&quot;, 1, 6, &quot;back&quot;)
+        d.text(40, band_y + 22, label, 13, True, fill=MUTED, layer=&quot;back&quot;)
+
+    mail = d.titled(220, 130, 600, &quot;invoice.eml   (MailHandler: ContainerLayer &#x27;mail&#x27;)&quot;,
+                    [&quot;Sender checks (SPF / DKIM / DMARC from the top Authentication-Results), &quot;
+                     &quot;display-name spoof, reply-to, deceptive links, risky attachment names. &quot;
+                     &quot;The body becomes ctx.text for prompt-guard and the LLM. &quot;
+                     &quot;\&quot;Password: 4471\&quot; in the body is offered to the archive below.&quot;],
+                    fill=D0, size=12.5, name=&quot;mail&quot;)
+    arc = d.titled(220, 356, 600, &quot;invoice.eml!/docs.zip   (ArchiveHandler: &#x27;archive&#x27;)&quot;,
+                   [&quot;Opened into a private temp folder by ContainerExtractor: password tried &quot;
+                    &quot;from the message, then common ones; zip-slip and device names refused; &quot;
+                    &quot;nested archives expanded by the extractor itself (archive_max_depth 3); &quot;
+                    &quot;100 MB total, 500 entries, ratio 100x; risky members get the scan budget &quot;
+                    &quot;(archive_scan_members 25) first.&quot;],
+                   fill=D1, size=12.5, name=&quot;archive&quot;)
+    doc = d.titled(60, 612, 440, &quot;...docs.zip!/report.docm&quot;,
+                   [&quot;Full pipeline at depth 2: macro (olevba), YARA, integrity, prompt-guard, &quot;
+                    &quot;relationships, QR, ML, LLM. Its own containers would only be listed: &quot;
+                    &quot;depth 2 = max_nesting.&quot;], fill=D2, size=12.5, name=&quot;docm&quot;)
+    js = d.titled(540, 612, 440, &quot;...docs.zip!/pay.js&quot;,
+                  [&quot;Full pipeline at depth 2: script categories (download, execute, recovery...), &quot;
+                   &quot;obfuscation, YARA. Emulation only if enabled (off by default; it runs the &quot;
+                   &quot;script in box-js).&quot;], fill=D2, size=12.5, name=&quot;js&quot;)
+    d.edge([mail.b(0.5), arc.t(0.5)], &quot;flow&quot;, &quot;scan_file(attachment, depth 1)&quot;,
+           (mail.cx + 120, (mail.bottom + arc.top) / 2), (mail, arc))
+    d.edge([arc.b(0.3), (arc.side(&quot;bottom&quot;, 0.3)[0], 590), (doc.cx, 590), doc.t()], &quot;flow&quot;,
+           ends=(arc, doc))
+    d.edge([arc.b(0.7), (arc.side(&quot;bottom&quot;, 0.7)[0], 590), (js.cx, 590), js.t()], &quot;flow&quot;,
+           ends=(arc, js))
+    d.label(arc.cx, 590, &quot;scan_file(member, depth 2)&quot;, 12)
+
+    # what comes back up
+    d.frame(1060, 92, 516, 632, &quot;What comes back up, per level&quot;, fill=&quot;#fffbeb&quot;, stroke=&quot;#b45309&quot;)
+    rows = [
+        (&quot;Member summary&quot;, &quot;name, verdict, risk_score, hashes, first 8 indicators, scan_status; &quot;
+                           &quot;archive flags (double extension, RTLO, executable) attached.&quot;),
+        (&quot;Worst-member evidence&quot;, &quot;the member with the highest risk score: its contributions are &quot;
+                                  &quot;copied into the container&#x27;s signal (.worst) and re-scored with &quot;
+                                  &quot;a prefix: archive_member:macro_autoexec, then &quot;
+                                  &quot;mail_attachment:archive_member:...&quot;),
+        (&quot;Completeness&quot;, &quot;each member&#x27;s incomplete_reasons join ctx.member_reasons; the container &quot;
+                         &quot;takes the most severe status: failed &gt; locked &gt; partial &gt; unsupported &quot;
+                         &quot;&gt; complete. An encrypted member never opened is &#x27;locked&#x27;.&quot;),
+        (&quot;Provenance&quot;, &quot;what members sent outside (provenance.shared) is listed with member_path.&quot;),
+        (&quot;In a worker&quot;, &quot;for the top-level file only, the worker reports &#x27;container&#x27; (its own &quot;
+                        &quot;findings) and &#x27;member&#x27; (each direct member done), so a time-out keeps &quot;
+                        &quot;them as partial evidence.&quot;),
+    ]
+    y = 132.0
+    for title, body in rows:
+        b = d.titled(1078, y, 480, title, [body], fill=UP, size=12.5, align=&quot;start&quot;, name=title)
+        y = b.bottom + 12
+
+    d.note(60, 744, 960, [
+        &quot;Limits that stop the descent: max_nesting 2 (members of a depth-2 container are listed, &quot;
+        &quot;not scanned); per-container scan budgets (archive 25, mail 25, web 5, embedded 25); &quot;
+        &quot;mail_max_attachments 50 and the shared 100 MB byte budget. Every member left out becomes &quot;
+        &quot;an incomplete reason, so the top-level result reads &#x27;partial&#x27; (or &#x27;locked&#x27;), never &quot;
+        &quot;plain &#x27;complete&#x27;.&quot;], size=12)
+    return d
+
+
+NOTES: List[str] = [
+    &quot;The names are illustrative; no real sample is involved.&quot;,
+    &quot;Archive members are scanned only from the archive&#x27;s own view: nested archives were already &quot;
+    &quot;expanded by the extractor, so ArchiveHandler.items() skips them (engine/containers.py).&quot;,
+]
+</code></pre></div>
+</details>
+</section>
+<section class="diagram" id="scoring">
+<h2>10. Scoring versus completeness</h2>
+<p>Two independent answers: how risky the evidence is (risk score and verdict band) and how much of the file was inspected (scan_status). They meet only in verdict_label.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/10-scoring-vs-completeness.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="10. Scoring versus completeness" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d10" width="1600" height="750" viewBox="0 0 1600 750" role="img" aria-labelledby="d10-title d10-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d10-title">Scoring versus completeness: two independent answers</title>
+<desc id="d10-desc">Two parallel flows: contributions become a capped risk score and a verdict band; completeness reasons become a scan status; the two meet only in verdict_label.</desc>
+<rect x="0" y="0" width="1600" height="750" fill="#ffffff"/>
+<g id="d10-frame">
+<rect x="24" y="92" width="760" height="490" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="36" y="112" font-size="13" fill="#0f172a" font-weight="700">How risky?  ScoringMatrix.score(signals)</text>
+<rect x="816" y="92" width="760" height="490" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="828" y="112" font-size="13" fill="#0f172a" font-weight="700">How much was inspected?  assess(scanner, ctx)</text>
+</g>
+<g id="d10-edge">
+<path d="M404,209 L404,235" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,235 399.8,225 408.2,225" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,304 L404,330" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,330 399.8,320 408.2,320" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,399 L404,425" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,425 399.8,415 408.2,415" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,226 L1196,252" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,252 1191.8,242 1200.2,242" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,305 L1196,331" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,331 1191.8,321 1200.2,321" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,400 L1196,426" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,426 1191.8,416 1200.2,416" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M404,554 L404,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="404,612 399.8,602 408.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1196,495 L1196,612" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1196,612 1191.8,602 1200.2,602" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d10-node">
+<rect x="48" y="140" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="162.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">1 Contributions</text>
+<text x="404" y="179.7" font-size="12.5" fill="#0f172a" text-anchor="middle">23 scorer functions; each fired indicator adds points in one category: technical, reputation, semantic, statistical or dynamic.</text>
+<text x="404" y="196.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Containers add their worst member&#x27;s contributions with a prefix.</text>
+<rect x="48" y="235" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="257.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">2 Category caps, then the total</text>
+<text x="404" y="274.7" font-size="12.5" fill="#0f172a" text-anchor="middle">technical 100, reputation 80, semantic 24, statistical 20, dynamic 100; the capped categories are added and clamped to</text>
+<text x="404" y="291.2" font-size="12.5" fill="#0f172a" text-anchor="middle">100.</text>
+<rect x="48" y="330" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="352.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">3 Safeguards</text>
+<text x="404" y="369.7" font-size="12.5" fill="#0f172a" text-anchor="middle">No technical, reputation or dynamic points: at most 49 (Medium), however confident the LLM or the ML rule engine.</text>
+<text x="404" y="386.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Allowlisted SHA-256: 0, findings kept for reference, unless the MD5 is also in the local malware database.</text>
+<rect x="48" y="425" width="712" height="69" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="447.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">4 risk_score 0-100 and the verdict band</text>
+<text x="404" y="464.7" font-size="12.5" fill="#0f172a" text-anchor="middle">severity_score = risk / 10 (legacy); is_malicious = any positive contribution. The score is a weighted indicator total, not a</text>
+<text x="404" y="481.2" font-size="12.5" fill="#0f172a" text-anchor="middle">probability.</text>
+<rect x="48" y="512" width="136" height="42" fill="#f1f5f9" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="116" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Clean</text>
+<text x="116" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">0</text>
+<rect x="192" y="512" width="136" height="42" fill="#dcfce7" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="260" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Low</text>
+<text x="260" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">1-24</text>
+<rect x="336" y="512" width="136" height="42" fill="#fef9c3" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="404" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Medium</text>
+<text x="404" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">25-49</text>
+<rect x="480" y="512" width="136" height="42" fill="#fed7aa" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="548" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">High</text>
+<text x="548" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">50-79</text>
+<rect x="624" y="512" width="136" height="42" fill="#fecaca" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="692" y="529.2" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Critical</text>
+<text x="692" y="545.8" font-size="12.5" fill="#0f172a" text-anchor="middle">80-100</text>
+<rect x="840" y="140" width="712" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="163.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">1 Reasons, from every source</text>
+<text x="1196" y="179.9" font-size="12.5" fill="#0f172a" text-anchor="middle">layer errors and skips; an applicable layer that is unavailable; a parser &#x27;could not analyse&#x27;; an external service error or</text>
+<text x="1196" y="196.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time-out; members not unpacked (limits, missing decompressor, encrypted); members over the scan budget or the nesting</text>
+<text x="1196" y="212.9" font-size="12.5" fill="#0f172a" text-anchor="middle">limit; a truncated web page; members&#x27; own reasons.</text>
+<rect x="840" y="252" width="712" height="53" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="275.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">2 The most severe status wins</text>
+<text x="1196" y="291.9" font-size="12.5" fill="#0f172a" text-anchor="middle">failed &gt; locked &gt; partial &gt; unsupported &gt; complete (members included). At most 100 reasons are listed.</text>
+<rect x="840" y="331" width="712" height="69" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="353.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">3 Not a gap</text>
+<text x="1196" y="370.7" font-size="12.5" fill="#0f172a" text-anchor="middle">a heavy layer skipped at 100/100 or for an allowlisted file; a layer that does not apply to the type; an optional layer</text>
+<text x="1196" y="387.2" font-size="12.5" fill="#0f172a" text-anchor="middle">switched off (recorded in provenance).</text>
+<rect x="840" y="426" width="712" height="69" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1196" y="448.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">4 scan_status</text>
+<text x="1196" y="465.7" font-size="12.5" fill="#0f172a" text-anchor="middle">complete: every applicable, enabled layer ran. failed: the worker timed out, crashed, hit the memory limit, sent an invalid</text>
+<text x="1196" y="482.2" font-size="12.5" fill="#0f172a" text-anchor="middle">reply, or no worker could start. The status never changes the score, verdict or quarantine.</text>
+<rect x="300" y="612" width="1000" height="53" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="800" y="635.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">verdict_label: where the two meet</text>
+<text x="800" y="651.9" font-size="12.5" fill="#0f172a" text-anchor="middle">complete: &quot;High&quot; | partial: &quot;Clean (partial scan)&quot; | failed: &quot;Medium (failed scan)&quot; (scan_failed 25 points, or the findings kept before the failure if they score higher)</text>
+<text x="800" y="702" font-size="12.5" fill="#334155" text-anchor="middle">Alerts follow the same split: a verdict alert at or above High (default); a separate scan_failed or incomplete-scan notice, kind &#x27;detection: false&#x27;.</text>
+<text x="800" y="724" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Clean with a complete scan means no indicator fired; it does not prove the file is safe.</text>
+</g>
+<g id="d10-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Scoring versus completeness: two independent answers</text>
+<text x="24" y="63" font-size="13" fill="#334155">detectors/scoring.py, detectors/indicators.yaml (registry 2026.10.23-1), engine/completeness.py. Code at commit d45715a.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>Caps and the semantic-only maximum come from detectors/indicators.yaml (registry version recorded in every result&#x27;s score_breakdown).</li>
+<li>A failed scan whose worker could not start (isolation_unavailable) gets no scan_failed points: the file was never opened (engine/workers.py, failure_result).</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d10_scoring_vs_completeness.py"><code>uml-diagram-sources/d10_scoring_vs_completeness.py</code></a> (the definition) and <a href="uml-diagram-sources/10-scoring-vs-completeness.svg"><code>uml-diagram-sources/10-scoring-vs-completeness.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d10_scoring_vs_completeness.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 10 - two independent answers: how risky (score, verdict) and how much
+was inspected (scan_status).
+
+Read from detectors/scoring.py (ScoringMatrix._aggregate, BANDS),
+detectors/indicators.yaml (caps, semantic_only_max), engine/completeness.py
+(assess, PRECEDENCE, verdict_label) and core/outbox.py (channels_for,
+failed_alert, incomplete_alert).
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import MUTED, Diagram
+
+TITLE = &quot;Scoring versus completeness: two independent answers&quot;
+
+SC = &quot;#eff6ff&quot;
+CO = &quot;#f0fdf4&quot;
+JOIN = &quot;#f5f3ff&quot;
+BAND = {&quot;Clean&quot;: &quot;#f1f5f9&quot;, &quot;Low&quot;: &quot;#dcfce7&quot;, &quot;Medium&quot;: &quot;#fef9c3&quot;, &quot;High&quot;: &quot;#fed7aa&quot;,
+        &quot;Critical&quot;: &quot;#fecaca&quot;}
+
+
+def build(meta: dict) -&gt; object:
+    d = Diagram(&quot;d10&quot;, 1600, 750, TITLE,
+                f&quot;detectors/scoring.py, detectors/indicators.yaml (registry {meta.get(&#x27;registry&#x27;, &#x27;&#x27;)}), &quot;
+                f&quot;engine/completeness.py. Code at commit {meta[&#x27;code_commit&#x27;]}.&quot;,
+                &quot;Two parallel flows: contributions become a capped risk score and a verdict band; &quot;
+                &quot;completeness reasons become a scan status; the two meet only in verdict_label.&quot;)
+    d.title_block()
+
+    # ---------------------------------------------------------- scoring
+    d.frame(24, 92, 760, 490, &quot;How risky?  ScoringMatrix.score(signals)&quot;, fill=&quot;#f8fafc&quot;)
+    s1 = d.titled(48, 140, 712, &quot;1  Contributions&quot;,
+                  [&quot;23 scorer functions; each fired indicator adds points in one category: &quot;
+                   &quot;technical, reputation, semantic, statistical or dynamic. Containers add their &quot;
+                   &quot;worst member&#x27;s contributions with a prefix.&quot;], fill=SC, name=&quot;contrib&quot;)
+    s2 = d.titled(48, s1.bottom + 26, 712, &quot;2  Category caps, then the total&quot;,
+                  [&quot;technical 100, reputation 80, semantic 24, statistical 20, dynamic 100; &quot;
+                   &quot;the capped categories are added and clamped to 100.&quot;], fill=SC, name=&quot;caps&quot;)
+    s3 = d.titled(48, s2.bottom + 26, 712, &quot;3  Safeguards&quot;,
+                  [&quot;No technical, reputation or dynamic points: at most 49 (Medium), however &quot;
+                   &quot;confident the LLM or the ML rule engine. Allowlisted SHA-256: 0, findings kept &quot;
+                   &quot;for reference, unless the MD5 is also in the local malware database.&quot;],
+                  fill=SC, name=&quot;guards&quot;)
+    s4 = d.titled(48, s3.bottom + 26, 712, &quot;4  risk_score 0-100 and the verdict band&quot;,
+                  [&quot;severity_score = risk / 10 (legacy); is_malicious = any positive &quot;
+                   &quot;contribution. The score is a weighted indicator total, not a probability.&quot;],
+                  fill=SC, name=&quot;risk&quot;)
+    for a, b in ((s1, s2), (s2, s3), (s3, s4)):
+        d.edge([a.b(0.5), b.t(0.5)], &quot;flow&quot;, ends=(a, b))
+    bx, by = 48, s4.bottom + 18
+    for label, rng in ((&quot;Clean&quot;, &quot;0&quot;), (&quot;Low&quot;, &quot;1-24&quot;), (&quot;Medium&quot;, &quot;25-49&quot;), (&quot;High&quot;, &quot;50-79&quot;),
+                       (&quot;Critical&quot;, &quot;80-100&quot;)):
+        d.node(bx, by, 136, [label, rng], h=42, fill=BAND[label], size=12.5, bold=[True, False],
+               rx=4, name=label)
+        bx += 144
+
+    # ------------------------------------------------------- completeness
+    d.frame(816, 92, 760, 490, &quot;How much was inspected?  assess(scanner, ctx)&quot;, fill=&quot;#f8fafc&quot;)
+    c1 = d.titled(840, 140, 712, &quot;1  Reasons, from every source&quot;,
+                  [&quot;layer errors and skips; an applicable layer that is unavailable; a parser &quot;
+                   &quot;&#x27;could not analyse&#x27;; an external service error or time-out; members not &quot;
+                   &quot;unpacked (limits, missing decompressor, encrypted); members over the scan &quot;
+                   &quot;budget or the nesting limit; a truncated web page; members&#x27; own reasons.&quot;],
+                  fill=CO, name=&quot;reasons&quot;)
+    c2 = d.titled(840, c1.bottom + 26, 712, &quot;2  The most severe status wins&quot;,
+                  [&quot;failed &gt; locked &gt; partial &gt; unsupported &gt; complete (members included). &quot;
+                   &quot;At most 100 reasons are listed.&quot;], fill=CO, name=&quot;precedence&quot;)
+    c3 = d.titled(840, c2.bottom + 26, 712, &quot;3  Not a gap&quot;,
+                  [&quot;a heavy layer skipped at 100/100 or for an allowlisted file; a layer that does &quot;
+                   &quot;not apply to the type; an optional layer switched off (recorded in &quot;
+                   &quot;provenance).&quot;], fill=CO, name=&quot;not a gap&quot;)
+    c4 = d.titled(840, c3.bottom + 26, 712, &quot;4  scan_status&quot;,
+                  [&quot;complete: every applicable, enabled layer ran. failed: the worker timed out, &quot;
+                   &quot;crashed, hit the memory limit, sent an invalid reply, or no worker could &quot;
+                   &quot;start. The status never changes the score, verdict or quarantine.&quot;],
+                  fill=CO, name=&quot;status&quot;)
+    for a, b in ((c1, c2), (c2, c3), (c3, c4)):
+        d.edge([a.b(0.5), b.t(0.5)], &quot;flow&quot;, ends=(a, b))
+
+    # --------------------------------------------------------------- join
+    j = d.titled(300, 612, 1000, &quot;verdict_label: where the two meet&quot;,
+                 [&quot;complete: \&quot;High\&quot;   |   partial: \&quot;Clean (partial scan)\&quot;   |   failed: &quot;
+                  &quot;\&quot;Medium (failed scan)\&quot; (scan_failed 25 points, or the findings kept &quot;
+                  &quot;before the failure if they score higher)&quot;], fill=JOIN, name=&quot;label&quot;)
+    d.edge([(s4.cx, by + 42), (s4.cx, j.top)], &quot;flow&quot;, ends=(j,), check=False)
+    d.edge([c4.b(0.5), (c4.cx, j.top)], &quot;flow&quot;, ends=(c4, j))
+    d.text(800, 702, &quot;Alerts follow the same split: a verdict alert at or above High (default); &quot;
+           &quot;a separate scan_failed or incomplete-scan notice, kind &#x27;detection: false&#x27;.&quot;,
+           12.5, anchor=&quot;middle&quot;, fill=MUTED, maxw=1500)
+    d.text(800, 724, &quot;Clean with a complete scan means no indicator fired; it does not prove the &quot;
+           &quot;file is safe.&quot;, 12.5, True, anchor=&quot;middle&quot;, maxw=1500)
+    return d
+
+
+NOTES: List[str] = [
+    &quot;Caps and the semantic-only maximum come from detectors/indicators.yaml (registry version &quot;
+    &quot;recorded in every result&#x27;s score_breakdown).&quot;,
+    &quot;A failed scan whose worker could not start (isolation_unavailable) gets no scan_failed &quot;
+    &quot;points: the file was never opened (engine/workers.py, failure_result).&quot;,
+]
+</code></pre></div>
+</details>
+</section>
+<section class="diagram" id="option-e">
+<h2>11. Kubernetes option E: analysis to intel over TLS</h2>
+<p>The optional intel component on Kubernetes: the analysis Pod reaches intel only by a fixed ClusterIP on 9443, verifies its certificate by name against a private CA and sends a bearer token; NetworkPolicies allow only that path. Implemented and statically checked; not yet run on a cluster.</p>
+<div class="toolbar">
+<button type="button" data-zoom="fit" aria-pressed="false">Fit width</button>
+<button type="button" data-zoom="full" aria-pressed="false">Actual size</button>
+<button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+<span class="zoom" aria-live="polite">100%</span>
+<span class="hint">Scroll inside the frame when it is zoomed in. <a href="uml-diagram-sources/11-option-e-intel.svg">Open the SVG on its own</a></span>
+</div>
+<div class="canvas" role="group" aria-label="11. Kubernetes option E: analysis to intel over TLS" tabindex="0">
+<svg xmlns="http://www.w3.org/2000/svg" id="d11" width="1600" height="715" viewBox="0 0 1600 715" role="img" aria-labelledby="d11-title d11-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d11-title">Option E: the analysis Pod talks to intel over TLS on one port</title>
+<desc id="d11-desc">Kubernetes option E: analysis container connects by fixed ClusterIP to the intel Service on 9443, verifies the intel certificate by name against a private CA, authenticates with a bearer token; NetworkPolicies allow only that path; intel alone reaches the external services.</desc>
+<rect x="0" y="0" width="1600" height="715" fill="#ffffff"/>
+<g id="d11-frame">
+<rect x="24" y="92" width="1150" height="600" fill="#ffffff" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="36" y="112" font-size="13" fill="#0f172a" font-weight="700">Namespace aegis-sentinel (Pod Security: restricted; default-deny NetworkPolicy)</text>
+<rect x="48" y="140" width="470" height="400" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="2.2"/>
+<text x="62" y="162" font-size="13" fill="#7c3aed" font-weight="700">Pod aegis-analysis (unchanged base + patch)</text>
+<rect x="790" y="140" width="360" height="400" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="2.2"/>
+<text x="804" y="162" font-size="13" fill="#7c3aed" font-weight="700">Pod aegis-intel (optional)</text>
+</g>
+<g id="d11-edge">
+<path d="M282,237 L282,277" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="277.4,267 282,277 286.6,267" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M492,306.5 L560,306.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="560,306.5 550,310.7 550,302.3" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M970,270 L970,310" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="965.4,300 970,310 974.6,300" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M750,334 L812,334" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="812,334 802,338.2 802,329.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,174 Q1180,166 1188,166 L1210,166" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,170.6 1210,166 1200,161.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,242 Q1180,234 1188,234 L1210,234" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,238.6 1210,234 1200,229.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1172,377.5 Q1180,377.5 1180,369.5 L1180,318 Q1180,310 1188,310 L1210,310" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,314.6 1210,310 1200,305.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1128,377.5 L1175.8,377.5 Q1180,377.5 1180,381.8 L1180,381.8 Q1180,386 1184.2,386 L1210,386" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1200,390.6 1210,386 1200,381.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d11-node">
+<rect x="72" y="184" width="420" height="53" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="282" y="207.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy, uid 10003)</text>
+<text x="282" y="223.9" font-size="12.5" fill="#0f172a" text-anchor="middle">TLS on 8443 for API clients; forwards to api.sock</text>
+<rect x="72" y="277" width="420" height="119" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="82" y="300.1" font-size="13.5" fill="#0f172a" font-weight="700">analysis (api.server + workers, uid 10001)</text>
+<text x="82" y="316.9" font-size="12.5" fill="#0f172a">AEGIS_INTEL_URL = https://&lt;fixed ClusterIP&gt;:9443 (no DNS lookup)</text>
+<text x="82" y="333.4" font-size="12.5" fill="#0f172a">AEGIS_INTEL_SERVER_NAME = aegis-intel.aegis-sentinel.svc</text>
+<text x="82" y="349.9" font-size="12.5" fill="#0f172a">AEGIS_INTEL_CA_FILE from ConfigMap aegis-intel-ca</text>
+<text x="82" y="366.4" font-size="12.5" fill="#0f172a">AEGIS_INTEL_TOKEN_FILE from Secret aegis-intel-token</text>
+<text x="82" y="382.9" font-size="12.5" fill="#0f172a">no external-service key; LLM_PROVIDER=none in its own env</text>
+<rect x="72" y="414" width="420" height="100" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="82" y="437.2" font-size="13.5" fill="#0f172a" font-weight="700">What the client enforces (core/intel_client.py)</text>
+<text x="82" y="453.5" font-size="12" fill="#0f172a">TLS 1.2+, certificate required, name checked against SERVER_NAME,</text>
+<text x="82" y="469.3" font-size="12" fill="#0f172a">only the private CA trusted (re-read on every connection); no redirects, no</text>
+<text x="82" y="485.1" font-size="12" fill="#0f172a">proxy variables, no retries; reply at most 1 MiB, identity encoding, JSON</text>
+<text x="82" y="501" font-size="12" fill="#0f172a">object with status 200, else an error</text>
+<rect x="560" y="300" width="190" height="68" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="655" y="322" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">Service aegis-intel</text>
+<text x="655" y="338.5" font-size="12.5" fill="#0f172a" text-anchor="middle">ClusterIP (fixed)</text>
+<text x="655" y="355" font-size="12.5" fill="#0f172a" text-anchor="middle">port 9443</text>
+<rect x="812" y="184" width="316" height="86" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="970" y="207.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel-proxy (Caddy, uid 10003)</text>
+<text x="970" y="223.9" font-size="12.5" fill="#0f172a" text-anchor="middle">TLS 1.2/1.3 on 9443 with Secret aegis-intel-tls (leaf</text>
+<text x="970" y="240.4" font-size="12.5" fill="#0f172a" text-anchor="middle">for aegis-intel.&lt;ns&gt;.svc); body cap 101 MiB; to</text>
+<text x="970" y="256.9" font-size="12.5" fill="#0f172a" text-anchor="middle">intel.sock</text>
+<rect x="812" y="310" width="316" height="135" fill="#f0fdf4" rx="10" stroke="#b91c1c" stroke-width="2.4"/>
+<text x="970" y="332.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel (api.intel, uid 10002)</text>
+<text x="970" y="349.7" font-size="12.5" fill="#0f172a" text-anchor="middle">token &gt;= 32 chars (Secret aegis-intel-token),</text>
+<text x="970" y="366.2" font-size="12.5" fill="#0f172a" text-anchor="middle">compared in constant time; fixed operations only:</text>
+<text x="970" y="382.7" font-size="12.5" fill="#0f172a" text-anchor="middle">VirusTotal lookup/upload, LLM analyze, sandbox</text>
+<text x="970" y="399.2" font-size="12.5" fill="#0f172a" text-anchor="middle">submit/poll, alert e-mail; per-operation rate limits;</text>
+<text x="970" y="415.7" font-size="12.5" fill="#0f172a" text-anchor="middle">keys from Secret aegis-intel-credentials; answer</text>
+<text x="970" y="432.2" font-size="12.5" fill="#0f172a" text-anchor="middle">cache on claim aegis-intel-state</text>
+<rect x="560" y="400" width="190" height="131" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="655" y="422.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">NetworkPolicies</text>
+<text x="655" y="439.1" font-size="12" fill="#0f172a" text-anchor="middle">analysis egress: only TCP</text>
+<text x="655" y="455" font-size="12" fill="#0f172a" text-anchor="middle">9443 to component=intel</text>
+<text x="655" y="470.8" font-size="12" fill="#0f172a" text-anchor="middle">intel ingress: only 9443 from</text>
+<text x="655" y="486.6" font-size="12" fill="#0f172a" text-anchor="middle">analysis</text>
+<text x="655" y="502.5" font-size="12" fill="#0f172a" text-anchor="middle">intel egress: kube-dns 53; 443,</text>
+<text x="655" y="518.3" font-size="12" fill="#0f172a" text-anchor="middle">465, 587 to public addresses</text>
+<polygon points="48,560 1136,560 1148,572 1148,641 48,641" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1136,560 1136,572 1148,572" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="57" y="579.6" font-size="12" fill="#0f172a">Requires a network plugin that enforces ingress and egress policy and evaluates it after ClusterIP translation (Calico, Cilium and Antrea do). Without enforcement the analysis Pod has full network</text>
+<text x="57" y="595.7" font-size="12" fill="#0f172a">access; the isolation gate (init container and readiness probe) then fails the Pod because DNS, the API server or the internet answers. The gate is a sample, not a proof. Analysis readiness does not</text>
+<text x="57" y="611.7" font-size="12" fill="#0f172a">depend on intel: while intel is down, external layers report &#x27;unreachable&#x27; and the scan is partial.</text>
+<text x="57" y="627.8" font-size="12" fill="#0f172a">Rotation: a new leaf from the same CA needs an intel restart only; a CA change uses both CAs in aegis-intel-ca during the overlap; a new token needs both Deployments restarted.</text>
+<text x="1210" y="120" font-size="13" fill="#334155" font-weight="700">Reached only by intel</text>
+<rect x="1210" y="140" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="162.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1390" y="179.2" font-size="12" fill="#0f172a" text-anchor="middle">SHA-256 lookup; upload only with VT_UPLOAD_UNKNOWN</text>
+<rect x="1210" y="208" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="230.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM (OpenAI or Ollama)</text>
+<text x="1390" y="247.2" font-size="12" fill="#0f172a" text-anchor="middle">up to 8,000 characters of text</text>
+<rect x="1210" y="276" width="360" height="68" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="299" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1390" y="315.3" font-size="12" fill="#0f172a" text-anchor="middle">the whole file; an internal server needs its own egress rule in</text>
+<text x="1390" y="331.1" font-size="12" fill="#0f172a" text-anchor="middle">the overlay</text>
+<rect x="1210" y="360" width="360" height="52" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="382.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1390" y="399.2" font-size="12" fill="#0f172a" text-anchor="middle">metadata-only alert e-mail over TLS</text>
+<rect x="1210" y="448" width="360" height="68" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1390" y="471" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Blocked for both Pods</text>
+<text x="1390" y="487.3" font-size="12" fill="#0f172a" text-anchor="middle">cloud metadata 169.254.169.254, link-local, loopback, private</text>
+<text x="1390" y="503.1" font-size="12" fill="#0f172a" text-anchor="middle">ranges (intel), everything except 9443 to intel (analysis)</text>
+</g>
+<g id="d11-label">
+<rect x="308.1" y="247.8" width="127.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="372" y="261.3" font-size="12" fill="#0f172a" text-anchor="middle">api.sock (Unix socket)</text>
+<rect x="507.5" y="261.6" width="41" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="528" y="275.1" font-size="12" fill="#0f172a" text-anchor="middle">TLS +</text>
+<text x="528" y="290.5" font-size="12" fill="#0f172a" text-anchor="middle">token</text>
+<rect x="990.5" y="280.8" width="59" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1020" y="294.3" font-size="12" fill="#0f172a" text-anchor="middle">intel.sock</text>
+</g>
+<g id="d11-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Option E: the analysis Pod talks to intel over TLS on one port</text>
+<text x="24" y="63" font-size="13" fill="#334155">Optional component deploy/kubernetes/components/intel, commit a1c752e. Implemented and statically checked; NOT yet run on a cluster.</text>
+</g>
+</svg>
+
+</div>
+<details open>
+<summary>Checked in the code</summary>
+<div class="body"><ul>
+<li>check_manifests.py verifies these settings offline (URL equals the Service ClusterIP on 9443, server name, CA from a ConfigMap, token from the Secret, exactly the 9443 egress rule for analysis, intel egress without link-local or loopback). Enforcement at run time needs a cluster and verify-cluster.sh; it has not been run.</li>
+<li>The intel service has no failed-token lockout (the REST API has one); it rate-limits per operation, not per client.</li>
+</ul></div>
+</details>
+<p class="files">Editable sources: <a href="uml-diagram-sources/d11_option_e_intel.py"><code>uml-diagram-sources/d11_option_e_intel.py</code></a> (the definition) and <a href="uml-diagram-sources/11-option-e-intel.svg"><code>uml-diagram-sources/11-option-e-intel.svg</code></a> (the drawing, with its text kept as text).</p>
+<details>
+<summary>Show the source of this diagram (d11_option_e_intel.py)</summary>
+<div class="body"><pre><code>&quot;&quot;&quot;Diagram 11 - option E: how the analysis Pod reaches intel on Kubernetes.
+
+Read from deploy/kubernetes/components/intel/ (intel.yaml, networkpolicy.yaml,
+analysis-patch.yaml, kustomization.yaml), core/intel_client.py (TLS transport,
+read_reply), api/intel.py (operations, token, rate limits) and docs/KUBERNETES.md
+(&quot;Intel: external services&quot;). Implemented and checked statically and against a
+local TLS server; never run on a cluster.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+from typing import List
+
+from umlkit import MUTED, Diagram
+
+TITLE = &quot;Option E: the analysis Pod talks to intel over TLS on one port&quot;
+
+POD = &quot;#7c3aed&quot;
+BOUND = &quot;#b91c1c&quot;
+CONT = &quot;#f0fdf4&quot;
+STORE = &quot;#f8fafc&quot;
+EXT = &quot;#f1f5f9&quot;
+RULE = &quot;#fef3c7&quot;
+
+
+def build(meta: dict) -&gt; object:
+    d = Diagram(&quot;d11&quot;, 1600, 715, TITLE,
+                f&quot;Optional component deploy/kubernetes/components/intel, commit {meta[&#x27;k8s_commit&#x27;]}. &quot;
+                &quot;Implemented and statically checked; NOT yet run on a cluster.&quot;,
+                &quot;Kubernetes option E: analysis container connects by fixed ClusterIP to the intel &quot;
+                &quot;Service on 9443, verifies the intel certificate by name against a private CA, &quot;
+                &quot;authenticates with a bearer token; NetworkPolicies allow only that path; intel &quot;
+                &quot;alone reaches the external services.&quot;)
+    d.title_block()
+    d.frame(24, 92, 1150, 600, &quot;Namespace aegis-sentinel (Pod Security: restricted; default-deny &quot;
+            &quot;NetworkPolicy)&quot;, fill=&quot;#ffffff&quot;)
+
+    # analysis Pod
+    d.rect(48, 140, 470, 400, &quot;#faf5ff&quot;, POD, 2.2, 8, &quot;frame&quot;)
+    d.text(62, 162, &quot;Pod aegis-analysis (unchanged base + patch)&quot;, 13, True, fill=POD,
+           layer=&quot;frame&quot;, maxw=440)
+    proxy = d.titled(72, 184, 420, &quot;proxy (Caddy, uid 10003)&quot;,
+                     [&quot;TLS on 8443 for API clients; forwards to api.sock&quot;], fill=CONT, stroke=BOUND,
+                     sw=2.4, name=&quot;proxy&quot;)
+    ana = d.titled(72, proxy.bottom + 40, 420, &quot;analysis (api.server + workers, uid 10001)&quot;,
+                   [&quot;AEGIS_INTEL_URL = https://&lt;fixed ClusterIP&gt;:9443 (no DNS lookup)&quot;,
+                    &quot;AEGIS_INTEL_SERVER_NAME = aegis-intel.aegis-sentinel.svc&quot;,
+                    &quot;AEGIS_INTEL_CA_FILE from ConfigMap aegis-intel-ca&quot;,
+                    &quot;AEGIS_INTEL_TOKEN_FILE from Secret aegis-intel-token&quot;,
+                    &quot;no external-service key; LLM_PROVIDER=none in its own env&quot;],
+                   fill=CONT, stroke=BOUND, sw=2.4, align=&quot;start&quot;, name=&quot;analysis&quot;)
+    d.edge([proxy.b(0.5), ana.t(0.5)], &quot;msg&quot;, &quot;api.sock (Unix socket)&quot;,
+           (proxy.cx + 90, (proxy.bottom + ana.top) / 2), (proxy, ana))
+    d.titled(72, ana.bottom + 18, 420, &quot;What the client enforces (core/intel_client.py)&quot;,
+                   [&quot;TLS 1.2+, certificate required, name checked against SERVER_NAME, only the &quot;
+                    &quot;private CA trusted (re-read on every connection); no redirects, no proxy &quot;
+                    &quot;variables, no retries; reply at most 1 MiB, identity encoding, JSON object &quot;
+                    &quot;with status 200, else an error&quot;], fill=RULE, size=12, align=&quot;start&quot;,
+                   name=&quot;client checks&quot;)
+
+    # service
+    svc = d.node(560, 300, 190, [&quot;Service aegis-intel&quot;, &quot;ClusterIP (fixed)&quot;, &quot;port 9443&quot;],
+                 fill=STORE, bold=[True, False, False], size=12.5, name=&quot;service&quot;)
+    d.edge([(ana.right, ana.cy - 30), (svc.left, ana.cy - 30)], &quot;flow&quot;, [&quot;TLS +&quot;, &quot;token&quot;],
+           ((ana.right + svc.left) / 2 + 2, ana.cy - 58), (ana, svc))
+
+    # intel Pod
+    d.rect(790, 140, 360, 400, &quot;#faf5ff&quot;, POD, 2.2, 8, &quot;frame&quot;)
+    d.text(804, 162, &quot;Pod aegis-intel (optional)&quot;, 13, True, fill=POD, layer=&quot;frame&quot;, maxw=330)
+    ip = d.titled(812, 184, 316, &quot;intel-proxy (Caddy, uid 10003)&quot;,
+                  [&quot;TLS 1.2/1.3 on 9443 with Secret aegis-intel-tls (leaf for &quot;
+                   &quot;aegis-intel.&lt;ns&gt;.svc); body cap 101 MiB; to intel.sock&quot;],
+                  fill=CONT, stroke=BOUND, sw=2.4, name=&quot;intel-proxy&quot;)
+    it = d.titled(812, ip.bottom + 40, 316, &quot;intel (api.intel, uid 10002)&quot;,
+                  [&quot;token &gt;= 32 chars (Secret aegis-intel-token), compared in constant time; &quot;
+                   &quot;fixed operations only: VirusTotal lookup/upload, LLM analyze, sandbox &quot;
+                   &quot;submit/poll, alert e-mail; per-operation rate limits; keys from Secret &quot;
+                   &quot;aegis-intel-credentials; answer cache on claim aegis-intel-state&quot;],
+                  fill=CONT, stroke=BOUND, sw=2.4, name=&quot;intel&quot;)
+    d.edge([ip.b(0.5), it.t(0.5)], &quot;msg&quot;, &quot;intel.sock&quot;, (ip.cx + 50, (ip.bottom + it.top) / 2),
+           (ip, it))
+    d.edge([svc.r(0.5), (ip.left, svc.cy)], &quot;flow&quot;, ends=(svc, ip))
+
+    # policies
+    d.titled(560, 400, 190, &quot;NetworkPolicies&quot;,
+                   [&quot;analysis egress: only TCP 9443 to component=intel&quot;,
+                    &quot;intel ingress: only 9443 from analysis&quot;,
+                    &quot;intel egress: kube-dns 53; 443, 465, 587 to public addresses&quot;],
+                   fill=RULE, size=12, name=&quot;policies&quot;)
+
+    d.note(48, 560, 1100, [
+        &quot;Requires a network plugin that enforces ingress and egress policy and evaluates it after &quot;
+        &quot;ClusterIP translation (Calico, Cilium and Antrea do). Without enforcement the analysis Pod &quot;
+        &quot;has full network access; the isolation gate (init container and readiness probe) then &quot;
+        &quot;fails the Pod because DNS, the API server or the internet answers. The gate is a sample, &quot;
+        &quot;not a proof. Analysis readiness does not depend on intel: while intel is down, external &quot;
+        &quot;layers report &#x27;unreachable&#x27; and the scan is partial.&quot;,
+        &quot;Rotation: a new leaf from the same CA needs an intel restart only; a CA change uses both &quot;
+        &quot;CAs in aegis-intel-ca during the overlap; a new token needs both Deployments restarted.&quot;],
+        size=12)
+
+    # externals
+    ex = 1210
+    d.text(ex, 120, &quot;Reached only by intel&quot;, 13, True, fill=MUTED)
+    y = 140.0
+    for title, body in ((&quot;VirusTotal&quot;, &quot;SHA-256 lookup; upload only with VT_UPLOAD_UNKNOWN&quot;),
+                        (&quot;LLM (OpenAI or Ollama)&quot;, &quot;up to 8,000 characters of text&quot;),
+                        (&quot;CAPE sandbox&quot;, &quot;the whole file; an internal server needs its own &quot;
+                                         &quot;egress rule in the overlay&quot;),
+                        (&quot;SMTP server&quot;, &quot;metadata-only alert e-mail over TLS&quot;)):
+        b = d.titled(ex, y, 360, title, [body], fill=EXT, size=12, name=title)
+        d.edge([(it.right, it.cy), (1180, it.cy), (1180, b.cy), b.l()], &quot;msg&quot;, ends=(it, b),
+               check=False)
+        y = b.bottom + 16
+    blk = d.titled(ex, y + 20, 360, &quot;Blocked for both Pods&quot;,
+                   [&quot;cloud metadata 169.254.169.254, link-local, loopback, private ranges &quot;
+                    &quot;(intel), everything except 9443 to intel (analysis)&quot;],
+                   fill=&quot;#fee2e2&quot;, size=12, name=&quot;blocked&quot;)
+    _ = blk
+    return d
+
+
+NOTES: List[str] = [
+    &quot;check_manifests.py verifies these settings offline (URL equals the Service ClusterIP on &quot;
+    &quot;9443, server name, CA from a ConfigMap, token from the Secret, exactly the 9443 egress rule &quot;
+    &quot;for analysis, intel egress without link-local or loopback). Enforcement at run time needs &quot;
+    &quot;a cluster and verify-cluster.sh; it has not been run.&quot;,
+    &quot;The intel service has no failed-token lockout (the REST API has one); it rate-limits per &quot;
+    &quot;operation, not per client.&quot;,
+]
+</code></pre></div>
+</details>
+</section>
 <section class="ref" id="graphify">
 <h2>Graphify network (reference)</h2>
-<p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, 15,577 edges and 335 communities, built from the tracked source, tests and configuration with no LLM. Before drawing, the graph was built again from a <code>git archive</code> of <code>b6966f8</code> and compared with the stored one: the same nodes, the same edges and the same communities.</p>
+<p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, 15,577 edges and 335 communities, built from the tracked source, tests and configuration with no LLM. Before diagrams 1 to 6 were drawn, the graph was built again from a <code>git archive</code> of <code>b6966f8</code> and compared with the stored one: the same nodes, the same edges and the same communities. The page is that older snapshot; the 2026-11-19 review checked every diagram against the code itself (see docs/security-overview/DIAGRAM_REVIEW.md).</p>
 <p><a href="graphify-code-graph.html">graphify-code-graph.html</a>: the interactive network, one node per community, named after its main symbol and that symbol's own file. It loads the vis-network library from unpkg, so it needs an internet connection.</p>
 <p>The graph supplied the class list, the 88 inheritance edges (69 of them between application classes, all read from the code) and the hubs (RansomwareScanner, ContainerExtractor, ScoringMatrix, ScanContext, Signals). It is a static graph, so it cannot see what happens at run time. The pipe messages between worker and parent, the listener callbacks, the thread pool, the time-out outcomes and the network calls were read in the source files and are drawn from there.</p>
 </section>
 <section class="ref" id="editing">
 <h2>Editing the diagrams</h2>
 <ul>
-<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The six SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
+<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in that folder. The SVG files and this page are written again. Python 3.9 or later; nothing to install.</li>
 <li>The build stops when a label no longer fits its box, when two nodes overlap or when a connector runs through a node it is not attached to.</li>
 <li>The SVG files are plain SVG with real text, so they also open in Inkscape, Figma or draw.io for a one-off change. A later build overwrites such changes.</li>
 </ul>
 </section>
-<footer>Aegis Sentinel, branch review/production-hardening, commit b6966f83a0b9552d0e6d9f431f842175b2f3cf7c. This page is self-contained: it loads nothing from the network.</footer>
+<footer>Aegis Sentinel, branch review/production-hardening, commit e012d3fb63c573303815e5b2068238d69f1c405d. This page is self-contained: it loads nothing from the network.</footer>
 </div>
 <script>
 (function () {

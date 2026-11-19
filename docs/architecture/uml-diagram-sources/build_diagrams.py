@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build the six Aegis Sentinel architecture diagrams and the page that shows them.
+"""Build the eleven Aegis Sentinel architecture diagrams and the page that shows them.
 
-    python3 build_diagrams.py            write the six .svg files here and
+    python3 build_diagrams.py            write the eleven .svg files here and
                                          ../ARCHITECTURE_UML_DIAGRAMS.html
     python3 build_diagrams.py --check    also write ../ARCHITECTURE_UML_DIAGRAMS.check.html,
                                          a copy that measures every label in the browser and
@@ -9,8 +9,10 @@
                                          the report at the top, then delete it; never commit it)
 
 Sources: d1_class_diagram.py, d2_use_case_diagram.py, d3_activity_diagram.py,
-d4_system_flowchart.py, d5_deployment_trust_boundaries.py and
-d6_kubernetes_trust_boundaries.py. umlkit.py is the
+d4_system_flowchart.py, d5_deployment_trust_boundaries.py,
+d6_kubernetes_trust_boundaries.py, d7_one_file_sequence.py,
+d8_layer_context_evidence.py, d9_nested_containers.py,
+d10_scoring_vs_completeness.py and d11_option_e_intel.py. umlkit.py is the
 drawing toolkit. Standard library only.
 
 The build stops with exit code 1 when a diagram has a layout problem (a label
@@ -30,14 +32,19 @@ PAGE = HERE.parent / "ARCHITECTURE_UML_DIAGRAMS.html"
 
 META = {
     "branch": "review/production-hardening",
-    "commit": "b6966f8",
-    "commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
-    "code_commit": "b6966f8",
-    "code_commit_full": "b6966f83a0b9552d0e6d9f431f842175b2f3cf7c",
-    "built": "2026-11-17",
-    # Diagram 6 draws deploy/kubernetes/, which is newer than the code baseline above.
-    "k8s_commit": "706ea8a",
+    # Reviewed against the tree at this commit (2026-11-19). Every diagram was checked
+    # against the code; docs/security-overview/DIAGRAM_REVIEW.md records what changed.
+    "commit": "e012d3f",
+    "commit_full": "e012d3fb63c573303815e5b2068238d69f1c405d",
+    "code_commit": "d45715a",
+    "code_commit_full": "d45715a34eec30d4c8e244ac0830a774fa4c55fa",
+    "built": "2026-11-19",
+    # Diagrams 6 and 11 draw deploy/kubernetes/ (last changed in this commit).
+    "k8s_commit": "a1c752e",
     "k8s_built": "2026-11-19",
+    "registry": "2026.10.23-1",
+    # The Graphify page is an older snapshot; see graph_links() and the README.
+    "graph_commit": "b6966f8",
 }
 
 DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
@@ -79,9 +86,35 @@ DIAGRAMS = [  # module, svg file, anchor, page heading, how to read it
      "The optional Kubernetes deployment in deploy/kubernetes, drawn on its own so the Docker "
      "view above stays as it is. A purple frame is a Pod: one network namespace, which is "
      "what a NetworkPolicy controls, so the proxy and analysis containers share one "
-     "interface. A thick red frame is a container. There is no intel service on Kubernetes "
-     "yet, so no external service is reachable or configured. These manifests have not been "
-     "run on a cluster."),
+     "interface. A thick red frame is a container. Without the optional intel component (drawn "
+     "on its own in diagram 11) no external service is reachable or configured. These "
+     "manifests have not been run on a cluster."),
+    ("d7_one_file_sequence", "7-one-file-sequence.svg", "sequence",
+     "7. Sequence: one file across processes",
+     "The same isolated scan as diagram 3, drawn as messages between the entry point, the "
+     "parent coordinator, the worker process, the pipeline inside it and the optional services. "
+     "Solid arrows are calls or the path on the pipe; dashed arrows are checked JSON messages "
+     "from the worker or answers from a service."),
+    ("d8_layer_context_evidence", "8-layer-context-evidence.svg", "layer-flow",
+     "8. Layers, the shared context and how evidence becomes a result",
+     "Layers never call each other. The coordinator runs them on one ScanContext; each adds a "
+     "report entry and a typed signal; heavy layers run on copies that are merged back; scoring, "
+     "completeness and provenance are computed once, in _assemble."),
+    ("d9_nested_containers", "9-nested-containers.svg", "nested",
+     "9. Nested containers: e-mail, archive, members",
+     "An illustrative e-mail with an encrypted archive holding a document and a script: what "
+     "goes down (passwords, depth, budgets) and what comes back up (member summaries, the worst "
+     "member's evidence, incomplete reasons)."),
+    ("d10_scoring_vs_completeness", "10-scoring-vs-completeness.svg", "scoring",
+     "10. Scoring versus completeness",
+     "Two independent answers: how risky the evidence is (risk score and verdict band) and how "
+     "much of the file was inspected (scan_status). They meet only in verdict_label."),
+    ("d11_option_e_intel", "11-option-e-intel.svg", "option-e",
+     "11. Kubernetes option E: analysis to intel over TLS",
+     "The optional intel component on Kubernetes: the analysis Pod reaches intel only by a fixed "
+     "ClusterIP on 9443, verifies its certificate by name against a private CA and sends a "
+     "bearer token; NetworkPolicies allow only that path. Implemented and statically checked; "
+     "not yet run on a cluster."),
 ]
 
 CSS = """
@@ -254,7 +287,7 @@ def page(items, check: bool) -> str:
         "<title>Aegis Sentinel architecture diagrams</title>",
         f"<style>{CSS}</style>", "</head>", "<body>", '<div class="wrap">',
         '<header class="page">',
-        "<h1>Aegis Sentinel architecture in six diagrams</h1>",
+        "<h1>Aegis Sentinel architecture in eleven diagrams</h1>",
         '<p class="lead">What makes up the scanner, who uses it, how one file gets a verdict, and '
         "how the whole system fits together and where each part runs. Every class, method and "
         "message name is the one in "
@@ -313,9 +346,11 @@ def page(items, check: bool) -> str:
         "<h2>Graphify network (reference)</h2>",
         "<p>The diagrams started from the Graphify code graph of the repository: 6,366 nodes, "
         "15,577 edges and 335 communities, built from the tracked source, tests and "
-        "configuration with no LLM. Before drawing, the graph was built again from a "
-        f"<code>git archive</code> of <code>{m['commit']}</code> and compared with the stored "
-        "one: the same nodes, the same edges and the same communities.</p>",
+        "configuration with no LLM. Before diagrams 1 to 6 were drawn, the graph was built again "
+        f"from a <code>git archive</code> of <code>{m['graph_commit']}</code> and compared with "
+        "the stored one: the same nodes, the same edges and the same communities. The page is "
+        "that older snapshot; the 2026-11-19 review checked every diagram against the code "
+        "itself (see docs/security-overview/DIAGRAM_REVIEW.md).</p>",
         *graph_links(),
         "<p>The graph supplied the class list, the 88 inheritance edges (69 of them between "
         "application classes, all read from the code) and the hubs "
@@ -329,7 +364,7 @@ def page(items, check: bool) -> str:
         "<ul>",
         "<li>Each diagram is defined in one Python file in <code>uml-diagram-sources/</code>: "
         "texts, positions and connectors. Change it and run <code>python3 build_diagrams.py</code> in "
-        "that folder. The six SVG files and this page are written again. Python 3.9 or later; "
+        "that folder. The SVG files and this page are written again. Python 3.9 or later; "
         "nothing to install.</li>",
         "<li>The build stops when a label no longer fits its box, when two nodes overlap or "
         "when a connector runs through a node it is not attached to.</li>",

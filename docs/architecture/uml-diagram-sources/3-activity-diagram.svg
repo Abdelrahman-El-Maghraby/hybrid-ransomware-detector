@@ -263,13 +263,14 @@
 <text x="1480" y="1231.3" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
 <text x="1480" y="1247.5" font-size="12" fill="#0f172a" text-anchor="middle">runs the file and</text>
 <text x="1480" y="1263.3" font-size="12" fill="#0f172a" text-anchor="middle">returns a report</text>
-<polygon points="1390,1320 1558,1320 1570,1332 1570,1417 1390,1417" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polygon points="1390,1320 1558,1320 1570,1332 1570,1433 1390,1433" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
 <polyline points="1558,1320 1558,1332 1570,1332" fill="none" stroke="#92400e" stroke-width="1.2"/>
 <text x="1399" y="1339.6" font-size="12" fill="#0f172a">Docker: the worker has no</text>
 <text x="1399" y="1355.7" font-size="12" fill="#0f172a">network. These calls go</text>
 <text x="1399" y="1371.7" font-size="12" fill="#0f172a">through the intel service</text>
 <text x="1399" y="1387.8" font-size="12" fill="#0f172a">(api/intel.py) over a Unix</text>
-<text x="1399" y="1403.9" font-size="12" fill="#0f172a">socket.</text>
+<text x="1399" y="1403.9" font-size="12" fill="#0f172a">socket; on Kubernetes with</text>
+<text x="1399" y="1420" font-size="12" fill="#0f172a">option E, over TLS.</text>
 <polygon points="430,1643 560,1599 690,1643 560,1687" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
 <text x="560" y="1639.4" font-size="12.5" fill="#0f172a" text-anchor="middle">How did the</text>
 <text x="560" y="1655.6" font-size="12.5" fill="#0f172a" text-anchor="middle">wait end?</text>
@@ -378,12 +379,13 @@
 <text x="646" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">[time limit passed;</text>
 <text x="646" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">snapshot still</text>
 <text x="646" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">provisional]</text>
-<rect x="746" y="1729.1" width="112.1" height="79.8" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
-<text x="802" y="1742.6" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;error&#x27; or invalid</text>
-<text x="802" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">reply, dead worker,</text>
-<text x="802" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">memory limit, or</text>
-<text x="802" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">time limit with</text>
-<text x="802" y="1804" font-size="12" fill="#0f172a" text-anchor="middle">no snapshot]</text>
+<rect x="750.4" y="1721.4" width="103.3" height="95.2" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="802" y="1734.9" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;error&#x27; or invalid</text>
+<text x="802" y="1750.3" font-size="12" fill="#0f172a" text-anchor="middle">reply, a result for</text>
+<text x="802" y="1765.6" font-size="12" fill="#0f172a" text-anchor="middle">another file, dead</text>
+<text x="802" y="1781" font-size="12" fill="#0f172a" text-anchor="middle">worker, memory</text>
+<text x="802" y="1796.4" font-size="12" fill="#0f172a" text-anchor="middle">limit, or time limit</text>
+<text x="802" y="1811.7" font-size="12" fill="#0f172a" text-anchor="middle">with no snapshot]</text>
 <rect x="385.7" y="2145.1" width="120.5" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
 <text x="446" y="2158.6" font-size="12" fill="#334155" text-anchor="middle">the stopped worker&#x27;s</text>
 <text x="446" y="2174" font-size="12" fill="#334155" text-anchor="middle">flow ends here</text>
@@ -398,6 +400,6 @@
 </g>
 <g id="d3-front">
 <text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Activity diagram: How does one file get a verdict?</text>
-<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit b6966f8.</text>
+<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit e012d3f.</text>
 </g>
 </svg>

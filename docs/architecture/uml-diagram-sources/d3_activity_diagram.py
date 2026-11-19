@@ -192,7 +192,7 @@ def build(meta: dict) -> Diagram:
     d.edge([(c6.right, cape.cy), cape.l()], "msg", ends=(c6, cape))
     d.note(1390, cape.bottom + 44, 180, [
         "Docker: the worker has no network. These calls go through the intel service "
-        "(api/intel.py) over a Unix socket."])
+        "(api/intel.py) over a Unix socket; on Kubernetes with option E, over TLS."])
 
     # -------------------------------------------- parent: how the wait ended
     d5 = d.decision(560, watch_b + 78, 260, 88, ["How did the", "wait end?"], DECISION,
@@ -217,8 +217,8 @@ def build(meta: dict) -> Diagram:
         (b4, ["['ok' reply]"]),
         (b6, ["[time limit passed;", "snapshot settled", "or completed]"]),
         (b7, ["[time limit passed;", "snapshot still", "provisional]"]),
-        (b5, ["['error' or invalid", "reply, dead worker,", "memory limit, or", "time limit with",
-              "no snapshot]"]),
+        (b5, ["['error' or invalid", "reply, a result for", "another file, dead", "worker, memory",
+              "limit, or time limit", "with no snapshot]"]),
     ]
     for box, rows in guards:
         d.edge([(box.cx, bus), box.t()], "flow", rows, (box.cx, bus + 56), (box,),
@@ -319,6 +319,9 @@ NOTES: List[str] = [
     "At the time limit the parent keeps a settled or completed snapshot as it is, turns a "
     "provisional one into a partial result with stopped_result(), and falls back to "
     "failure_result() when it holds none (_IsolatedScan._step).",
+    "RV-S2: an 'ok' result, or a provisional, settled or completed snapshot, whose file_path "
+    "is not the file this worker was given is refused as an invalid reply and the file gets "
+    "failure_result(); the path drives automatic quarantine in the parent.",
     "failure_result() scores the scan_failed indicator (25 points, Medium). Member evidence "
     "reported before the failure is kept when it scores higher.",
     "In the code the result is handed to on_result() first and the stopped worker is replaced "
