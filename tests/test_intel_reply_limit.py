@@ -347,3 +347,36 @@ def test_oversized_virustotal_reply_is_an_error_and_never_cached(unix_raw, tmp_p
     assert result["is_malicious"] is False
     sha = hashlib.sha256(b"inert").hexdigest()
     assert scanner.cache.get(sha, scanner._vt_cache_layer()) is None
+
+
+@unix_only
+def test_a_refused_reply_closes_the_connection_at_once():
+    """The client closes the socket of a refused reply itself, not when the
+    garbage collector gets to it: the server, holding the connection open,
+    sees it closed while the client's exception (and its traceback) still
+    exists."""
+    folder = tempfile.mkdtemp(prefix="ir", dir="/tmp")  # nosec B108 - private mkdtemp; short sun_path
+    path = os.path.join(folder, "close.sock")
+    closed = threading.Event()
+
+    class Watching(_Raw):
+        def _serve(self):
+            conn, _ = self.sock.accept()
+            conn.settimeout(5)
+            conn.recv(65536)
+            conn.sendall(self.reply)
+            try:
+                if conn.recv(1) == b"":
+                    closed.set()
+            except OSError:
+                pass
+            conn.close()
+    server = Watching(_response(b"{}", length=10 * 1024 ** 3), family=socket.AF_UNIX, path=path)
+    try:
+        with pytest.raises(BadReply) as kept:
+            IC.unix_request(path, "GET", "/v1/capabilities", timeout=5)
+        assert closed.wait(3), "the refused reply's connection was left open"
+        assert kept.value is not None
+    finally:
+        server.close()
+        shutil.rmtree(folder, ignore_errors=True)

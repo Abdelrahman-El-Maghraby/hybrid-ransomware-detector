@@ -152,7 +152,12 @@ def unix_request(path: str, method: str, url: str, body: Optional[bytes] = None,
             raise NotConnected(f"{type(e).__name__}: {e}") from e
         conn.request(method, url, body=body, headers=headers or {})
         resp = conn.getresponse()
-        return resp.status, read_reply(resp)
+        try:
+            return resp.status, read_reply(resp)
+        finally:
+            # a refused reply is not read to its end, and http.client does not
+            # close a "Connection: close" response with the connection
+            resp.close()
     finally:
         conn.close()
 
@@ -249,7 +254,12 @@ def tls_request(endpoint: TlsEndpoint, method: str, url: str, body: Optional[byt
             raise NotConnected(f"{type(e).__name__}: {e}") from e
         conn.request(method, url, body=body, headers=headers or {})
         resp = conn.getresponse()
-        return resp.status, read_reply(resp)
+        try:
+            return resp.status, read_reply(resp)
+        finally:
+            # a refused reply is not read to its end, and http.client does not
+            # close a "Connection: close" response with the connection
+            resp.close()
     finally:
         conn.close()
 
