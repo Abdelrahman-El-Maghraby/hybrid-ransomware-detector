@@ -6,7 +6,7 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
+Current code baseline: `706ea8a` (option E implemented, 2026-11-19, K8S-1). Before it: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
 RV-S4 fixed, [brief](tasks/repository-audit-2026-11-18.md#6-third-pass-2026-11-19)). Before it: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
 [brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)). Before it: `b6966f8` (review of thirteen items, 2026-11-17; see
 [the task brief](tasks/review-items-2026-11-17.md) and the
@@ -101,6 +101,7 @@ a regression test that failed before it and passes after it, on this Mac only.
 | RV-S1 | Confirmed: a page cut at the 20 MB read limit was reported complete (reproduced with a lowered limit); now partial | `f4e98ca` |
 | RV-S2 | Confirmed: a worker's final result could name another file; auto-quarantine then removed that file (reproduced with an inert decoy). Such a reply now fails the scan and the worker is replaced | `e849f3b` |
 | RV-S3 | Code path confirmed, no realistic trigger found: an exception from `scan_isolated` left the API's spare pool one short; the refill is now in `finally` (test injects the exception) | `ea88274` |
+| K8S-1 | Option E (owner-approved 2026-11-19): intel on Kubernetes as `components/intel`, reached by analysis over TLS on one port. Client: `AEGIS_INTEL_URL` (the Service's ClusterIP), `AEGIS_INTEL_CA_FILE` (private CA only), `AEGIS_INTEL_SERVER_NAME` (verified without DNS), TLS 1.2+, no redirects, proxies, plaintext or retries; Docker's socket unchanged. Deployment: intel Pod with a TLS proxy, fixed-ClusterIP Service, one analysis egress rule, intel ingress from analysis only, intel egress without private, link-local and loopback ranges; checker, gate and `verify-cluster.sh` extended. [Brief](tasks/kubernetes-intel-option-e-2026-11-19.md) | `147dc66`, `706ea8a` (local TLS tests on loopback; **not run on a cluster**) |
 | RV-S4 | Confirmed on loopback: a stalled authenticated upload held its scan slot until the client disconnected (M4 takes the slot before reading). The form must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s), else 408 and the slot is released; Caddy's own time-outs not checked | `f576af7` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
@@ -202,14 +203,6 @@ The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATI
   Atheris campaigns; a push plus manual dispatch would not).
 - Exit code 2's three meanings and the IMAP fetch retry: kept as they are.
 - When to drop Python 3.9 (kept for now).
-- **K8S-1** (still not approved; its transport contract is now resolved in the
-  decision record): the intel transport on Kubernetes. Without it, Kubernetes has no
-  VirusTotal, LLM, CAPE or e-mail alerts. Decision record with five options in
-  [KUBERNETES](KUBERNETES.md#decision-record-k8s-1-how-analysis-could-reach-intel-proposed-not-approved).
-  **Recommended: option E**: intel in its own Deployment behind a TLS proxy on one
-  port; analysis gets exactly one egress rule (TCP 9443 to the intel Pods, by
-  fixed ClusterIP, no DNS); a client HTTPS transport in `core/intel_client.py`
-  (Docker unchanged). Consequence: analysis gains one authenticated network path
-  where Docker has a socket. Approve E, keep A (no intel), or choose D (file queue
-  on shared storage, no network, large redesign).
+- **K8S-1:** decided 2026-11-19 (option E, approved and implemented as K8S-1 in
+  section 1). Remaining: its runtime verification, below.
 - Whether to run `deploy/kubernetes/verify-cluster.sh` on a dedicated test cluster.

@@ -202,8 +202,10 @@ Output behaviour that differs by entry point, and why:
   read-only in analysis and written only by the Job `aegis-content-update` while
   analysis is scaled to zero. `/tmp` is a 2 GiB memory-backed emptyDir without
   `noexec`, cleared when the container starts.
-- No intel service: VirusTotal, the LLM, CAPE and e-mail alerts are not available
-  on Kubernetes (owner decision K8S-1). Not yet run on a cluster.
+- Intel is optional (`components/intel`, option E of K8S-1): intel in its own Pod
+  behind a TLS proxy on 9443; analysis gets one egress rule to it and verifies its
+  certificate by name with a private CA. Without the component there are no
+  external services. Not yet run on a cluster.
 
 ## Rebuilding and keeping them true
 

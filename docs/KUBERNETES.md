@@ -55,8 +55,10 @@ Read from the code (`docker-compose.yml`, `api/server.py`, `api/intel.py`,
 **Decision.** One Pod holds the analysis service and the TLS proxy, joined by
 the Unix socket in a Pod-local emptyDir, as in Docker. The Pod has no egress:
 a default-deny NetworkPolicy, with one rule that admits TCP 8443. The intel
-service is **not deployed** on Kubernetes yet, so VirusTotal, the LLM, CAPE and
-e-mail alerts are unavailable there (see [Intel](#intel-external-services)).
+service is **optional**: without `components/intel` there are no external
+services (VirusTotal, the LLM, CAPE, e-mail alerts); with it, intel runs in its
+own Pod and analysis gets exactly one egress rule, TLS to intel on 9443 (option
+E, [Intel](#intel-external-services)).
 Detection content lives on its own claim, mounted read-only in analysis and
 written only by a Job while analysis is stopped.
 
@@ -482,7 +484,7 @@ Pod: raise `AEGIS_API_MAX_CONCURRENT_SCANS` and the memory limit together.
 | Worker clean-up | the API kills workers and their helpers on exit | the same code; at Pod deletion the container's processes are killed after the grace period |
 | Secrets | files on the Docker host | API objects in etcd: encryption at rest and RBAC are the cluster's |
 | Admission | none | the namespace enforces Pod Security `restricted` |
-| External services and e-mail alerts | through intel | not available yet |
+| External services and e-mail alerts | through intel, over a Unix socket; analysis has no network | optional `components/intel`: intel in its own Pod, reached over TLS on one port; analysis has that one network path (option E) |
 
 ## Isolation contract and its limits
 
@@ -492,7 +494,7 @@ it has been observed on a cluster yet ([Verify](#verify)).
 
 | Property | Mechanism | Limit |
 |---|---|---|
-| No egress from the Pod | default-deny NetworkPolicy, no egress rule | Enforced only by a network plugin that implements NetworkPolicy. A policy applies to the **Pod**, not to a container: the proxy and analysis share one network namespace and one set of rules. Traffic to and from the Pod's own node is always allowed |
+| No egress from the Pod (with `components/intel`: one) | default-deny NetworkPolicy, no egress rule; with intel, exactly one: TCP 9443 to the intel Pods, TLS verified by name against a private CA, token-authenticated | Enforced only by a network plugin that implements NetworkPolicy. A policy applies to the **Pod**, not to a container: the proxy and analysis share one network namespace and one set of rules. Traffic to and from the Pod's own node is always allowed |
 | The policy is in effect before analysis starts | the `isolation-gate` init container must see every probe fail | The probes are a **finite sample**, not proof of isolation. A time-out or refusal counts as blocked, so in a cluster without internet access the internet probes pass whether or not the policy is enforced. The gate is meaningful because two destinations always exist in a working cluster: the cluster DNS server (from `/etc/resolv.conf`) and the API server (`KUBERNETES_SERVICE_HOST`). If either answers, the gate fails. `verify-cluster.sh --control-namespace` adds a destination proven reachable by a positive control |
 | It stays in effect | the readiness probe reruns the gate every 30 s | Detection, not prevention: between probes, and while a probe fails, the process keeps running and in-flight scans continue; the Pod only stops receiving new requests through the Service. Nothing restarts it, by design (liveness asks only `/health`). `--drift-test` checks this behaviour |
 | Ingress only to the proxy | NetworkPolicy: TCP 8443 only | Analysis listens on no TCP port, only `api.sock`. Code running in analysis shares the Pod's loopback: it can open connections to the proxy's 8443, which gives it nothing it does not already hold (the API token is in its own container). If the proxy is not running, such code could bind 8443 itself and receive client connections; it holds no TLS key, so a client that verifies the certificate refuses it. **Clients must verify the server certificate** |
@@ -508,16 +510,55 @@ the last rows where the cluster offers them ([Cluster requirements](#cluster-req
 
 ## Intel: external services
 
-**Not available on Kubernetes in this version.** VirusTotal lookups and
-uploads, the LLM (Ollama or OpenAI), the CAPE sandbox and e-mail alerts all go
-through the intel service. Without it, the production profile sends nothing
-outside, and the API's alert outbox stays disabled (`_Alerts` in `api/server.py`
-is off without `AEGIS_INTEL_SOCKET` or SMTP settings), so nothing is queued
-without a receiver. Webhooks are not configured in these manifests either. The
-settings that would switch these on must not be added to the analysis container:
-`check_manifests.py` and the isolation gate fail when they are.
+VirusTotal lookups and uploads, the LLM (Ollama or OpenAI), the CAPE sandbox and
+e-mail alerts all go through the intel service. **The base has no intel:** the
+production profile sends nothing outside, and the API's alert outbox stays
+disabled (`_Alerts` in `api/server.py` is off without an intel transport or SMTP
+settings), so nothing is queued without a receiver. Webhooks are not configured
+in these manifests. The external services' own settings never go into the
+analysis container: `check_manifests.py` and the isolation gate fail when they do.
 
-### Decision record K8S-1: how analysis could reach intel (proposed, not approved)
+**Optional: `components/intel`** (option E below; implemented, **not yet run on a
+cluster**). It adds the intel Deployment (intel plus its TLS proxy), the Service
+`aegis-intel` with a fixed ClusterIP, a cache claim, three NetworkPolicies and
+the analysis settings `AEGIS_INTEL_URL`, `AEGIS_INTEL_SERVER_NAME`,
+`AEGIS_INTEL_CA_FILE` and `AEGIS_INTEL_TOKEN_FILE`. `overlays/example-intel`
+shows the opt-in. To use it:
+
+1. Pick a free address in the cluster's Service range for intel and set it in
+   the overlay twice: the Service's `clusterIP` and `AEGIS_INTEL_URL`
+   (`https://ADDRESS:9443`). `check_manifests.py` refuses a mismatch.
+2. Make a private CA and a certificate for `aegis-intel.NAMESPACE.svc` (a DNS
+   name, not an IP), and create, in the namespace:
+   - Secret `aegis-intel-tls` (`tls.crt`, `tls.key`): only the intel proxy mounts it;
+   - ConfigMap `aegis-intel-ca` (`ca.crt`): only analysis mounts it, and it trusts
+     nothing else;
+   - Secret `aegis-intel-token` (`intel_token`, 32+ random characters): analysis
+     and intel;
+   - Secret `aegis-intel-credentials` with the files `virustotal_api_key`,
+     `openai_api_key`, `sandbox_token` and `smtp_password` (empty when unused):
+     only intel.
+3. Set intel's non-secret settings (`LLM_PROVIDER`, `SMTP_HOST`,
+   `ALERT_EMAIL_TO`, ...) with the overlay's ConfigMap patch. A patched ConfigMap
+   keeps its generated name, so run
+   `kubectl --context CTX --namespace NS rollout restart deployment/aegis-intel`
+   after a change.
+4. Internal destinations (CAPE, Ollama) need their own narrow egress rule for
+   intel in the overlay (an address and port); the checker refuses rules that
+   reach link-local or loopback addresses, or Pods other than the cluster DNS.
+5. Render, run `check_manifests.py`, apply, then `verify-cluster.sh` on a test
+   cluster: it shows analysis reaching intel with its token (and 401 without),
+   intel unable to reach analysis, and intel unreachable from outside analysis.
+
+Certificate rotation: replace `aegis-intel-tls` and restart intel; the analysis
+client reads `ca.crt` on every connection, so a renewed CA bundle in
+`aegis-intel-ca` applies without restarting analysis (put old and new CA in it
+during a CA change).
+
+### Decision record K8S-1: how analysis reaches intel (option E, approved and implemented)
+
+Approved by the owner on 2026-11-19 and implemented as `components/intel`; not
+yet run on a cluster. The record below is the design it follows.
 
 **Context.** In Docker, intel is a separate container with an allowlisted egress
 network; analysis has no network and reaches intel only over `intel.sock`,
@@ -570,9 +611,10 @@ Security Standard and ties both Pods to one node.
 - *Deployment changes*: intel manifests; `check_manifests.py` learns the one
   allowed analysis egress rule and the intel invariants (no external setting in
   analysis except the URL, token and CA; intel ingress only from analysis);
-  `isolation_gate.py` gets the intel address as the one destination that
-  **must** answer (a positive control inside every gate run) while every other
-  probe must still fail.
+  `isolation_gate.py verify` gets the intel address as the one destination that
+  **must** answer (a positive control) while every other probe must still fail;
+  the init gate and readiness do not require it, so analysis readiness stays
+  independent of intel.
 - *Scheduling and runtime*: no co-location needed; about the Docker intel
   service's resources (`AEGIS_INTEL_MEMORY`, `AEGIS_INTEL_CPUS`); readiness of
   analysis stays independent of intel (an intel outage degrades to "external
@@ -588,8 +630,8 @@ also depends on NetworkPolicy enforcement, which the existing gate already
 requires. **Kubernetes analysis then has a restricted, authenticated network path
 to one internal port; it does not have Docker's `network_mode: none` isolation.**
 
-**Transport contract for option E** (resolved here; option E is still not approved
-and nothing of it is built):
+**Transport contract for option E** (implemented in `core/intel_client.py` and
+`components/intel`; tested locally, not on a cluster):
 
 | Concern | Decision |
 |---|---|
@@ -656,7 +698,7 @@ Logs: `kubectl logs deployment/aegis-analysis -c analysis` (JSON lines,
 
 | Check | Where | Proves |
 |---|---|---|
-| `check_manifests.py` | operator, before every apply; `tests/test_kubernetes.py` | every invariant in this guide that the YAML can show: hardening fields, users, secrets per container, no external settings, read-only content, probes, grace period, one replica, `Recreate`, `ReadWriteOncePod`, default-deny and no egress, one HTTPS port, no Secret, Role or autoscaler, no placeholders |
+| `check_manifests.py` | operator, before every apply; `tests/test_kubernetes.py` | every invariant in this guide that the YAML can show (with `components/intel` also: the analysis URL equal to the intel Service's ClusterIP, the certificate name, the CA from a ConfigMap, secrets per container, exactly one analysis egress rule, intel's ingress from analysis only and its egress without private, link-local or loopback ranges): hardening fields, users, secrets per container, no external settings, read-only content, probes, grace period, one replica, `Recreate`, `ReadWriteOncePod`, default-deny and no egress, one HTTPS port, no Secret, Role or autoscaler, no placeholders |
 | `tests/test_kubernetes.py` | `pytest` (renders with `kubectl kustomize` when kubectl is installed) | the base and the example overlay render; the checker rejects each of a list of weakened manifests (privileged, egress allowed, content writable, a second replica, a Secret in the output, ...); the gate's classification (connected, refused, silent, DNS answer, broken probe); the scripts refuse to run without an explicit context and namespace |
 | `isolation_gate.py` | in the Pod: init, readiness, `verify` | the network isolation as the Pod experiences it |
 | `verify-cluster.sh` | operator, approved test cluster, disposable namespaces | everything above on a running deployment, with positive controls for the network and secret checks, the readiness reaction to isolation drift, the API's upload limit, and a restart ([Verify](#verify)) |

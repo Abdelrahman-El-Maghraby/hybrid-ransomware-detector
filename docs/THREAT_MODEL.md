@@ -393,8 +393,9 @@ Mitigated (TMA-7, `core/cloud.py`; owner decisions D-D1 to D-D3):
 *The same parser compromise, in the analysis Pod of `deploy/kubernetes/`
 ([KUBERNETES](KUBERNETES.md)).*
 
-The analysis service and the TLS proxy share one Pod; intel is not deployed, so
-the Pod holds no external-service credential and no intel token, and the
+The analysis service and the TLS proxy share one Pod. Without the optional
+intel component the Pod holds no external-service credential and no intel
+token, and the
 production profile sends nothing outside.
 
 - **Network.** The Pod has an interface; a default-deny NetworkPolicy with no
@@ -408,6 +409,16 @@ production profile sends nothing outside.
   meaningful; `verify-cluster.sh --control-namespace` adds a positive control.
   A failing readiness probe removes the Pod from the Service; it does not stop
   the process or the scans in progress.
+- **With the intel component (option E).** Analysis gets one network path: TCP
+  9443 to the intel Pods, over TLS whose certificate is verified by name against
+  a private CA, with the intel token. Through it a compromised parser can ask
+  intel for what analysis may ask in Docker (the same token and operations), but
+  over the network instead of a socket, so it now also depends on NetworkPolicy
+  being enforced; it is not Docker's `network_mode: none`. Intel holds every
+  external credential; its egress is the cluster DNS and ports 443/465/587 to
+  public addresses (private, link-local and loopback ranges excluded), and it
+  accepts connections only from analysis. The analysis Pod's TLS proxy shares the
+  path but has no intel token.
 - **Not blockable here:** traffic to and from the Pod's own node, which
   NetworkPolicy always allows (node-local services, the kubelet's port), and the
   proxy container, which shares the Pod's network namespace (it listens on 8443

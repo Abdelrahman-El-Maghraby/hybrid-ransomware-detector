@@ -116,7 +116,7 @@ no weight, threshold or inspection-coverage change.
 
 **Option E was not approved** (no record says so, and this request makes it
 conditional), so it was not implemented. Its transport contract is now resolved
-in the [decision record](../KUBERNETES.md#decision-record-k8s-1-how-analysis-could-reach-intel-proposed-not-approved).
+in the [decision record](../KUBERNETES.md#decision-record-k8s-1-how-analysis-reaches-intel-option-e-approved-and-implemented).
 No K8S-1 implementation work existed in the tree; nothing was overwritten.
 
 | Item | Outcome | Evidence |

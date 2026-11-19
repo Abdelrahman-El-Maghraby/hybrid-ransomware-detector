@@ -16,9 +16,13 @@ no version or date is assigned. Finding IDs and evidence:
   one analysis Pod with the TLS proxy, a default-deny NetworkPolicy, restricted
   Pod Security, an isolation gate (init container and readiness probe), read-only
   detection content updated by a Job, a manifest checker and operator scripts.
+  An optional intel component (`components/intel`) runs the external services in
+  their own Pod; analysis reaches it over TLS on one port (`AEGIS_INTEL_URL`,
+  `AEGIS_INTEL_CA_FILE`, `AEGIS_INTEL_SERVER_NAME`: a private CA and the
+  certificate's name are verified), its only network path.
   **Limitations:** not run on a cluster yet; one replica, no high availability;
-  no intel service, so VirusTotal, the LLM, CAPE and e-mail alerts are
-  unavailable there; isolation depends on the cluster enforcing NetworkPolicy;
+  with intel, analysis has that authenticated path rather than Docker's
+  `network_mode: none`; isolation depends on the cluster enforcing NetworkPolicy;
   `/tmp` is not `noexec`. Docker Compose remains the reference deployment.
 - Scan-failed and incomplete-scan notices; findings reported before a worker
   failed are kept in its result.

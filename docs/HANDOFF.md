@@ -1,9 +1,8 @@
 # Current task handoff
 
-- Status: **third pass done (2026-11-19): RV-13 to RV-17 and RV-S1 to RV-S4 fixed
-  locally, RV-S5 not reproduced; option E resolved on paper, not approved or built;
-  paused for owner decisions** (option E, a test cluster, a CI run). Section
-  "Third pass" at the end. Before it: second review pass (2026-11-18). Section "Second review pass" at the
+- Status: **option E implemented locally (2026-11-19): intel on Kubernetes over
+  TLS as an optional component; runtime verification pending** (a test cluster,
+  CI). Section "Option E" at the end. Before it: the third pass (2026-11-19). Before it: second review pass (2026-11-18). Section "Second review pass" at the
   end. Earlier: optional Kubernetes deployment implemented and statically validated
   (2026-11-18). Runtime validation on a cluster is
   pending. Not ready for merge and not production ready. Latest: section
@@ -2681,14 +2680,40 @@ action.
   upload time-outs and the 51 MiB cap), any cluster; option E in its entirety.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Option E: intel on Kubernetes (2026-11-19, Claude Code)
+
+- **Brief:** [tasks/kubernetes-intel-option-e-2026-11-19.md](tasks/kubernetes-intel-option-e-2026-11-19.md);
+  register row K8S-1; VERIFICATION_MATRIX section 7.
+- **Approval:** the owner approved option E of the decision record on 2026-11-19
+  (including analysis's restricted, authenticated network path to intel). Not
+  approved: push, images, deployment, a cluster, restricted fuzzing, detection
+  changes.
+- **Agent:** Claude Code, the only editor. Branch `review/production-hardening`,
+  local only; started at `c3dc658`. Nothing pushed, published or deployed; no
+  cluster contacted.
+- **Commits (local):** `147dc66` the HTTPS transport, settings, validation and
+  `tests/test_intel_tls.py`; `706ea8a` `components/intel`, `overlays/example-intel`,
+  checker, gate and `verify-cluster.sh`, deployment tests. Last implementation
+  commit: `706ea8a`. Then this record (guide, threat model, architecture notes,
+  README, release-scope row, CHANGELOG, register, matrix, brief).
+- **Implementation results (local):** safe suite at `706ea8a` under the network
+  guard: 2,112 passed, 0 failed, 0 errors, 8 skipped, 4 deselected; 25 TLS transport tests against a real TLS server on
+  127.0.0.1 (mutations that weaken verification make them fail); 127 Kubernetes
+  tests including 21 weakened intel deployments; ruff, mypy, bandit with
+  `deploy/` clean.
+- **Runtime verification: pending, not performed.** No cluster, Docker, Caddy,
+  Windows or Linux run. In particular unverified: NetworkPolicy applied to
+  ClusterIP traffic by the plugin, the intel proxy's Caddyfile in a container,
+  certificate rotation in a cluster, `verify-cluster.sh`'s intel checks.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
-1. **Option E (K8S-1):** approve building it as specified in the decision record
-   (intel behind TLS on one port by Service ClusterIP, certificate checked by
-   configured name, one analysis egress rule), keep Kubernetes without intel, or
-   choose another option. Nothing is built before the decision.
-2. Whether to run `verify-cluster.sh` on a dedicated test cluster, and to push the
-   branch and dispatch `tests.yml` and `quality.yml` (not a pull request).
+1. Whether to run `verify-cluster.sh` (with `--control-namespace`, and with the
+   intel component deployed) on a dedicated test cluster: separate approval.
+2. Whether to push the branch and dispatch `tests.yml` and `quality.yml` for the
+   Windows and Linux checks (not a pull request, which would start the fuzz
+   campaigns).
 3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
 
 No step runs without approval.

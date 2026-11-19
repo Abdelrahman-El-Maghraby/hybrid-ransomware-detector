@@ -62,7 +62,7 @@ available), **history** (an earlier revision only).
 | NetworkPolicy enforcement, isolation gate in a Pod, `fsGroup` on real storage, probes, shutdown, `content-update.sh`, `verify-cluster.sh` | pending: needs an approved test cluster; procedure in [KUBERNETES](KUBERNETES.md#verify) (disposable labelled namespaces, positive controls, drift and restart tests) |
 | `verify-cluster.sh` refusals (shared namespaces, unlabelled namespace for changing checks, Kubernetes before 1.29) and that only read-only calls happen then | passed here with a recording kubectl stand-in (no cluster) |
 | Image provides `sh` and `find` for the analysis start command | pending: Docker not running here |
-| Intel on Kubernetes | not implemented: owner decision K8S-1 |
+| Intel on Kubernetes (option E, `components/intel`) | implemented; transport tested against a real TLS server on 127.0.0.1 and the manifests checked statically (section 7); **pending on a cluster**: NetworkPolicy on ClusterIP traffic, the TLS proxy in the intel Pod, certificate rotation, `verify-cluster.sh`'s intel checks |
 
 ### Real integrations
 
@@ -233,3 +233,24 @@ Evidence classes: the outbox, intel and gate checks are unit tests with
 stand-ins; RV-S2 and the worker fixes ran real worker processes with inert
 stand-in scanners; RV-S4 ran the real API on loopback. Nothing ran on a cluster,
 on Windows or Linux, or through Caddy or Docker.
+
+## 7. Option E: intel on Kubernetes (2026-11-19)
+
+At `706ea8a` (implementation), same machine and settings as section 5, from a
+separate worktree of that commit. **Implementation results only: nothing ran on a
+cluster, in Docker, on Windows or Linux, or through Caddy.**
+
+| Check | Kind | Result |
+|---|---|---|
+| Safe suite under the network guard | local | **2,112 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 581 s; the same 8 platform skips; no outside network attempt |
+| `tests/test_intel_tls.py` (25): verified connection, wrong CA, wrong name, expired certificate, system store never loaded, CA rotation, URL rules, redirect not followed, proxies ignored, 401, time-out, closed port, upload sent once, transport selection, configuration check | real TLS server on 127.0.0.1, throwaway certificates | passed |
+| The same tests against weakened clients (verification off, name check off or against the address, system store added) | mutation | each made tests fail (3, 7, 1) |
+| `tests/test_kubernetes.py` (127): the intel overlay passes only once filled; 21 weakened intel deployments rejected; secret placement; proxy-to-socket wiring; base and Docker unchanged; gate settings and positive control | static, offline render | passed |
+| Renders: base; base + `components/intel`; `overlays/example-intel` | `kubectl kustomize` (offline) | base and base + intel pass (placeholders allowed); the example is refused only on its placeholders |
+| Ruff, mypy (69 files), bandit gate with `deploy/`, `bash -n` | static | clean |
+
+Pending: everything at run time on a cluster (`verify-cluster.sh` with
+`--control-namespace`, which now also checks analysis-to-intel with and without
+the token, intel-to-analysis blocked, intel unreachable from another
+namespace); the intel proxy's Caddy configuration in a container; the plugin's
+treatment of ClusterIP traffic under the egress rule.
