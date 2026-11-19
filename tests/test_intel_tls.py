@@ -126,6 +126,8 @@ ROUTES = {
     "/v1/virustotal/lookup": (200, {}, {"found": False}, 0),
     "/v1/virustotal/upload": (500, {}, {"detail": "busy"}, 0),
     "/v1/llm/analyze": (200, {}, {}, 3),                       # stalls past the time-out
+    # one byte over core.intel_client.MAX_REPLY_BYTES once JSON-encoded
+    "/v1/sandbox/poll": (200, {}, {"p": "x" * (1024 * 1024 - 8)}, 0),
 }
 
 
@@ -306,3 +308,16 @@ def test_the_configuration_check_refuses_a_bad_intel_url(pki, tmp_path, monkeypa
     ]
     for cfg, why in cases:
         assert any(why in e for e in validate_config(cfg)[0]), why
+
+
+def test_an_oversized_reply_over_tls_is_an_explicit_failure(pki, server):
+    """The reply limit applies to the HTTPS transport as to the socket
+    (tests/test_intel_reply_limit.py covers framing and lying lengths)."""
+    import json as _json
+
+    from core.intel_client import MAX_REPLY_BYTES
+    assert len(_json.dumps(ROUTES["/v1/sandbox/poll"][2]).encode()) == MAX_REPLY_BYTES + 1
+    s = server()
+    with pytest.raises(IntelError, match="limit") as e:
+        _client(pki, s.port).call("POST", "/v1/sandbox/poll", {"task_id": 1})
+    assert e.value.status == 200

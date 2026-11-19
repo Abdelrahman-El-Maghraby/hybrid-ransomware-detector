@@ -54,6 +54,14 @@ from .sandbox import (
 logger = logging.getLogger("RansomwareScanner")
 
 RETRY_CAPABILITIES_SECONDS = 30.0
+# Largest reply accepted from intel, on both transports. Every reply is a small
+# JSON object: capabilities, a VirusTotal summary, a normalised LLM analysis (at
+# most 20 elements; its free-text explanation is bounded only by the model's
+# output, about 0.5 MB for a 128k-token context), a sandbox summary (30
+# signatures of at most 200-character descriptions, 20 hosts) or an e-mail
+# receipt; together a few kilobytes in practice. 1 MiB leaves a wide margin and
+# bounds what a faulty or compromised intel can make analysis hold in memory.
+MAX_REPLY_BYTES = 1024 * 1024
 
 
 class IntelError(RuntimeError):
@@ -69,6 +77,44 @@ class IntelError(RuntimeError):
 
 class NotConnected(OSError):
     """The Unix socket connection to the intel service did not open."""
+
+
+class BadReply(Exception):
+    """Intel answered, but not with something this client reads: larger than
+    MAX_REPLY_BYTES (declared or actual), or in a content encoding other than
+    identity (the client asks for identity; decoding would need its own bound)."""
+
+    def __init__(self, message: str, status: int):
+        super().__init__(message)
+        self.status = status
+
+
+def read_reply(resp: http.client.HTTPResponse, limit: int = MAX_REPLY_BYTES) -> bytes:
+    """The reply body, read at most limit + 1 bytes: a declared Content-Length over
+    the limit is refused before reading, and a body without one (or chunked, or
+    longer than declared) is cut at limit + 1 and refused. A body shorter than its
+    Content-Length is refused too; a chunked body cut short raises
+    http.client.IncompleteRead."""
+    encoding = (resp.getheader("Content-Encoding") or "identity").strip().lower()
+    if encoding not in ("", "identity"):
+        raise BadReply(f"intel reply in an unsupported encoding ({encoding[:40]})", resp.status)
+    declared = resp.getheader("Content-Length")
+    if declared is not None:
+        try:
+            size = int(declared)
+        except ValueError:
+            size = -1
+        if size > limit:
+            raise BadReply(f"intel reply of {size} bytes is over the {limit}-byte limit",
+                           resp.status)
+    data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise BadReply(f"intel reply is over the {limit}-byte limit", resp.status)
+    if declared is not None and 0 <= size != len(data):
+        # read(amt) returns what came before the connection closed: a cut reply
+        # must not parse as a shorter, valid one
+        raise BadReply(f"intel reply is shorter than its declared {size} bytes", resp.status)
+    return data
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -102,7 +148,7 @@ def unix_request(path: str, method: str, url: str, body: Optional[bytes] = None,
             raise NotConnected(f"{type(e).__name__}: {e}") from e
         conn.request(method, url, body=body, headers=headers or {})
         resp = conn.getresponse()
-        return resp.status, resp.read()
+        return resp.status, read_reply(resp)
     finally:
         conn.close()
 
@@ -199,7 +245,7 @@ def tls_request(endpoint: TlsEndpoint, method: str, url: str, body: Optional[byt
             raise NotConnected(f"{type(e).__name__}: {e}") from e
         conn.request(method, url, body=body, headers=headers or {})
         resp = conn.getresponse()
-        return resp.status, resp.read()
+        return resp.status, read_reply(resp)
     finally:
         conn.close()
 
@@ -239,9 +285,17 @@ class IntelClient:
                              delivered=False) from None
         except OSError as e:
             raise IntelError(f"intel service unreachable ({type(e).__name__})") from None
+        except BadReply as e:
+            # it answered: the request may have been acted on (a sandbox submission
+            # stays "possible"); never an empty success
+            raise IntelError(f"intel {url}: {e}", status=e.status) from None
+        except http.client.HTTPException as e:   # malformed or cut-short reply
+            raise IntelError(f"intel {url}: unreadable reply ({type(e).__name__})") from None
         try:
             answer = json.loads(raw.decode() or "{}")
         except ValueError:
+            if status == 200:          # a success must be readable, never read as {}
+                raise IntelError(f"intel {url}: the reply is not JSON", status=status) from None
             answer = {}
         if status != 200:
             detail = answer.get("detail") if isinstance(answer, dict) else ""
