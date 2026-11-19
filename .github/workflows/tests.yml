@@ -88,6 +88,17 @@ jobs:
             exit 1
           fi
 
+      # The Kubernetes manifests are rendered with kubectl (installed on the hosted
+      # Linux runners); without it tests/test_kubernetes.py skips those checks, and
+      # a green Linux job would no longer say anything about the manifests.
+      - name: Kubernetes manifests rendered on Linux (no kubectl skip)
+        if: runner.os == 'Linux'
+        run: |
+          if grep -E "^SKIPPED .*kubectl not installed" pytest.log; then
+            echo "::error title=Linux / Python ${{ matrix.python }}::the Kubernetes render tests were skipped: kubectl is not installed"
+            exit 1
+          fi
+
       - name: Original v3 smoke test
         env:
           LLM_PROVIDER: none
