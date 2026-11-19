@@ -1,0 +1,54 @@
+# Example overlay WITH the intel service (option E, docs/KUBERNETES.md, "Intel").
+# Copy it outside the repository, fill in every REPLACE value, render, check, apply:
+#
+#   kubectl kustomize ./my-overlay > aegis.yaml
+#   python3 deploy/kubernetes/check_manifests.py aegis.yaml
+#
+# Choose a free address in the cluster's Service range for the intel Service and
+# set it in both patches below (check_manifests.py refuses a mismatch). Create the
+# Secrets aegis-intel-token, aegis-intel-credentials and aegis-intel-tls and the
+# ConfigMap aegis-intel-ca first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../example
+components:
+  - ../../components/intel
+images:
+  # the same references as in ../example: they must be set here too, for the
+  # component's intel Deployment
+  - name: aegis-sentinel
+    newName: REPLACE-registry.example.internal/aegis-sentinel
+    newTag: REPLACE-VERSION
+  - name: aegis-sentinel-proxy
+    newName: REPLACE-registry.example.internal/aegis-sentinel-proxy
+    newTag: REPLACE-VERSION
+patches:
+  # Intel's settings (the component's defaults switch every service off). Keys and
+  # passwords never go here: they are files in the Secret aegis-intel-credentials.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: aegis-intel-config}
+      data:
+        LLM_PROVIDER: none
+        VT_UPLOAD_UNKNOWN: "false"
+        SMTP_HOST: ""
+        ALERT_EMAIL_FROM: ""
+        ALERT_EMAIL_TO: ""
+  - target: {kind: Service, name: aegis-intel}
+    patch: |-
+      - op: replace
+        path: /spec/clusterIP
+        value: REPLACE-INTEL-CLUSTER-IP
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: {name: aegis-analysis}
+      spec:
+        template:
+          spec:
+            containers:
+              - name: analysis
+                env:
+                  - {name: AEGIS_INTEL_URL, value: "https://REPLACE-INTEL-CLUSTER-IP:9443"}

@@ -1,0 +1,22 @@
+# TLS for the intel service, inside its own Pod: analysis connects to 9443 and
+# this forwards to intel's Unix socket (a Pod-local emptyDir). The certificate
+# (Secret aegis-intel-tls) must name aegis-intel.NAMESPACE.svc and be signed by
+# the CA analysis trusts (ConfigMap aegis-intel-ca). Who may connect is decided
+# by NetworkPolicy (analysis only) and intel's token.
+{
+	admin off
+	auto_https off
+}
+
+:9443 {
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem {
+		protocols tls1.2 tls1.3
+	}
+	request_body {
+		# above AEGIS_INTEL_MAX_UPLOAD_MB (100 MiB), so intel answers an oversized
+		# upload itself
+		max_size 101MiB
+	}
+	header -Server
+	reverse_proxy unix//run/aegis/intel/intel.sock
+}

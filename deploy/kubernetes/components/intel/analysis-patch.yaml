@@ -1,0 +1,34 @@
+# Analysis as an intel client over TLS (core/intel_client.py). Fixed env, like the
+# other isolation settings: AEGIS_INTEL_URL is the intel Service's ClusterIP (set
+# the same address in the overlay for both), never a Pod IP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-analysis
+spec:
+  template:
+    spec:
+      containers:
+        - name: analysis
+          env:
+            - {name: AEGIS_INTEL_URL, value: "https://REPLACE-INTEL-CLUSTER-IP:9443"}
+            - {name: AEGIS_INTEL_SERVER_NAME, value: aegis-intel.aegis-sentinel.svc}
+            - {name: AEGIS_INTEL_CA_FILE, value: /etc/aegis-intel-ca/ca.crt}
+            - {name: AEGIS_INTEL_TOKEN_FILE, value: /run/secrets/aegis-intel/intel_token}
+          volumeMounts:
+            - {name: intel-token, mountPath: /run/secrets/aegis-intel, readOnly: true}
+            - {name: intel-ca, mountPath: /etc/aegis-intel-ca, readOnly: true}
+      volumes:
+        - name: intel-token
+          secret:
+            secretName: aegis-intel-token
+            defaultMode: 0440
+            items:
+              - {key: intel_token, path: intel_token}
+        # the CA that signed intel's certificate: public, so a ConfigMap
+        - name: intel-ca
+          configMap:
+            name: aegis-intel-ca
+            defaultMode: 0444
+            items:
+              - {key: ca.crt, path: ca.crt}

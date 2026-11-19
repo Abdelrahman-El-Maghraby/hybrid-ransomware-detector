@@ -53,6 +53,9 @@ EXTERNAL_SETTINGS = ("VIRUSTOTAL_API_KEY", "OPENAI_API_KEY", "SANDBOX_URL", "SAN
                      "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO",
                      "ALERT_EMAIL_FROM", "AEGIS_INTEL_TOKEN", "AEGIS_INTEL_SOCKET",
                      "OLLAMA_HOST", "WEBHOOK_URL", "CLOUD_SECRET_ACCESS_KEY")
+# With the intel component (option E) analysis is an intel client over TLS: these
+# are allowed then, and only then; the external services' own settings never are.
+INTEL_CLIENT_SETTINGS = ("AEGIS_INTEL_TOKEN",)
 SERVICE_ACCOUNT = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 Result = Tuple[str, bool, str]           # name, passed, detail
@@ -175,6 +178,36 @@ def network_checks(extra: Tuple[Tuple[str, int], ...] = ()) -> List[Tuple[str, C
     return checks
 
 
+def intel_target() -> Optional[Tuple[str, int]]:
+    """The intel Service address analysis may reach (option E), or None."""
+    url = os.environ.get("AEGIS_INTEL_URL", "")
+    if not url:
+        return None
+    from urllib.parse import urlsplit
+    parts = urlsplit(url)
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if parts.scheme != "https" or not parts.hostname or not port:
+        raise ValueError(f"AEGIS_INTEL_URL is not https://ADDRESS:PORT: {url!r}")
+    return parts.hostname, port
+
+
+def intel_reachable() -> List[Result]:
+    """verify mode's positive control: the one allowed destination must answer, so
+    the blocked probes are shown to be blocked by policy, not by a dead network."""
+    try:
+        target = intel_target()
+    except ValueError as e:
+        return [("intel reachable (the one allowed destination)", False, str(e))]
+    if target is None:
+        return []
+    blocked, detail = tcp_probe(*target)
+    return [(f"reachable: intel {target[0]}:{target[1]} (allowed, positive control)",
+             not blocked, detail)]
+
+
 def run_network(extra: Tuple[Tuple[str, int], ...] = ()) -> List[Result]:
     """Every destination at once, so the gate takes about one time-out."""
     checks = network_checks(extra)
@@ -244,7 +277,9 @@ def posture_checks() -> List[Result]:
     res.append(("read-only root fs", "ro" in _mount_options("/"),
                 ",".join(_mount_options("/")[:2])))
     res.append(("no service-account token", not os.path.exists(SERVICE_ACCOUNT), SERVICE_ACCOUNT))
-    held = [k for k in EXTERNAL_SETTINGS if os.environ.get(k) or os.environ.get(k + "_FILE")]
+    allowed = INTEL_CLIENT_SETTINGS if os.environ.get("AEGIS_INTEL_URL") else ()
+    held = [k for k in EXTERNAL_SETTINGS if k not in allowed
+            and (os.environ.get(k) or os.environ.get(k + "_FILE"))]
     res.append(("no external-service setting", not held, ",".join(held) or "none"))
     res.append(("detection content mounted read-only", "ro" in _mount_options(CONTENT), CONTENT))
     probe = os.path.join(CONTENT, ".aegis-gate-write-test")
@@ -303,7 +338,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         except ValueError as e:
             print(e, file=sys.stderr)
             return 2
-        code = report("analysis", posture_checks() + run_network(extra))
+        code = report("analysis", posture_checks() + intel_reachable() + run_network(extra))
         for line in info_lines():
             print(f"INFO  analysis {line}")
         return code

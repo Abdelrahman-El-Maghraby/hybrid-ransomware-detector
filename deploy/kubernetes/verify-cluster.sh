@@ -249,7 +249,37 @@ if [ -n "$upload_limit" ]; then
 fi
 code "$work/auth" /version >/dev/null
 rules_before="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("rules"))' "$work/body" 2>/dev/null)"
-echo "INFO  intel service: not part of the Kubernetes deployment; external services are off"
+intel_ip="$(k get service aegis-intel -o jsonpath='{.spec.clusterIP}' 2>/dev/null)"
+if [ -z "$intel_ip" ]; then
+  echo "INFO  intel service: not deployed (components/intel); external services are off"
+else
+  echo "== intel over TLS (option E, Service $intel_ip:9443)"
+  k rollout status deployment/aegis-intel --timeout=600s >/dev/null && pass "intel rollout complete" || fail "intel rollout"
+  # positive: the real client, its token, the private CA and the certificate's name
+  call='import sys
+from engine.config import CONFIG
+from core.intel_client import IntelClient, IntelError, client_from_config
+c = client_from_config(CONFIG)
+if sys.argv[1] == "wrong":
+    c = IntelClient("", "x" * 40, tls=c.tls)
+try:
+    c.call("GET", "/v1/capabilities", timeout=15); print("200")
+except IntelError as e:
+    print(e.status or "unreachable")'
+  expect "analysis to intel with its token (TLS verified)" 200 "$(in_analysis "$call" ok 2>/dev/null)"
+  expect "analysis to intel with a wrong token" 401 "$(in_analysis "$call" wrong 2>/dev/null)"
+  analysis_ip="$(k get pod "$pod" -o jsonpath='{.status.podIP}')"
+  ipod="$(k get pod -l app.kubernetes.io/name=aegis-sentinel,app.kubernetes.io/component=intel \
+    --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  reach_from_intel="import socket,sys
+try:
+    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5).close(); print('connected')
+except OSError as e:
+    print('blocked')"
+  expect "intel cannot reach analysis ($analysis_ip:8443)" blocked \
+    "$(k exec "$ipod" -c intel -- python -c "$reach_from_intel" "$analysis_ip" 8443 2>/dev/null)"
+  echo "INFO  the analysis Pod's TLS proxy shares analysis's network and can open 9443; it holds no intel token (401)"
+fi
 
 if [ -n "$cns" ]; then
   echo "== controlled network check (control namespace $cns)"
@@ -295,6 +325,14 @@ EOF
     fi
   else
     fail "inconclusive: the positive control could not reach the listener, so a blocked result from analysis would prove nothing"
+  fi
+  if [ -n "$intel_ip" ]; then
+    intel_seen="$(kc exec "$marker-client" -- python -c "import socket,sys
+try:
+    socket.create_connection((sys.argv[1], 9443), timeout=5).close(); print('connected')
+except OSError:
+    print('blocked')" "$intel_ip" 2>/dev/null)"
+    expect "a Pod outside analysis cannot reach intel $intel_ip:9443" blocked "$intel_seen"
   fi
   dns="$(kc exec "$marker-client" -- python -c "import socket; socket.getaddrinfo('kubernetes.default.svc', 443); print('resolved')" 2>/dev/null)"
   expect "positive control: cluster DNS answers an unrestricted Pod (so the gate's DNS probe is meaningful)" resolved "$dns"

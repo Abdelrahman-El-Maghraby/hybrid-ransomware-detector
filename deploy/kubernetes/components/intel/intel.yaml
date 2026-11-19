@@ -1,0 +1,185 @@
+# The intel service (api/intel.py) in its own Pod: it holds every external-service
+# credential and is the only workload with egress (networkpolicy.yaml). Its TLS
+# proxy terminates TLS on 9443 and forwards to intel's socket in a Pod-local
+# emptyDir, as the analysis Pod does for the API.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-intel
+  labels:
+    app.kubernetes.io/name: aegis-sentinel
+    app.kubernetes.io/component: intel
+spec:
+  replicas: 1                      # rate limits and e-mail caps are in-process
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate                 # its cache claim is ReadWriteOncePod
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: intel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aegis-sentinel
+        app.kubernetes.io/component: intel
+    spec:
+      serviceAccountName: aegis-sentinel
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      shareProcessNamespace: false
+      # a sandbox wait (SANDBOX_WAIT_SECONDS 600) plus the reply
+      terminationGracePeriodSeconds: 630
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10002                 # the image's `intel` user
+        runAsGroup: 10002
+        fsGroup: 10002
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intel
+          image: aegis-sentinel
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, api.intel]
+          securityContext: &hardened
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          envFrom:
+            - configMapRef:
+                name: aegis-intel-config
+          env:
+            - {name: HOME, value: /var/lib/aegis-intel}
+            - {name: TMPDIR, value: /tmp}
+            - {name: AEGIS_INTEL_SOCKET, value: /run/aegis/intel/intel.sock}
+            - {name: AEGIS_INTEL_TOKEN_FILE, value: /run/secrets/aegis-intel/intel_token}
+            - {name: VIRUSTOTAL_API_KEY_FILE, value: /run/secrets/aegis-intel-credentials/virustotal_api_key}
+            - {name: OPENAI_API_KEY_FILE, value: /run/secrets/aegis-intel-credentials/openai_api_key}
+            - {name: SANDBOX_TOKEN_FILE, value: /run/secrets/aegis-intel-credentials/sandbox_token}
+            - {name: SMTP_PASSWORD_FILE, value: /run/secrets/aegis-intel-credentials/smtp_password}
+          resources:                     # docker-compose.yml: AEGIS_INTEL_MEMORY 1g, 1 CPU
+            requests: {cpu: 250m, memory: 512Mi, ephemeral-storage: 64Mi}
+            limits: {cpu: "1", memory: 1Gi, ephemeral-storage: 512Mi}
+          startupProbe:
+            exec:
+              command: [python, -m, api.probe, /run/aegis/intel/intel.sock]
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command: [python, -m, api.probe, /run/aegis/intel/intel.sock]
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: [python, -m, api.probe, /run/aegis/intel/intel.sock]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 4
+          volumeMounts:
+            - {name: intel-state, mountPath: /var/lib/aegis-intel}
+            - {name: intel-socket, mountPath: /run/aegis/intel}
+            - {name: scratch, mountPath: /tmp}
+            - {name: intel-token, mountPath: /run/secrets/aegis-intel, readOnly: true}
+            - {name: intel-credentials, mountPath: /run/secrets/aegis-intel-credentials, readOnly: true}
+        - name: intel-proxy
+          image: aegis-sentinel-proxy
+          imagePullPolicy: IfNotPresent
+          command: [caddy, run, --config, /etc/aegis-intel-proxy/Caddyfile, --adapter, caddyfile]
+          securityContext:
+            <<: *hardened
+            runAsUser: 10003
+            runAsGroup: 10003
+          ports:
+            - {name: intel-tls, containerPort: 9443, protocol: TCP}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 256Mi}
+          readinessProbe:
+            tcpSocket: {port: intel-tls}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: intel-tls}
+            periodSeconds: 30
+            failureThreshold: 4
+          volumeMounts:
+            - {name: intel-socket, mountPath: /run/aegis/intel}
+            - {name: intel-tls, mountPath: /etc/caddy/tls, readOnly: true}
+            - {name: intel-proxy-config, mountPath: /etc/aegis-intel-proxy, readOnly: true}
+            - {name: intel-proxy-data, mountPath: /data}
+            - {name: intel-proxy-state, mountPath: /config}
+      volumes:
+        - name: intel-state
+          persistentVolumeClaim: {claimName: aegis-intel-state}
+        - name: intel-socket
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: scratch
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+        - name: intel-proxy-data
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: intel-proxy-state
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: intel-proxy-config
+          configMap:
+            name: aegis-intel-proxy
+            defaultMode: 0444
+        # Created by the operator (docs/KUBERNETES.md, "Intel"); the Pod does not
+        # start without them. The token is the same Secret analysis mounts.
+        - name: intel-token
+          secret:
+            secretName: aegis-intel-token
+            defaultMode: 0440
+            items:
+              - {key: intel_token, path: intel_token}
+        - name: intel-credentials
+          secret:
+            secretName: aegis-intel-credentials
+            defaultMode: 0440
+        - name: intel-tls
+          secret:
+            secretName: aegis-intel-tls
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: cert.pem}
+              - {key: tls.key, path: key.pem}
+---
+# Reached only by analysis (networkpolicy.yaml). A fixed ClusterIP: analysis has
+# no DNS and connects to this address (AEGIS_INTEL_URL); the overlay sets both.
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-intel
+  labels:
+    app.kubernetes.io/component: intel
+spec:
+  type: ClusterIP
+  clusterIP: REPLACE-INTEL-CLUSTER-IP
+  selector:
+    app.kubernetes.io/name: aegis-sentinel
+    app.kubernetes.io/component: intel
+  ports:
+    - name: intel-tls
+      port: 9443
+      targetPort: intel-tls
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aegis-intel-state
+  labels:
+    app.kubernetes.io/component: intel
+spec:
+  accessModes: [ReadWriteOncePod]
+  resources:
+    requests:
+      storage: 1Gi

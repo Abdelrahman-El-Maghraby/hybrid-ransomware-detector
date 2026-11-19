@@ -646,3 +646,200 @@ def test_the_gate_is_not_in_the_image():
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ------------------------------------------------------------------ option E: intel
+INTEL_IP = "10.96.200.10"
+
+
+@pytest.fixture(scope="module")
+def with_intel():
+    if KUBECTL is None:
+        pytest.skip("kubectl not installed")
+    return render(K8S / "overlays" / "example-intel")
+
+
+def _filled(docs):
+    """The example overlay with every REPLACE value set, as an operator would."""
+    text = yaml.safe_dump_all(docs)
+    for old, new in (("REPLACE-registry.example.internal", "registry.example.internal"),
+                     ("REPLACE-VERSION", "4.8.0"), ("REPLACE-INTEL-CLUSTER-IP", INTEL_IP),
+                     ("REPLACE-base64-ed25519-public-key", "cHVibGljLWtleQ=="),
+                     ("REPLACE-csi-storage-class", "csi-rwop")):
+        text = text.replace(old, new)
+    docs = [d for d in yaml.safe_load_all(text) if d]
+    rule = find(docs, "NetworkPolicy", "aegis-allow-https")["spec"]["ingress"][0]
+    rule["from"] = [{"ipBlock": {"cidr": "192.0.2.0/24"}}]
+    return docs
+
+
+def intel_pod(docs):
+    return find(docs, "Deployment", "aegis-intel")["spec"]["template"]["spec"]
+
+
+def intel_container(docs, name):
+    return next(c for c in intel_pod(docs)["containers"] if c["name"] == name)
+
+
+def _env(c):
+    return {e["name"]: e.get("value") for e in c.get("env") or []}
+
+
+@needs_kubectl
+def test_the_intel_overlay_passes_only_once_filled(with_intel):
+    assert checker.check(with_intel, allow_placeholders=True) == []
+    strict = " ".join(checker.check(with_intel))
+    assert "clusterIP is still a placeholder" in strict
+    assert "intel address is still a placeholder" in strict
+    assert checker.check(_filled(with_intel)) == []
+
+
+@needs_kubectl
+def test_analysis_reaches_only_the_intel_service_address(with_intel):
+    docs = _filled(with_intel)
+    env = _env(container(docs, "analysis"))
+    assert env["AEGIS_INTEL_URL"] == f"https://{INTEL_IP}:9443"
+    assert find(docs, "Service", "aegis-intel")["spec"]["clusterIP"] == INTEL_IP
+    assert env["AEGIS_INTEL_SERVER_NAME"] == "aegis-intel.aegis-sentinel.svc"
+    assert "AEGIS_INTEL_SOCKET" not in env
+    egress = [d for d in docs if d["kind"] == "NetworkPolicy" and d["spec"].get("egress")
+              and d["spec"]["podSelector"].get("matchLabels") == checker.ANALYSIS_LABELS]
+    assert len(egress) == 1 and egress[0]["spec"]["egress"] == [{
+        "to": [{"podSelector": {"matchLabels": checker.INTEL_LABELS}}],
+        "ports": [{"protocol": "TCP", "port": 9443}]}]
+
+
+@needs_kubectl
+def test_secrets_stay_with_their_owner(with_intel):
+    docs = _filled(with_intel)
+
+    def secrets(spec, c):
+        vols = {v["name"]: v for v in spec["volumes"]}
+        return {vols[m["name"]]["secret"]["secretName"] for m in c["volumeMounts"]
+                if "secret" in vols[m["name"]]}
+    assert secrets(pod(docs), container(docs, "analysis")) == {"aegis-api-token",
+                                                               "aegis-intel-token"}
+    assert secrets(pod(docs), container(docs, "proxy")) == {"aegis-tls"}
+    assert secrets(intel_pod(docs), intel_container(docs, "intel")) == {
+        "aegis-intel-token", "aegis-intel-credentials"}
+    assert secrets(intel_pod(docs), intel_container(docs, "intel-proxy")) == {"aegis-intel-tls"}
+    assert not any(d["kind"] == "Secret" for d in docs)
+
+
+@needs_kubectl
+def test_the_intel_proxy_serves_tls_to_the_socket(with_intel):
+    conf = (K8S / "components" / "intel" / "Caddyfile").read_text(encoding="utf-8")
+    sock = _env(intel_container(with_intel, "intel"))["AEGIS_INTEL_SOCKET"]
+    assert "admin off" in conf and ":9443" in conf and "protocols tls1.2 tls1.3" in conf
+    assert f"reverse_proxy unix/{sock}" in conf
+    size = int(conf.split("max_size", 1)[1].split("MiB", 1)[0])
+    assert size * 1024 * 1024 > 100 * 1024 * 1024        # above AEGIS_INTEL_MAX_UPLOAD_MB
+    cmd = intel_container(with_intel, "intel-proxy")["command"]
+    mounts = {m["mountPath"] for m in intel_container(with_intel, "intel-proxy")["volumeMounts"]}
+    assert cmd[cmd.index("--config") + 1].rsplit("/", 1)[0] in mounts
+
+
+INTEL_BREAKS = {
+    "egress": lambda d: find(d, "NetworkPolicy", "aegis-analysis-to-intel")["spec"]["egress"][0][
+        "ports"].append({"protocol": "TCP", "port": 443}),
+    "exactly tcp 9443": lambda d: find(d, "NetworkPolicy", "aegis-analysis-to-intel")["spec"].update(
+        egress=[{}]),
+    "NetworkPolicy/dns": lambda d: d.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+                                      "metadata": {"name": "dns", "namespace": "aegis-sentinel"},
+                                      "spec": {"podSelector": {"matchLabels": checker.ANALYSIS_LABELS},
+                                               "policyTypes": ["Egress"],
+                                               "egress": [{"ports": [{"protocol": "UDP", "port": 53}]}]}}),
+    "AEGIS_INTEL_URL": lambda d: [e.update(value="https://10.96.200.11:9443")
+                                  for e in container(d, "analysis")["env"]
+                                  if e["name"] == "AEGIS_INTEL_URL"],
+    "AEGIS_INTEL_SERVER_NAME": lambda d: [e.update(value="intel.example.org")
+                                          for e in container(d, "analysis")["env"]
+                                          if e["name"] == "AEGIS_INTEL_SERVER_NAME"],
+    "AEGIS_INTEL_CA_FILE": lambda d: [e.update(value="/run/secrets/aegis-intel/ca.crt")
+                                      for e in container(d, "analysis")["env"]
+                                      if e["name"] == "AEGIS_INTEL_CA_FILE"],
+    "analysis mounts secrets": lambda d: pod(d)["volumes"].append(
+        {"name": "creds", "secret": {"secretName": "aegis-intel-credentials"}}) or container(
+        d, "analysis")["volumeMounts"].append({"name": "creds", "mountPath": "/run/c"}),
+    "external-service setting": lambda d: container(d, "analysis")["env"].append(
+        {"name": "VIRUSTOTAL_API_KEY_FILE", "value": "/run/c/vt"}),
+    "envFrom": lambda d: find(d, "ConfigMap", "aegis-analysis-config")["data"].update(
+        SANDBOX_URL="https://cape.example.internal"),
+    "intel-proxy mounts secrets": lambda d: intel_pod(d)["volumes"].append(
+        {"name": "x", "secret": {"secretName": "aegis-intel-credentials"}}) or intel_container(
+        d, "intel-proxy")["volumeMounts"].append({"name": "x", "mountPath": "/run/x"}),
+    "reach 169.254.0.0/16": lambda d: find(d, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"][1][
+        "to"][0]["ipBlock"]["except"].remove("169.254.0.0/16"),
+    "reach 10.0.0.0/8": lambda d: find(d, "NetworkPolicy", "aegis-intel-egress")["spec"]["egress"][1][
+        "to"][0]["ipBlock"]["except"].remove("10.0.0.0/8"),
+    "intel may reach no pod": lambda d: find(d, "NetworkPolicy", "aegis-intel-egress")["spec"][
+        "egress"].append({"to": [{"podSelector": {"matchLabels": checker.ANALYSIS_LABELS}}],
+                          "ports": [{"protocol": "TCP", "port": 8443}]}),
+    "intel accepts": lambda d: find(d, "NetworkPolicy", "aegis-intel-from-analysis")["spec"][
+        "ingress"][0].pop("from"),
+    "intel is only a ClusterIP": lambda d: find(d, "Service", "aegis-intel")["spec"].update(
+        type="LoadBalancer"),
+    "fixed clusterIP": lambda d: find(d, "Service", "aegis-intel")["spec"].update(clusterIP="None"),
+    "Pod-local emptyDir": lambda d: [e.update(value="/var/lib/aegis-intel/intel.sock")
+                                     for e in intel_container(d, "intel")["env"]
+                                     if e["name"] == "AEGIS_INTEL_SOCKET"],
+    "one replica": lambda d: find(d, "Deployment", "aegis-intel")["spec"].update(replicas=2),
+    "privileged": lambda d: intel_container(d, "intel")["securityContext"].update(privileged=True),
+    "uid": lambda d: intel_container(d, "intel")["securityContext"].update(runAsUser=10001),
+    "without the intel component": lambda d: [d.remove(x) for x in list(d)
+                                              if x["metadata"]["name"].startswith("aegis-intel")
+                                              and x["kind"] in ("Deployment", "Service")],
+}
+
+
+@needs_kubectl
+@pytest.mark.parametrize("what", sorted(INTEL_BREAKS))
+def test_the_checker_rejects_a_weakened_intel_deployment(with_intel, what):
+    docs = _filled(with_intel)
+    INTEL_BREAKS[what](docs)
+    problems = checker.check(docs)
+    assert problems, f"{what}: accepted"
+    assert any(what.lower() in p.lower() for p in problems), (what, problems)
+
+
+def test_the_base_still_has_no_intel_and_no_egress(base):
+    assert not [d for d in base if d["metadata"]["name"].startswith("aegis-intel")]
+    assert not [d for d in base if d["kind"] == "NetworkPolicy" and d["spec"].get("egress")]
+    assert not any(e["name"].startswith("AEGIS_INTEL") for e in container(base, "analysis")["env"])
+
+
+def test_docker_keeps_the_socket_transport():
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
+    assert compose["analysis"]["environment"]["AEGIS_INTEL_SOCKET"] == "/run/aegis/intel/intel.sock"
+    assert not any(k.startswith("AEGIS_INTEL_URL") for s in compose.values()
+                   for k in (s.get("environment") or {}))
+
+
+# ------------------------------------------------- the gate with intel deployed
+def test_the_gate_allows_only_the_intel_client_settings(monkeypatch, posix_ids):
+    monkeypatch.setenv("AEGIS_INTEL_TOKEN_FILE", "/run/secrets/aegis-intel/intel_token")
+    held = dict((n, ok) for n, ok, _ in gate.posture_checks())
+    assert held["no external-service setting"] is False           # no URL: not an intel client
+    monkeypatch.setenv("AEGIS_INTEL_URL", f"https://{INTEL_IP}:9443")
+    held = dict((n, ok) for n, ok, _ in gate.posture_checks())
+    assert held["no external-service setting"] is True
+    monkeypatch.setenv("SMTP_PASSWORD_FILE", "/run/x")
+    held = dict((n, ok) for n, ok, _ in gate.posture_checks())
+    assert held["no external-service setting"] is False           # intel's secrets never
+
+
+def test_verify_requires_intel_to_answer(monkeypatch):
+    assert gate.intel_reachable() == []                           # no intel: nothing to show
+    with socket.socket() as srv:
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(4)
+        monkeypatch.setenv("AEGIS_INTEL_URL", f"https://127.0.0.1:{srv.getsockname()[1]}")
+        (name, ok, detail), = gate.intel_reachable()
+        assert ok and "positive control" in name
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        closed = s.getsockname()[1]
+    monkeypatch.setenv("AEGIS_INTEL_URL", f"https://127.0.0.1:{closed}")
+    assert gate.intel_reachable()[0][1] is False
+    monkeypatch.setenv("AEGIS_INTEL_URL", "http://127.0.0.1")
+    assert gate.intel_reachable()[0][1] is False
