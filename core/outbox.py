@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import IO, Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import IO, Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from .mailer import RateLimited, clean_text
 
@@ -443,14 +443,14 @@ class Outbox:
             path.unlink(missing_ok=True)
 
     def _delivered(self, alert_id: str, channel: str) -> bool:
-        return ((alert_id, channel) in _DELIVERED.setdefault(str(self.root), set())
+        return ((alert_id, channel) in _DELIVERED.setdefault(str(self.root), {})
                 or (self.sent / f"{alert_id}.{channel}").exists())
 
     def _mark_delivered(self, alert_id: str, channel: str) -> None:
         """Recorded at once, apart from the entry rewrite: a failed rewrite (disk
         full) must not make the next run send this channel again. In memory first
         (this process), then a marker file (later processes)."""
-        _DELIVERED.setdefault(str(self.root), set()).add((alert_id, channel))
+        _DELIVERED.setdefault(str(self.root), {})[(alert_id, channel)] = self._clock()
         try:
             (self.sent / f"{alert_id}.{channel}").touch()
         except OSError as e:
@@ -460,6 +460,11 @@ class Outbox:
 
     def _prune_sent(self) -> None:
         now = self._clock()
+        # AL-2: the in-process record goes with the markers, after the maximum age
+        # (by then a left-over entry of that alert is dropped as expired)
+        remembered = _DELIVERED.get(str(self.root), {})
+        for key in [k for k, at in remembered.items() if now - at > self.max_age]:
+            del remembered[key]
         for marker in self.sent.iterdir():
             try:
                 if now - marker.stat().st_mtime > self.max_age:
@@ -507,7 +512,7 @@ def channels_for(alert: Mapping[str, Any], config: Mapping[str, Any],
 # (alert id, channel) delivered by this process, per outbox folder: a delivery is
 # never repeated in this process even when neither its marker nor the entry could
 # be written. outbox_for() builds a new Outbox per call, hence module level.
-_DELIVERED: Dict[str, Set[Tuple[str, str]]] = {}
+_DELIVERED: Dict[str, Dict[Tuple[str, str], float]] = {}     # -> when it was delivered
 
 
 def _well_formed(entry: Any) -> bool:

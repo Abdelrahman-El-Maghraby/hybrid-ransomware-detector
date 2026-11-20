@@ -974,3 +974,21 @@ def test_intel_does_not_send_an_alert_again_while_its_first_send_runs(intel_mail
     assert first["r"].json() == {"sent": True, "duplicate": False} and len(sent) == 1
     again = api.post("/v1/alert/email", headers=auth, json=fields)
     assert again.json() == {"sent": False, "duplicate": True} and len(sent) == 1
+
+
+def test_the_in_process_delivery_record_is_bounded_by_the_maximum_age(tmp_path, clock):
+    """AL-2: each delivered channel was remembered in the process for good, so a
+    long-running service grew this record with every alert. It is now forgotten
+    with its marker file, after the maximum age (when a left-over entry of that
+    alert would be dropped as expired anyway)."""
+    _restart()
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    alert, other = _two_alerts()
+    box.enqueue(alert, ["webhook"])
+    assert box.flush({"webhook": hook, "email": None})["sent"] == 1
+    assert len(OB._DELIVERED[str(box.root)]) == 1
+    clock[0] += 24 * 3600 + 1
+    box.enqueue(other, ["webhook"])
+    assert box.flush({"webhook": hook, "email": None})["sent"] == 1
+    assert list(OB._DELIVERED[str(box.root)]) == [(other["id"], "webhook")]
+    assert len(hook.got) == 2
