@@ -306,3 +306,19 @@ CI.** Findings K8S-R4 and K8S-R6; brief section 9.
 | Safe suite at `5562225` (same selection and deselections as section 3) | **2,169 passed, 0 failed, 8 skipped, 4 deselected** (2,096 in the full run plus `tests/test_kubernetes.py` rerun with kubectl on PATH: 139 passed; details in the [brief](tasks/repair-pass-2026-11-20.md)) |
 | ruff, mypy (69 files), bandit gate | clean |
 | Platforms | macOS arm64 only; FI-2's device/inode check and FI-1's identity (ctime) are unverified on Windows |
+
+## 11. TX-1 visible-text limits (2026-11-20)
+
+Revision `b432f07`; macOS 27.2.1 arm64, Python 3.14.2. Environment: scratch
+`HOME` and `TMPDIR`, `PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin`
+(kubectl and 7-Zip found), `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`, the
+suite's network guard active (`tests/conftest.py`). Command: `.venv/bin/python -m pytest -p no:cacheprovider -q -rfE -rs --tb=short -W default::ResourceWarning -o faulthandler_timeout=300 --ignore=tests/test_fuzz_parsers.py --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation --deselect tests/test_intel_service.py::test_scanner_uses_intel_over_the_socket --deselect tests/test_intel_service.py::test_wrong_token_and_unreachable_intel_are_reported --deselect tests/test_intel_service.py::test_probe_reports_health tests`.
+
+| Check | Result |
+|---|---|
+| Safe suite, **one run** at `b432f07` | **2,203 passed, 0 failed, 8 skipped, 4 deselected**, 1 third-party warning (Starlette `httpx` deprecation), 598 s; 0 ResourceWarnings; no outside network attempt. Kubernetes render tests ran (none skipped); the 8 skips are the usual platform ones (GUI opt-in, Restart Manager, system ELF, box-js, OpenCV, Job Object, `/proc`, libproc) |
+| `tests/test_text_limits.py` at `b432f07` | 34 passed |
+| The same file against `0ec91e0` (temporary worktree) | 30 failed, 4 passed (the 4 expect `complete` at or under the limits) |
+| Focused neighbours (scan status, mail, embedded msg, charset, HTML mail, OCR helper cleanup, prompt guard, privilege separation, web smuggling, mailbox) with the new file | 181 passed |
+| ruff (tracked Python files), mypy (69 files), bandit gate | clean |
+| Platforms | macOS arm64 only; no Linux, Windows or CI run; OCR helpers were stand-ins (real Tesseract/poppler not run) |

@@ -6,7 +6,7 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `5562225` (repair pass, 2026-11-20: FI-1 to FI-3, CO-1, AL-1, AL-2; [brief](tasks/repair-pass-2026-11-20.md)). Before it: `d45715a` (intel reply limit and restart-test scope, 2026-11-19: K8S-R4, K8S-R6). Before it: `ef3a5c4` (review of option E, 2026-11-19: K8S-R1 to K8S-R5, [brief](tasks/kubernetes-option-e-review-2026-11-19.md)). Before it: `706ea8a` (option E implemented, 2026-11-19, K8S-1). Before it: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
+Current code baseline: `b432f07` (TX-1, owner-approved, 2026-11-20: visible text a limit leaves unread makes the scan partial; [brief](tasks/repair-pass-2026-11-20.md#tx-1-visible-text-limits-owner-approved-2026-11-20)). Before it: `5562225` (repair pass, 2026-11-20: FI-1 to FI-3, CO-1, AL-1, AL-2; [brief](tasks/repair-pass-2026-11-20.md)). Before it: `d45715a` (intel reply limit and restart-test scope, 2026-11-19: K8S-R4, K8S-R6). Before it: `ef3a5c4` (review of option E, 2026-11-19: K8S-R1 to K8S-R5, [brief](tasks/kubernetes-option-e-review-2026-11-19.md)). Before it: `706ea8a` (option E implemented, 2026-11-19, K8S-1). Before it: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
 RV-S4 fixed, [brief](tasks/repository-audit-2026-11-18.md#6-third-pass-2026-11-19)). Before it: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
 [brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)). Before it: `b6966f8` (review of thirteen items, 2026-11-17; see
 [the task brief](tasks/review-items-2026-11-17.md) and the
@@ -115,6 +115,7 @@ a regression test that failed before it and passes after it, on this Mac only.
 | CO-1 | Reproduced: with `VT_UPLOAD_UNKNOWN` on, a refused upload or an analysis that did not finish within the polls read "upload did not complete" with no error, and the scan was complete. Now a VirusTotal layer error (partial, not cached) | `024fffa` |
 | AL-1 | Reproduced: the intel client stops waiting after 60 s but SMTP steps each have their own time-out; a retry reached intel while the first send of the same alert ran and sent a second e-mail. Answered 409 with Retry-After while in flight | `0056177` |
 | AL-2 | Code path: the in-process delivery record of RV-14 grew by one entry per delivered channel for the life of the process. Pruned after the maximum age with the marker files | `8a504b5` |
+| TX-1 | Gap, owner-approved: the visible-text limits for the injection checks (web page/SVG 2 MiB, PDF 200,000 characters or 50 pages, Word/OOXML 200,000 characters, OCR 20 pages, e-mail body 200,000 characters) left text unread with the scan complete; an OCR time-limit stop was dropped once one page had text. Each now names what it left unread (`text_extraction.not_checked`, `mail.body_not_checked`) and the scan is partial; text ending exactly at a limit, or only white space after it, is not. Limits, text inspected, scores and verdicts unchanged; the LLM's 3,000-character excerpt is not reported | `b432f07` (`tests/test_text_limits.py`, 34 tests; below, at and over each limit, nested zip and e-mail, findings kept) |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -171,7 +172,7 @@ test-client warning (a dependency change); shipping the placeholder fuzzy-signat
 sample in a wheel (it matches nothing). From the repository audit (RA-5, RA-6 in its
 [brief](tasks/repository-audit-2026-11-18.md); RA-9 and RA-10 are done as RV-12 and RV-3):
 three screenshots no document references, two unused GUI helpers kept for `gui`'s import
-surface. From the repair pass (2026-11-20, needs an owner decision because it would make many large documents partial): visible text read for prompt-injection phrasing is capped without a completeness reason (text files 2 MiB, PDF text and mail bodies 200,000 characters). From the second pass: outbox caps and permanent-error classification (intel
+surface. From the repair pass: TX-1 was approved and fixed (section 1). Not covered by it: the printable-strings pass (`extract_suspicious_strings`, 32 MiB read and 200,000 characters) also feeds the phrasing check without a reason; it is not visible text, so it was left as it is. From the second pass: outbox caps and permanent-error classification (intel
 403/422, webhook 4xx are retried for 24 h; intel's 429 gets exponential backoff), wall-clock
 expiry, leftover `.alert.*.tmp` files, `chmod 0700` on a user-chosen outbox folder; refusing a
 non-ASCII API token at start-up; deriving the proxy cap from `AEGIS_API_MAX_UPLOAD_MB`.

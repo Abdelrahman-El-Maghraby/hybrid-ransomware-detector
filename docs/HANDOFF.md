@@ -2801,6 +2801,22 @@ action.
   ruff, mypy, bandit clean.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## TX-1 visible-text limits (2026-11-20, Claude Code)
+
+- **Brief:** [repair pass, TX-1 section](tasks/repair-pass-2026-11-20.md#tx-1-visible-text-limits-owner-approved-2026-11-20);
+  owner approved TX-1 with limits, coverage, weights, scores, verdicts and schema
+  compatibility unchanged.
+- **Commits (local, not pushed):** `b432f07` (implementation and
+  `tests/test_text_limits.py`); last implementation commit `b432f07`. Then the
+  records commit (register, matrix section 11, brief, handoff, CHANGELOG,
+  README, overview source).
+- **Results (this Mac, one run):** safe suite at `b432f07`: 2,203 passed,
+  0 failed, 8 skipped, 4 deselected, Kubernetes tests not skipped; ruff, mypy,
+  bandit clean. The new file fails 30 of 34 on `0ec91e0`.
+- **Not done:** the overview PDF (`docs/security-overview/`) was not rebuilt;
+  only its source text changed. No CI, Linux, Windows or real OCR run.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is
@@ -2810,5 +2826,8 @@ action.
    push) and dispatch `tests.yml`, `quality.yml` and `docker.yml` on it; and
    whether to remove the two `Co-Authored-By` trailers first.
 3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
+4. Optional: rebuild the technical overview PDF so it carries the TX-1 text,
+   and decide whether the printable-strings limit (register section 4) should
+   get the same reason.
 
 No step runs without approval.

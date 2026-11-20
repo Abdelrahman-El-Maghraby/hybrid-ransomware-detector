@@ -90,6 +90,13 @@ no version or date is assigned. Finding IDs and evidence:
 - The Kubernetes manifest checker accepted an intel egress range that covers a
   private range without being a default route (for example `0.0.0.0/1` plus
   `128.0.0.0/1`), which let intel reach cluster addresses.
+- Visible text that a text limit leaves unread now makes the scan partial with a
+  reason (TX-1): web pages and SVG over 2 MiB, PDF text over 200,000 characters
+  or 50 pages, Word and other Office text over 200,000 characters, OCR pages
+  after 20 or after a time-limit stop, and e-mail bodies over 200,000
+  characters (`scan_results.text_extraction.not_checked`,
+  `mail.body_not_checked`). Text ending exactly at a limit is not partial. The
+  limits, the text inspected, scores and verdicts are unchanged.
 
 ## [4.8.0] — pending release
 
