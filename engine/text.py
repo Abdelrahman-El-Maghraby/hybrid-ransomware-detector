@@ -3,7 +3,7 @@
 import logging
 import os
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import docx
 
@@ -79,39 +79,58 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
 
 
 class TextExtractionMixin:
-    """Visible-text extraction (PDF, Word, OOXML parts, OCR fallback)."""
+    """Visible-text extraction (PDF, Word, OOXML parts, OCR fallback).
+
+    TX-1: each limit below reports, in `omitted`, text it actually left unread
+    (engine/completeness.py makes that a partial scan). Reaching a limit exactly,
+    with only white space after it, is not an omission. The text returned is
+    the same as before (a PDF may gain one trailing page separator)."""
+
+    TEXT_MAX_BYTES = 2 * 1024 * 1024      # web pages and SVG: bytes read for the text layers
 
     def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True,
-                                errors: Optional[List[str]] = None) -> str:
+                                errors: Optional[List[str]] = None,
+                                omitted: Optional[List[str]] = None) -> str:
         """Extract readable text from a PDF or Office document ('' if none).
 
         '' also comes back when the document could not be parsed; pass `errors` to
         tell the two apart - it receives why, when no text could be read because a
-        parser failed (engine/completeness.py turns that into a partial scan)."""
+        parser failed (engine/completeness.py turns that into a partial scan).
+        `omitted` receives what a limit left unread, whether or not text was read."""
         failures: List[str] = []
-        text = self._dispatch_text(file_path, allow_ocr, failures)
+        cut: List[str] = []
+        text = self._dispatch_text(file_path, allow_ocr, failures, cut)
         if errors is not None and failures and not text.strip():
             errors.extend(failures)
+        if omitted is not None:
+            omitted.extend(cut)
         return text
 
-    def _dispatch_text(self, file_path: str, allow_ocr: bool, errors: List[str]) -> str:
+    def _dispatch_text(self, file_path: str, allow_ocr: bool, errors: List[str],
+                       omitted: Optional[List[str]] = None) -> str:
         file_ext = os.path.splitext(file_path)[1].lower()
+        cut: List[str] = omitted if omitted is not None else []
 
         try:
             if file_ext in WEB_EXTENSIONS:
+                limit = self.TEXT_MAX_BYTES
                 with open(file_path, "rb") as fh:
-                    return visible_text(fh.read(2 * 1024 * 1024))
+                    raw = fh.read(limit + 1)
+                if len(raw) > limit:
+                    cut.append(f"page text after the first {limit // (1024 * 1024)} MiB "
+                               "not read")
+                return visible_text(raw[:limit])
             if file_ext == ".pdf":
-                text = self._extract_text_from_pdf(file_path, errors)
+                text = self._extract_text_from_pdf(file_path, errors, cut)
                 if not text.strip() and allow_ocr:
                     logger.info("No text found in PDF. Using OCR fallback for %s", file_path)
-                    text = self._extract_text_with_ocr_from_pdf(file_path, errors)
+                    text = self._extract_text_with_ocr_from_pdf(file_path, errors, cut)
                 return text
             elif file_ext == ".docx":
-                return self._extract_text_from_word(file_path) or \
-                    self._extract_text_from_ooxml(file_path, errors=errors)
+                return self._extract_text_from_word(file_path, cut) or \
+                    self._extract_text_from_ooxml(file_path, errors=errors, omitted=cut)
             elif file_ext in (".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".pptx", ".pptm"):
-                return self._extract_text_from_ooxml(file_path, errors=errors)
+                return self._extract_text_from_ooxml(file_path, errors=errors, omitted=cut)
             else:
                 return ""     # legacy binary formats: the strings pass covers them
         except Exception as e:
@@ -122,23 +141,35 @@ class TextExtractionMixin:
     PDF_MAX_PAGES = 50
     PDF_MAX_CHARS = 200_000
 
-    def _extract_text_from_pdf(self, file_path: str, errors: Optional[List[str]] = None) -> str:
+    def _extract_text_from_pdf(self, file_path: str, errors: Optional[List[str]] = None,
+                               omitted: Optional[List[str]] = None) -> str:
         """Extract text from a PDF file.
 
         Bounded like the OOXML path: the LLM reads the first 3,000 characters and
         the injection patterns the first 200,000, so long manuals stop early
-        (page-by-page text extraction was half of all scan time)."""
+        (page-by-page text extraction was half of all scan time). TX-1: pages
+        are read until the text is longer than the limit, so text cut off and
+        pages left over are told apart from text that ends exactly at it."""
         chunks: List[str] = []
-        total = 0
+        length = -1                     # of the "\n"-joined text so far
+        over = False
         try:
             with open(file_path, 'rb') as file:
                 pdf_reader = PdfReader(file, strict=False)
-                for page in pdf_reader.pages[:self.PDF_MAX_PAGES]:
+                pages = pdf_reader.pages
+                for page in pages[:self.PDF_MAX_PAGES]:
                     chunk = page.extract_text() or ""
                     chunks.append(chunk)
-                    total += len(chunk) + 1
-                    if total >= self.PDF_MAX_CHARS:
+                    length, over = _past_limit(length, chunk, self.PDF_MAX_CHARS)
+                    if over:
                         break
+                if omitted is not None:
+                    if over:
+                        omitted.append(f"PDF text after the first {self.PDF_MAX_CHARS:,} "
+                                       f"characters not read ({len(chunks)} page(s) read)")
+                    elif len(pages) > self.PDF_MAX_PAGES:
+                        omitted.append(f"PDF pages after the first {self.PDF_MAX_PAGES} not "
+                                       f"read ({len(pages)} pages)")
             return "\n".join(chunks)[:self.PDF_MAX_CHARS]
         except Exception as e:
             logger.warning("Could not extract PDF text from %s: %s", file_path, e)
@@ -163,31 +194,44 @@ class TextExtractionMixin:
             end = min(end, now + left - max(1.0, 0.1 * limit))
         return end
 
+    OCR_MAX_PAGES = 20
+
     def _extract_text_with_ocr_from_pdf(self, file_path: str,
-                                        errors: Optional[List[str]] = None) -> str:
+                                        errors: Optional[List[str]] = None,
+                                        omitted: Optional[List[str]] = None) -> str:
         """Extract text from a PDF file using OCR if it is image-based. L-E5: the
         poppler and tesseract helpers get only the OCR time left (each library
         kills its helper at its timeout); a time-out or a failure is recorded in
-        `errors`, which makes the scan partial, and the pages read are kept."""
+        `errors`, which makes the scan partial, and the pages read are kept.
+        TX-1: pages after OCR_MAX_PAGES, and pages a time limit left unread after
+        others were read, are named in `omitted`."""
         import time
         if not OCR_AVAILABLE:
             return ""
         failures = errors if errors is not None else []
+        cut = omitted if omitted is not None else []
         end = self._ocr_end()
         text = ""
         try:
             if end - time.monotonic() < self.OCR_MIN_CALL_SECONDS:
                 failures.append("OCR not run: no time left in the scan limit")
                 return ""
-            images = convert_from_path(file_path, last_page=20,
+            images = convert_from_path(file_path, last_page=self.OCR_MAX_PAGES,
                                        timeout=max(1, int(end - time.monotonic())))
             for done, img in enumerate(images):
                 left = end - time.monotonic()
                 if left < self.OCR_MIN_CALL_SECONDS:
-                    failures.append(f"OCR stopped at its time limit: {done} of "
-                                    f"{len(images)} page(s) read")
+                    note = f"OCR stopped at its time limit: {done} of {len(images)} page(s) read"
+                    failures.append(note)
+                    if text.strip():      # with no text at all, `errors` reports it
+                        cut.append(note)
                     break
                 text += pytesseract.image_to_string(img, timeout=max(1, int(left)))
+            if len(images) >= self.OCR_MAX_PAGES:
+                pages = _pdf_page_count(file_path)
+                if pages > self.OCR_MAX_PAGES:
+                    cut.append(f"OCR pages after the first {self.OCR_MAX_PAGES} not read "
+                               f"({pages} pages)")
             return text
         except Exception as e:
             logger.error("OCR failed for PDF %s: %s", file_path, str(e))
@@ -197,7 +241,7 @@ class TextExtractionMixin:
     OOXML_PART_MAX = 20 * 1024 * 1024     # as _extract_text_from_ooxml
     OOXML_MAX_CHARS = 200_000
 
-    def _extract_text_from_word(self, file_path: str) -> str:
+    def _extract_text_from_word(self, file_path: str, omitted: Optional[List[str]] = None) -> str:
         """Extract text from a Word document. L-E4: within the same limits as the
         other Office formats: python-docx reads the whole main part, so a part
         declared over OOXML_PART_MAX is left to the bounded reader (which skips
@@ -209,16 +253,22 @@ class TextExtractionMixin:
                 if zf.getinfo("word/document.xml").file_size > self.OOXML_PART_MAX:
                     return ""
             doc = docx.Document(file_path)
-            return "\n".join([paragraph.text for paragraph in doc.paragraphs])[:self.OOXML_MAX_CHARS]
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            if text[self.OOXML_MAX_CHARS:].strip() and omitted is not None:
+                omitted.append(f"document text after the first {self.OOXML_MAX_CHARS:,} "
+                               "characters not read")
+            return text[:self.OOXML_MAX_CHARS]
         except Exception as e:
             logger.debug("python-docx could not read %s: %s", file_path, e)
             return ""
 
     @staticmethod
     def _extract_text_from_ooxml(file_path: str, max_chars: int = 200_000,
-                                 errors: Optional[List[str]] = None) -> str:
+                                 errors: Optional[List[str]] = None,
+                                 omitted: Optional[List[str]] = None) -> str:
         """Text from any OOXML file (Word/Excel/PowerPoint, incl. macro-enabled),
-        read straight from the XML parts with defusedxml."""
+        read straight from the XML parts with defusedxml. Parts over 20 MiB are
+        skipped here and named by the hidden-content check (prompt_guard)."""
         if not DEFUSEDXML_AVAILABLE:
             return ""
         import zipfile
@@ -227,7 +277,7 @@ class TextExtractionMixin:
         part_re = re.compile(r"(word/(document|header\d*|footer\d*)\.xml"
                              r"|xl/sharedStrings\.xml|ppt/slides/slide\d+\.xml)$")
         chunks: List[str] = []
-        total = 0
+        length = -1                     # of the " "-joined text so far
         try:
             with zipfile.ZipFile(file_path) as zf:
                 for info in zf.infolist():
@@ -238,12 +288,31 @@ class TextExtractionMixin:
                         tag = str(el.tag)
                         if (tag.endswith("}t") or tag == "t") and el.text:
                             chunks.append(el.text)
-                            total += len(el.text) + 1
-                            if total > max_chars:
+                            length, over = _past_limit(length, el.text, max_chars)
+                            if over:
+                                if omitted is not None:
+                                    omitted.append(f"document text after the first "
+                                                   f"{max_chars:,} characters not read")
                                 return " ".join(chunks)[:max_chars]
         except Exception as e:
             logger.debug("OOXML text extraction failed for %s: %s", file_path, e)
             if errors is not None:
                 errors.append(f"Office document could not be parsed ({type(e).__name__})")
-        return " ".join(chunks)
+        return " ".join(chunks)[:max_chars]      # anything after the limit is white space
 
+
+def _past_limit(length: int, chunk: str, limit: int) -> Tuple[int, bool]:
+    """TX-1: the joined length after one more chunk (one separator before it),
+    and whether text other than white space now lies past `limit`. Text that
+    ends exactly at the limit, or only white space after it, is not cut off."""
+    start = length + 1
+    return start + len(chunk), bool(chunk[max(0, limit - start):].strip())
+
+
+def _pdf_page_count(file_path: str) -> int:
+    """Pages in a PDF (0 when it cannot be read)."""
+    try:
+        with open(file_path, "rb") as fh:
+            return len(PdfReader(fh, strict=False).pages)
+    except Exception:
+        return 0

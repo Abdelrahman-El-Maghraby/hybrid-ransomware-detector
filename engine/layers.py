@@ -339,9 +339,16 @@ class PromptGuardLayer(Layer):
         elif not ctx.is_mail:      # an e-mail's body was captured by its container
             llm_on = getattr(scanner.llm_backend, "available", True)
             failures: List[str] = []
-            ctx.text = scanner._extract_text_from_file(ctx.path, allow_ocr=llm_on, errors=failures)
+            omitted: List[str] = []
+            ctx.text = scanner._extract_text_from_file(ctx.path, allow_ocr=llm_on, errors=failures,
+                                                       omitted=omitted)
+            extraction: Dict[str, str] = {}
             if failures:              # a parser failed: no text, not "no text in it"
-                ctx.scan_results["text_extraction"] = {"error": failures[0]}
+                extraction["error"] = failures[0]
+            if omitted:               # TX-1: a limit left text unread (scan_status partial)
+                extraction["not_checked"] = "; ".join(omitted)[:500]
+            if extraction:
+                ctx.scan_results["text_extraction"] = extraction
         ctx.strings = "" if ctx.is_archive else extract_suspicious_strings(ctx.path)
         hidden = scanner.prompt_guard.inspect_hidden_content(ctx.path)
         guard = scanner.prompt_guard.analyze(ctx.text, ctx.strings, hidden)

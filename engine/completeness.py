@@ -213,6 +213,11 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
         # the PDF parser, but it is analysed as what it is
         out.append(reason(PARTIAL, ctx.display, "prompt-guard",
                           f"document text not read: {sr['text_extraction']['error']}"))
+    if (sr.get("text_extraction") or {}).get("not_checked"):
+        # TX-1: a text limit left visible text unread; the injection checks saw
+        # only the text before it (an omission, not a parser failure: no format test)
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          str(sr["text_extraction"]["not_checked"])))
     guard_error = (sr.get("prompt_guard") or {}).get("error")
     if guard_error and fmt in ("pdf", "zip", "ole"):
         # the hidden-content check stopped part-way (its findings so far are kept);
@@ -226,6 +231,8 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
     if (sr.get("mail") or {}).get("error"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"message not analysed: {sr['mail']['error']}"))
+    if (sr.get("mail") or {}).get("body_not_checked"):
+        out.append(reason(PARTIAL, ctx.display, "mail", str(sr["mail"]["body_not_checked"])))
     if (sr.get("mail") or {}).get("attachments_skipped"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"{sr['mail']['attachments_skipped']} attachment(s) not unpacked"))

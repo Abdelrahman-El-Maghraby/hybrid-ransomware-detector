@@ -94,6 +94,7 @@ _RISKY_ATTACHMENT_EXTENSIONS = EXECUTABLE_EXTENSIONS | frozenset({
     ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppam", ".sldm",
 })
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+MAX_BODY_CHARS = 200_000            # body text for prompt-guard, LLM and passwords
 _AUTH_PASS = frozenset({"pass"})
 _AUTH_FAIL = frozenset({"fail", "softfail", "permerror"})
 
@@ -406,6 +407,7 @@ class MailResult:
     attachments: List[AttachmentInfo] = field(default_factory=list)
     attachments_skipped: int = 0
     body_text: str = ""             # plain text (HTML stripped) for prompt-guard / LLM
+    body_not_checked: str = ""      # TX-1: body text over the limit, not read (partial)
     archive_passwords: List[str] = field(default_factory=list)   # "Password: ..." in the mail
     error: str = ""
     detail: str = ""
@@ -444,6 +446,7 @@ class MailResult:
             "double_extension_attachments": self.double_extension_attachments,
             "rtlo_attachments": self.rtlo_attachments,
             "error": self.error, "detail": self.detail,
+            **({"body_not_checked": self.body_not_checked} if self.body_not_checked else {}),
         }
 
 
@@ -642,7 +645,11 @@ class MailAnalyzer:
                                                    f"-> link goes to {target}")
             text_from_html = html.unescape(_strip_tags(_strip_script_style(html_body), " "))
         body = plain.strip() or text_from_html
-        res.body_text = re.sub(r"[ \t\r\f\v]+", " ", body).strip()[:200_000]
+        body = re.sub(r"[ \t\r\f\v]+", " ", body).strip()
+        res.body_text = body[:MAX_BODY_CHARS]
+        if body[MAX_BODY_CHARS:].strip():
+            res.body_not_checked = (f"message text after the first {MAX_BODY_CHARS:,} "
+                                    "characters not read")
         res.archive_passwords = archive_passwords(res.subject, res.body_text)
 
     def _add_attachment(self, data: bytes, name: str, ctype: str, sandbox: Path,
