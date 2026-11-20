@@ -172,3 +172,28 @@ def test_a_result_naming_another_file_is_refused(tmp_path):
     assert r["scan_status"] == "failed"
     assert "another file" in r["scan_results"]["scan_failed"]["reason"]
     assert not any(x.get("file_path") == str(decoy) and x.get("quarantine") for x in res)
+
+
+def test_a_file_replaced_during_a_failed_scan_is_not_quarantined(tmp_path):
+    """FI-1: a failed scan's hash was computed in the parent after the failure,
+    from whatever file was then at the path. The quarantine guard (TMA-5) then
+    compared the replacement with itself, and auto-quarantine (Medium covers a
+    failed scan) removed a file that was never scanned."""
+    pytest.importorskip("cryptography")
+    s = _setup(tmp_path, ["swapexit.pdf"], scan_workers=1, auto_quarantine="medium",
+               quarantine_dir=str(tmp_path / "vault"), keystore_dir=str(tmp_path / "keys"))
+    target = tmp_path / "scan" / "swapexit.pdf"
+    [r] = s.scan_all_directories()
+    assert r["scan_status"] == "failed" and "died" in r["scan_results"]["scan_failed"]["reason"]
+    assert target.exists() and b"unrelated document" in target.read_bytes()
+    assert r["sha256_hash"] == "" and "error" in r["quarantine"]
+    assert s.quarantine_vault.list() == []
+
+
+def test_an_unchanged_file_of_a_failed_scan_keeps_its_hash(tmp_path):
+    """FI-1: the hash is still recorded when the file is the one dispatched."""
+    s = _setup(tmp_path, ["exit.pdf"], scan_workers=1)
+    target = tmp_path / "scan" / "exit.pdf"
+    [r] = s.scan_all_directories()
+    assert r["scan_status"] == "failed"
+    assert r["sha256_hash"] == s.calculate_hashes(str(target))["sha256"]

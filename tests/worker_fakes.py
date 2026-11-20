@@ -45,6 +45,12 @@ class MisbehavingScanner(RansomwareScanner):
             if name.startswith("helperexit"):
                 os._exit(3)
             time.sleep(600)
+        if name.startswith("swapexit"):          # FI-1: another program replaces the file
+            replacement = file_path + ".new"      # (rename into place) during the scan,
+            with open(replacement, "wb") as fh:   # then the worker crashes
+                fh.write(b"%PDF-1.4\n% an unrelated document saved over it\n")
+            os.replace(replacement, file_path)
+            os._exit(3)
         if name.startswith("chatty"):            # a looping worker that keeps sending
             end = time.monotonic() + 30          # valid progress messages, then claims
             while time.monotonic() < end:        # a complete result long after the limit

@@ -62,6 +62,14 @@ class ProtectionMixin:
         threshold = VERDICT_RANK.get(str(self.config.get("auto_quarantine") or "").capitalize())
         if not threshold or VERDICT_RANK.get(result.get("verdict", "Clean"), 0) < threshold:
             return
+        if not result.get("sha256_hash"):
+            # FI-1: without the scanned file's hash the guard against a file renamed
+            # into its place cannot run; an automatic action needs that proof.
+            why = ("The file was not quarantined automatically: there is no hash of the "
+                   "scanned file to confirm it is still the same file.")
+            logger.error("Auto-quarantine skipped for %s: %s", result.get("file_path"), why)
+            result["quarantine"] = {"error": why}
+            return
         try:
             meta = self.quarantine_file(
                 result["file_path"],

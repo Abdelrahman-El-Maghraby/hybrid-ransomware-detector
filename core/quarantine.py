@@ -343,6 +343,7 @@ class QuarantineVault:
                                   json.dumps(meta).encode("utf-8"), _aad_meta())
         try:
             with src.open("rb") as fin, vault_file.open("wb") as fout:
+                read_st = os.fstat(fin.fileno())    # FI-2: the file actually vaulted
                 fout.write(MAGIC + salt + prefix)
                 fout.write(_HEADER.pack(self.chunk_size, len(enc_meta)))
                 fout.write(enc_meta)
@@ -371,11 +372,23 @@ class QuarantineVault:
 
         removed = False
         if delete_original:
+            # FI-2: remove the path only while it is still the file that was read
+            # and vaulted, not one renamed into its place since (a narrow window
+            # remains between this check and the unlink).
             try:
-                src.unlink()
-                removed = True
-            except OSError as e:
-                logger.error("Vaulted %s but could not delete the original: %s", src, e)
+                now = os.lstat(src)
+                same = (now.st_dev, now.st_ino) == (read_st.st_dev, read_st.st_ino)
+            except OSError:
+                same = False
+            if not same:
+                logger.error("Vaulted %s but did not delete it: another file is now at "
+                             "that path.", src)
+            else:
+                try:
+                    src.unlink()
+                    removed = True
+                except OSError as e:
+                    logger.error("Vaulted %s but could not delete the original: %s", src, e)
         meta["original_removed"] = removed
         meta["vault_file"] = str(vault_file)
         write_atomic(self._sidecar_path(item_id), json.dumps(meta, indent=2).encode("utf-8"))

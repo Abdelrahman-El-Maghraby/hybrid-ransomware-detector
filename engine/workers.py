@@ -830,6 +830,7 @@ class _Worker:
         self.ready = False
         self.retired = False                 # killed and not replaced (workers cannot start)
         self.evidence = Evidence()           # H6 (b): members finished for self.path
+        self.identity: Optional[Tuple[int, ...]] = None   # FI-1: of self.path at dispatch
         self.provisional: Optional[Dict] = None      # M26: checked, for self.path
         self.settled = False                         # ... and holding the sandbox outcome
         self.external: Dict[str, Dict[str, Any]] = {}  # I-6: what may have left, per service
@@ -880,20 +881,43 @@ class _Worker:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
+def file_identity(path: str) -> Optional[Tuple[int, ...]]:
+    """FI-1: what identifies the file at `path` without reading it: device, inode,
+    size, modification and change times (the change time cannot be set back by a
+    program). None when the path cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
 def failure_result(scanner, path: str, reason: str, code: str = "",
-                   isolation: str = "worker", evidence: Optional[Evidence] = None) -> Dict:
+                   isolation: str = "worker", evidence: Optional[Evidence] = None,
+                   identity: Optional[Tuple[int, ...]] = None) -> Dict:
     """A result for a file whose scan timed out or crashed the worker, or (code
     ISOLATION_UNAVAILABLE, isolation "unavailable") that was never scanned because
     no isolated worker could start. That file was not opened, so it gets no
-    `scan_failed` indicator: it is not evidence against the file."""
+    `scan_failed` indicator: it is not evidence against the file.
+
+    FI-1: the hashes are read here, after the failure. With `identity` (taken when
+    the file was handed to the worker), a file that is no longer that one (renamed
+    into place or rewritten meanwhile) gets no hashes: the hash is what the
+    quarantine guard compares, and it must describe the file that was scanned."""
     import os as _os
     from datetime import datetime
 
     from engine.config import ENGINE_VERSION
+    replaced = identity is not None and file_identity(path) != identity
     try:
-        hashes = scanner.calculate_hashes(path)
+        hashes = {} if replaced else scanner.calculate_hashes(path)
     except Exception:
         hashes = {}
+    if replaced:
+        logger.warning("%s changed while it was being scanned; its failed-scan result "
+                       "has no hash, so it is not quarantined automatically.", path,
+                       extra={"event": "scanned_file_replaced", "path": path})
+        reason = f"{reason}; the file changed during the scan (no hash recorded)"
     unscanned = code == ISOLATION_UNAVAILABLE
     score = scanner.scoring.score({} if unscanned else {"scan_failed": reason})
     from api import SCHEMA_VERSION
@@ -1216,7 +1240,8 @@ class _IsolatedScan:
                       "completed"):
             if w.path is not None:
                 if kind in ("provisional", "settled", "completed") and payload["file_path"] != w.path:
-                    self._fail(w.path, "invalid reply: snapshot belongs to another file", w.evidence)
+                    self._fail(w.path, "invalid reply: snapshot belongs to another file", w.evidence,
+                       getattr(w, "identity", None))
                     w.path = None
                     return self._replace(i)
                 self._progress(w, kind, payload)
@@ -1268,7 +1293,8 @@ class _IsolatedScan:
                 reason = f"timed out after {int(self.timeout)}s"
             else:
                 reason = f"the worker process died (exit code {w.proc.exitcode})"
-            self._fail(path, reason, w.evidence)
+            self._fail(path, reason, w.evidence,
+                       getattr(w, "identity", None))
         return self._replace(i)
 
     def _final_reply(self, i: int, w: _Worker, kind: str, payload: Any) -> bool:
@@ -1280,11 +1306,13 @@ class _IsolatedScan:
             if payload.get("file_path") != path:
                 # RV-S2: the result must be about the file this worker was given;
                 # its path drives auto-quarantine in this process
-                self._fail(path, "invalid reply: the result names another file", w.evidence)
+                self._fail(path, "invalid reply: the result names another file", w.evidence,
+                       getattr(w, "identity", None))
                 return self._replace(i)
             self._finish(path, payload)
         else:
-            self._fail(path, payload or "scan error", w.evidence)
+            self._fail(path, payload or "scan error", w.evidence,
+                       getattr(w, "identity", None))
         return True
 
     @staticmethod
@@ -1324,6 +1352,7 @@ class _IsolatedScan:
     # ---------------------------------------------------------------- helpers
     def _dispatch(self, w: _Worker) -> None:
         w.path, w.started = self.pending.pop(0), time.monotonic()
+        w.identity = file_identity(w.path)      # FI-1: before the worker opens it
         w.evidence = Evidence()
         w.provisional, w.sandbox_state, w.settled = None, None, False
         w.external = {}
@@ -1350,9 +1379,11 @@ class _IsolatedScan:
         self.done += 1
         self.on_result(self.done, path, result)
 
-    def _fail(self, path: str, reason: str, evidence: Optional[Evidence] = None) -> None:
+    def _fail(self, path: str, reason: str, evidence: Optional[Evidence] = None,
+              identity: Optional[Tuple[int, ...]] = None) -> None:
         logger.warning("Scan of %s failed: %s", path, reason)
-        self._finish(path, failure_result(self.scanner, path, reason, evidence=evidence))
+        self._finish(path, failure_result(self.scanner, path, reason, evidence=evidence,
+                                          identity=identity))
 
     def _start(self) -> Optional[_Worker]:
         try:
