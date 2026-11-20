@@ -289,7 +289,11 @@ class ExternalLookupsMixin:
                     self.cache.put(file_hash, self._vt_cache_layer(), result)
                 return result
             if response.status_code == 404:
+                # CO-1: uploads are on and this one gave no report (refused, or its
+                # analysis did not finish): the layer has no answer, not a clean one
                 return self._vt_empty(not_found=True,
+                                      error="Hash unknown to VirusTotal; the upload did not "
+                                            "complete, so there is no report for this file.",
                                       details="Hash unknown to VirusTotal; upload did not complete.")
             logger.error("VirusTotal API error: %s - %s", response.status_code, response.text[:200])
             return self._vt_empty(error=f"API Error: {response.status_code}")

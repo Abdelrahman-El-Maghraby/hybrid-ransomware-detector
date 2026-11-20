@@ -141,3 +141,24 @@ def test_through_intel_no_upload_without_time_and_a_bounded_call(scanner, tmp_pa
     scanner.intel = Plain(CAPS, {"/v1/virustotal/lookup": {"not_found": True, "sent": ["sha256"]}})
     scanner.scan_file_with_virustotal(_file(tmp_path))
     assert calls == ["plain"]
+
+
+class RefusedUploadVT(FakeVT):
+    def post(self, url, headers=None, files=None, timeout=None):
+        self.posts += 1
+        return Resp(503)
+
+
+@pytest.mark.parametrize("vt", [FakeVT(), RefusedUploadVT()], ids=["unfinished", "refused"])
+def test_an_upload_without_a_report_is_not_a_complete_scan(scanner, tmp_path, vt):
+    """CO-1: with uploads switched on, an unknown file whose upload was refused or
+    whose analysis never finished got "upload did not complete" with no error, so
+    the scan read complete although VirusTotal gave no answer about the file."""
+    scanner.http = vt
+    path = _file(tmp_path)
+    r = scanner.scan_file_with_virustotal(path)
+    assert r["not_found"] and "did not complete" in r["error"]
+    result = scanner.scan_file(path)
+    assert result["scan_results"]["virustotal"].get("error")
+    assert result["scan_status"] == "partial"
+    assert any(g["layer"] == "virustotal" for g in result["incomplete_reasons"])
