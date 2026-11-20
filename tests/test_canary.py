@@ -142,3 +142,18 @@ def test_windows_toast_passes_text_outside_the_script(monkeypatch):
     assert C.desktop_notify("t", "m") is False
     monkeypatch.setattr(C, "trusted_which", lambda name: None)
     assert C.desktop_notify("t", "m") is False
+
+
+def test_remove_keeps_a_file_that_is_no_longer_the_canary(setup, caplog):
+    """FI-3: removal deleted whatever was at a canary's path. A file whose content
+    changed since it was deployed (someone saved their own text into the decoy, or
+    another file took its name) is now kept and named in the log."""
+    mgr, d1, d2, _ = setup
+    edited = _canary(d1, ".csv")
+    edited.write_text("my own numbers, typed into the decoy\n", encoding="utf-8")
+    import logging
+    with caplog.at_level(logging.WARNING):
+        assert mgr.remove() == 5
+    assert edited.read_text(encoding="utf-8").startswith("my own numbers")
+    assert any(str(edited.name) in r.getMessage() for r in caplog.records)
+    assert mgr.entries() == []

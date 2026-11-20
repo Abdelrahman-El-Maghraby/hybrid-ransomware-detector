@@ -381,12 +381,20 @@ class CanaryManager:
 
     # -- remove ----------------------------------------------------------------
     def remove(self) -> int:
-        """Delete every registered canary file and clear the registry."""
+        """Delete every registered canary file that is still the canary that was
+        deployed, and clear the registry. FI-3: a file whose content changed (or a
+        link, or another file at that path) is kept and named in the log."""
         entries = self._load()
         removed = 0
         for e in entries:
+            path = Path(e["path"])
             try:
-                Path(e["path"]).unlink()
+                if path.is_symlink() or _sha256(path) != e.get("sha256"):
+                    logger.warning("Canary %s not removed: it is no longer the file that "
+                                   "was deployed (changed or replaced); check it and delete "
+                                   "it yourself if it is not yours.", path)
+                    continue
+                path.unlink()
                 removed += 1
             except FileNotFoundError:
                 pass
