@@ -159,6 +159,7 @@ class IntelService:
         self.mailer = SmtpMailer(config) if email_configured(config) else None
         self.destinations["email"] = [self.mailer.destination] if self.mailer else []
         self._sent_alerts: OrderedDict[str, bool] = OrderedDict()
+        self._sending: set = set()          # AL-1: ids whose send is running now
         self._sent_lock = threading.Lock()
 
     def capabilities(self, max_upload: int) -> Dict:
@@ -249,15 +250,28 @@ class IntelService:
         with self._sent_lock:
             if alert_id in self._sent_alerts:
                 return {"sent": False, "duplicate": True}
+            if alert_id in self._sending:
+                # AL-1: a retry while the first send still runs (the caller gave up
+                # waiting; SMTP did not): answered later, not sent a second time
+                raise HTTPException(status_code=409, detail="this alert is being sent",
+                                    headers={"Retry-After": "60"})
+            self._sending.add(alert_id)
         try:
             self.mailer.send(fields)
-        except RateLimited as e:
-            raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": "300"}) from e
-        except MailError as e:
-            logger.warning("Intel: e-mail alert %s not sent: %s", alert_id, e,
-                           extra={"event": "intel_email_failed"})
-            raise HTTPException(status_code=502, detail="the SMTP server did not take the message") from e
-        with self._sent_lock:
+        except BaseException as e:
+            with self._sent_lock:
+                self._sending.discard(alert_id)
+            if isinstance(e, RateLimited):
+                raise HTTPException(status_code=429, detail=str(e),
+                                    headers={"Retry-After": "300"}) from e
+            if isinstance(e, MailError):
+                logger.warning("Intel: e-mail alert %s not sent: %s", alert_id, e,
+                               extra={"event": "intel_email_failed"})
+                raise HTTPException(status_code=502,
+                                    detail="the SMTP server did not take the message") from e
+            raise
+        with self._sent_lock:                 # recorded before it stops being "sending"
+            self._sending.discard(alert_id)
             self._sent_alerts[alert_id] = True
             while len(self._sent_alerts) > MAX_SENT_IDS:
                 self._sent_alerts.popitem(last=False)

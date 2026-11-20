@@ -943,3 +943,34 @@ def test_an_email_sent_again_keeps_its_message_id():
     first = build_message(fields, "aegis@example.org", ["soc@example.org"])
     again = build_message(fields, "aegis@example.org", ["soc@example.org"])
     assert first["Message-ID"] == again["Message-ID"] == f"<{fields['alert_id']}@aegis-sentinel.invalid>"
+
+
+def test_intel_does_not_send_an_alert_again_while_its_first_send_runs(intel_mail):
+    """AL-1: the outbox's client gives up after 60 s while SMTP can take longer
+    (each SMTP step has its own time-out); its retry reached intel while the first
+    send of the same alert was still running and sent a second e-mail. A request
+    for an alert being sent is now answered 409 (retried later, then a duplicate)."""
+    import threading
+    api, service, sent, auth = intel_mail()
+    fields = OB.verdict_alert(_result())["email"]
+    started, release = threading.Event(), threading.Event()
+
+    def slow_send(f):
+        started.set()
+        assert release.wait(10)
+        sent.append(f)
+    service.mailer.send = slow_send
+    first = {}
+    t = threading.Thread(target=lambda: first.setdefault(
+        "r", api.post("/v1/alert/email", headers=auth, json=fields)))
+    t.start()
+    assert started.wait(10)
+    try:
+        retry = api.post("/v1/alert/email", headers=auth, json=fields)
+    finally:
+        release.set()
+        t.join(10)
+    assert retry.status_code == 409 and "Retry-After" in retry.headers
+    assert first["r"].json() == {"sent": True, "duplicate": False} and len(sent) == 1
+    again = api.post("/v1/alert/email", headers=auth, json=fields)
+    assert again.json() == {"sent": False, "duplicate": True} and len(sent) == 1
