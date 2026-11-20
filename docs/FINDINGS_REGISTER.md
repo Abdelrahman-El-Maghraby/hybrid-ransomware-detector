@@ -6,7 +6,7 @@ handoff's earlier "still open" lists), which are kept as history and may say
 "open" for items fixed later. Details, reproductions and evidence stay where they
 were recorded: [PROJECT_REVIEW](PROJECT_REVIEW.md) (sections 28 to 34) and
 [HANDOFF](HANDOFF.md) (groups 1 to 48 and the 2026-11-14 reliability follow-up).
-Current code baseline: `d45715a` (intel reply limit and restart-test scope, 2026-11-19: K8S-R4, K8S-R6). Before it: `ef3a5c4` (review of option E, 2026-11-19: K8S-R1 to K8S-R5, [brief](tasks/kubernetes-option-e-review-2026-11-19.md)). Before it: `706ea8a` (option E implemented, 2026-11-19, K8S-1). Before it: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
+Current code baseline: `5562225` (repair pass, 2026-11-20: FI-1 to FI-3, CO-1, AL-1, AL-2; [brief](tasks/repair-pass-2026-11-20.md)). Before it: `d45715a` (intel reply limit and restart-test scope, 2026-11-19: K8S-R4, K8S-R6). Before it: `ef3a5c4` (review of option E, 2026-11-19: K8S-R1 to K8S-R5, [brief](tasks/kubernetes-option-e-review-2026-11-19.md)). Before it: `706ea8a` (option E implemented, 2026-11-19, K8S-1). Before it: `e3e001b` (third pass, 2026-11-19: RV-13 to RV-17 and RV-S1 to
 RV-S4 fixed, [brief](tasks/repository-audit-2026-11-18.md#6-third-pass-2026-11-19)). Before it: `8f61050` (second review pass, 2026-11-18: RV-1 to RV-15,
 [brief](tasks/repository-audit-2026-11-18.md#5-second-pass-2026-11-18)). Before it: `b6966f8` (review of thirteen items, 2026-11-17; see
 [the task brief](tasks/review-items-2026-11-17.md) and the
@@ -109,6 +109,12 @@ a regression test that failed before it and passes after it, on this Mac only.
 | K8S-R5 | Review: stale "no intel" statements (guide architecture and alternatives, DEPLOYMENT, threat-model residual, diagram 6, two code comments) and unstated cluster assumptions (Service address translation, ingress and egress enforcement, cluster ranges inside intel's exclusions, NodeLocal DNS, a public API address). Corrected and listed in the guide; the overlay now sets the certificate name, which must change with the namespace | `bc5d971`, docs commit; diagram rebuilt (layout and browser label checks pass) |
 | K8S-R6 | Review: `verify-cluster.sh --restart-test` deleted the analysis and intel Pods found by their app labels in any namespace labelled disposable. It now needs `aegis-sentinel.io/verification=disposable` on the Deployments and their Pod templates (refused before any change) and traces each Pod through its ReplicaSet to that Deployment just before deleting it | `a1c752e` (preflight refusal and ordering tests; dry runs with a foreign owner and an unlabelled Deployment delete nothing of theirs) |
 | RV-S4 | Confirmed on loopback: a stalled authenticated upload held its scan slot until the client disconnected (M4 takes the slot before reading). The form must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s), else 408 and the slot is released; Caddy's own time-outs not checked | `f576af7` |
+| FI-1 | Reproduced: a failed scan's hash was read in the parent after the failure, from whatever file was then at the path; the quarantine guard compared a replacement with itself, and auto-quarantine (Medium covers a failed scan) removed a file that was never scanned. The parent records the file's identity (device, inode, size, mtime, ctime) at dispatch; a changed file gets no hash, and auto-quarantine refuses a result without one | `db65a35` |
+| FI-2 | Reproduced: `quarantine()` deleted the path after vaulting without checking it was still the file it read; a file renamed into place meanwhile was deleted. Deleted now only while device and inode match the file read (a narrow window remains before the unlink) | `db65a35` |
+| FI-3 | Reproduced: "remove canaries" deleted whatever was at a canary path. A file whose content no longer matches the deployed canary, or a link, is kept and named in a warning | `5562225` |
+| CO-1 | Reproduced: with `VT_UPLOAD_UNKNOWN` on, a refused upload or an analysis that did not finish within the polls read "upload did not complete" with no error, and the scan was complete. Now a VirusTotal layer error (partial, not cached) | `024fffa` |
+| AL-1 | Reproduced: the intel client stops waiting after 60 s but SMTP steps each have their own time-out; a retry reached intel while the first send of the same alert ran and sent a second e-mail. Answered 409 with Retry-After while in flight | `0056177` |
+| AL-2 | Code path: the in-process delivery record of RV-14 grew by one entry per delivered channel for the life of the process. Pruned after the maximum age with the marker files | `8a504b5` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -165,7 +171,7 @@ test-client warning (a dependency change); shipping the placeholder fuzzy-signat
 sample in a wheel (it matches nothing). From the repository audit (RA-5, RA-6 in its
 [brief](tasks/repository-audit-2026-11-18.md); RA-9 and RA-10 are done as RV-12 and RV-3):
 three screenshots no document references, two unused GUI helpers kept for `gui`'s import
-surface. From the second pass: outbox caps and permanent-error classification (intel
+surface. From the repair pass (2026-11-20, needs an owner decision because it would make many large documents partial): visible text read for prompt-injection phrasing is capped without a completeness reason (text files 2 MiB, PDF text and mail bodies 200,000 characters). From the second pass: outbox caps and permanent-error classification (intel
 403/422, webhook 4xx are retried for 24 h; intel's 429 gets exponential backoff), wall-clock
 expiry, leftover `.alert.*.tmp` files, `chmod 0700` on a user-chosen outbox folder; refusing a
 non-ASCII API token at start-up; deriving the proxy cap from `AEGIS_API_MAX_UPLOAD_MB`.

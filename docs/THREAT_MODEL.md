@@ -238,7 +238,11 @@ that only the proxy can open.
   verified decrypt; restore never overwrites; key backup is passphrase-encrypted.
 - Quarantine takes the SHA-256 of the scanned file and refuses a file whose content
   changed since the scan (4.8): a file renamed into its place is never vaulted
-  instead of the one that was judged.
+  instead of the one that was judged. A failed scan's result has no hash when the
+  file changed after it was handed to the worker, and automatic quarantine refuses
+  a result without one (FI-1). The original is deleted only while the path is still
+  the file that was read (same device and inode); a narrow window remains between
+  that check and the deletion (FI-2).
 
 ### 9. Supply chain
 - Hash-pinned lock files (4.8): every package the image and the release builds

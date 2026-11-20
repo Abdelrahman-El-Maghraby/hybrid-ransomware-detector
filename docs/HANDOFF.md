@@ -2789,6 +2789,18 @@ action.
   navigate; the committed graph page was not replaced (its communities would be unlabelled).
 - **Uncommitted:** none from this task after its commit. `.arena/` is unrelated and preserved.
 
+## Repair pass (2026-11-20, Claude Code)
+
+- **Brief:** [repair pass](tasks/repair-pass-2026-11-20.md); register FI-1 to
+  FI-3, CO-1, AL-1, AL-2 (fixed) and TX-1 (owner decision).
+- **Commits (local, not pushed):** `db65a35` (FI-1, FI-2), `024fffa` (CO-1),
+  `0056177` (AL-1), `8a504b5` (AL-2), `5562225` (FI-3). Last implementation
+  commit: `5562225`. Then this record.
+- **Results (this Mac):** safe suite at `5562225`: 2,169 passed, 0 failed,
+  8 skipped, 4 deselected (Kubernetes file rerun with kubectl on PATH; brief);
+  ruff, mypy, bandit clean.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is

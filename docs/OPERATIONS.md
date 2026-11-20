@@ -217,7 +217,11 @@ it but its reply was lost; the process stopped between the send and that record;
 or neither the record nor the entry could be written and the process restarted.
 Retries carry the same identifiers, so receivers can deduplicate: the webhook
 body's `alert_id` and the `Idempotency-Key` header; for e-mail, the
-`X-Aegis-Alert-Id` header and a `Message-ID` derived from the alert id. When the
+`X-Aegis-Alert-Id` header and a `Message-ID` derived from the alert id. The
+intel service sends an alert id once per run: a repeat request while the first
+send is still running is answered 409 and retried later (AL-1); its memory of
+sent ids is lost when it restarts. The in-memory delivery record is kept for
+`OUTBOX_MAX_AGE_HOURS`, like the marker files (AL-2). When the
 intel service states that it has no e-mail settings (Docker), e-mail alerts are
 not queued, and e-mail already queued is removed with a warning naming each
 alert (metric `email_disabled`); a connection failure or time-out keeps them

@@ -298,3 +298,11 @@ CI.** Findings K8S-R4 and K8S-R6; brief section 9.
 | `verify-cluster.sh` dry runs against a fake `kubectl` (scratch only) | dry run, no cluster | full run exit 0 (62 passes); a Pod owned by another Deployment: refused (exit 2) before its deletion, only the script's own control objects deleted; an unlabelled intel Deployment: refused in the preflight, nothing changed |
 | Ruff, mypy, bandit with `deploy/`, `bash -n`, Python 3.9 grammar of the changed files | static | clean |
 | This Mac's resources, Docker and cluster tools | read-only | brief section 9: 8 GiB RAM; Docker installed, not running; no kind |
+
+## 10. Repair pass (2026-11-20)
+
+| Check | Result |
+|---|---|
+| Safe suite at `5562225` (same selection and deselections as section 3) | **2,169 passed, 0 failed, 8 skipped, 4 deselected** (2,096 in the full run plus `tests/test_kubernetes.py` rerun with kubectl on PATH: 139 passed; details in the [brief](tasks/repair-pass-2026-11-20.md)) |
+| ruff, mypy (69 files), bandit gate | clean |
+| Platforms | macOS arm64 only; FI-2's device/inode check and FI-1's identity (ctime) are unverified on Windows |
