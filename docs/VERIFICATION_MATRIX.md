@@ -422,6 +422,7 @@ clean subprocess environment, temporary HOME/TMPDIR,
 No restricted fuzz campaign, runaway-memory reproduction, real samples, CI,
 Linux/Windows execution, Docker, cluster or real external-service validation.
 The existing test network guard applies in the pytest process; it is not a
-separate network sandbox for spawned workers. No push occurred: the owner
-requested an independent read-only review before publication. Details and the
-remaining gate are in the [publication brief](tasks/github-publication-2026-11-22.md).
+separate network sandbox for spawned workers. The independent read-only review
+was subsequently assessed and the development branch was published without
+triggering CI. The [publication brief](tasks/github-publication-2026-11-22.md)
+records remote SHA verification and the remaining merge/release limitations.

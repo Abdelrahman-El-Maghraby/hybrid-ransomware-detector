@@ -2,24 +2,29 @@
 
 ## Current publication checkpoint (2026-11-22, Codex)
 
-This checkpoint supersedes the historical active-agent and local-publication
-status below. Codex is the only editor on `review/production-hardening`, starting
-at `cdfd82c`; application baseline `38c817b`. The owner authorized reviewing and
-publishing the development branch, then requested an independent read-only
-review before the push. That read-only review has now been assessed: no
-concrete publication blocker was found. The owner requested continuation;
-**the named branch push is authorized**, with no PR, merge, tag or CI dispatch.
+**Development-branch publication completed.** This supersedes historical
+local-only status below. Codex completed the review as the only editor; the
+independent reviewer was read-only. The application baseline remains `38c817b`.
 
-Brief: [publication review](tasks/github-publication-2026-11-22.md). Fetch and
-GitHub inspection completed; 180 local commits were not on fetched origin
-branches. Static checks and dependency consistency passed; the safe suite passed:
-2,295 passed, 8 skipped, 4 deselected, 0 failures, 610.86 s (matrix section 16).
-Only publication records and documentation corrections changed: current-status
-wording and the README test-tool setup, including missing httpx/jsonschema.
-`.arena/` remains unrelated and untouched. No push, PR, merge, tag, release or
-workflow dispatch has occurred at this pre-push checkpoint. The next action is
-to push only `review/production-hardening` and verify the remote SHA. Existing
-B4 restrictions and readiness gaps remain in force.
+- Brief: [publication review](tasks/github-publication-2026-11-22.md).
+- Independent local verification: **2,295 passed, 8 skipped, 4 deselected,
+  0 failures**, 610.86 s; ruff, mypy, bandit, dependency consistency and overview
+  facts passed (matrix section 16).
+- Independent pre-publication review found no concrete blocker. Corrected
+  README test-tool setup and stale current-status documentation; no application
+  code or dependency lock changed.
+- Verified push: `c78a386c422c9069da34880390eb946a2bdbc4e2` was identical locally
+  and on `origin/review/production-hardening`. This publication-result record
+  follows that verified checkpoint and is pushed on the same branch.
+- Upstream is `origin/review/production-hardening`. Main, integration and
+  validation branch tips were unchanged. No PR, tag, merge, release, workflow
+  dispatch or deployment occurred; the branch's workflow-run list was empty.
+- No uncommitted task files after the record commit. Untracked `.arena/` is
+  unrelated, preserved and not published.
+- Next action requires an owner decision on permitted cross-platform CI and
+  merge sequencing. Existing B4 restrictions, historical attribution exceptions
+  and readiness gaps remain in force. Do not open a PR that starts the
+  restricted fuzz campaigns as a side effect of publishing this branch.
 
 ## Earlier checkpoints (historical)
 

@@ -1,16 +1,16 @@
 # Development-branch publication review (2026-11-22)
 
-## Scope and current gate
+## Scope and publication outcome
 
 Review local and GitHub state before publishing `review/production-hardening`.
 The owner authorized a branch push, then requested an independent read-only
-review before publication. **The review has been assessed and the owner has
-requested continuation: the named branch push is authorized.** No merge, PR,
+review before publication. The review was assessed and the owner requested
+continuation. **The named development branch was successfully published.** No merge, PR,
 workflow dispatch, tag, release, installation or deployment is part of this step.
 Codex is the only editor; the independent reviewer must not mutate the checkout
 or run another test suite concurrently.
 
-## Verified repository state
+## Verified starting repository state
 
 - Starting HEAD: `cdfd82c`; last application change: `38c817b`.
 - Fetch from `origin` succeeded. Current HEAD contains all of `origin/main`
@@ -106,10 +106,27 @@ The prior independent safe run remains applicable to the unchanged application
 code. Documentation diffs, relative link targets and the test-tool instructions
 were checked; no suite rerun, install or build was performed for these edits.
 
-## Remaining steps
+## Verified publication
 
-1. Push only the named development branch;
-   verify local and remote SHA equality and observe any resulting workflow runs.
-2. Keep merge/release readiness separate: B4, cross-platform CI, Docker,
-   Kubernetes and real-service/corpus validation remain as tracked in the
-   findings register and verification matrix.
+The explicit, non-forced push named only
+`HEAD:refs/heads/review/production-hardening`, with tag-following and mirror
+behavior disabled. It created the branch and set its upstream.
+
+`git ls-remote --heads origin` confirmed local HEAD and the published branch
+both at `c78a386c422c9069da34880390eb946a2bdbc4e2`. The main (`bd46fff`),
+integration (`03089d5`) and validation (`3e5a3f2`) branch tips remained unchanged.
+The GitHub workflow-run list for `review/production-hardening` was empty.
+This result record follows that verified checkpoint; its own commit is pushed
+and checked separately. No tags, PRs, merges or releases were created.
+
+The branch is a complete tracked project snapshot, not a partial source upload.
+Ignored/untracked local files and unrelated branches are not part of that
+snapshot. GitHub's default branch remains main; select the development branch
+for the newly published work.
+
+## Remaining validation before merge or release
+
+Cross-platform CI, Docker, Kubernetes, real-service/corpus validation and B4
+remain as tracked in the findings register and verification matrix. The owner
+must decide the permitted CI plan and merge sequence. Publishing does not
+supersede any of those limits or authorize the restricted fuzz campaigns.
