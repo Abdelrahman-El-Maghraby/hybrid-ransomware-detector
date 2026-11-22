@@ -357,3 +357,26 @@ as section 11.
 | ruff (tracked Python files), mypy (69 files), bandit gate | clean |
 | Overview PDF | rebuilt (63 pages; facts, diagram layout, text, bookmark and link checks passed); pages 1, 4, 9, 11, 30, 37, 38 and 51 rendered with `sips` and viewed: section 2.3 holds the new rows without pushing 2.5 onto a near-empty page (a first rebuild did; the rows were shortened), section 8.3 starts on a new page with its whole table; `pdftoppm` is not installed |
 | Platforms | macOS arm64 only; RSS on Linux or Windows not measured; no CI |
+
+## 14. Lookahead shortcut (TX-2c, optimisation B) (2026-11-22)
+
+Revision `38c817b`; macOS 27.2.1 arm64, Python 3.14.2; suite environment and
+command as section 11. Scratch scripts (not committed): `equiv.py` (old versus
+new, deterministic seed), `bench.py` (best of 3, `time.perf_counter`,
+tracemalloc, reads counted through a wrapped `open`), `rss.py` (`ru_maxrss` in a
+fresh `python -I` per run).
+
+| Check | Result |
+|---|---|
+| Safe suite, **one run** | **2,295 passed, 0 failed, 8 skipped, 4 deselected** (2,273 of section 13 plus the 22 new tests), 606 s; 1 Starlette deprecation warning; 0 ResourceWarnings; the usual 8 platform skips |
+| Equivalence with `0a6be7f` | identical output and reasons: 60,000 random and 240,240 focused cases; read text + unread spaces: no reason (8) |
+| Candidate 1 (whole-run regex) | identical, but 0.5x on NUL padding and 0.1x on long space runs: discarded |
+| Candidate 2 timing, 8 MiB tail | space-only runs 0.312 → 0.034 s; NUL padding 0.084 → 0.034 s; text at the end 0.305 → 0.071 s; short, mixed and one-`x`-per-MiB runs unchanged (0.091, 0.19, 0.31 s); long space runs 0.023 → 0.034 s |
+| Bytes read | identical for all 9 fixtures |
+| Python allocation peak (tracemalloc) | 4.1 MiB both versions (3.1 MiB where the search stops early) |
+| Process peak RSS (`ru_maxrss`) | 184.5 to 184.6 MiB both versions (183.6 to 183.7 MiB after imports) |
+| `tests/test_strings_limits.py` | 77 passed; against `0a6be7f` (temporary copy, restored): 6 failed (the spy tests), 71 passed |
+| Focused set (`test_strings_limits`, `test_text_limits`, `test_strings`, `test_benchmark_fixes`, `test_pipeline`) | 181 passed |
+| ruff (tracked Python files), mypy (69 files), bandit gate | clean |
+| Overview PDF | not rebuilt: it describes the limits and reasons, which are unchanged, and does not mention the search speed |
+| Platforms | macOS arm64 only; no CI; timings from one machine |

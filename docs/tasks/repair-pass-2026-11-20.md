@@ -184,7 +184,8 @@ warning, no ResourceWarning; no existing test changed outcome. ruff, mypy
 Owner request: review the resource cost of the two lookaheads; then (approved)
 A, stop keeping strings that cannot reach the output, and C, bound the strings
 lookahead to 32 MiB (64 MiB inspected in all) and report bytes left after it as
-not inspected. B, a faster search, only if equivalent; not done, see below.
+not inspected. B, a faster search, only if equivalent; not done, see below (done
+later as TX-2c, next section).
 
 Limits by entry point (code read): API uploads 50 MB by default; folder, CLI
 and monitor scans have **no file-size limit**; archives 100 MiB in all, e-mail
@@ -215,6 +216,7 @@ and reads counted through a wrapped `open`, on this Mac, scratch scripts.
   nothing is claimed about those bytes). A run cut by the bound counts only if
   its part inside the bound is a string on its own.
 - B not done: the bound makes the search cost fixed (about 1 s at most).
+  Superseded: done as TX-2c in the next section.
 - A slicing slip in a follow-up optimisation (keeping the last bytes of a chunk
   shorter than four bytes) was caught by the equivalence script before any
   commit; `test_a_run_cut_at_the_limit_with_tiny_chunks` now fails on it.
@@ -235,6 +237,70 @@ same environment and selection as for TX-1): **2,273 passed, 0 failed, 8 skipped
 4 deselected**, 606 s, one Starlette deprecation warning, no ResourceWarning.
 ruff, mypy (69 files), bandit: clean. Details:
 [VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 13.
+
+## Optimisation B: lookahead shortcut (TX-2c), 2026-11-22
+
+Owner request: speed up the bounded lookahead (`_run_after`) only if
+benchmarks show a benefit and the results stay identical: same strings, same
+reasons and wording, same 32 MiB / 200,000-character / 32 MiB limits and
+64 MiB extent, same early stop and memory.
+
+Fact used: in `\x20-\x7e` the only byte `bytes.strip()` removes is the space,
+so a run "with text" is one holding a byte in `\x21-\x7e`.
+
+- **Candidate 1, discarded:** one regular expression for a whole qualifying run,
+  `(?<![\x20-\x7e])(?=[\x20-\x7e]{N})[\x20-\x7e]*?[\x21-\x7e][\x20-\x7e]*`
+  (linear: matches start only at run starts, no backtracking at the end; no
+  possessive quantifiers, which Python 3.9 lacks). Identical results, but a
+  pattern that starts with a lookbehind cannot use the engine's fast scan for a
+  leading character class: 1.4x faster on space-only runs, 0.5x on NUL padding,
+  0.1x on long space runs.
+- **Candidate 2, adopted:** before visiting the runs of a chunk, one search
+  for `[\x21-\x7e]` from the first unread byte. None found: no qualifying run
+  can have text in the unread part, so the chunk is skipped. Otherwise the
+  previous loop runs unchanged. Equivalent by construction, and checked.
+
+Equivalence against `0a6be7f` (scratch script, deterministic seed): output and
+reason list identical on 60,000 random cases (alphabets with spaces, tabs,
+newlines, NUL, `\x7f`, `\xff`; `min_len` 1 to 8; chunk sizes 1 to 4,096;
+both limits; lookahead 0 to unbounded) and 240,240 focused boundary cases (runs
+cut at the read limit, padding, short runs, exhausted lookahead); read text
+followed by unread spaces gives no reason in all 8 variants.
+
+Measured (this Mac; 1 MiB read limit, 8 MiB tail searched; best of 3):
+
+| Tail | `0a6be7f` | TX-2c | Factor |
+|---|---|---|---|
+| space-only runs (`"     \x00"`) | 0.312 s | 0.034 s | 9.1x faster |
+| NUL padding | 0.084 s | 0.034 s | 2.4x faster |
+| short runs (`"ab\x00"`) | 0.091 s | 0.092 s | unchanged |
+| long space runs (4 KiB) | 0.023 s | 0.034 s | 0.7x (+11 ms) |
+| one 8 MiB space run | 0.022 s | 0.034 s | 0.6x (+12 ms) |
+| text right after the limit | 0.010 s | 0.010 s | unchanged (stops at once) |
+| text at the end of the tail | 0.305 s | 0.071 s | 4.3x faster |
+| mixed short and space runs | 0.200 s | 0.191 s | unchanged |
+| one `x` per MiB, space runs between | 0.310 s | 0.310 s | unchanged (worst case) |
+
+- Bytes read: identical for every fixture (9 MiB, or 2 MiB where text stops
+  the search early), within the read limit plus the lookahead.
+- Python allocation peak (tracemalloc): 4.1 MiB both (3.1 MiB both where the
+  search stops early). Process peak RSS (`ru_maxrss`, fresh interpreter):
+  183.6 to 183.7 MiB after imports and 184.5 to 184.6 MiB at the peak, for both
+  versions, on three fixtures.
+- Extrapolated, not measured: at the full 32 MiB lookahead, about 0.14 s
+  instead of 1.25 s for space-only runs; the worst case (text in every chunk)
+  stays about 1.2 s.
+- Tests: `tests/test_strings_limits.py` (77, 22 new): a seeded comparison with
+  a reference copy of the previous search (3,000 cases); spy tests that fail if
+  a chunk with no text reaches the per-run loop (6 of them fail on
+  `0a6be7f`); read text followed by unread spaces; text arriving chunks after
+  its spaces, for `min_len` 2, 5 and 8 and chunk sizes 1 to 7.
+
+TX-2c verification: (macOS 27.2.1 arm64, Python 3.14.2; one run of `38c817b`,
+same environment and selection as for TX-1): **2,295 passed, 0 failed, 8 skipped,
+4 deselected**, 606 s, one Starlette deprecation warning, no ResourceWarning.
+ruff, mypy (69 files), bandit: clean. Details:
+[VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 14.
 
 ## Not changed and why
 

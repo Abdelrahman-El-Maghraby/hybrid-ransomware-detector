@@ -2840,7 +2840,7 @@ action.
 - **Brief:** [repair pass, cost review](tasks/repair-pass-2026-11-20.md#cost-review-and-bounded-lookahead-tx-r2-tx-2b-2026-11-22);
   register TX-R2 (memory, defect in `2672376`) and TX-2b (owner-approved 32 MiB
   lookahead bound, 64 MiB inspected; bytes after it reported "not inspected").
-  Optional faster search (B) not done.
+  Optional faster search (B) not done here; done later as TX-2c (next section).
 - **Commits (local, not pushed):** `0a6be7f` (implementation and tests; last
   implementation commit), then the records commit (register, matrix section 13,
   brief, handoff, CHANGELOG, README, overview source, facts and rebuilt PDF).
@@ -2850,6 +2850,22 @@ action.
   (tracemalloc peaks only).
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved;
   the ignored `.hypothesis/` cache gained entries from a test collection.
+
+## Optimisation B: TX-2c (2026-11-22, Claude Code)
+
+- **Brief:** [repair pass, optimisation B](tasks/repair-pass-2026-11-20.md#optimisation-b-lookahead-shortcut-tx-2c-2026-11-22);
+  register TX-2c. A chunk with no non-space printable byte after the read part
+  is skipped by one search; otherwise the previous loop runs. Identical results
+  (300,248 compared cases). Faster on padding and white space (up to 9.1x on
+  8 MiB), about 11 ms slower per 8 MiB of long space runs, worst case
+  (text in every chunk) unchanged. A whole-run regex was discarded (slower).
+- **Commits (local, not pushed):** `38c817b` (implementation and tests; last
+  implementation commit), then the records commit.
+- **Results (this Mac, one run):** safe suite on `38c817b`: 2,295 passed, 0 failed, 8 skipped,
+  4 deselected; ruff, mypy, bandit clean.
+- **Not done:** overview PDF not rebuilt (its content is unchanged); no CI,
+  Linux or Windows timings.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
 ## Exact next action (current)
 
