@@ -62,8 +62,8 @@ code; `engine/validation.py` bounds the ones that can be set.
 | Platform | State |
 |---|---|
 | Docker Engine on Linux x86_64 (Python 3.12 image) | The supported server edition. [[ci]] on `3e5a3f2` only; [[pending]] at this baseline (Docker was not running on the review host) |
-| Source install on macOS arm64, Python 3.14.2 | [[local]]: the full safe test selection at `d45715a` |
-| Source install on Linux and Windows, Python 3.9 and 3.12 | [[ci]] on `3e5a3f2` only; [[pending]] for the 164 newer commits |
+| Source install on macOS arm64, Python 3.14.2 | [[local]]: the full safe test selection at `2672376` |
+| Source install on Linux and Windows, Python 3.9 and 3.12 | [[ci]] on `3e5a3f2` only; [[pending]] for the 175 newer commits |
 | Kubernetes 1.29+ (`deploy/kubernetes/`) | [[impl]], statically checked; [[pending]] on any cluster |
 | Linux arm64, Windows arm64, macOS Intel | [[pending]]: no runner |
 | Desktop GUI on a real display | [[pending]]: only headless widget tests ran |

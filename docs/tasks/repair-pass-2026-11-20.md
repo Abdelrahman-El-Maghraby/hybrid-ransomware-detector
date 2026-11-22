@@ -60,7 +60,7 @@ for mail, the archive-password search; `PromptGuardLayer` in `engine/layers.py`)
 
 | Limit | Where | Omission means | Reason recorded |
 |---|---|---|---|
-| Web page / SVG, 2 MiB read (`TEXT_MAX_BYTES`) | `engine/text.py` `_dispatch_text` | bytes after the first 2 MiB exist (one more byte is read to tell) | `text_extraction.not_checked` |
+| Web page / SVG, 2 MiB read (`TEXT_MAX_BYTES`) | `engine/text.py` `_dispatch_text` | bytes after the first 2 MiB exist (one more byte is read to tell); **superseded by TX-R1 below**: visible text after the limit | `text_extraction.not_checked` |
 | PDF, 200,000 characters | `_extract_text_from_pdf` | non-blank text past the limit | same |
 | PDF, 50 pages | same | more than 50 pages (unread pages may be blank) | same |
 | Word (python-docx) and OOXML, 200,000 characters | `_extract_text_from_word`, `_extract_text_from_ooxml` | non-blank text past the limit | same |
@@ -105,6 +105,78 @@ fuzz file ignored and the same four deselections): **2,203 passed, 0 failed,
 ResourceWarning. This is a single suite run (no combined rerun needed: no
 Kubernetes test skipped). ruff, mypy (69 files), bandit: clean. Details:
 [VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 11.
+
+## TX-1 completion: review, strings pass (TX-2), web boundary (TX-R1), 2026-11-22
+
+Owner request: independently review `b432f07` and `6cf7d9a`; report the
+printable-strings limits (32 MiB read, 200,000 characters returned) the same
+way, keeping both limits and avoiding false partials at exact boundaries; check
+that the reasons survive nested containers. No change to weights, thresholds,
+coverage, verdict logic or schema compatibility.
+
+Review of `b432f07` and `6cf7d9a`:
+
+- PDF (characters and pages), Word/OOXML, OCR (pages, time limit) and e-mail
+  body limits: boundary logic correct; `.eml` and `.msg` share `_judge_body`.
+  The PDF and OCR page limits report unread pages without knowing whether they
+  hold text (reading them is what the limit avoids); kept.
+- **TX-R1 (defect):** the web page/SVG limit reported any byte after 2 MiB, so a
+  page whose visible text ends at the limit, followed by a newline or closing
+  tags, read `partial`. The brief above described that as the design ("one more
+  byte is read to tell") while the commit message and README said white space
+  after a limit is not an omission. The tests encoded it (`_html(TEXT_MAX + 1)`
+  has only `>` after the limit). Fixed: the page is read on to the web layer's
+  own 20 MiB limit, only to compare; it is cut when the longer page's visible
+  text is not a prefix of the text from the first 2 MiB (an unclosed tag at the
+  cut stays in that text as a fragment, so closing markup, comments and scripts
+  after the limit do not count; a character split at the limit does). Past
+  20 MiB the rest is not compared and the cut is reported.
+- Reported results rechecked: the old test file passes 34 of 34 at `6cf7d9a`
+  and fails 30, passes 4 at `0ec91e0` (temporary worktrees), as recorded.
+- Nested containers: reasons travel up through `member_reasons` with their
+  member paths; confirmed for zip in zip, e-mail, attachment (below), including
+  through a real scan worker whose result returns as JSON.
+
+TX-2, the strings pass (`engine/text.py` `extract_suspicious_strings`, called by
+`PromptGuardLayer` for every file that is not an archive, e-mail included):
+
+| Limit | Omission means | Reason recorded |
+|---|---|---|
+| 200,000 characters returned (`STRINGS_MAX_CHARS`) | a string with text other than white space lies past the limit in the joined output; reading goes on only until that is known | `text_extraction.strings_not_checked`: "strings after the first 200,000 characters not checked" |
+| 32 MiB read (`STRINGS_MAX_BYTES`) | the unread bytes hold a printable run (five or more characters) with text other than white space, including the unread rest of a run cut at the limit; looked for, stopping at the first, never extracted | same: "strings after the first 32 MiB of the file not checked" |
+
+- `engine/completeness.py` makes the key a `partial` reason, layer
+  `prompt-guard`. The strings returned are the same as before: the earlier stop
+  rule still fixes the output length; checked against the previous function on
+  24,000 random inputs (chunk sizes 1 to 64, both limits, run lengths 3 and 5),
+  and the omission flag against a ground truth on 44,000 cases (scratch scripts,
+  not committed).
+- Cost: the output check reads at most one more string. The input check reads
+  the unread rest of the file only until the first printable run: immediate for
+  ordinary files; a large file of non-printable bytes after 32 MiB (zero padding,
+  a disk image) is read once more to its end, as the hashes already do.
+- **Effect:** any file with more than 200,000 characters of printable strings
+  now reads `partial`. On this Mac, `/usr/bin/ssh` (1.75 MB), `/usr/lib/dyld`,
+  `vim`, two system fonts, three large Python extension modules and the 3.5 MB
+  overview PDF reached the limit; `/bin/ls` (0.25 MB), `/bin/zsh` (2.05 MB) and
+  small PDFs did not. Scores and verdicts do not change.
+- Tests: `tests/test_strings_limits.py` (28) and `tests/test_text_limits.py`
+  (49: 15 new, 4 changed). Real limit values for the function (32 MiB files
+  under `tmp_path`); below, at and over each limit; white space, short runs and
+  runs cut at the limit; every chunk size; the same score and verdict with the
+  limit raised; zip, zip, e-mail and attachment (strings, body and member
+  reasons at the top with member paths; small members add nothing); the same
+  archive through a real scan worker gives the same reasons as in process. On
+  `6cf7d9a` (temporary worktree): **35 failed, 42 passed** (26 of 28 strings
+  tests; 9 web-page cases); the tests that pass there expect no reason or a
+  real cut.
+
+TX-2 verification (macOS 27.2.1 arm64, Python 3.14.2; one run of the code
+committed as `2672376`, same environment and selection as for TX-1): **2,246
+passed, 0 failed, 8 skipped, 4 deselected**, 589 s, one Starlette deprecation
+warning, no ResourceWarning; no existing test changed outcome. ruff, mypy
+(69 files), bandit: clean. Details:
+[VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 12.
 
 ## Not changed and why
 

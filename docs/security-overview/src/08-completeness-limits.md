@@ -33,7 +33,7 @@ scan was partial reads "Clean (partial scan)".
 | Archive gaps (`_archive_gaps`) | "needs py7zr", "encrypted member not opened", "N member(s) over the member limit", "unpacking stopped at the size limits", "N archive(s) could not be opened" | partial or locked |
 | Embedded gaps | "password-protected document not decrypted", "not unpacked: ..." | locked or partial |
 | Web gaps (RV-S1, RV-13) | "page longer than the analysis limit", payloads over the count or size limit listed in `skipped` | partial |
-| Budget gaps | "N member(s) over the scan budget", "nesting limit (2) reached: members listed, not scanned", mail attachments skipped or the message not analysed | partial |
+| Budget gaps | "N member(s) over the scan budget", "nesting limit (2) reached: members listed, not scanned", mail attachments skipped or the message not analysed, text or strings a limit left unread ("page text after the first 2 MiB not read", "strings after the first 200,000 characters not checked") | partial |
 | Format gaps | "password-protected PDF", ZIP/7z/RAR content not opened, "no type-specific analysis for gzip content" | locked, partial, unsupported |
 | Members | each member's own reasons, with its `member_path` | as the member |
 | Worker failure (`failed()`) | "timed out after 300s", "MemoryError ...", "the worker process died", "invalid reply ..." | failed |

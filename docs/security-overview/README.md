@@ -11,20 +11,20 @@ claim. It is the public, repository-safe edition: technical content only.
 
 | Item | Value |
 |---|---|
-| Document date | 2026-11-19 |
-| Code baseline | `d45715a` (last application-code commit) |
+| Document date | 2026-11-22 (first edition 2026-11-19) |
+| Code baseline | `2672376` (last application-code commit) |
 | Reviewed tree | `e012d3f`, branch `review/production-hardening` (local, not pushed) |
 | Engine / schema / registry | 4.8.0 / 1.4 / 2026.10.23-1 |
 
 ## Limitations
 
 - **Implemented is not verified.** The document labels each statement: implemented, tested
-  locally (one macOS arm64 host), verified in CI (last on `3e5a3f2`, 164 commits older),
+  locally (one macOS arm64 host), verified in CI (last on `3e5a3f2`, 175 commits older),
   not verified, optional, proposed. Docker, Kubernetes, Linux, Windows, real external
   services and real samples were not exercised for this document.
 - No detection or false-positive rate exists; the document makes no such claim.
-- The test numbers quoted (2,161 passed at `d45715a`) come from the last recorded run
-  (`docs/HANDOFF.md`); this documentation task did not re-run the suite.
+- The test numbers quoted (2,246 passed at `2672376`) come from the TX-2 run recorded in
+  `docs/VERIFICATION_MATRIX.md` section 12.
 - The Graphify page in `docs/architecture/` is an older snapshot; the diagrams were checked
   against the code itself (see [DIAGRAM_REVIEW](DIAGRAM_REVIEW.md)).
 

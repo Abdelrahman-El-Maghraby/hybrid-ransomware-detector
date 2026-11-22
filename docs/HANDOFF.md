@@ -2817,6 +2817,24 @@ action.
   only its source text changed. No CI, Linux, Windows or real OCR run.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## TX-1 completion: TX-2 strings pass and TX-R1 (2026-11-22, Claude Code)
+
+- **Brief:** [repair pass, TX-1 completion](tasks/repair-pass-2026-11-20.md#tx-1-completion-review-strings-pass-tx-2-web-boundary-tx-r1-2026-11-22);
+  register TX-R1 (defect in `b432f07`, fixed) and TX-2 (strings limits now
+  reported, owner-requested). Limits, weights, thresholds, coverage, verdicts
+  and schema compatibility unchanged.
+- **Commits (local, not pushed):** `2672376` (implementation and tests; last
+  implementation commit), then the records commit (register, matrix section 12,
+  brief, handoff, CHANGELOG, README, overview source and rebuilt PDF).
+- **Results (this Mac, one run):** safe suite on `2672376`: 2,246 passed, 0 failed, 8 skipped,
+  4 deselected, Kubernetes tests not skipped; ruff, mypy, bandit clean;
+  new and changed tests: 35 of 77 fail on `6cf7d9a`.
+- **Behaviour change to know:** every file with more than 200,000 characters of
+  printable strings now reads `partial` (common for programs and PDFs of a few
+  MB). Owner may want to review whether that is the intended operating point.
+- **Not done:** no CI, Linux, Windows, real OCR, Docker or cluster run.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is
@@ -2826,8 +2844,8 @@ action.
    push) and dispatch `tests.yml`, `quality.yml` and `docker.yml` on it; and
    whether to remove the two `Co-Authored-By` trailers first.
 3. The earlier decisions in [FINDINGS_REGISTER](FINDINGS_REGISTER.md) section 6.
-4. Optional: rebuild the technical overview PDF so it carries the TX-1 text,
-   and decide whether the printable-strings limit (register section 4) should
-   get the same reason.
+4. Decide whether the TX-2 effect (files with more than 200,000 characters of
+   printable strings read `partial`) is the intended operating point; the
+   limits themselves were kept as instructed.
 
 No step runs without approval.

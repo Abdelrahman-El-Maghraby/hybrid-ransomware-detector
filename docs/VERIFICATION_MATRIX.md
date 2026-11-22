@@ -322,3 +322,21 @@ suite's network guard active (`tests/conftest.py`). Command: `.venv/bin/python -
 | Focused neighbours (scan status, mail, embedded msg, charset, HTML mail, OCR helper cleanup, prompt guard, privilege separation, web smuggling, mailbox) with the new file | 181 passed |
 | ruff (tracked Python files), mypy (69 files), bandit gate | clean |
 | Platforms | macOS arm64 only; no Linux, Windows or CI run; OCR helpers were stand-ins (real Tesseract/poppler not run) |
+
+## 12. TX-1 completion: strings pass (TX-2) and web boundary (TX-R1) (2026-11-22)
+
+Working tree on `6cf7d9a` with the TX-2 / TX-R1 change (committed as
+`2672376`; four comments changed after the run started, no code); macOS 27.2.1 arm64, Python 3.14.2.
+Environment and command as section 11 (`env -i`, scratch `HOME` and `TMPDIR`,
+the same `PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, ignore and four deselections).
+
+| Check | Result |
+|---|---|
+| Safe suite, **one run** | **2,246 passed, 0 failed, 8 skipped, 4 deselected** (2,203 of section 11 plus the 43 new tests), 589 s; 1 Starlette deprecation warning; 0 ResourceWarnings; no Kubernetes test skipped; the 8 skips are the usual platform ones |
+| `tests/test_strings_limits.py` + `tests/test_text_limits.py` with neighbours (`test_strings`, `test_benchmark_fixes`, `test_pipeline`) | 132 passed |
+| The two files against `6cf7d9a` (temporary worktree) | 35 failed, 42 passed (26 of 28 strings tests; 9 web-page cases) |
+| Old `tests/test_text_limits.py` rechecked | 34 passed at `6cf7d9a`; 30 failed, 4 passed at `0ec91e0` (as recorded in section 11) |
+| Strings output equivalence (scratch script) | identical to the previous function on 24,000 random comparisons; omission flag equal to a ground truth on 44,000 cases |
+| One test through a real scan worker (`test_nested_reasons_survive_an_isolated_worker`) | passed: same `scan_status` and reasons as in process |
+| ruff (tracked Python files and the new test), mypy (69 files), bandit gate | clean |
+| Platforms | macOS arm64 only; no Linux, Windows or CI run; no real OCR |

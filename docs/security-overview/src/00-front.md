@@ -19,13 +19,13 @@ and this text disagree.
 
 | Item | Value |
 |---|---|
-| Document date | 19 November 2026 |
+| Document date | 22 November 2026 (first edition 19 November; updated for TX-1, TX-2 and TX-R1) |
 | Branch | `review/production-hardening` (local only; not pushed, not merged) |
-| Last application-code commit | `d45715a` (intel reply connection closed at once) |
-| Documentation and manifests reviewed at | `e012d3f` (code identical to `d45715a`; `deploy/kubernetes/` last changed in `a1c752e`) |
+| Last application-code commit | `2672376` (text and strings limits reported as partial: TX-1, TX-2, TX-R1) |
+| Documentation and manifests reviewed at | `e012d3f` (code then at `d45715a`; `deploy/kubernetes/` last changed in `a1c752e`); the text, completeness and layer chapters re-checked against `2672376` |
 | Engine, result schema, indicator registry | {{fact:engine_version}}, {{fact:schema_version}}, {{fact:registry_version}} |
-| Last CI run on any commit | `3e5a3f2`, an older base of this branch; no workflow has run on the 164 commits since |
-| Last full local test run | at `d45715a` on macOS 27.2.1 arm64, Python 3.14.2: 2,161 passed, 0 failed, 8 skipped, 4 deselected (safe selection, see chapter 12) |
+| Last CI run on any commit | `3e5a3f2`, an older base of this branch; no workflow has run on the 175 commits since |
+| Last full local test run | at `2672376` on macOS 27.2.1 arm64, Python 3.14.2: 2,246 passed, 0 failed, 8 skipped, 4 deselected (safe selection, see chapter 12) |
 
 @note warn | **What this document does not claim.** No detection rate or false-positive rate has been measured on real samples. No external service (VirusTotal, an LLM provider, CAPE, SMTP, S3, IMAP) has been exercised for real at this baseline. Docker, Kubernetes, Windows and Linux behaviour of the current commits have not been run. A clean result means no indicator fired, not that a file is safe.
 

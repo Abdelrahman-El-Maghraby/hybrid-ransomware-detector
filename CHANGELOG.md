@@ -97,6 +97,15 @@ no version or date is assigned. Finding IDs and evidence:
   characters (`scan_results.text_extraction.not_checked`,
   `mail.body_not_checked`). Text ending exactly at a limit is not partial. The
   limits, the text inspected, scores and verdicts are unchanged.
+- The printable-strings pass (TX-2) now reports its limits the same way: strings
+  past its 200,000-character output, or in the bytes after its 32 MiB read, make
+  the scan partial (`scan_results.text_extraction.strings_not_checked`). Any file
+  with more than 200,000 characters of printable strings, common for programs
+  and PDFs of a few MB, now scans as partial; strings, scores and verdicts are
+  unchanged.
+- A web page or SVG that ends at the 2 MiB text limit followed only by white
+  space or markup (a final newline, closing tags, a script) no longer reads as
+  partial (TX-R1); only visible text after the limit counts.
 
 ## [4.8.0] — pending release
 

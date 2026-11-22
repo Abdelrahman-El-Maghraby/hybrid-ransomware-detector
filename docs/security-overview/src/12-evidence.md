@@ -22,12 +22,12 @@ At `e012d3f`, `pytest --collect-only` finds 2,190 tests in 141 files under `test
 
 | Check | Where | Result |
 |---|---|---|
-| Safe test selection at `d45715a` | macOS 27.2.1 arm64, Python 3.14.2, temporary HOME and TMPDIR, no outside network | **2,161 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 645 s |
+| Safe test selection at `2672376` | macOS 27.2.1 arm64, Python 3.14.2, temporary HOME and TMPDIR, no outside network | **2,246 passed, 0 failed, 0 errors, 8 skipped, 4 deselected**, 589 s |
 | Skips (platform) | same | Windows Restart Manager, real Job Object, `/proc`, a libproc-absent case, a system ELF binary, box-js, OpenCV, the opt-in GUI test |
 | Deselected and excluded | same | the runaway-memory test (a deliberate allocation spike), three intel tests that hard-code `/tmp`, and `tests/test_fuzz_parsers.py` (its seeds feed restricted fuzz campaigns) |
-| Ruff, mypy, bandit gate | at `b6966f8` and later checkpoints | clean (last recorded runs; not re-run for this documentation task) |
+| Ruff, mypy, bandit gate | at `2672376` | clean |
 | Diagram build (layout checks) | this review, `e012d3f` | 11 diagrams, no label overflow, overlap or connector through a node |
-| CI (Linux x64, Windows x64, macOS arm64; quality; Docker) | GitHub | passed on `3e5a3f2` only; **no workflow has run on the 164 commits since** |
+| CI (Linux x64, Windows x64, macOS arm64; quality; Docker) | GitHub | passed on `3e5a3f2` only; **no workflow has run on the 175 commits since** |
 
 ## Platform and service gaps
 
