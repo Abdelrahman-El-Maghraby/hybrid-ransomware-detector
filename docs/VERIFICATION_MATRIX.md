@@ -396,3 +396,32 @@ services), not in a scan worker. Scratch scripts, not committed.
 | Experimental output-full shortcut (scratch copy) | identical on 300,248 + 80,640 cases; 0.531 to 0.078 s on the space-only case, unchanged when defeated or on other fixtures; same bytes read and memory |
 | Decision | keep the current implementation (owner); shortcut not applied |
 | Not covered | Linux, Windows, scan workers, real files |
+
+## 16. Pre-publication local verification (2026-11-22, Codex)
+
+Checkout `cdfd82c`, application baseline `38c817b`; only publication records and
+small documentation corrections changed during verification. macOS arm64,
+Python 3.14.2. Safe-suite command and four deselections exactly as section 11;
+clean subprocess environment, temporary HOME/TMPDIR,
+`PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin`,
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`, `PYTHONDONTWRITEBYTECODE=1`.
+
+| Check | Result |
+|---|---|
+| Safe suite, one independent run | **2,295 passed, 0 failed, 8 skipped, 4 deselected**, 610.86 s |
+| Warnings | One existing Starlette TestClient/httpx deprecation; zero ResourceWarnings. A loopback test-server exception header appeared without a traceback; no pytest failure |
+| Skips | GUI opt-in, Restart Manager, system ELF, box-js, OpenCV, Windows Job Object, Linux `/proc`, platform-specific libproc case; no Kubernetes render test skipped |
+| Ruff (all tracked Python files), mypy (69 files), bandit medium/high gate including deploy | Passed; mypy retains informational untyped-body notes |
+| `python -m pip check` | No broken requirements found |
+| Overview facts | `facts.py` JSON equals committed `src/facts.json` |
+| Git connectivity | Passed; dangling historical objects preserved |
+| Diff whitespace | Removed one trailing blank line in overview source; final working-tree comparison against `3e5a3f2` passes |
+| Publication contents | Bounded heuristic review of 180 unpushed commits, 876 blobs and all three historical PDF versions found no concrete secret/private-material blocker; not exhaustive |
+| Remote evidence | Fetched origin and inspected GitHub PRs/runs; latest CI remains on `3e5a3f2`, not this branch |
+
+No restricted fuzz campaign, runaway-memory reproduction, real samples, CI,
+Linux/Windows execution, Docker, cluster or real external-service validation.
+The existing test network guard applies in the pytest process; it is not a
+separate network sandbox for spawned workers. No push occurred: the owner
+requested an independent read-only review before publication. Details and the
+remaining gate are in the [publication brief](tasks/github-publication-2026-11-22.md).

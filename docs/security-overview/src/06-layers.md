@@ -358,4 +358,3 @@ fails, and what it cannot see. "Partial" means the layer's gap makes the file's
 | Default | **off** |
 | Limitation | the file is executed on the operator's CAPE server, which must be isolated by the operator; evasive samples may show nothing in the sandbox |
 | Example | a document scoring Medium statically is submitted; the report shows shadow-copy deletion |
-

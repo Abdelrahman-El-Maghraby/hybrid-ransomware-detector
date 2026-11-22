@@ -1,5 +1,25 @@
 # Current task handoff
 
+## Current publication checkpoint (2026-11-22, Codex)
+
+This checkpoint supersedes the historical active-agent and local-publication
+status below. Codex is the only editor on `review/production-hardening`, starting
+at `cdfd82c`; application baseline `38c817b`. The owner authorized reviewing and
+publishing the development branch, then requested an independent read-only
+review before the push. **Do not push until that review is assessed.**
+
+Brief: [publication review](tasks/github-publication-2026-11-22.md). Fetch and
+GitHub inspection completed; 180 local commits were not on fetched origin
+branches. Static checks and dependency consistency passed; the safe suite passed:
+2,295 passed, 8 skipped, 4 deselected, 0 failures, 610.86 s (matrix section 16).
+Only publication records and small documentation corrections are being edited.
+`.arena/` remains unrelated and untouched. No push, PR, merge, tag, release or
+workflow dispatch has occurred. The next action is to assess the independent review,
+then publish only the named branch when the
+gate is satisfied. Existing B4 restrictions and readiness gaps remain in force.
+
+## Earlier checkpoints (historical)
+
 - Status: **option E implemented and reviewed locally (2026-11-19): intel on
   Kubernetes over TLS as an optional component; review findings K8S-R1 to K8S-R6
   fixed, including the intel reply limit; runtime verification pending** (a test

@@ -12,8 +12,8 @@ claim. It is the public, repository-safe edition: technical content only.
 | Item | Value |
 |---|---|
 | Document date | 2026-11-22 (first edition 2026-11-19) |
-| Code baseline | `0a6be7f` (last application-code commit) |
-| Reviewed tree | `e012d3f`, branch `review/production-hardening` (local, not pushed) |
+| Documented code baseline (snapshot) | `0a6be7f` |
+| Originally reviewed tree | `e012d3f`, branch `review/production-hardening` |
 | Engine / schema / registry | 4.8.0 / 1.4 / 2026.10.23-1 |
 
 ## Limitations
@@ -23,11 +23,15 @@ claim. It is the public, repository-safe edition: technical content only.
   not verified, optional, proposed. Docker, Kubernetes, Linux, Windows, real external
   services and real samples were not exercised for this document.
 - No detection or false-positive rate exists; the document makes no such claim.
-- The current test numbers (2,273 passed at `0a6be7f`) come from the run recorded in
+- The snapshot test numbers (2,273 passed at `0a6be7f`) come from the run recorded in
   `docs/VERIFICATION_MATRIX.md` section 13; earlier runs (2,161 at `d45715a`, 2,246 at
   `2672376`) are kept in the document as history.
 - The Graphify page in `docs/architecture/` is an older snapshot; the diagrams were checked
   against the code itself (see [DIAGRAM_REVIEW](DIAGRAM_REVIEW.md)).
+
+For verification after this document baseline, see the latest sections of
+[VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md). The PDF is a dated technical
+snapshot, not a statement that the latest branch has passed CI or is release-ready.
 
 ## Files
 
