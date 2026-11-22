@@ -41,12 +41,14 @@ def _trailing_run_start(data: bytes) -> int:
 
 STRINGS_MAX_BYTES = 32 * 1024 * 1024     # bytes of a file the strings pass reads
 STRINGS_MAX_CHARS = 200_000              # characters of strings it returns
+STRINGS_LOOKAHEAD_BYTES = 32 * 1024 * 1024   # TX-2b: unread bytes searched for one more string
 
 
 def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int = 1024 * 1024,
                                max_bytes: Optional[int] = None,
                                max_chars: Optional[int] = None,
-                               omitted: Optional[List[str]] = None) -> str:
+                               omitted: Optional[List[str]] = None,
+                               lookahead_bytes: Optional[int] = None) -> str:
     """Extract human-readable ASCII strings from a file using memory-efficient chunked reads.
 
     Bounded on both input (max_bytes read, STRINGS_MAX_BYTES by default) and output
@@ -57,9 +59,16 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
     or a string in the bytes after max_bytes (looked for, not extracted). Reaching
     a limit exactly, or only white space or no printable run after it, is not an
     omission. The text returned is the same as before.
+
+    TX-2b: that search reads at most `lookahead_bytes` (STRINGS_LOOKAHEAD_BYTES)
+    after max_bytes, so the pass never reads more than max_bytes + lookahead_bytes
+    (64 MiB by default). Bytes left after that, with no string found before them,
+    are reported as not inspected (nothing is claimed about their content).
+    Strings that cannot reach the returned text are not kept in memory.
     """
     max_bytes = STRINGS_MAX_BYTES if max_bytes is None else max_bytes
     max_chars = STRINGS_MAX_CHARS if max_chars is None else max_chars
+    lookahead = STRINGS_LOOKAHEAD_BYTES if lookahead_bytes is None else lookahead_bytes
     pattern = _PRINTABLE_RUN if min_len == 5 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
     strings: List[str] = []
     total_chars = 0
@@ -73,8 +82,8 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
 
     def add(s: str) -> None:
         nonlocal total_chars, kept, length, over
-        strings.append(s)
-        if kept is None:
+        if kept is None:            # TX-2b: past it, a string only decides `over`
+            strings.append(s)
             total_chars += len(s) + 1
             if total_chars >= max_chars:
                 kept = total_chars - 1
@@ -87,7 +96,7 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
                 if not chunk:
                     break
                 read += len(chunk)
-                joined = last + chunk
+                joined = last + chunk[max(0, len(chunk) - keep):] if keep else b""   # not all of it
                 last = joined[max(0, len(joined) - keep):]
                 data = carry + chunk
                 # Keep a trailing printable run for the next chunk so strings
@@ -106,29 +115,44 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
                 if over:
                     omitted.append(f"strings after the first {max_chars:,} characters "
                                    "not checked")
-                elif read >= max_bytes and _run_after(f, last, keep, pattern, chunk_size):
-                    omitted.append(f"strings after the first {_size(max_bytes)} of the file "
-                                   "not checked")
+                elif read >= max_bytes:
+                    rest = _run_after(f, last, keep, pattern, chunk_size, lookahead)
+                    if rest == _FOUND:
+                        omitted.append(f"strings after the first {_size(max_bytes)} of the "
+                                       "file not checked")
+                    elif rest == _UNINSPECTED:
+                        omitted.append(f"file bytes after the first {_size(max_bytes + lookahead)}"
+                                       " not inspected for strings")
     except Exception as e:
         logger.error("Error extracting strings from %s: %s", file_path, str(e))
     return "\n".join(strings)[:max_chars if kept is None else min(max_chars, kept)]
 
 
+_FOUND, _NONE, _UNINSPECTED = "found", "none", "uninspected"
+
+
 def _run_after(fh, last: bytes, keep: int, pattern: "re.Pattern[bytes]",
-               chunk_size: int) -> bool:
+               chunk_size: int, budget: int) -> str:
     """TX-2: whether the unread rest of `fh` holds a printable run with text other
-    than white space. `last`, the final bytes read (at most `keep`, one fewer than
-    a run), joins a run cut at the limit; its own bytes were read, so only the
-    unread part of a run counts. Stops at the first such run."""
+    than white space (_FOUND) or not (_NONE). `last`, the final bytes read (at most
+    `keep`, one fewer than a run), joins a run cut at the limit; its own bytes were
+    read, so only the unread part of a run counts. Stops at the first such run.
+    TX-2b: reads at most `budget` bytes; with bytes still left after them and no
+    run found, the answer is _UNINSPECTED."""
     prev, start = last, len(last)
+    left = budget
     while True:
-        chunk = fh.read(chunk_size)
+        if left <= 0:
+            # bytes left? from the size, so nothing past the budget is read
+            return _UNINSPECTED if os.fstat(fh.fileno()).st_size > fh.tell() else _NONE
+        chunk = fh.read(min(chunk_size, left))
         if not chunk:
-            return False
+            return _NONE
+        left -= len(chunk)
         data = prev + chunk
         for m in pattern.finditer(data):
             if data[max(m.start(), start):m.end()].strip():
-                return True
+                return _FOUND
         at = max(0, len(data) - keep)
         prev, start = data[at:], max(0, start - at)    # read bytes stay excluded
 
