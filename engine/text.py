@@ -129,6 +129,8 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
 
 
 _FOUND, _NONE, _UNINSPECTED = "found", "none", "uninspected"
+# TX-2c: a printable byte other than a space (the only white space in \x20-\x7e)
+_GRAPHIC = re.compile(rb"[\x21-\x7e]")
 
 
 def _run_after(fh, last: bytes, keep: int, pattern: "re.Pattern[bytes]",
@@ -138,7 +140,9 @@ def _run_after(fh, last: bytes, keep: int, pattern: "re.Pattern[bytes]",
     `keep`, one fewer than a run), joins a run cut at the limit; its own bytes were
     read, so only the unread part of a run counts. Stops at the first such run.
     TX-2b: reads at most `budget` bytes; with bytes still left after them and no
-    run found, the answer is _UNINSPECTED."""
+    run found, the answer is _UNINSPECTED. TX-2c: a chunk with no byte other
+    than a space or a non-printable one at or after `start` cannot hold such a
+    run, so it is skipped by one search instead of visiting each run in Python."""
     prev, start = last, len(last)
     left = budget
     while True:
@@ -150,9 +154,10 @@ def _run_after(fh, last: bytes, keep: int, pattern: "re.Pattern[bytes]",
             return _NONE
         left -= len(chunk)
         data = prev + chunk
-        for m in pattern.finditer(data):
-            if data[max(m.start(), start):m.end()].strip():
-                return _FOUND
+        if _GRAPHIC.search(data, start) is not None:   # TX-2c: else nothing to find
+            for m in pattern.finditer(data):
+                if data[max(m.start(), start):m.end()].strip():
+                    return _FOUND
         at = max(0, len(data) - keep)
         prev, start = data[at:], max(0, start - at)    # read bytes stay excluded
 

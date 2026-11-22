@@ -408,3 +408,77 @@ def test_real_limits_through_an_isolated_worker(tmp_path):
     assert ("big.bin", "file bytes after the first 64 MiB not inspected for strings") in reasons
     assert a["scan_status"] == "partial"
     zpath.unlink()
+
+
+# --------------------------------- TX-2c: the lookahead skips chunks with no text
+def _reference_run_after(fh, last, keep, pattern, chunk_size, budget):
+    """The 0a6be7f search, kept as the reference: every run visited in Python."""
+    import os
+    prev, start, left = last, len(last), budget
+    while True:
+        if left <= 0:
+            return "uninspected" if os.fstat(fh.fileno()).st_size > fh.tell() else "none"
+        chunk = fh.read(min(chunk_size, left))
+        if not chunk:
+            return "none"
+        left -= len(chunk)
+        data = prev + chunk
+        for m in pattern.finditer(data):
+            if data[max(m.start(), start):m.end()].strip():
+                return "found"
+        at = max(0, len(data) - keep)
+        prev, start = data[at:], max(0, start - at)
+
+
+def test_lookahead_matches_the_reference_search(tmp_path):
+    import random
+    import re
+    rng = random.Random(2026_11_22)
+    path = tmp_path / "r.bin"
+    for _ in range(3000):
+        alpha = rng.choice([b" \x00", b"a \x00", b"a \x00\t\n\x7f", b"ab \x00\x00"])
+        tail = bytes(rng.choices(alpha, k=rng.randint(0, 120)))
+        last = bytes(rng.choices(b"ab \x00", k=rng.randint(0, 7)))
+        min_len = rng.randint(1, 8)
+        keep = max(min_len - 1, 0)
+        last = last[len(last) - keep:] if keep else b""
+        pattern = re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
+        cs, budget = rng.choice([1, 2, 3, 5, 64]), rng.choice([0, 3, rng.randint(0, 130)])
+        path.write_bytes(tail)
+        with open(path, "rb") as a, open(path, "rb") as b:
+            assert text_mod._run_after(a, last, keep, pattern, cs, budget) == \
+                _reference_run_after(b, last, keep, pattern, cs, budget), (tail, last, min_len)
+
+
+class _NoVisit:
+    """A pattern that fails the test if the per-run loop is reached."""
+    def finditer(self, data):
+        raise AssertionError("visited a chunk with no text in it")
+
+
+@pytest.mark.parametrize("tail", [b"     \x00" * 50, b"\x00" * 300, b" " * 300,
+                                  b"\t\n\r\x0b\x0c" * 40, b"\x7f\x1f\x00 " * 60])
+def test_chunks_without_text_are_skipped(tmp_path, tail):
+    path = _write(tmp_path, "w.bin", tail)
+    with open(path, "rb") as fh:
+        assert text_mod._run_after(fh, b"", 4, _NoVisit(), 64, 10_000) == "none"
+
+
+def test_read_text_then_unread_spaces_is_skipped_too(tmp_path):
+    # the text is in `last` (already read): the search starts after it
+    path = _write(tmp_path, "s.bin", b"      \x00" + b"\x00" * 100)
+    with open(path, "rb") as fh:
+        assert text_mod._run_after(fh, b"abcd", 4, _NoVisit(), 3, 10_000) == "none"
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 4, 7])
+@pytest.mark.parametrize("min_len", [2, 5, 8])
+def test_text_arriving_in_a_later_chunk_is_found(tmp_path, chunk, min_len):
+    # a run of spaces, then its text a few chunks later: still one run, found
+    spaces = b" " * (min_len + 6)
+    path = _write(tmp_path, "t.bin", b"\x00" * 30 + spaces + b"x\x00")
+    _, omitted = _run(path, min_len=min_len, max_bytes=30, chunk_size=chunk)
+    assert omitted == ["strings after the first 30 bytes of the file not checked"]
+    # with only spaces it is not
+    path = _write(tmp_path, "u.bin", b"\x00" * 30 + spaces + b"\x00")
+    assert _run(path, min_len=min_len, max_bytes=30, chunk_size=chunk)[1] == []
