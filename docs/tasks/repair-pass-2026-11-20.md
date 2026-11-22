@@ -302,6 +302,62 @@ same environment and selection as for TX-1): **2,295 passed, 0 failed, 8 skipped
 ruff, mypy (69 files), bandit: clean. Details:
 [VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 14.
 
+## Strings-pass performance investigation (2026-11-22): keep the current code
+
+Owner request: measure, without changing production code, where the strings
+pass costs time in complete scans, profile the loop that runs after the
+200,000-character output is full, and look again at B's worst case and its
+slowdown on long spaces. **Decision (owner): keep the current
+implementation; the experimental optimisation below is not applied.**
+
+Method: synthetic, deterministic fixtures only, on this Mac (macOS 27.2.1
+arm64, Python 3.14.2), at most 40 MiB (the 32 MiB NUL heads written as sparse
+files), deleted afterwards. Whole scans ran **in process** (`scan_file`,
+`isolate_scans` off, cache off, no LLM or VirusTotal), not in a scan worker;
+the strings pass was timed inside them through a wrapper on the function the
+prompt-guard layer calls. Five scans per fixture after one warm-up; medians,
+with every series within about 1% of its median. Scratch scripts, not
+committed. Code measured: `38c817b`.
+
+| Fixture | Scan | Strings pass | Share |
+|---|---|---|---|
+| program-like binary, 1 MiB | 0.171 s | 0.012 s | 7.1% |
+| program-like binary, 8 MiB | 0.924 s | 0.012 s | 1.3% |
+| plain text, 8 MiB | 0.858 s | 0.003 s | 0.3% |
+| HTML page, 1 MiB | 0.438 s | 0.004 s | 0.8% |
+| 200,000 characters of strings, then 8 MiB of space-only strings | 1.251 s | 0.537 s | 42.9% |
+| 32 MiB of NUL, then a string | 2.659 s | 0.308 s | 11.6% |
+| 32 MiB of NUL, then 8 MiB of space-only strings | 3.252 s | 0.331 s | 10.2% |
+| same, one short non-space run per MiB (B's worst case) | 3.522 s | 0.609 s | 17.3% |
+| same, long space runs | 3.261 s | 0.333 s | 10.2% |
+
+- Ordinary files: the pass ends almost at once after the output fills, because
+  the next string with text stops it (3 to 12 ms). About 0.3 s of the large
+  cases is the plain 32 MiB read, which predates TX-1.
+- Profile (cProfile, relative only: 2.07 s profiled against 0.54 s): the
+  output-full loop and B's worst case both spend their time on one Python step
+  per printable run, about 1.4 million for 8 MiB of six-byte runs.
+- B: worst case about 0.30 s per 8 MiB over the plain read (extrapolated: about
+  1.2 s at the full 32 MiB lookahead); its long-space slowdown is not visible
+  at this level (0.330 against 0.332 s on 40 MiB files).
+- Experimental optimisation, scratch copy only: once the output is full, skip a
+  chunk with no byte in `\x21-\x7e`. Identical output and reasons on 300,248
+  general and 80,640 output-full cases. Strings pass alone (median of 5):
+  0.531 to 0.078 s on the space-only case; 0.530 to 0.513 s when one short
+  non-space run per MiB defeats it; every other fixture unchanged. Bytes read
+  (1, 8, 32 or 40 MiB) and Python allocation peaks (tracemalloc, 2.1 to
+  4.3 MiB) identical; process peak RSS (`ru_maxrss`, fresh interpreter, strings
+  pass only) 184.4 to 185.0 MiB for both, of which about 183.6 MiB is imports.
+- Why kept: the gain needs unusual or crafted content (more than 200,000
+  characters of strings followed by long stretches of space-only strings), a
+  crafted file can defeat it, and the extrapolated saving is at most about
+  1.8 s for 32 MiB of such content, far below the 300 s per-file limit. If it
+  is ever adopted, it needs tests for the output exactly full with text
+  arriving chunks later, tiny chunks and custom `min_len`, a spy test that
+  space-only chunks skip the loop, and the seeded reference comparison.
+- Not measured: Linux or Windows timings and memory, scans inside a scan
+  worker, real files.
+
 ## Not changed and why
 
 - Kubernetes and Docker: no new local defect found in this pass; cluster and

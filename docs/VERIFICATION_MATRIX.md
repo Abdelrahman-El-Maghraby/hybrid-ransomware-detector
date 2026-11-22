@@ -380,3 +380,19 @@ fresh `python -I` per run).
 | ruff (tracked Python files), mypy (69 files), bandit gate | clean |
 | Overview PDF | not rebuilt: it describes the limits and reasons, which are unchanged, and does not mention the search speed |
 | Platforms | macOS arm64 only; no CI; timings from one machine |
+
+## 15. Strings-pass performance investigation (2026-11-22)
+
+Measurement only at `38c817b`; no production code changed. Synthetic,
+deterministic fixtures on this Mac (macOS 27.2.1 arm64, Python 3.14.2), at most
+40 MiB; whole scans **in process** (`isolate_scans` off, cache off, no external
+services), not in a scan worker. Scratch scripts, not committed.
+
+| Check | Result |
+|---|---|
+| Strings pass share of a whole scan, ordinary files (5 runs each, within about 1%) | 3 to 12 ms; 0.3% to 7.1% |
+| Output full, then 8 MiB of space-only strings | 0.537 s of 1.251 s (42.9%) |
+| 40 MiB files (lookahead path) | 10.2% to 17.3%; B's worst case 0.609 s of 3.522 s |
+| Experimental output-full shortcut (scratch copy) | identical on 300,248 + 80,640 cases; 0.531 to 0.078 s on the space-only case, unchanged when defeated or on other fixtures; same bytes read and memory |
+| Decision | keep the current implementation (owner); shortcut not applied |
+| Not covered | Linux, Windows, scan workers, real files |

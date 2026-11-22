@@ -2867,6 +2867,19 @@ action.
   Linux or Windows timings.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Strings-pass performance investigation (2026-11-22, Claude Code)
+
+- **Brief:** [repair pass, performance investigation](tasks/repair-pass-2026-11-20.md#strings-pass-performance-investigation-2026-11-22-keep-the-current-code);
+  matrix section 15. Measurement only at `38c817b`: synthetic fixtures on this
+  Mac, whole scans in process (not in a scan worker).
+- **Result:** the strings pass costs 3 to 12 ms (at most 7%) of ordinary
+  scans; it is material only with unusual or crafted content (42.9% of one
+  8 MiB scan). An output-full shortcut was identical and 6.8x faster on that
+  case, but can be defeated and saves at most about 1.8 s (extrapolated).
+- **Decision (owner):** keep the current implementation; the shortcut is not
+  applied. No production code, PDF or test change.
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is
