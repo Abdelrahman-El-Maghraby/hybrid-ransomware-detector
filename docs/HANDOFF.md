@@ -6,17 +6,20 @@ This checkpoint supersedes the historical active-agent and local-publication
 status below. Codex is the only editor on `review/production-hardening`, starting
 at `cdfd82c`; application baseline `38c817b`. The owner authorized reviewing and
 publishing the development branch, then requested an independent read-only
-review before the push. **Do not push until that review is assessed.**
+review before the push. That read-only review has now been assessed: no
+concrete publication blocker was found. The owner requested continuation;
+**the named branch push is authorized**, with no PR, merge, tag or CI dispatch.
 
 Brief: [publication review](tasks/github-publication-2026-11-22.md). Fetch and
 GitHub inspection completed; 180 local commits were not on fetched origin
 branches. Static checks and dependency consistency passed; the safe suite passed:
 2,295 passed, 8 skipped, 4 deselected, 0 failures, 610.86 s (matrix section 16).
-Only publication records and small documentation corrections are being edited.
+Only publication records and documentation corrections changed: current-status
+wording and the README test-tool setup, including missing httpx/jsonschema.
 `.arena/` remains unrelated and untouched. No push, PR, merge, tag, release or
-workflow dispatch has occurred. The next action is to assess the independent review,
-then publish only the named branch when the
-gate is satisfied. Existing B4 restrictions and readiness gaps remain in force.
+workflow dispatch has occurred at this pre-push checkpoint. The next action is
+to push only `review/production-hardening` and verify the remote SHA. Existing
+B4 restrictions and readiness gaps remain in force.
 
 ## Earlier checkpoints (historical)
 

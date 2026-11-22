@@ -716,10 +716,19 @@ Engineering notes: scanning and canary checks run in worker threads and talk to 
 
 ## 🧪 Testing
 
+The commands below include the full suite, including fuzz tests and the
+runaway-memory test. For the bounded local verification used on the development
+host, use the selection and environment in
+[VERIFICATION_MATRIX section 11](docs/VERIFICATION_MATRIX.md#11-tx-1-visible-text-limits-2026-11-20).
+The restricted long-fuzz campaigns require separate authorization.
+
 ```bash
-pip install -e ".[dev]"          # or, hash-checked: pip install --require-hashes -r requirements.lock
-                                 #   then: pip install -e . --no-deps && pip install pytest hypothesis qrcode
-python -m pytest                 # about 2,000 tests: unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
+pip install -e ".[dev]" bandit
+# Alternative on Python 3.12+: hash-check runtime dependencies, then add test/quality tools.
+# pip install --require-hashes -r requirements.lock
+# pip install -e . --no-deps
+# pip install pytest pytest-cov hypothesis qrcode httpx jsonschema ruff mypy bandit types-requests types-PyYAML
+python -m pytest                 # unit, end-to-end, CLI, fuzz, regression (+1 opt-in GUI test)
 python -m pytest --cov           # coverage report; CI fails under 85 %
 ruff check . && mypy             # lint (incl. complexity < 20, lazy logging) and types, also in CI
 bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py deploy -ll   # security linter, as in CI

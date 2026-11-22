@@ -1,12 +1,12 @@
 # Support boundaries and verification matrix
 
-Where each capability stands, and what has actually been checked on the current
-code. Revision: code `b6966f8` on `review/production-hardening` (local, not
-pushed); written 2026-11-17. The release-scope decisions are in
-[RELEASE_SCOPE](RELEASE_SCOPE.md); finding status in
-[FINDINGS_REGISTER](FINDINGS_REGISTER.md). A check listed here as passed ran on
-this revision unless the row says otherwise. Older results are history, not
-evidence for this revision.
+Where each capability stands, and what has actually been checked. Each dated
+section states its own revision and scope. The initial baseline was `b6966f8`
+on `review/production-hardening` (2026-11-17); later sections record subsequent
+checks, including the independent local run in section 16. The release-scope
+decisions are in [RELEASE_SCOPE](RELEASE_SCOPE.md); finding status in
+[FINDINGS_REGISTER](FINDINGS_REGISTER.md). Results apply to their stated
+revision and environment, not automatically to the latest branch.
 
 ## 1. Support boundaries
 

@@ -4,7 +4,8 @@
 
 Review local and GitHub state before publishing `review/production-hardening`.
 The owner authorized a branch push, then requested an independent read-only
-review before publication. **Push is pending that review.** No merge, PR,
+review before publication. **The review has been assessed and the owner has
+requested continuation: the named branch push is authorized.** No merge, PR,
 workflow dispatch, tag, release, installation or deployment is part of this step.
 Codex is the only editor; the independent reviewer must not mutate the checkout
 or run another test suite concurrently.
@@ -74,13 +75,41 @@ secret-detection guarantee or a full security review.
   baseline and counts as a snapshot and points to current verification records.
   No application behavior or PDF content changed.
 
+## Independent review assessed
+
+The independent read-only review inspected `cdfd82c` while the publication
+records were being prepared; `de5ce1d` subsequently committed those records.
+Application code did not change. It found no concrete publication blocker.
+
+- Runtime assets and package declarations had no identified missing required
+  file. Build/install behavior and cross-platform execution remain unverified.
+- `local/combined-preview` contains seven old merge commits absent from this
+  branch; their merged branch tips are already ancestors of HEAD. No separate
+  feature branch was identified as missing intended work; nothing was merged
+  automatically. Dependency-update branches remain separate.
+- Rechecked the README finding: runtime locks omit httpx and jsonschema while
+  CI installs both. Corrected the alternative test setup to include them and
+  the tools used by the listed coverage/type/lint/security commands. The normal
+  dev route now explicitly installs bandit too. These are documentation edits,
+  not a dependency installation or lock refresh.
+- Linked the safe local test selection from README; corrected stale current
+  status in PROJECT_MAP and the verification-matrix header.
+- The PDF remains a dated `0a6be7f` snapshot, explicitly labelled by its README.
+  Its historical local-only wording describes the baseline, not current remote
+  status. No PDF rebuild was needed for these publication records.
+- `.arena/` remains untracked and untouched; only explicit documentation paths
+  are staged. No local exclude/settings change was made.
+- Workflow precautions and the historical attribution exceptions remain as
+  recorded above. Publication does not authorize a PR, merge or release.
+
+The prior independent safe run remains applicable to the unchanged application
+code. Documentation diffs, relative link targets and the test-tool instructions
+were checked; no suite rerun, install or build was performed for these edits.
+
 ## Remaining steps
 
-1. Review independent findings about packaging, fresh-clone reproducibility,
-   cross-platform assumptions and potentially missing local-branch work.
-2. Resolve concrete publication blockers, if any, without merging unrelated work.
-3. Push only the named development branch after the review gate is satisfied;
+1. Push only the named development branch;
    verify local and remote SHA equality and observe any resulting workflow runs.
-4. Keep merge/release readiness separate: B4, cross-platform CI, Docker,
+2. Keep merge/release readiness separate: B4, cross-platform CI, Docker,
    Kubernetes and real-service/corpus validation remain as tracked in the
    findings register and verification matrix.

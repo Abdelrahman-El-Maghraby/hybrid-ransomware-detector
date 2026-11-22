@@ -31,8 +31,12 @@ external opinions (VirusTotal, an LLM, a self-hosted CAPE sandbox).
 
 ## 2. What the hardening branch changed
 
-Branch `review/production-hardening`, cut from `3e5a3f2`; over 120 commits, **local
-only, never pushed or published**. By purpose (IDs and commits in the register):
+Branch `review/production-hardening`, cut from `3e5a3f2`, contains the accumulated
+hardening work. Current publication status and verification are recorded in
+[HANDOFF](HANDOFF.md) and the
+[publication review](tasks/github-publication-2026-11-22.md). Publishing this
+development branch is separate from merging or releasing it. By purpose
+(IDs and commits in the register):
 
 - **Security:** checked JSON from workers instead of pickle (M18); the API reads an
   upload only after the token check (M4); intel checks its token before parsing
