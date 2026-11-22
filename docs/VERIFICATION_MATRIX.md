@@ -340,3 +340,20 @@ the same `PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, ignore and four deselections).
 | One test through a real scan worker (`test_nested_reasons_survive_an_isolated_worker`) | passed: same `scan_status` and reasons as in process |
 | ruff (tracked Python files and the new test), mypy (69 files), bandit gate | clean |
 | Platforms | macOS arm64 only; no Linux, Windows or CI run; no real OCR |
+
+## 13. Bounded strings lookahead (TX-2b) and retention fix (TX-R2) (2026-11-22)
+
+Revision `0a6be7f`; macOS 27.2.1 arm64, Python 3.14.2; environment and command
+as section 11.
+
+| Check | Result |
+|---|---|
+| Safe suite, **one run** | **2,273 passed, 0 failed, 8 skipped, 4 deselected** (2,246 of section 12 plus the 27 new tests), 606 s; 1 Starlette deprecation warning; 0 ResourceWarnings; no Kubernetes test skipped; the usual 8 platform skips |
+| `tests/test_strings_limits.py` with `test_text_limits`, `test_strings`, `test_benchmark_fixes`, `test_pipeline` | 154 passed; after the tiny-chunk test was added, `test_strings_limits.py` alone: 55 passed |
+| Tiny-chunk regression test against the slicing slip (temporary edit, reverted) | 1 failed, 4 passed; with the fix 5 passed |
+| Equivalence (scratch scripts) | output identical to the pre-TX function on 24,000 and 30,000 random cases; reasons equal to a bound-aware ground truth on 30,000; equal to `2672376` on the 22,825 within the inspected range |
+| Bytes read, sparse zero files 64 / 96 / 160 MiB (measured) | `2672376`: 64 / 96 / 160 MiB; now 64 / 64 / 64 MiB |
+| Heap peak, output full + 1 / 3 / 6 MiB of white-space strings (measured, tracemalloc) | `2672376`: 11.0 / 31.4 / 61.0 MiB; now 3.3 / 4.3 / 4.3 MiB |
+| ruff (tracked Python files), mypy (69 files), bandit gate | clean |
+| Overview PDF | rebuilt (63 pages; facts, diagram layout, text, bookmark and link checks passed); pages 1, 4, 9, 11, 30, 37, 38 and 51 rendered with `sips` and viewed: section 2.3 holds the new rows without pushing 2.5 onto a near-empty page (a first rebuild did; the rows were shortened), section 8.3 starts on a new page with its whole table; `pdftoppm` is not installed |
+| Platforms | macOS arm64 only; RSS on Linux or Windows not measured; no CI |

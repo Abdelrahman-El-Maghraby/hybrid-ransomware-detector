@@ -33,10 +33,12 @@ scan was partial reads "Clean (partial scan)".
 | Archive gaps (`_archive_gaps`) | "needs py7zr", "encrypted member not opened", "N member(s) over the member limit", "unpacking stopped at the size limits", "N archive(s) could not be opened" | partial or locked |
 | Embedded gaps | "password-protected document not decrypted", "not unpacked: ..." | locked or partial |
 | Web gaps (RV-S1, RV-13) | "page longer than the analysis limit", payloads over the count or size limit listed in `skipped` | partial |
-| Budget gaps | "N member(s) over the scan budget", "nesting limit (2) reached: members listed, not scanned", mail attachments skipped or the message not analysed, text or strings a limit left unread ("page text after the first 2 MiB not read", "strings after the first 200,000 characters not checked") | partial |
+| Budget gaps | "N member(s) over the scan budget", "nesting limit (2) reached: members listed, not scanned", mail attachments skipped or the message not analysed, text or strings a limit left unread ("page text after the first 2 MiB not read", "strings after the first 200,000 characters not checked", "file bytes after the first 64 MiB not inspected for strings") | partial |
 | Format gaps | "password-protected PDF", ZIP/7z/RAR content not opened, "no type-specific analysis for gzip content" | locked, partial, unsupported |
 | Members | each member's own reasons, with its `member_path` | as the member |
 | Worker failure (`failed()`) | "timed out after 300s", "MemoryError ...", "the worker process died", "invalid reply ..." | failed |
+
+@pagebreak
 
 ## Resource limits: configured defaults versus hard limits
 
@@ -55,6 +57,8 @@ scan was partial reads "Clean (partial scan)".
 | Intel reply size | {{fact:intel_reply_mib}} MiB, identity encoding only | fixed | `core/intel_client.read_reply` |
 | Intel request size | 100 MiB | `AEGIS_INTEL_MAX_UPLOAD_MB` | intel `BodyLimit`; the intel proxy's 101 MiB cap |
 | Result reasons listed | {{fact:max_reasons}} | fixed | `assess()` |
+| Text read for the phrasing check | {{fact:text_page_mib}} MiB of a page (compared up to {{fact:text_compare_mib}} MiB), {{fact:text_max_chars}} characters of document text | fixed | `engine/text.py` |
+| Printable-strings pass | reads {{fact:strings_read_mib}} MiB, keeps {{fact:strings_max_chars}} characters, searches at most {{fact:strings_lookahead_mib}} MiB more: at most {{fact:strings_inspected_mib}} MiB read per file | fixed | `extract_suspicious_strings` |
 
 ## How failures are told apart
 

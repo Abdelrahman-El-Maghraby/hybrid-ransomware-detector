@@ -155,6 +155,7 @@ TX-2, the strings pass (`engine/text.py` `extract_suspicious_strings`, called by
   the unread rest of the file only until the first printable run: immediate for
   ordinary files; a large file of non-printable bytes after 32 MiB (zero padding,
   a disk image) is read once more to its end, as the hashes already do.
+  **Superseded by TX-2b below:** the search is now bounded to 32 MiB.
 - **Effect:** any file with more than 200,000 characters of printable strings
   now reads `partial`. On this Mac, `/usr/bin/ssh` (1.75 MB), `/usr/lib/dyld`,
   `vim`, two system fonts, three large Python extension modules and the 3.5 MB
@@ -177,6 +178,63 @@ passed, 0 failed, 8 skipped, 4 deselected**, 589 s, one Starlette deprecation
 warning, no ResourceWarning; no existing test changed outcome. ruff, mypy
 (69 files), bandit: clean. Details:
 [VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 12.
+
+## Cost review and bounded lookahead (TX-R2, TX-2b), 2026-11-22
+
+Owner request: review the resource cost of the two lookaheads; then (approved)
+A, stop keeping strings that cannot reach the output, and C, bound the strings
+lookahead to 32 MiB (64 MiB inspected in all) and report bytes left after it as
+not inspected. B, a faster search, only if equivalent; not done, see below.
+
+Limits by entry point (code read): API uploads 50 MB by default; folder, CLI
+and monitor scans have **no file-size limit**; archives 100 MiB in all, e-mail
+60 MiB, embedded files 30 MiB; every file in an isolated worker killed at 300 s
+with 2 GB of memory (`ISOLATE_SCANS=0`, refused by the production profile, has
+neither). Cancelling stops new files and shuts the pool down. The hashes and
+YARA already read every byte.
+
+| Path | Before TX-2 | `2672376` (measured) | Now (measured) |
+|---|---|---|---|
+| Strings, output full then white-space strings | stopped at the output | heap grew with the tail: 11.0 / 31.4 / 61.0 MiB for 1 / 3 / 6 MiB | 3.3 / 4.3 / 4.3 MiB |
+| Strings, bytes read on sparse zero files of 64 / 96 / 160 MiB | 32 MiB | 64 / 96 / 160 MiB (0.60 / 0.91 / 1.50 s) | 64 / 64 / 64 MiB (about 0.6 s); 96 and 160 MiB give "not inspected" |
+| Web/SVG text, 2 MiB of text then markup to 20 MiB | 0.02 s, 10 MiB peak | 0.39 s, 113 MiB peak | unchanged (fixed 20 MiB bound; the web layer itself took 3.7 s, 40 MiB on the same page) |
+
+Extrapolated, not measured: the worst lookahead (32 MiB of white-space
+strings) costs about 1.1 s at the 35 ms per MiB measured on a 4 MiB tail; the
+post-output read within the 32 MiB limit about 2 s; heap stays near the
+measured 4 MiB. Measurements: tracemalloc peaks (Python allocations, not RSS)
+and reads counted through a wrapped `open`, on this Mac, scratch scripts.
+
+- A (TX-R2): after the output length is fixed, a string only decides whether
+  something was left out; it is no longer stored.
+- C (TX-2b): `STRINGS_LOOKAHEAD_BYTES` = 32 MiB. The search stops at the first
+  string with text other than white space (reason "strings after the first
+  32 MiB of the file not checked"), at the end of the file (no reason), or at the
+  bound: then the file size says whether bytes are left ("file bytes after the
+  first 64 MiB not inspected for strings"; nothing is read past the bound and
+  nothing is claimed about those bytes). A run cut by the bound counts only if
+  its part inside the bound is a string on its own.
+- B not done: the bound makes the search cost fixed (about 1 s at most).
+- A slicing slip in a follow-up optimisation (keeping the last bytes of a chunk
+  shorter than four bytes) was caught by the equivalence script before any
+  commit; `test_a_run_cut_at_the_limit_with_tiny_chunks` now fails on it.
+- Equivalence (scratch scripts): output identical to the pre-TX function on
+  24,000 and 30,000 random cases; reasons equal to a ground truth that models the
+  bound on 30,000; within the inspected range (22,825 of them) the same reasons
+  as `2672376`.
+- Tests added to `tests/test_strings_limits.py` (now 55): bytes read counted
+  (inside, exactly at, one byte past the bound; a run ending at and cut by the
+  bound; white space then more bytes; chunk sizes 1 to 1,024); sparse files at
+  the real 64 MiB (exact, one byte more, a string inside, a string only beyond);
+  the memory regression (3 and 6 MiB tails: no growth, under 8 MiB); the new
+  reason through zip, zip, e-mail and attachment; the real limits through a
+  spawned scan worker (a stored zip with a 64 MiB + 1 byte member).
+
+TX-2b verification: (macOS 27.2.1 arm64, Python 3.14.2; one run of `0a6be7f`,
+same environment and selection as for TX-1): **2,273 passed, 0 failed, 8 skipped,
+4 deselected**, 606 s, one Starlette deprecation warning, no ResourceWarning.
+ruff, mypy (69 files), bandit: clean. Details:
+[VERIFICATION_MATRIX](../VERIFICATION_MATRIX.md) section 13.
 
 ## Not changed and why
 

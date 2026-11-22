@@ -40,7 +40,7 @@ def _collect() -> dict:
     from detectors import scoring
     from detectors.registry import REGISTRY
     from detectors.signals import Signals
-    from engine import completeness, config, layers, workers
+    from engine import completeness, config, layers, text, workers
     from engine.workers import _IsolatedScan
 
     pipeline = layers.default_pipeline()
@@ -94,6 +94,13 @@ def _collect() -> dict:
         "intel_reply_mib": intel_client.MAX_REPLY_BYTES // mib,
         "shared_read_mib": layers.ScanContext.SHARED_READ_MAX // mib,
         "fuzzy_max_mib": cfg["fuzzy_max_bytes"] // mib,
+        "text_page_mib": text.TextExtractionMixin.TEXT_MAX_BYTES // mib,
+        "text_compare_mib": text.TextExtractionMixin.TEXT_CHECK_BYTES // mib,
+        "text_max_chars": f"{text.TextExtractionMixin.PDF_MAX_CHARS:,}",
+        "strings_read_mib": text.STRINGS_MAX_BYTES // mib,
+        "strings_max_chars": f"{text.STRINGS_MAX_CHARS:,}",
+        "strings_lookahead_mib": text.STRINGS_LOOKAHEAD_BYTES // mib,
+        "strings_inspected_mib": (text.STRINGS_MAX_BYTES + text.STRINGS_LOOKAHEAD_BYTES) // mib,
         "archive_max_depth": cfg["archive_max_depth"],
         "archive_max_total_mb": cfg["archive_max_total_mb"],
         "archive_max_members": cfg["archive_max_members"],

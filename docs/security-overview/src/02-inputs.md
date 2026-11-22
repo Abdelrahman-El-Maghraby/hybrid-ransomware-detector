@@ -55,6 +55,9 @@ code; `engine/validation.py` bounds the ones that can be set.
 | Format with no specific analysis | `unsupported` (generic layers only) |
 | Larger than the shared read (64 MiB) | layers stream from disk instead of sharing one in-memory copy |
 | Larger than the fuzzy-hash limit ({{fact:fuzzy_max_mib}} MiB) | fuzzy layer skipped with a recorded reason: `partial` |
+| Web page or SVG over {{fact:text_page_mib}} MiB | visible text after {{fact:text_page_mib}} MiB makes the scan `partial`; markup, scripts and white space do not (compared up to {{fact:text_compare_mib}} MiB) |
+| Document or e-mail text over {{fact:text_max_chars}} characters | text after the limit makes the scan `partial` (also PDF pages after 50, OCR pages after 20) |
+| Strings over {{fact:strings_max_chars}} characters, or a file over {{fact:strings_read_mib}} MiB | strings left unchecked make the scan `partial`; at most {{fact:strings_lookahead_mib}} MiB more is searched; bytes after {{fact:strings_inspected_mib}} MiB: "not inspected" (`partial`) |
 | Too slow or too large for the worker | time-out or memory limit: `failed`, with any evidence reported earlier kept (chapter 8) |
 
 ## Platforms
@@ -62,8 +65,8 @@ code; `engine/validation.py` bounds the ones that can be set.
 | Platform | State |
 |---|---|
 | Docker Engine on Linux x86_64 (Python 3.12 image) | The supported server edition. [[ci]] on `3e5a3f2` only; [[pending]] at this baseline (Docker was not running on the review host) |
-| Source install on macOS arm64, Python 3.14.2 | [[local]]: the full safe test selection at `2672376` |
-| Source install on Linux and Windows, Python 3.9 and 3.12 | [[ci]] on `3e5a3f2` only; [[pending]] for the 175 newer commits |
+| Source install on macOS arm64, Python 3.14.2 | [[local]]: the full safe test selection at `0a6be7f` |
+| Source install on Linux and Windows, Python 3.9 and 3.12 | [[ci]] on `3e5a3f2` only; [[pending]] for the 177 newer commits |
 | Kubernetes 1.29+ (`deploy/kubernetes/`) | [[impl]], statically checked; [[pending]] on any cluster |
 | Linux arm64, Windows arm64, macOS Intel | [[pending]]: no runner |
 | Desktop GUI on a real display | [[pending]]: only headless widget tests ran |

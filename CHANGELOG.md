@@ -102,7 +102,10 @@ no version or date is assigned. Finding IDs and evidence:
   the scan partial (`scan_results.text_extraction.strings_not_checked`). Any file
   with more than 200,000 characters of printable strings, common for programs
   and PDFs of a few MB, now scans as partial; strings, scores and verdicts are
-  unchanged.
+  unchanged. The search after the 32 MiB read is bounded to 32 MiB more (TX-2b):
+  bytes after the first 64 MiB are reported as not inspected for strings
+  (partial), and strings that cannot reach the output are no longer kept in
+  memory (TX-R2).
 - A web page or SVG that ends at the 2 MiB text limit followed only by white
   space or markup (a final newline, closing tags, a script) no longer reads as
   partial (TX-R1); only visible text after the limit counts.

@@ -2835,6 +2835,22 @@ action.
 - **Not done:** no CI, Linux, Windows, real OCR, Docker or cluster run.
 - **Uncommitted:** none from this task. `.arena/` is unrelated and preserved.
 
+## Cost review: TX-R2 and TX-2b (2026-11-22, Claude Code)
+
+- **Brief:** [repair pass, cost review](tasks/repair-pass-2026-11-20.md#cost-review-and-bounded-lookahead-tx-r2-tx-2b-2026-11-22);
+  register TX-R2 (memory, defect in `2672376`) and TX-2b (owner-approved 32 MiB
+  lookahead bound, 64 MiB inspected; bytes after it reported "not inspected").
+  Optional faster search (B) not done.
+- **Commits (local, not pushed):** `0a6be7f` (implementation and tests; last
+  implementation commit), then the records commit (register, matrix section 13,
+  brief, handoff, CHANGELOG, README, overview source, facts and rebuilt PDF).
+- **Results (this Mac, one run):** safe suite on `0a6be7f`: 2,273 passed, 0 failed, 8 skipped,
+  4 deselected; ruff, mypy, bandit clean.
+- **Not done:** no CI, Linux, Windows, Docker or cluster run; RSS not measured
+  (tracemalloc peaks only).
+- **Uncommitted:** none from this task. `.arena/` is unrelated and preserved;
+  the ignored `.hypothesis/` cache gained entries from a test collection.
+
 ## Exact next action (current)
 
 1. The owner chooses the test environment for `verify-cluster.sh` (this Mac is
