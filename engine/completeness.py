@@ -218,6 +218,11 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
         # only the text before it (an omission, not a parser failure: no format test)
         out.append(reason(PARTIAL, ctx.display, "prompt-guard",
                           str(sr["text_extraction"]["not_checked"])))
+    if (sr.get("text_extraction") or {}).get("strings_not_checked"):
+        # TX-2: the printable-strings pass (phrasing check and LLM) stopped at its
+        # input or output limit with strings left after it
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          str(sr["text_extraction"]["strings_not_checked"])))
     guard_error = (sr.get("prompt_guard") or {}).get("error")
     if guard_error and fmt in ("pdf", "zip", "ole"):
         # the hidden-content check stopped part-way (its findings so far are kept);

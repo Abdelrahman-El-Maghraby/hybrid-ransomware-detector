@@ -20,6 +20,7 @@ except ImportError:
     OCR_AVAILABLE = False
 
 from detectors import DEFUSEDXML_AVAILABLE
+from detectors.web_content import MAX_READ as WEB_MAX_READ
 from detectors.web_content import WEB_EXTENSIONS, visible_text
 
 logger = logging.getLogger("RansomwareScanner")
@@ -38,26 +39,56 @@ def _trailing_run_start(data: bytes) -> int:
     return len(data) - m.start() if m else 0
 
 
+STRINGS_MAX_BYTES = 32 * 1024 * 1024     # bytes of a file the strings pass reads
+STRINGS_MAX_CHARS = 200_000              # characters of strings it returns
+
+
 def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int = 1024 * 1024,
-                               max_bytes: int = 32 * 1024 * 1024,
-                               max_chars: int = 200_000) -> str:
+                               max_bytes: Optional[int] = None,
+                               max_chars: Optional[int] = None,
+                               omitted: Optional[List[str]] = None) -> str:
     """Extract human-readable ASCII strings from a file using memory-efficient chunked reads.
 
-    Bounded on both input (max_bytes read) and output (max_chars returned), and
-    regex-based so a large file no longer costs a Python-level loop per byte.
+    Bounded on both input (max_bytes read, STRINGS_MAX_BYTES by default) and output
+    (max_chars returned, STRINGS_MAX_CHARS), and regex-based so a large file no
+    longer costs a Python-level loop per byte.
+
+    TX-2: `omitted` receives what a limit left unchecked: strings past max_chars,
+    or a string in the bytes after max_bytes (looked for, not extracted). Reaching
+    a limit exactly, or only white space or no printable run after it, is not an
+    omission. The text returned is the same as before.
     """
+    max_bytes = STRINGS_MAX_BYTES if max_bytes is None else max_bytes
+    max_chars = STRINGS_MAX_CHARS if max_chars is None else max_chars
     pattern = _PRINTABLE_RUN if min_len == 5 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
     strings: List[str] = []
     total_chars = 0
+    kept: Optional[int] = None      # joined length the earlier stop rule returned
+    length = -1                     # of the "\n"-joined strings so far
+    over = False
     carry = b""
+    last = b""                      # the final bytes read (a run cut at max_bytes)
+    keep = max(min_len - 1, 0)
     read = 0
+
+    def add(s: str) -> None:
+        nonlocal total_chars, kept, length, over
+        strings.append(s)
+        if kept is None:
+            total_chars += len(s) + 1
+            if total_chars >= max_chars:
+                kept = total_chars - 1
+        length, over = _past_limit(length, s, max_chars)
+
     try:
         with open(file_path, "rb") as f:
-            while read < max_bytes and total_chars < max_chars:
+            while read < max_bytes and not over:
                 chunk = f.read(min(chunk_size, max_bytes - read))
                 if not chunk:
                     break
                 read += len(chunk)
+                joined = last + chunk
+                last = joined[max(0, len(joined) - keep):]
                 data = carry + chunk
                 # Keep a trailing printable run for the next chunk so strings
                 # that straddle a chunk boundary are not split.
@@ -66,16 +97,44 @@ def extract_suspicious_strings(file_path: str, min_len: int = 5, chunk_size: int
                     cut = len(data)
                 carry, data = data[cut:], data[:cut]
                 for m in pattern.finditer(data):
-                    s = m.group().decode("ascii")
-                    strings.append(s)
-                    total_chars += len(s) + 1
-                    if total_chars >= max_chars:
+                    add(m.group().decode("ascii"))
+                    if over:
                         break
-            if carry and len(carry) >= min_len and total_chars < max_chars:
-                strings.append(carry.decode("ascii"))
+            if carry and len(carry) >= min_len and not over:
+                add(carry.decode("ascii"))
+            if omitted is not None:
+                if over:
+                    omitted.append(f"strings after the first {max_chars:,} characters "
+                                   "not checked")
+                elif read >= max_bytes and _run_after(f, last, keep, pattern, chunk_size):
+                    omitted.append(f"strings after the first {_size(max_bytes)} of the file "
+                                   "not checked")
     except Exception as e:
         logger.error("Error extracting strings from %s: %s", file_path, str(e))
-    return "\n".join(strings)[:max_chars]
+    return "\n".join(strings)[:max_chars if kept is None else min(max_chars, kept)]
+
+
+def _run_after(fh, last: bytes, keep: int, pattern: "re.Pattern[bytes]",
+               chunk_size: int) -> bool:
+    """TX-2: whether the unread rest of `fh` holds a printable run with text other
+    than white space. `last`, the final bytes read (at most `keep`, one fewer than
+    a run), joins a run cut at the limit; its own bytes were read, so only the
+    unread part of a run counts. Stops at the first such run."""
+    prev, start = last, len(last)
+    while True:
+        chunk = fh.read(chunk_size)
+        if not chunk:
+            return False
+        data = prev + chunk
+        for m in pattern.finditer(data):
+            if data[max(m.start(), start):m.end()].strip():
+                return True
+        at = max(0, len(data) - keep)
+        prev, start = data[at:], max(0, start - at)    # read bytes stay excluded
+
+
+def _size(n: int) -> str:
+    return f"{n // (1024 * 1024)} MiB" if n % (1024 * 1024) == 0 else f"{n:,} bytes"
 
 
 class TextExtractionMixin:
@@ -87,6 +146,7 @@ class TextExtractionMixin:
     the same as before (a PDF may gain one trailing page separator)."""
 
     TEXT_MAX_BYTES = 2 * 1024 * 1024      # web pages and SVG: bytes read for the text layers
+    TEXT_CHECK_BYTES = WEB_MAX_READ       # read to here only to tell a cut from markup
 
     def _extract_text_from_file(self, file_path: str, allow_ocr: bool = True,
                                 errors: Optional[List[str]] = None,
@@ -116,10 +176,12 @@ class TextExtractionMixin:
                 limit = self.TEXT_MAX_BYTES
                 with open(file_path, "rb") as fh:
                     raw = fh.read(limit + 1)
-                if len(raw) > limit:
-                    cut.append(f"page text after the first {limit // (1024 * 1024)} MiB "
-                               "not read")
-                return visible_text(raw[:limit])
+                    if len(raw) > limit:      # read on, to the web layer's limit, to compare
+                        raw += fh.read(max(0, self.TEXT_CHECK_BYTES - len(raw)) + 1)
+                text = visible_text(raw[:limit])
+                if len(raw) > limit and _page_text_cut(text, raw, self.TEXT_CHECK_BYTES):
+                    cut.append(f"page text after the first {_size(limit)} not read")
+                return text
             if file_ext == ".pdf":
                 text = self._extract_text_from_pdf(file_path, errors, cut)
                 if not text.strip() and allow_ocr:
@@ -316,3 +378,14 @@ def _pdf_page_count(file_path: str) -> int:
             return len(PdfReader(fh, strict=False).pages)
     except Exception:
         return 0
+
+
+def _page_text_cut(text: str, raw: bytes, bound: int) -> bool:
+    """TX-R1: whether the page read past the limit (`raw`, up to `bound` + 1 bytes)
+    has visible text that `text`, from the bytes within the limit, lacks. Closing
+    markup, a script or white space after the limit is not an omission (an
+    unclosed tag left at the cut stays in `text` as a fragment, so the longer
+    page's text is then its prefix). Past `bound` the rest is not compared: cut."""
+    if len(raw) > bound:
+        return True
+    return not text.startswith(visible_text(raw))

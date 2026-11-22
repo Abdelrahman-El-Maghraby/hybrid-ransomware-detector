@@ -334,6 +334,7 @@ class PromptGuardLayer(Layer):
     name = "prompt-guard"
 
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
+        extraction: Dict[str, str] = {}
         if ctx.is_archive:
             ctx.text = ""
         elif not ctx.is_mail:      # an e-mail's body was captured by its container
@@ -342,14 +343,17 @@ class PromptGuardLayer(Layer):
             omitted: List[str] = []
             ctx.text = scanner._extract_text_from_file(ctx.path, allow_ocr=llm_on, errors=failures,
                                                        omitted=omitted)
-            extraction: Dict[str, str] = {}
             if failures:              # a parser failed: no text, not "no text in it"
                 extraction["error"] = failures[0]
             if omitted:               # TX-1: a limit left text unread (scan_status partial)
                 extraction["not_checked"] = "; ".join(omitted)[:500]
-            if extraction:
-                ctx.scan_results["text_extraction"] = extraction
-        ctx.strings = "" if ctx.is_archive else extract_suspicious_strings(ctx.path)
+        strings_cut: List[str] = []
+        ctx.strings = "" if ctx.is_archive else extract_suspicious_strings(ctx.path,
+                                                                           omitted=strings_cut)
+        if strings_cut:               # TX-2: the strings pass stopped at a limit (partial)
+            extraction["strings_not_checked"] = "; ".join(strings_cut)[:500]
+        if extraction:
+            ctx.scan_results["text_extraction"] = extraction
         hidden = scanner.prompt_guard.inspect_hidden_content(ctx.path)
         guard = scanner.prompt_guard.analyze(ctx.text, ctx.strings, hidden)
         ctx.scan_results["prompt_guard"] = guard.as_dict()
