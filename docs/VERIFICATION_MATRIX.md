@@ -426,3 +426,30 @@ separate network sandbox for spawned workers. The independent read-only review
 was subsequently assessed and the development branch was published without
 triggering CI. The [publication brief](tasks/github-publication-2026-11-22.md)
 records remote SHA verification and the remaining merge/release limitations.
+
+## 17. Cross-platform CI before the merge to main (2026-11-23, Claude Code)
+
+Workflows started by manual dispatch on the development branch, as the owner
+directed; no pull request until they passed, so no fuzz campaign started.
+`parser-fuzz` is now manual-dispatch only (owner decision); 27.5 / B4 is unchanged.
+
+First run on `ffe148e` (tests 45204545196, quality 45204552876, docker
+45204559428): docker passed; the rest failed. Causes and fixes:
+
+| Failure | Cause | Fix |
+|---|---|---|
+| dependency-audit | `opentelemetry-api` 1.45.1, CVE-2026-126360 | 1.45.2 in `requirements.lock` and `requirements-server.lock` (`665ad47`) |
+| Windows collection | `socketserver.UnixStreamServer` missing | Unix-socket stand-in defined only where it exists (`0ff6f1e`) |
+| Ubuntu / Python 3.9 | `ubuntu-latest` is Ubuntu 26.04 without Python 3.9 | that job on `ubuntu-24.04` (`827a15e`) |
+| Linux: about 30 failures, Tk segfault, job time-out | `tests/test_evaluation_tools.py` ran `_init_worker()` in the pytest process, which set RLIMIT_AS (soft and hard) for the rest of the run | the worker memory limit is not applied to the test process (`1d41b0d`) |
+| macOS: 4 scans `partial` | no zbar on the runners, so the QR layer was down (fail closed) | zbar installed in `tests.yml`; setuptools for `test_packaging` (`d9761ee`) |
+| Windows: 20 failures, 11 errors (3.9) | test portability: path separators, CRLF, SIGKILL, POSIX stand-ins, cp1252 output, `PipeConnection`, thread timing, test ids over the Windows environment limit; editable-install package lookup in the coverage job | test-side fixes, no product code changed (`bc9bea5`) |
+
+Final run on `bc9bea5` (tests 45215639383, quality 45215645406, docker
+45215654007): **all jobs passed**: tests on Ubuntu (3.12; 3.9 on 24.04), Windows
+and macOS (3.9 and 3.12); quality (lint and types, coverage, dependency audit,
+regression corpus); docker deployment. Local safe suite on `bc9bea5` (macOS,
+Python 3.14): **2,317 passed, 8 skipped, 0 failed**.
+
+Not run: fuzz campaigns (restricted), Kubernetes cluster, real samples, real
+external services. Release readiness is unchanged by this section.
