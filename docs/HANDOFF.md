@@ -1,6 +1,35 @@
 # Current task handoff
 
-## Current publication checkpoint (2026-11-22, Codex)
+## Current checkpoint: merge to main (2026-11-23, Claude Code)
+
+**Active.** Owner request: merge `review/production-hardening` into `main`
+through a PR once the required validation passes. Claude Code is the only
+editor; Codex is stopped. No tag, release or deployment is authorised.
+
+- Owner decisions (2026-11-23): run `tests.yml`, `quality.yml` and `docker.yml`
+  by manual dispatch on the exact candidate revision; never start the
+  restricted fuzz campaigns, bypass checks, ignore failures or push to main;
+  `parser-fuzz` becomes manual-dispatch only (no `pull_request` trigger), so
+  opening the PR does not start it. 27.5 / B4 stays open and restricted.
+  Dependabot PRs #23 to #27 are left alone.
+- CI on `ffe148e` (dispatch runs 45204545196 tests, 45204552876 quality,
+  45204559428 docker): docker passed. Failures found and fixed on the branch:
+  - `opentelemetry-api` 1.45.1 (CVE-2026-126360) in `requirements.lock` and
+    `requirements-server.lock`: bumped to 1.45.2, only that block changed;
+    `pip-audit --require-hashes` clean on all four locks.
+  - Windows: `tests/test_sandbox_provisional.py` failed collection
+    (`socketserver.UnixStreamServer` missing); the Unix-socket stand-in is now
+    defined only where it exists and its two tests skip elsewhere.
+  - Ubuntu / Python 3.9: `ubuntu-latest` is now Ubuntu 26.04 with no Python
+    3.9 build; that job runs on `ubuntu-24.04`.
+- Still open: the Linux coverage job had about 30 failing tests and then a
+  segmentation fault in Tk during `tests/test_gui_smoke.py`; names are being
+  collected from the Ubuntu 3.12 `tests` job.
+- Next: fix the Linux failures, push, re-dispatch the three workflows on the
+  new head, open the PR only when all are green, then reset this file to idle
+  as the last commit before the merge.
+
+## Previous publication checkpoint (2026-11-22, Codex)
 
 **Development-branch publication completed.** This supersedes historical
 local-only status below. Codex completed the review as the only editor; the
