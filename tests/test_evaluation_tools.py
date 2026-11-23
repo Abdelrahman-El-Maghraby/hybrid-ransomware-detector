@@ -25,6 +25,19 @@ def _logging_restored():
     logging.disable(level)
 
 
+@pytest.fixture(autouse=True)
+def _no_memory_limit_on_the_test_process(monkeypatch):
+    """_init_worker() applies the worker memory limit; run in this process on
+    Linux it set RLIMIT_AS (soft and hard, so it cannot be raised again) on the
+    whole test run, and later tests failed with MemoryError. The call itself is
+    covered in tests/test_worker_limits.py."""
+    from engine import workers
+    applied = []
+    monkeypatch.setattr(workers, "_limit_memory",
+                        lambda megabytes, platform=None: applied.append(megabytes) or "")
+    yield applied
+
+
 def test_split_is_deterministic_and_keeps_families_together():
     rows = [{"sha256": f"{i:064x}", "label": "malicious"} for i in range(400)]
     families = {r["sha256"]: f"fam{i % 20}" for i, r in enumerate(rows)}
