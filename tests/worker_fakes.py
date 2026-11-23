@@ -88,8 +88,11 @@ def _write_to_parent(file_path, name):
     """Write raw bytes to the parent the way a compromised worker could: a pickle
     whose loading creates `<file>.pwned`, or a message over the size limit."""
     from engine.workers import MAX_REPLY_BYTES
-    conns = [o for o in gc.get_objects()
-             if isinstance(o, multiprocessing.connection.Connection) and not o.closed]
+    # Connection on POSIX; Windows pipes are a separate class, PipeConnection.
+    kinds = tuple(getattr(multiprocessing.connection, k)
+                  for k in ("Connection", "PipeConnection")
+                  if hasattr(multiprocessing.connection, k))
+    conns = [o for o in gc.get_objects() if isinstance(o, kinds) and not o.closed]
     if name.startswith("evil"):
         data = pickle.dumps(("ok", _Marker(file_path + ".pwned")))
     else:

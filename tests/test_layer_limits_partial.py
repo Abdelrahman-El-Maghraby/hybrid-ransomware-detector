@@ -4,6 +4,7 @@ QR code past a page, image, size or pixel limit, is now named as not checked
 and the scan is partial. Findings are unchanged; all inputs are benign."""
 
 import io
+import os
 import subprocess
 import zipfile
 
@@ -31,12 +32,17 @@ def _png(size=(64, 64)) -> bytes:
 
 
 # ------------------------------------------------------------------ emulation
+# The stand-in for box-js is a POSIX program, as in tests/test_emulation.py.
+posix_tool = pytest.mark.skipif(os.name != "posix", reason="fake tool is a POSIX program")
+
+
 def _emulator(tool="/usr/bin/true"):
     emu = ScriptEmulator(tool="")
     emu.tool = tool                              # a program that writes no results
     return emu
 
 
+@posix_tool
 def test_emulation_failures_carry_a_status(tmp_path, monkeypatch):
     script = tmp_path / "a.js"
     script.write_text("var x = 1;")
@@ -52,6 +58,7 @@ def test_emulation_failures_carry_a_status(tmp_path, monkeypatch):
     assert _emulator().emulate(str(script)).status == "timeout"
 
 
+@posix_tool
 def test_a_script_box_js_could_not_finish_makes_the_scan_partial(scanner, tmp_path):
     script = tmp_path / "scan" / "a.js"
     script.write_text("var greeting = 'hello';\n")

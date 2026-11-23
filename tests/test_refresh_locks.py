@@ -30,7 +30,7 @@ def _header_command(lock: str):
 @pytest.mark.parametrize("lock,inputs,constrained", R.LOCKS)
 def test_commands_match_the_lock_headers(lock, inputs, constrained):
     args = R.compile_args(lock, inputs, constrained, Path("OUT"))[2:]
-    args = [a.replace("OUT/", "") for a in args]
+    args = [a.replace("OUT/", "").replace("OUT\\", "") for a in args]   # / or \
     assert args == _header_command(lock)
 
 
@@ -75,9 +75,10 @@ def test_a_run_writes_only_the_output_folder(tmp_path, monkeypatch):
     assert {p.name: p.read_bytes() for p in ROOT.glob("requirements*.lock")} == tracked
     for name, old in tracked.items():
         new = (out / name).read_text()
-        assert R.header(new) == R.header(old.decode())    # header kept
+        old_text = old.decode().replace("\r\n", "\n")    # a Windows checkout has CRLF
+        assert R.header(new) == R.header(old_text)        # header kept
         if name != "requirements-sbom.lock":              # identical where no pin moved
-            assert new == old.decode()
+            assert new == old_text
     assert R.pins((out / "requirements-sbom.lock").read_text())["attrs"] == "99.0"
     compiles = [c for c in calls if c[1:3] == ["pip", "compile"]]
     assert [Path(c[c.index("-o") + 1]).name for c in compiles] == [x for x, _, _ in R.LOCKS]

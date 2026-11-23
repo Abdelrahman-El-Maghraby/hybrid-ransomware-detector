@@ -8,6 +8,7 @@ outbox and caps. A file never scanned because no worker could start
 (isolation_unavailable) gets no notice: it is reported as an error instead."""
 
 import copy
+from pathlib import PureWindowsPath
 
 import pytest
 
@@ -47,7 +48,7 @@ def test_a_timeout_and_a_dead_worker_each_send_one_notice(tmp_path, receiver):
     deliver(results, _cfg(s, tmp_path))
     assert results == before                             # the results are not changed
     assert by["hang.pdf"]["verdict"] == "Medium" and by["exit.pdf"]["scan_status"] == "failed"
-    got = {m["file_path"].rsplit("/", 1)[-1]: m for m in receiver}
+    got = {PureWindowsPath(m["file_path"]).name: m for m in receiver}   # / or \
     assert sorted(got) == ["exit.pdf", "hang.pdf"]       # none for the file that scanned
     assert all(m["kind"] == "scan_failed" and m["detection"] is False for m in receiver)
     assert "timed out after 4s" in got["hang.pdf"]["gaps"][0]["reason"]

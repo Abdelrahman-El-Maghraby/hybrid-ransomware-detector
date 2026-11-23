@@ -39,9 +39,13 @@ def test_a_valid_database_is_imported(tmp_path):
 
 
 def _cli(tmp_path, *args):
-    env = {**os.environ, "HOME": str(tmp_path / "home"), "USERPROFILE": str(tmp_path / "home")}
+    # The CLI prints UTF-8 symbols; decode them as UTF-8 here too (Windows would
+    # otherwise use its ANSI code page and lose the output).
+    env = {**os.environ, "HOME": str(tmp_path / "home"), "USERPROFILE": str(tmp_path / "home"),
+           "PYTHONIOENCODING": "utf-8"}
     return subprocess.run([sys.executable, str(ROOT / "RansomwareScanner.py"), *args],
-                          cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+                          cwd=tmp_path, env=env, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=120)
 
 
 def test_cli_failed_import_and_missing_scan_file_exit_1(tmp_path):

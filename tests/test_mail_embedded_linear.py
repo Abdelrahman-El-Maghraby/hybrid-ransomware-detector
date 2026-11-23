@@ -141,7 +141,10 @@ def test_hostile_punycode_body_is_linear():
     _timed(M._decode_text, part)
 
 
+# Short ids: pytest puts the test id in an environment variable, which Windows
+# limits to 32,767 characters.
 @pytest.mark.parametrize("block", [b"\n" * 65536, b"function" * 8192, b"<job" * 16384,
-                                   b"Function " * 7000 + b"x", b"\r\n " * 20000])
+                                   b"Function " * 7000 + b"x", b"\r\n " * 20000],
+                         ids=["newlines", "function", "job-tags", "Function-x", "crlf-space"])
 def test_hostile_embedded_blocks_are_linear(block):
     _timed(E._guess_text_extension, block, limit=2.0)

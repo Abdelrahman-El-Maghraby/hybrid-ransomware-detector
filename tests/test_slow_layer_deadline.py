@@ -197,7 +197,10 @@ def test_the_virustotal_lookup_gets_the_time_left(scanner, tmp_path, monkeypatch
 
 
 def test_no_stage_result_outside_a_worker_or_without_a_service(tmp_path):
-    s = RS.RansomwareScanner(_config(tmp_path, isolate_scans=False, qr_scan_enabled=False))
+    # One heavy layer at a time: run concurrently, whether the stage result is
+    # sent depends on whether ML finishes before the stand-in LLM (thread timing).
+    s = RS.RansomwareScanner(_config(tmp_path, isolate_scans=False, qr_scan_enabled=False,
+                                     parallel_heavy_layers=False))
     sent = []
     s.provisional_listener = lambda result, settled=False: sent.append(result)
     s.scan_file(str(_script(tmp_path)))                     # no deadline: nothing sent

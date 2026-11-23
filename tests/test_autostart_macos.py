@@ -4,11 +4,16 @@ home or install path with "&" or "<" gave a file that does not parse, and
 failed. No real launchctl runs here: subprocess.run is a stand-in."""
 
 import plistlib
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 import RansomwareScanner as RS
+
+# launchd agents exist only on macOS, and the fixture's "<x>.py" is not a valid
+# Windows file name.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="launchd agent paths")
 
 
 @pytest.fixture

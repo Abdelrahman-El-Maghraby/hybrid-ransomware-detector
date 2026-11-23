@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import zipfile
+from pathlib import PureWindowsPath
 
 import pytest
 
@@ -109,7 +110,7 @@ def test_a_finished_scan_is_unchanged_by_the_reports(scanned, tmp_path):
 def test_kept_evidence_raises_the_malware_alert_and_keeps_the_notice(scanned, receiver):
     s, res, tmp = scanned
     deliver([res["listing.zip"], res["nothing.zip"]], _cfg(s, tmp))   # default floor: High
-    got = sorted((m["file_path"].rsplit("/", 1)[-1], m["kind"]) for m in receiver)
+    got = sorted((PureWindowsPath(m["file_path"]).name, m["kind"]) for m in receiver)
     assert got == [("listing.zip", "scan_failed"), ("listing.zip", "verdict"),
                    ("nothing.zip", "scan_failed")]
     verdict = next(m for m in receiver if m["kind"] == "verdict")

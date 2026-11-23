@@ -59,8 +59,13 @@ def test_an_installed_copy_is_found_when_rules_is_not_next_to_the_code(tmp_path,
 
 
 def test_with_neither_the_default_stays_beside_the_code(tmp_path, monkeypatch):
+    import importlib.util
     monkeypatch.setattr(config, "SCRIPT_DIR", tmp_path)
-    monkeypatch.setattr(sys, "path", [p for p in sys.path if "aegis_sentinel_rules" not in p])
+    # An editable install finds the package through sys.meta_path, not sys.path,
+    # so hide it from find_spec itself.
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "aegis_sentinel_rules" else real(name, *a))
     sys.modules.pop("aegis_sentinel_rules", None)
     assert config._bundled_rules_dir() == tmp_path / "rules"
 

@@ -288,12 +288,14 @@ def test_a_partly_unscanned_batch_still_delivers_what_was_scanned(tmp_path, monk
     s = _scanner(tmp_path, jsonl_path=str(tmp_path / "out.jsonl"))
     m = _monitor(tmp_path, s, clock, retry_minutes=1)
     a, b = _pdf(_watch(tmp_path) / "a.pdf"), _pdf(_watch(tmp_path) / "b.pdf", "other")
+    # the monitor hands the scanner real, case-normalised paths (lowercase on Windows)
+    a, b = FW._real(str(a)), FW._real(str(b))
 
     def partial(paths):
-        done = failure_result(s, str(a), "stand-in finding")
+        done = failure_result(s, a, "stand-in finding")
         done.update(verdict="High", risk_score=80, scan_status="complete")
         done["scan_results"].pop("scan_failed", None)
-        left = failure_result(s, str(b), ISOLATION_TEXT, ISOLATION_UNAVAILABLE, "unavailable")
+        left = failure_result(s, b, ISOLATION_TEXT, ISOLATION_UNAVAILABLE, "unavailable")
         s.last_not_scanned = 1
         return [r for r in (done, left) if r["file_path"] in paths]
     monkeypatch.setattr(s, "_scan_targets", partial)
@@ -302,14 +304,14 @@ def test_a_partly_unscanned_batch_still_delivers_what_was_scanned(tmp_path, monk
     monkeypatch.setattr(s, "generate_report", lambda results, **k: reports.append(results))
     seen = []
     m.on_results = seen.extend
-    m.note(str(a))
-    m.note(str(b))
+    m.note(a)
+    m.note(b)
     clock.now += 5
     m.scan_due()
-    assert [r["file_path"] for r in delivered] == [str(a)]
-    assert [[r["file_path"] for r in batch] for batch in reports] == [[str(a)]]
-    assert [r["file_path"] for r in seen] == [str(a)]
+    assert [r["file_path"] for r in delivered] == [a]
+    assert [[r["file_path"] for r in batch] for batch in reports] == [[a]]
+    assert [r["file_path"] for r in seen] == [a]
     assert "could not start" in m.status()["paused"]
     assert m.status()["scanned"] == 1
     clock.now += 61                                                 # the retry
-    assert m.due() == [str(b)]                                      # only the unscanned file
+    assert m.due() == [b]                                      # only the unscanned file

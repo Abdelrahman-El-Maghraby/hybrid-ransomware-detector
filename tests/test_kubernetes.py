@@ -348,7 +348,9 @@ def test_a_refused_or_silent_destination_counts_as_blocked(monkeypatch):
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]                     # bound, not listening: refused
     blocked, detail = gate.tcp_probe("127.0.0.1", port)
-    assert blocked and "refused" in detail
+    # Windows retries a refused local connection until the probe times out; the
+    # gate runs in Linux pods, and either way the destination counts as blocked.
+    assert blocked and ("refused" in detail or sys.platform == "win32"), detail
     monkeypatch.setattr(gate, "WAIT", 0.2)
     monkeypatch.setattr(gate, "network_checks", lambda extra=(): [
         ("hangs", lambda: __import__("time").sleep(5))])

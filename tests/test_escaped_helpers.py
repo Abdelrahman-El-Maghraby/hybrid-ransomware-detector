@@ -12,6 +12,9 @@ from tests.test_helper_cleanup import _gone
 from tests.test_scanner_integration import _config
 from tests.test_slow_layer_deadline import _scan, _script
 
+# Windows has no SIGKILL; these backends are fakes, so the number is only passed on.
+KILL = getattr(signal, "SIGKILL", 9)
+
 
 class Tree:
     def __init__(self):
@@ -37,7 +40,7 @@ def test_ownership_survives_reparenting_but_not_pid_reuse():
     tree.data[20] = (201, 1, 1, 20)  # PID reused by a bystander
     tree.data[30] = (300, 200, 1, 30)  # discovered child reparented
     tree.data[40] = (400, 201, 20, 40)  # replacement's child: not ours
-    track.stop(signal.SIGKILL)
+    track.stop(KILL)
     assert tree.signals == [30] and not track.known
 
 
@@ -54,7 +57,7 @@ def test_missing_identity_never_discovers_or_signals():
     tree = Tree()
     tree.data.pop(10)
     track = Descendants(10, tree)
-    track.stop(signal.SIGKILL)
+    track.stop(KILL)
     assert not track.known and not tree.signals
 
 
@@ -65,13 +68,13 @@ def test_generation_checked_signals_leave_a_bystander_alive():
     try:
         info = backend.read(child.pid)
         assert info is not None
-        assert not backend.signal(child.pid, info[0] + 1, signal.SIGKILL)
+        assert not backend.signal(child.pid, info[0] + 1, KILL)
         assert child.poll() is None
         token = (ctypes.c_uint32 * 8)()
         token[5], token[7] = child.pid, info[3] + 1
-        assert backend.lib.proc_signal_with_audittoken(ctypes.byref(token), signal.SIGKILL) != 0
+        assert backend.lib.proc_signal_with_audittoken(ctypes.byref(token), KILL) != 0
         assert child.poll() is None
-        assert backend.signal(child.pid, info[0], signal.SIGKILL)
+        assert backend.signal(child.pid, info[0], KILL)
         child.wait(5)
     finally:
         if child.poll() is None:
@@ -100,7 +103,7 @@ def test_session_escaped_helper_and_descendant_are_stopped(tmp_path):
         assert bystander.poll() is None
     finally:
         for pid, unique in identities:
-            backend.signal(pid, unique, signal.SIGKILL)
+            backend.signal(pid, unique, KILL)
         bystander.kill()
         bystander.wait(5)
 
@@ -136,7 +139,7 @@ def test_group_candidates_need_unique_parent_ownership():
     tree.data[40] = (400, 999, 1, 4)
     track = Descendants(10, tree)
     track.root = 100  # retained while the worker was alive
-    track.stop(signal.SIGKILL)
+    track.stop(KILL)
     assert tree.signals == [30, 20]
 
 
@@ -147,5 +150,5 @@ def test_child_exec_after_reparent_uses_original_parent_generation():
     tree.data[20] = (200, 1, 1, 22, 1)  # current parent changed; original generation kept
     tree.data[30] = (300, 1, 1, 33, 999)  # unrelated, same candidate group
     tree.group = lambda pid: [20, 30]
-    track.stop(signal.SIGKILL)
+    track.stop(KILL)
     assert tree.signals == [20]
