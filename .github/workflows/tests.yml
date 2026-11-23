@@ -19,6 +19,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.9", "3.12"]
+        # ubuntu-latest (Ubuntu 26.04) has no Python 3.9 build; keep the 3.9 job
+        # on the previous LTS image so the supported minimum stays tested.
+        exclude:
+          - os: ubuntu-latest
+            python: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python: "3.9"
     defaults:
       run:
         shell: bash

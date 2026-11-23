@@ -21,11 +21,11 @@ evidence (`layer_errors` in the result). A known parser hang in PyPDF2 3.0.x
 
 ## Stage 3 long validation
 
-`parser-fuzz` runs two independent one-hour Linux / Python 3.12 campaigns when
-parser/application dependencies, this directory or its workflow change in a PR,
-or on manual dispatch. A documentation-only follow-up checkpoint skips new
-campaigns and retains the explicitly recorded earlier run; it is not a new fuzz
-pass. The
+`parser-fuzz` runs two independent one-hour Linux / Python 3.12 campaigns on
+manual dispatch only. Pull requests no longer start it (owner decision,
+2026-11-23): both campaigns previously ended in out-of-memory failures, which
+remain restricted and tracked as 27.5 / B4 in the findings register. Start a
+campaign only with the owner's approval. The
 validation-only Atheris wheel is hash-pinned in `requirements-linux.txt`; shipped
 application locks are unchanged. See [Atheris](https://github.com/google/atheris)
 for instrumentation and native-extension limitations.

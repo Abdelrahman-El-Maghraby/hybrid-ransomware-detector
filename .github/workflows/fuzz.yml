@@ -1,9 +1,10 @@
 name: parser-fuzz
 
 # Bounded long validation for parser/tooling changes; no samples or secrets.
+# Manual dispatch only (owner decision, 2026-11-23): both campaigns previously
+# ended in out-of-memory failures (findings register 27.5 / B4), so they are
+# restricted and must not start as a side effect of opening a pull request.
 on:
-  pull_request:
-    paths: ['fuzz/**', 'detectors/**', 'core/**', 'engine/**', 'requirements.lock', '.github/workflows/fuzz.yml']
   workflow_dispatch:
 
 permissions:

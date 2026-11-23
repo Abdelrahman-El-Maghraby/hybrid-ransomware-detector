@@ -192,8 +192,8 @@ Windows-style path or with `os.getuid` removed is a simulation, not a Windows
 pass.
 
 1. CI, without the restricted fuzz campaigns: after the owner pushes the branch,
-   start the workflows manually (a pull request would also start `parser-fuzz`,
-   because the branch changes `core/` and `engine/`):
+   start the workflows manually (before 2026-11-23 a pull request would also
+   have started `parser-fuzz`; it is now manual dispatch only):
    `gh workflow run tests.yml --ref review/production-hardening` and
    `gh workflow run quality.yml --ref review/production-hardening`.
 2. Expected evidence in the `windows-latest` jobs (Python 3.9 and 3.12), whose
