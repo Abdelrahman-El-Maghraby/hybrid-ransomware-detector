@@ -696,8 +696,14 @@ def test_intel_status_checks_retry_only_transient_failures(tmp_path):
     assert IntelSandbox(wrong, **tick).analyze(str(f), deadline=100.0).status == "error"
 
 
-class _UnixIntel(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
+# Windows Python has no socketserver.UnixStreamServer: define the stand-in only
+# where Unix sockets exist, so the module still collects there.
+unix_only = pytest.mark.skipif(not hasattr(socketserver, "UnixStreamServer"),
+                               reason="needs Unix sockets")
+
+if hasattr(socketserver, "UnixStreamServer"):
+    class _UnixIntel(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
 
 
 @pytest.fixture
@@ -738,6 +744,7 @@ def _intel_box():
     return IntelSandbox(real, poll_seconds=0.2)
 
 
+@unix_only
 def test_intel_over_a_socket_a_hanging_status_check_is_bounded(tmp_path, unix_intel):
     unix_intel.update({"/v1/sandbox/submit": {"submitted": True, "task_id": 5,
                                               "status": "submitted", "submission": "confirmed"},
@@ -748,6 +755,7 @@ def test_intel_over_a_socket_a_hanging_status_check_is_bounded(tmp_path, unix_in
     assert res.status == "timeout" and res.submission == "confirmed" and res.task_id == 5
 
 
+@unix_only
 def test_intel_over_a_socket_a_hanging_upload_is_possible_not_confirmed(tmp_path, unix_intel):
     unix_intel.update({"/v1/sandbox/submit": "hang"})
     started = time.monotonic()
