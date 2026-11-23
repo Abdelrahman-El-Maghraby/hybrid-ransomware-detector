@@ -1,6 +1,6 @@
 # Runbooks
 
-For the Docker deployment (`docs/OPERATIONS.md`). Each runbook: how you notice,
+For Docker and desktop operation (`docs/OPERATIONS.md`). Each runbook: how you notice,
 how to confirm, what to do. Commands assume the folder with `docker-compose.yml`
 and `TOKEN=$(cat deploy/secrets/api_token)`; `API=https://<host>:8443`.
 
@@ -41,8 +41,12 @@ and `docker compose run --rm --entrypoint python content RansomwareScanner.py --
 ## 2. Scans fail (worker timeout, crash, memory)
 
 **Notice.** `aegis_scan_failures_total` rises; results have `scan_status: failed`,
-verdict at least Medium (`scan_failed` indicator), and the reason `timed out after Ns`,
-`the worker process died (exit code N)` or `MemoryError: the worker used N MB`.
+verdict at least Medium (`scan_failed`), or higher when findings reported before the
+failure are kept (`scan_results.partial_evidence`), and the reason `timed out after Ns`,
+`the worker process died (exit code N)`, `MemoryError: the worker used N MB`, or
+`the worker sent an invalid reply (...)` (a malformed or oversized message; nothing in it is used).
+With a webhook or e-mail configured, each such file also sends a scan-failed notice
+(`kind: scan_failed`, `detection: false`, not a detection) whatever the verdict floor.
 `/ready` shows `workers: warm-up scan failed: ...` when workers cannot start at all.
 
 **Confirm.** Is it one file or every file? One file is the design working: a file that
@@ -53,8 +57,8 @@ means the worker machinery is broken.
 * One file: treat it as suspicious (the verdict already does); send the hash for analysis
   (`docs/SUPPORT.md`). If it is a legitimate large file, raise `SCAN_TIMEOUT_SECONDS` or
   `WORKER_MEMORY_MB` and keep `AEGIS_ANALYSIS_MEMORY` above
-  `(AEGIS_API_MAX_CONCURRENT_SCANS + AEGIS_API_SPARE_WORKERS) x WORKER_MEMORY_MB`
-  plus about 1 GB.
+  `AEGIS_API_MAX_CONCURRENT_SCANS x WORKER_MEMORY_MB` plus about 200 MB per
+  `AEGIS_API_SPARE_WORKERS` (an idle spare) plus about 1 GB (`docs/DEPLOYMENT.md`).
 * Every file: `docker compose logs analysis` for the start-up error; check that the
   container is not at its memory limit (`docker stats`) or `pids_limit`; restart with
   `docker compose restart analysis`.
@@ -100,6 +104,9 @@ version, SHA-256).
 * `rulepack_untrusted` in the log: the active pack's signing key was removed from
   `RULEPACK_PUBLIC_KEYS`; the bundled rules are in use until a pack signed by a trusted
   key is installed.
+* `rulepack_no_key` in the log: a pack is installed but `RULEPACK_PUBLIC_KEYS` is
+  empty, so the bundled rules are in use (M27). Set the key that signed the pack
+  (in Docker, in the `.env` next to `docker-compose.yml`) and restart.
 
 ## 5. An update failed
 
@@ -119,3 +126,63 @@ publisher.
 3. If volumes were changed by the new version and the old one misbehaves:
    `deploy/restore.sh <backup taken before the upgrade>`.
 4. Keep the failing version's logs for support (`docs/SUPPORT.md`).
+
+## 6. Isolated workers cannot start
+
+**Notice.** `isolation_unavailable` in a failed result, CLI exit 3, a GUI retry
+dialog, or monitoring paused. API `/scan` and live `/ready` return 503. This
+startup failure does not add the `scan_failed` detection indicator or trigger
+quarantine merely because the worker could not start.
+
+**Confirm.** Inspect the worker-start error in the log and the workers readiness
+check. Check available memory, process limits, executable permissions and the
+installed runtime. Distinguish this from a parser timeout (runbook 2).
+
+**Act.** Correct the runtime/resource problem and retry; monitoring retries after
+`WATCH_RETRY_MINUTES`. Re-scan the files reported unscanned. Do not disable
+isolation to restore service; production rejects that development-only setting.
+
+## 7. Alerts not delivered
+
+**Notice.** `alert_retry`, `alert_expired`, `aegis_alerts_total`, or pending/expired
+items on **Alerts & cloud → Delivery status**.
+
+**Confirm.** Check the failing channel, SMTP host/port and TLS mode, certificate
+trust, credentials, recipient configuration and hourly/daily caps. In Docker,
+inspect intel logs and the SMTP secret mount; analysis has no SMTP connection.
+
+**Act.** Correct the configuration, send a test e-mail, and leave the background
+service running for retries. Expired alerts (default 24 hours) will not retry;
+review local results and notify through the established incident procedure.
+Do not remove sent markers just to force delivery: a lost acknowledgement may
+already have delivered the message. Receivers should deduplicate alert ids.
+
+## 8. Cloud spool grows or expires (desktop)
+
+**Notice.** `cloud_upload_retry`, `cloud_spool_expired` or delivery status showing
+pending bytes and expired-without-upload counts.
+
+**Confirm.** Check network access, HTTPS certificate trust, bucket/region/prefix,
+create permission and conditional-write/checksum support. Check free disk and
+`CLOUD_SPOOL_DAYS` / `CLOUD_SPOOL_MAX_MB`. Never paste secret keys into logs.
+
+**Act.** Correct connectivity or permissions and use **Test upload**; pending
+items drain on retry. Expired items are lost from the spool; local reports have
+separate retention. Turning uploads off does not delete remote data. The bucket
+administrator must investigate lifecycle, versioning and remote deletion.
+
+## 9. Monitoring queue full or paused (desktop)
+
+**Notice.** `monitor_queue_full`, `monitor_paused`, or pending/dropped counts and
+a pause reason on **Monitoring**.
+
+**Confirm.** Check watched roots, permissions, file arrival rate and worker errors.
+A file continually being written waits until it settles. Links and own output
+folders are deliberately excluded.
+
+**Act.** For a pause, use runbook 6, then retry. For overflow, reduce arrival load
+or narrow watched roots and manually scan missed files after the backlog drains.
+Dropped events are not automatically recovered unless the files change again.
+Increasing the queue trades more memory for a longer backlog; it does not make
+scanning faster. A slow parser should time out in its worker while the watcher
+and GUI remain responsive.

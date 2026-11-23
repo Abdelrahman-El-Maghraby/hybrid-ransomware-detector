@@ -42,3 +42,34 @@ class Section(ctk.CTkFrame):
         self.body = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10,
                                  border_width=1, border_color=BORDER)
         self.body.pack(fill="x")
+
+
+class SecretDialog(ctk.CTkToplevel):
+    """Modal prompt for a passphrase (masked); `.value` is None when cancelled."""
+
+    def __init__(self, master, title: str, prompt: str):
+        super().__init__(master)
+        self.title(title)
+        self.value = None
+        self.resizable(False, False)
+        ctk.CTkLabel(self, text=prompt, wraplength=360, justify="left").pack(padx=16, pady=(14, 6))
+        self.entry = ctk.CTkEntry(self, show="•", width=320)
+        self.entry.pack(padx=16, pady=4)
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(pady=(8, 14))
+        ctk.CTkButton(row, text="OK", width=90, command=self._ok).pack(side="left", padx=6)
+        ctk.CTkButton(row, text="Cancel", width=90, fg_color="transparent", border_width=1,
+                      command=self.destroy).pack(side="left", padx=6)
+        self.entry.bind("<Return>", lambda e: self._ok())
+        self.after(50, self.entry.focus_set)
+        self.grab_set()
+
+    def _ok(self):
+        self.value = self.entry.get()
+        self.destroy()
+
+    @classmethod
+    def ask(cls, master, title: str, prompt: str):
+        dialog = cls(master, title, prompt)
+        master.wait_window(dialog)
+        return dialog.value

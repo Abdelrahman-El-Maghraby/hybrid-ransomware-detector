@@ -17,6 +17,7 @@ import collections
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -44,13 +45,18 @@ def profile(paths: List[str]) -> Dict:
 
     layer_time: Dict[str, float] = collections.defaultdict(float)
     original = scanner_mod.RansomwareScanner._run_layer
+    depth = [0]                     # I-B4: container members run their layers inside one
 
     def timed(self, layer, ctx):
+        if depth[0]:                # a member's layer: already inside the container's time
+            return original(self, layer, ctx)
+        depth[0] += 1
         start = time.perf_counter()
         try:
             original(self, layer, ctx)
         finally:
             layer_time[layer.name] += time.perf_counter() - start
+            depth[0] -= 1
 
     scanner_mod.RansomwareScanner._run_layer = timed       # type: ignore[method-assign]
     work = Path(tempfile.mkdtemp(prefix="hrd-profile-"))
@@ -77,6 +83,10 @@ def profile(paths: List[str]) -> Dict:
     finally:
         scanner_mod.RansomwareScanner._run_layer = original  # type: ignore[method-assign]
         logging.disable(previous_disable)
+        cache = getattr(scanner, "cache", None)
+        if cache is not None:
+            cache.close()
+        shutil.rmtree(work, ignore_errors=True)           # I-B4: the hrd-profile- folder
     return {"files": len(paths), "seconds": round(time.perf_counter() - started, 2),
             "layers": {k: round(v, 2) for k, v in sorted(layer_time.items(),
                                                          key=lambda kv: -kv[1])},

@@ -49,6 +49,9 @@ class EmulationResult:
     commands: List[str] = field(default_factory=list)
     written_files: List[str] = field(default_factory=list)
     detail: str = ""
+    # L-D5: "error" or "timeout" when box-js ran but could not finish (the scan is
+    # then partial, engine/completeness.py); empty otherwise
+    status: str = ""
 
     @property
     def downloads_and_runs(self) -> bool:
@@ -76,9 +79,12 @@ class ScriptEmulator:
     def emulate(self, path: str, data: Optional[bytes] = None) -> EmulationResult:
         if not self.tool:
             return EmulationResult(detail="box-js not found (npm install -g box-js)")
+        size = len(data) if data is not None else os.path.getsize(path)   # L-D3: before reading
+        if size > MAX_SCRIPT_BYTES:
+            return EmulationResult(detail="script too large to emulate", status="error")
         raw = data if data is not None else Path(path).read_bytes()
-        if len(raw) > MAX_SCRIPT_BYTES:
-            return EmulationResult(detail="script too large to emulate")
+        if len(raw) > MAX_SCRIPT_BYTES:                  # grew since the size check
+            return EmulationResult(detail="script too large to emulate", status="error")
         source = raw
         if Path(path).suffix.lower() == ".jse":
             source = decode_script_encoder(raw.decode("latin-1")).encode("latin-1", "replace")
@@ -98,7 +104,7 @@ class ScriptEmulator:
                                cwd=work, env=env, capture_output=True,
                                timeout=self.timeout + 30, check=False)
             except subprocess.TimeoutExpired:
-                return EmulationResult(detail="emulation timed out")
+                return EmulationResult(detail="emulation timed out", status="timeout")
             return _read_results(out)
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -116,7 +122,7 @@ def _load(path: Path):
 def _read_results(out: Path) -> EmulationResult:
     folders = [p for p in out.iterdir() if p.is_dir() and p.name.endswith(".results")]
     if not folders:
-        return EmulationResult(detail="box-js produced no results")
+        return EmulationResult(detail="box-js produced no results", status="error")
     res_dir = folders[0]
     res = EmulationResult(ran=True)
     urls = _load(res_dir / "urls.json")

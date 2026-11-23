@@ -302,3 +302,24 @@ def test_cli_version_and_scan_file(tmp_path):
     p.write_bytes(_pe_bytes(1024))
     out = _cli(tmp_path, "--scan-file", str(p))
     assert out.returncode == 0 and "CRITICAL" in out.stdout and "[Integrity]" in out.stdout
+
+
+def test_concurrent_scans_each_see_their_own_not_scanned_count(scanner):
+    """L-E7: the GUI scan thread and the folder monitor share one scanner, and
+    last_not_scanned was one attribute, so one scan could read the other's
+    count (a false "workers could not start", or a missed one)."""
+    import threading
+    seen, ready = {}, threading.Barrier(2)
+
+    def scan(name, count):
+        scanner.last_not_scanned = count
+        ready.wait(5)                                # both have set their count
+        seen[name] = scanner.last_not_scanned
+
+    threads = [threading.Thread(target=scan, args=("gui", 0)),
+               threading.Thread(target=scan, args=("monitor", 3))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert seen == {"gui": 0, "monitor": 3}

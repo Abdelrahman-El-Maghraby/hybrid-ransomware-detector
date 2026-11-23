@@ -23,12 +23,15 @@ never raises for a hostile file (each detector degrades to "not checked").
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from api import SCHEMA_VERSION
+from core.sandbox import SandboxResult
 from detectors import FUZZY_AVAILABLE
+from detectors.container_extractor import RTLO, visible_name
 from detectors.elf_analysis import is_elf
 from detectors.embedded_content import sniff as embedded_sniff
 from detectors.file_integrity import IMAGE_EXTENSIONS
@@ -142,6 +145,18 @@ class Layer:
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         raise NotImplementedError
 
+    def stopped_entry(self, scanner: RansomwareScanner,
+                      ctx: ScanContext) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """I-6: for a slow layer that may wait on an outside service, its result if
+        the worker is stopped during that wait: (result key, result). None for a
+        layer that does not wait on one here."""
+        return None
+
+
+# I-6, M26: the result of a slow layer whose wait the worker's limit cut short
+STOPPED_EXTERNAL = ("did not finish before the scan time limit; the worker was stopped "
+                    "and the other layers' findings are kept")
+
 
 # --------------------------------------------------------------------- layers
 class HashLayer(Layer):
@@ -240,10 +255,17 @@ class IntegrityLayer(Layer):
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         res = scanner.integrity.analyze_file(ctx.path)
         ctx.scan_results["file_integrity"] = res.as_dict()
+        # M30 (owner-approved 2026-11-12): a right-to-left override in the
+        # scanned file's own name ("invoice<RTLO>fdp.exe" shows as
+        # "invoiceexe.pdf"). Members are flagged by their container's layer.
+        name = str(ctx.result.get("file_name") or "")
+        rtlo_name = visible_name(name) if ctx.depth == 0 and RTLO in name else ""
+        if rtlo_name:
+            ctx.scan_results["file_integrity"]["rtlo_name"] = rtlo_name
         ctx.signals.integrity = IntegritySignal(
             disguised_executable=res.disguised_executable, encrypted_likely=res.encrypted_likely,
             format_mismatch=res.format_mismatch, appended_payload=res.appended_payload,
-            detail=res.detail)
+            detail=res.detail, rtlo_name=rtlo_name)
 
 
 class ElfLayer(Layer):
@@ -312,15 +334,26 @@ class PromptGuardLayer(Layer):
     name = "prompt-guard"
 
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
+        extraction: Dict[str, str] = {}
         if ctx.is_archive:
             ctx.text = ""
         elif not ctx.is_mail:      # an e-mail's body was captured by its container
             llm_on = getattr(scanner.llm_backend, "available", True)
             failures: List[str] = []
-            ctx.text = scanner._extract_text_from_file(ctx.path, allow_ocr=llm_on, errors=failures)
+            omitted: List[str] = []
+            ctx.text = scanner._extract_text_from_file(ctx.path, allow_ocr=llm_on, errors=failures,
+                                                       omitted=omitted)
             if failures:              # a parser failed: no text, not "no text in it"
-                ctx.scan_results["text_extraction"] = {"error": failures[0]}
-        ctx.strings = "" if ctx.is_archive else extract_suspicious_strings(ctx.path)
+                extraction["error"] = failures[0]
+            if omitted:               # TX-1: a limit left text unread (scan_status partial)
+                extraction["not_checked"] = "; ".join(omitted)[:500]
+        strings_cut: List[str] = []
+        ctx.strings = "" if ctx.is_archive else extract_suspicious_strings(ctx.path,
+                                                                           omitted=strings_cut)
+        if strings_cut:               # TX-2: the strings pass stopped at a limit (partial)
+            extraction["strings_not_checked"] = "; ".join(strings_cut)[:500]
+        if extraction:
+            ctx.scan_results["text_extraction"] = extraction
         hidden = scanner.prompt_guard.inspect_hidden_content(ctx.path)
         guard = scanner.prompt_guard.analyze(ctx.text, ctx.strings, hidden)
         ctx.scan_results["prompt_guard"] = guard.as_dict()
@@ -350,7 +383,7 @@ class QRLayer(Layer):
                 or not scanner.qr_scanner.applies(ctx.path)):
             return
         res = scanner.qr_scanner.analyze_file(ctx.path)
-        if res.available and not res.images_checked:
+        if res.available and not (res.images_checked or res.not_checked or res.error):
             return                      # nothing that could hold a QR code
         ctx.scan_results["qr_codes"] = res.as_dict()
         ctx.signals.qr = QrSignal(
@@ -378,6 +411,15 @@ class LLMLayer(Layer):
     name = "llm"
     heavy = True
 
+    def stopped_entry(self, scanner: RansomwareScanner, ctx: ScanContext):
+        backend = getattr(scanner, "llm_backend", None)
+        if (ctx.is_archive or not getattr(backend, "available", False)
+                or os.path.splitext(ctx.path)[1].lower() in IMAGE_EXTENSIONS):
+            return None
+        return "chatgpt_analysis", {"is_malicious": False, "confidence": 0,
+                                    "suspicious_elements": [], "status": "timeout",
+                                    "details": STOPPED_EXTERNAL, "detail": STOPPED_EXTERNAL}
+
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         llm: Dict[str, Any]
         if ctx.is_archive:
@@ -401,6 +443,12 @@ class VirusTotalLayer(Layer):
     name = "virustotal"
     heavy = True
 
+    def stopped_entry(self, scanner: RansomwareScanner, ctx: ScanContext):
+        if not scanner.vt_may_contact():
+            return None
+        return "virustotal", scanner._vt_empty(status="timeout", detail=STOPPED_EXTERNAL,
+                                               details=STOPPED_EXTERNAL)
+
     def run(self, scanner: RansomwareScanner, ctx: ScanContext) -> None:
         vt = scanner.scan_file_with_virustotal(ctx.path, ctx.hashes)
         ctx.scan_results["virustotal"] = vt
@@ -409,6 +457,29 @@ class VirusTotalLayer(Layer):
             suspicious=int(vt.get("suspicious_detections", 0) or 0),
             total=int(vt.get("total_engines", 0) or 0),
             ratio=float(vt.get("detection_ratio", 0) or 0))
+
+
+# M26: the sandbox entry of a provisional result: what the file gets if the parent
+# has to stop the worker during the sandbox's network wait
+STOPPED_DETAIL = ("the sandbox did not answer before the scan time limit; the worker was "
+                  "stopped during the sandbox wait and the other layers' findings are kept")
+
+
+def _sandbox_deadline(scanner: RansomwareScanner, client: Any) -> Tuple[Optional[float], str]:
+    """M26 (owner-approved 2026-11-12): in a worker, the sandbox wait ends 10 % of
+    the scan limit (at least 1 s) before the worker would be stopped, so a slow
+    report costs the sandbox layer (status timeout, scan partial), not the static
+    findings. With less than one poll interval left, the file is not submitted.
+    Returns (deadline on time.monotonic, or None; the reason it was not sent)."""
+    left = scanner.time_left()
+    if left is None:
+        return None, ""
+    limit = float(scanner.config.get("scan_timeout_seconds", 300))
+    usable = left - max(1.0, 0.1 * limit)
+    if usable < float(getattr(client, "poll_seconds", 15)):
+        return None, (f"not submitted: no time left in the scan limit "
+                      f"({max(0.0, left):.0f}s of {limit:.0f}s left)")
+    return time.monotonic() + usable, ""
 
 
 class SandboxLayer(Layer):
@@ -430,19 +501,46 @@ class SandboxLayer(Layer):
         import hashlib
         key = "sandbox:" + hashlib.sha256(f"{client.url}|{client.options}".encode()).hexdigest()[:12]
         cached = scanner.cache.get(sha, key) if (scanner.cache and sha) else None
+        deadline, no_time = _sandbox_deadline(scanner, client)
         if cached:
-            data = dict(cached, status="cached")
+            # a report this cache already had: nothing was sent for this scan
+            data = dict(cached, status="cached", submission="not_attempted", transmission="none")
+        elif no_time:
+            data = SandboxResult(enabled=True, status="timeout", detail=no_time).as_dict()
         else:
-            data = client.analyze(ctx.path).as_dict()
+            data = self._analyze(scanner, ctx, client, deadline)
             if scanner.cache and sha and data.get("status") == "reported":
                 scanner.cache.put(sha, key, data)
-            if data.get("submitted") and data.get("status") != "cached":
+            # what left the machine: a possible transmission is listed too (the
+            # sandbox entry says whether it was confirmed); see core/sandbox.py
+            if data.get("transmission", "sent" if data.get("submitted") else "none") \
+                    in ("sent", "possible"):
                 data["sent"] = ["file"]
         ctx.scan_results["sandbox"] = data
         if data.get("status") in ("reported", "cached"):
             ctx.signals.sandbox = SandboxSignal(signatures=data.get("signatures", []),
                                                 ransomware=data.get("ransomware", []),
                                                 malscore=data.get("malscore", 0))
+        settle = getattr(scanner, "provisional_listener", None)
+        if deadline is not None and settle is not None and not cached and not no_time:
+            # M26: the sandbox's outcome is known; if the worker is stopped before
+            # its final reply, the parent keeps this result, not "did not answer"
+            settle(scanner.assembled_copy(ctx, {"sandbox": ("sandbox", data)}), True)
+
+    @staticmethod
+    def _analyze(scanner: RansomwareScanner, ctx: ScanContext, client: Any,
+                 deadline: Optional[float]) -> Dict:
+        """M26: inside an isolated worker (a deadline), first send the parent a
+        provisional result (the static findings, the sandbox at `timeout`), then
+        report the submission state as it changes; the parent uses them only if
+        it must stop the worker during this wait. Elsewhere: analyze() as before."""
+        send = getattr(scanner, "provisional_listener", None)
+        listen = getattr(scanner, "sandbox_listener", None)
+        if deadline is None or send is None or listen is None:
+            return client.analyze(ctx.path, deadline=deadline).as_dict()
+        stopped = SandboxResult(enabled=True, status="timeout", detail=STOPPED_DETAIL).as_dict()
+        send(scanner.provisional_result(ctx, {"sandbox": ("sandbox", stopped)}), False)
+        return client.analyze(ctx.path, deadline=deadline, progress=listen).as_dict()
 
 
 class EmulationLayer(Layer):
@@ -490,3 +588,42 @@ def default_pipeline() -> List[Layer]:
         VirusTotalLayer(),
         SandboxLayer(),
     ]
+
+
+# Item 8: what a layer reads from earlier ones, as data. (before, after, why):
+# `before` must run earlier than `after` in the pipeline. The staged runner also
+# needs the layers in FAST_BEFORE_HEAVY to be fast: the slow-layer skip
+# (StagedPipelineMixin._run_heavy) reads the flags they set.
+ORDER_RULES: Tuple[Tuple[str, str, str], ...] = (
+    ("hashes", "allowlist", "the allowlist is keyed by SHA-256"),
+    ("hashes", "local-db", "the hash database is keyed by MD5"),
+    ("hashes", "llm", "LLM answers are cached by SHA-256"),
+    ("hashes", "virustotal", "VirusTotal is queried by hash"),
+    ("hashes", "sandbox", "sandbox reports are cached by SHA-256"),
+    ("mail", "prompt-guard", "the guard reads the e-mail body the mail container sets"),
+    ("prompt-guard", "llm", "the LLM reads the text and strings the guard extracts"),
+)
+FAST_BEFORE_HEAVY = ("hashes", "allowlist", "local-db")
+SANDBOX_LAST = "sandbox"     # its "suspicious" gate scores every earlier layer's signals
+
+
+def pipeline_order_problems(layers: List[Layer]) -> List[str]:
+    """The ordering requirements a pipeline breaks (empty when none). A layer
+    missing from the pipeline is not a problem; only a wrong order is."""
+    names = [layer.name for layer in layers]
+    first = {name: names.index(name) for name in names}
+    problems = [f"{before} must run before {after}: {why}"
+                for before, after, why in ORDER_RULES
+                if before in first and after in first and first[before] > first[after]]
+    heavy = [i for i, layer in enumerate(layers) if getattr(layer, "heavy", False)]
+    for name in FAST_BEFORE_HEAVY:
+        if name not in first:
+            continue
+        layer = layers[first[name]]
+        if getattr(layer, "heavy", False) or (heavy and first[name] > heavy[0]):
+            problems.append(f"{name} must be a fast layer before every slow layer: the "
+                            "slow-layer skip reads what it sets")
+    if SANDBOX_LAST in first and first[SANDBOX_LAST] != len(names) - 1:
+        problems.append(f"{SANDBOX_LAST} must be the last layer: its gate scores the "
+                        "signals of every earlier layer")
+    return problems

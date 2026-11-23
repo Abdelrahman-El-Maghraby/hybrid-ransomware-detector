@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core import (
     CanaryManager,
@@ -56,6 +56,7 @@ from .config import (
     ENGINE_VERSION,
 )
 from .external import ExternalLookupsMixin
+from .fsutil import is_regular_file, open_regular
 from .layers import Layer, default_pipeline
 from .metrics import METRICS
 from .protection import ProtectionMixin
@@ -73,6 +74,36 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
     folders and runs scans. Running the pipeline (engine/staging.py), host
     protection (engine/protection.py), reports, external lookups and text
     extraction come from mixins."""
+
+    # H6 (b): set in an isolated worker; called by engine/containers.py for the
+    # outer file with ("container", kind, its own signal) once a container is
+    # opened and ("member", kind, result) for each direct member that finished.
+    member_listener: Optional[Callable[[str, str, Any], None]] = None
+    # M26: in an isolated worker, the time.monotonic() at which the parent stops
+    # waiting for the current file (None outside a worker: no limit).
+    scan_deadline: Optional[float] = None
+    # M26: set in an isolated worker; the sandbox layer sends the parent its
+    # provisional result (provisional_listener(result, False)) before the
+    # sandbox's network wait, the settled one (provisional_listener(result,
+    # True)) once the sandbox's outcome is known, and the submission state as
+    # it changes (sandbox_listener(state, task_id)).
+    provisional_listener: Optional[Callable[[Dict, bool], None]] = None
+    sandbox_listener: Optional[Callable[..., None]] = None
+    # I-6: set in an isolated worker; told what VirusTotal or the LLM is about to
+    # be sent (external_listener(service, sent, destination)), before the call.
+    external_listener: Optional[Callable[..., None]] = None
+
+    def time_left(self) -> Optional[float]:
+        """Seconds before the worker's limit ends this scan, or None without one."""
+        return None if self.scan_deadline is None else self.scan_deadline - time.monotonic()
+
+    @property
+    def last_not_scanned(self) -> int:
+        return int(getattr(self._not_scanned, "count", 0))
+
+    @last_not_scanned.setter
+    def last_not_scanned(self, count: int) -> None:
+        self._not_scanned.count = count
 
     def __init__(self, config: Dict):
         """Build every detection engine from the configuration."""
@@ -97,10 +128,15 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
 
         # Host-side protection (engine/protection.py).
         self.canaries = CanaryManager(config.get("canary_registry",
-                                                 str(DATA_DIR / "canaries.json")))
+                                                 str(DATA_DIR / "canaries.json")),
+                                      copy_path=os.path.join(self.report_dir,      # M25
+                                                             ".canary_registry_copy.json"))
         self._vault: Optional[QuarantineVault] = None
         self._last_canary_signature: Optional[tuple] = None
         self.last_impact: Optional[Dict] = None
+        # L-E7: per thread (GUI scan, folder monitor, API alerts share one scanner):
+        # files of this thread's last scan that no isolated worker could take
+        self._not_scanned = threading.local()
         self._log_layers()
         self._content_lock = threading.Lock()
         self._content_fp = self._content_fingerprint()
@@ -289,7 +325,13 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         md5_hash = hashlib.md5(usedforsecurity=False)
         sha256_hash = hashlib.sha256()
         try:
-            with open(file_path, "rb") as f:
+            # Only regular files: a FIFO would block open() and a device such as
+            # /dev/zero never ends. This also runs in the main process (failure_result).
+            f = open_regular(file_path)
+            if f is None:
+                logger.warning("Not hashing %s: not a regular file", file_path)
+                return {"md5": "", "sha256": ""}
+            with f:
                 for chunk in iter(lambda: f.read(64 * 1024), b""):
                     md5_hash.update(chunk)
                     sha256_hash.update(chunk)
@@ -337,6 +379,12 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                         continue
                     if os.path.normcase(os.path.abspath(full_path)) in canary_paths:
                         continue
+                    if not is_regular_file(full_path):
+                        # A FIFO, socket or device (or a link to one) has no file
+                        # content to scan, and reading it can block forever.
+                        logger.warning("Skipping %s: not a regular file", full_path,
+                                       extra={"event": "skipped_special_file"})
+                        continue
                     targets.append(full_path)
         except Exception as e:
             logger.error("Error walking directory %s: %s", directory, str(e))
@@ -369,14 +417,17 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                 except Exception as e:
                     logger.error("Progress callback error: %s", e)
 
-        if self.config.get("isolate_scans", True) and total > 1:
-            from engine.workers import default_workers, scan_isolated
-            scan_isolated(self, targets, default_workers(self.config),
-                          float(self.config.get("scan_timeout_seconds", 300)),
-                          int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
+        self.last_not_scanned = 0
+        if self.config.get("isolate_scans", True):     # one file too (PR-03)
+            if targets:
+                from engine.workers import default_workers, scan_isolated
+                self.last_not_scanned = scan_isolated(
+                    self, targets, default_workers(self.config),
+                    float(self.config.get("scan_timeout_seconds", 300)),
+                    int(self.config.get("worker_memory_mb", 2048)), collect, cancel_event)
             order = {p: i for i, p in enumerate(targets)}
             results.sort(key=lambda r: order.get(str(r.get("file_path")), 0))
-        else:
+        else:                                           # ISOLATE_SCANS=0: development only
             self._scan_in_order(targets, collect, cancel_event)
         if total:
             summary = METRICS.batch_summary(results, time.perf_counter() - started)
@@ -388,8 +439,27 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                                "duration_ms": int(summary["seconds"] * 1000)})
         return results
 
+    def scan_one(self, file_path: str) -> Dict:
+        """One file, as --scan-file and the GUI scan it: in an isolated worker with
+        the time and memory limits of a folder scan (PR-03), or in this process
+        only with the ISOLATE_SCANS=0 development opt-out. A file that hangs or
+        crashes its worker comes back as a failed result; when no worker can start,
+        as an isolation_unavailable failure (self.last_not_scanned == 1), and the
+        file was not parsed here. Unlike a folder scan, no automatic quarantine."""
+        self.last_not_scanned = 0
+        if not self.config.get("isolate_scans", True):
+            return self.scan_file(file_path)
+        from engine.workers import scan_isolated
+        box: List[Dict] = []
+        self.last_not_scanned = scan_isolated(
+            self, [file_path], 1, float(self.config.get("scan_timeout_seconds", 300)),
+            int(self.config.get("worker_memory_mb", 2048)), lambda i, p, r: box.append(r))
+        return box[0]
+
     def _scan_in_order(self, targets: List[str], collect, cancel_event) -> None:
-        """Scan in this process, one file after the other."""
+        """Scan in this process, one file after the other. A file whose scan raises
+        (for example, it was deleted after the folder walk) gets a failed result,
+        as in an isolated scan, instead of being left out of the report (PR-09)."""
         done = 0
         for file_path in targets:
             if cancel_event is not None and cancel_event.is_set():
@@ -399,7 +469,8 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                 result = self.scan_file(file_path)
             except Exception as e:
                 logger.error("Error scanning file %s: %s", file_path, e)
-                continue
+                from engine.workers import failure_result
+                result = failure_result(self, file_path, f"{type(e).__name__}: {e}")
             done += 1
             collect(done, file_path, result)
 
@@ -452,10 +523,12 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
         logger.info("Starting scheduled ransomware scan...")
         canary_report = self.check_canaries() if self.canaries.entries() else None
         results = self.scan_all_directories()
-        report = self.generate_report(results, impact=self.last_impact,
-                                      canary_report=canary_report)
         from core.outputs import deliver
-        deliver(results, self.config)
+        try:
+            report = self.generate_report(results, impact=self.last_impact,
+                                          canary_report=canary_report)
+        finally:                                  # M17: alerts even when the report fails
+            deliver(results, self.config)
         logger.info("Scan complete.")
         return report
 

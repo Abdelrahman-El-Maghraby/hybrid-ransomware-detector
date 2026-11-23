@@ -4,6 +4,13 @@ This guide covers running the scanner as a service: the supported Docker
 deployment (section 0), a plain install with systemd (sections 1-3), logs and
 metrics. Everything here is optional; the desktop app and the CLI need none of it.
 
+Kubernetes is an optional alternative with its own guide,
+[KUBERNETES](KUBERNETES.md): one Pod with the analysis service and the TLS proxy
+and no egress; external services only with the optional intel component, reached
+over TLS on one port (a different isolation contract from Docker's
+`network_mode: none`). Docker Compose (below) stays the reference deployment; the
+Kubernetes manifests have not been run on a cluster.
+
 ## 0. Docker: the supported deployment
 
 One deployment per customer, on a Linux host with Docker Engine and Compose v2.
@@ -25,7 +32,8 @@ host kernel you control.
 
 **Why no network for analysis.** The analysis service runs the parsers on hostile
 input, and the worker pool limits crashes but is not a security boundary: a parser
-exploit runs with the service's rights. With `network_mode: none` that code finds no
+exploit runs with the service's rights (its messages to the parent are checked JSON,
+not pickles, so they cannot run code there; it still runs as the same user). With `network_mode: none` that code finds no
 interface but loopback - no route to the internet, the LAN, the cloud metadata
 address, the proxy or Docker's DNS. It can reach intel only through intel's Unix
 socket. An internal Docker network shared with intel (the other option) would
@@ -51,6 +59,7 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(40))' > deploy/secrets/i
 : > deploy/secrets/virustotal_api_key      # empty = off (decision D4: off by default)
 : > deploy/secrets/openai_api_key
 : > deploy/secrets/sandbox_token
+: > deploy/secrets/smtp_password           # empty = no e-mail alerts; docker compose needs the file
 chmod 0644 deploy/secrets/*                # the 0700 folder keeps other host users out
 
 # 2. TLS: your certificate and key (PEM) for the name clients use
@@ -67,11 +76,20 @@ Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it):
 `AEGIS_HTTPS_PORT` (8443), `AEGIS_TLS_DIR`, `AEGIS_SECRETS_DIR`, resource sizes
 (`AEGIS_ANALYSIS_MEMORY` 6g, `AEGIS_ANALYSIS_CPUS` 2, `AEGIS_TMP_SIZE` 2g,
 `AEGIS_INTEL_MEMORY`, `AEGIS_INTEL_CPUS`), scan limits (`SCAN_TIMEOUT_SECONDS`,
-`WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB`,
+`WORKER_MEMORY_MB`, `AEGIS_API_MAX_CONCURRENT_SCANS`, `AEGIS_API_MAX_UPLOAD_MB` (the
+bundled proxy also stops bodies at 51 MiB, `deploy/Caddyfile`: raise both together),
 `AEGIS_API_SPARE_WORKERS`, `AEGIS_STOP_GRACE`) and
 the external services, which are configured on **intel only**: `VT_UPLOAD_UNKNOWN`,
 `LLM_PROVIDER` (`none` by default; the production profile refuses `auto`, which can fall
-back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL`. What each scan actually sent - a
+back to a cloud LLM), `OLLAMA_HOST`, `SANDBOX_URL` and `SANDBOX_WAIT_SECONDS` (600; keep it
+below `SCAN_TIMEOUT_SECONDS`, which compose also passes to intel, so intel warns at start-up
+otherwise; the wait in the scan worker runs after the other slow layers and is cut 10 % of
+that limit before it ends, so a slow report leaves the sandbox at `timeout` and the scan
+`partial` with the static verdict kept. That cut is cooperative; a call to intel that outlasts
+it is ended by the worker's own time limit, and the parent then keeps the result the worker
+sent before the sandbox wait. Intel's own requests to CAPE are not bounded by the scan: after
+the worker stops waiting, intel may still submit the file or fetch its report, and the result
+says `submission: possible` when that is not known). What each scan actually sent - a
 hash, a file, extracted text, to a local or a cloud LLM - is in every result's
 `provenance.shared`, the report's "Sent outside" line and the `external_share` log event. Putting an external-service key on the
 analysis side is a start-up error in the production profile.
@@ -95,8 +113,8 @@ request (`.github/workflows/docker.yml`).
 | Privilege escalation | `no-new-privileges:true` | setuid binaries cannot raise privileges |
 | System calls | Docker's default seccomp profile (never `unconfined`) | blocks mount, kernel module, keyring and similar calls |
 | Resources | `mem_limit`, `cpus`, `pids_limit` per service | a hostile file cannot starve the host; tmpfs usage counts against the memory limit |
-| Fresh worker per upload | `AEGIS_API_SPARE_WORKERS` started ahead, each used for one file | an exploited parser cannot touch another upload; the start (about 1.4 s) is paid in the background, not by the upload. Size memory as: main process + (concurrent scans + spares) x `WORKER_MEMORY_MB` at worst; an idle spare uses about 200 MB |
-| Shutdown | `stop_grace_period` 120 s | `docker stop` lets scans in progress finish instead of cutting them at Docker's default 10 s |
+| Fresh worker per upload | `AEGIS_API_SPARE_WORKERS` started ahead, each used for one file | an exploited parser cannot touch another upload; the start (about 1.4 s) is paid in the background, not by the upload. Size memory as: main process + concurrent scans x `WORKER_MEMORY_MB` + spares x about 200 MB (an idle spare); at the defaults 2 x 2,048 MB + 2 x about 200 MB + the main process, within `AEGIS_ANALYSIS_MEMORY` 6g. Only workers that hold an upload are busy, and uploads are capped at the concurrent scans |
+| Shutdown | `stop_grace_period` 120 s | `docker stop` lets scans that end within 120 s finish instead of cutting them at Docker's default 10 s; a scan may take up to `SCAN_TIMEOUT_SECONDS` (300), so raise `AEGIS_STOP_GRACE` to keep those |
 | Detection content | the `content` volume is mounted `:ro` in analysis | a compromised parser cannot edit rules, the allowlist, the hash or fuzzy databases |
 | Result cache | in intel's volume only; analysis keeps none | a compromised parser cannot plant a clean VirusTotal / LLM / sandbox answer for another file |
 | Secrets | Docker secrets via `NAME_FILE`, never environment values | `docker inspect` and child processes do not see them |
@@ -104,7 +122,7 @@ request (`.github/workflows/docker.yml`).
 | Containment | not in the image (`.dockerignore`), refused by the production profile | the server cannot suspend, kill or lock anything (decision D3) |
 | TLS | Caddy with your certificate, HSTS, admin API off | the API itself speaks plain HTTP on a socket only |
 | Client address | Caddy replaces `X-Forwarded-For`; the API uses its last entry | rate limits and the token lockout apply to the real client |
-| Images | base images pinned by digest; Python packages from `requirements.lock` | rebuilds are reproducible |
+| Images | base images pinned by digest; Python packages from `requirements-server.lock`, installed with `--require-hashes` (the SHA-256 of every file is pinned) | rebuilds are reproducible, and a substituted package stops the build |
 
 ### Rule-pack updates
 
@@ -112,8 +130,14 @@ The content volume is written only by the `content` tool service, which has no
 network either:
 
 ```bash
-docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/aegis-rules-2026.11.zip
+docker compose run --rm -v "$PWD/packs:/import:ro" content --update-rules /import/aegis-rules-2026.11.02.tar.gz
 ```
+
+The pack is a `.tar.gz` with its `.sig` next to it. Set `RULEPACK_PUBLIC_KEYS`
+(base64 Ed25519 public keys, comma-separated; public, not a secret) in the `.env`
+file next to `docker-compose.yml`: compose passes it to `content`, which refuses
+every pack without a key, and to `analysis`, which checks the signer of the active
+pack.
 
 The pack's Ed25519 signature, manifest hashes and version are checked before
 anything is installed (`core/rulepack.py`); the running analysis service notices
@@ -138,10 +162,15 @@ compromised signing key: `docs/RULE_PACKS.md`.
 ## 1. Install (without Docker)
 
 ```bash
-python -m venv /opt/aegis/venv
-/opt/aegis/venv/bin/pip install -r requirements.lock
+python3.12 -m venv /opt/aegis/venv
+/opt/aegis/venv/bin/pip install --require-hashes -r requirements-server.lock
 /opt/aegis/venv/bin/pip install -e ".[api]" --no-deps
 ```
+
+`requirements-server.lock` is the server set the Docker image installs (the
+scanning layers and the API; no GUI, ML training or cloud uploads), hash-pinned
+for Python 3.12 and later. `requirements.lock` is the desktop set and pulls in
+the GUI toolkit a server does not need (L-B2).
 
 Create a dedicated, unprivileged user (`aegis`) and keep the configuration in
 `/etc/aegis/aegis.env` (owner `root`, mode `0640`, group `aegis`). The settings
@@ -152,6 +181,7 @@ Secrets on a server come from the environment. Either set `NAME=value` in that
 protected file, or point `NAME_FILE` at a file only the service can read (for
 example a Docker secret under `/run/secrets/`): `OPENAI_API_KEY`,
 `VIRUSTOTAL_API_KEY`, `SANDBOX_TOKEN`, `WEBHOOK_SECRET`, `IMAP_PASSWORD`,
+`SMTP_PASSWORD`, `CLOUD_SECRET_ACCESS_KEY`, `CLOUD_PSEUDONYM_KEY`,
 `AEGIS_API_TOKEN`, `AEGIS_INTEL_TOKEN`. A server
 has no OS keyring, so nothing is migrated there and the start-up log line
 `Secrets -> NAME:source` shows where each one came from (never its value).
@@ -216,7 +246,7 @@ tokens would then lock everyone out.
 ```caddyfile
 aegis.example.internal {
     request_body {
-        max_size 51MB
+        max_size 51MiB      # MiB: Caddy's MB is 1,000,000 bytes, below a 50 MiB upload
     }
     reverse_proxy 127.0.0.1:8765 {
         header_up X-Forwarded-For {remote_host}
@@ -249,6 +279,7 @@ prints the same layer states on the command line.
 | Limit | Setting | Answer |
 |---|---|---|
 | Upload size: the declared `Content-Length` is checked before reading, then the body is counted as it streams | `AEGIS_API_MAX_UPLOAD_MB` | 413 |
+| Upload body: `/scan` reads and parses it only after the token check and a free scan slot (M4), so an unauthenticated or refused request costs no read or spool | - | 401, 429 or 503 before the body is read |
 | Requests per IP address, before authentication | `AEGIS_API_IP_RATE_PER_MINUTE` (120), `AEGIS_API_IP_BURST` (30) | 429 + `Retry-After` |
 | Failed bearer tokens per IP address: N failures within the window lock the address out, checked before the token is compared | `AEGIS_API_AUTH_FAILURES` (5), `AEGIS_API_AUTH_WINDOW_SECONDS` (300), `AEGIS_API_AUTH_LOCKOUT_SECONDS` (900) | 401, then 429 + `Retry-After` |
 | Requests per authenticated client (IP and valid token) | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |

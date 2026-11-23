@@ -60,7 +60,8 @@ def _scanner():
     from engine.config import CONFIG
     from engine.scanner import RansomwareScanner
     cfg = dict(CONFIG)
-    cfg.update({"virustotal_api_key": "", "cache_enabled": False, "llm_provider": "none"})
+    cfg.update({"virustotal_api_key": "", "cache_enabled": False, "llm_provider": "none",
+                "sandbox_url": ""})                          # L-C4: never to a sandbox
     return RansomwareScanner(cfg)
 
 
@@ -77,9 +78,16 @@ def scan_folders(malicious: Sequence[Path], benign: Sequence[Path]) -> List[Dict
                 if p.suffix.lower() not in supported and p.suffix:
                     continue
                 try:
-                    r = scanner.scan_file(str(p))
+                    # L-C9: in the product's isolated worker, with its time and memory
+                    # limits: one hanging or exploding file no longer stops the run.
+                    r = scanner.scan_one(str(p))
                 except Exception as exc:              # recorded, never fatal
                     rows.append({"label": label, "error": type(exc).__name__, "path": str(p)})
+                    continue
+                if r.get("scan_status") == "failed":
+                    reason = ((r.get("scan_results") or {}).get("scan_failed") or {}).get(
+                        "reason", "scan failed")
+                    rows.append({"label": label, "error": str(reason), "path": str(p)})
                     continue
                 contribs = (r.get("score_breakdown") or {}).get("contributions") or []
                 ind: Dict[str, float] = {}
@@ -128,8 +136,21 @@ def to_points(b: float, w: List[float]) -> List[float]:
 
 
 def score_rows(rows: List[Dict], weights: Dict[str, float]) -> List[int]:
-    return [min(100, int(round(sum(weights.get(k, v) for k, v in r["indicators"].items()))))
-            for r in rows]
+    """L-C10: scored as the engine scores (detectors/scoring.py): per-category caps,
+    the semantic-only clamp and the overall maximum, so "current" and "proposed"
+    rates are measured the same way."""
+    from detectors.registry import REGISTRY
+    from detectors.scoring import Contribution, ScoringMatrix
+    from detectors.signals import as_signals
+    matrix, nothing = ScoringMatrix(), as_signals({})
+    scores = []
+    for r in rows:
+        contribs = [Contribution(k, str(REGISTRY.indicators.get(k, {}).get("category",
+                                                                        "technical")),
+                                 float(weights.get(k, v)), "")
+                    for k, v in r["indicators"].items()]
+        scores.append(matrix._aggregate(contribs, nothing).risk_score)
+    return scores
 
 
 def rates(rows: List[Dict], scores: List[int], thr: int = HIGH) -> Dict[str, float]:
@@ -142,8 +163,9 @@ def rates(rows: List[Dict], scores: List[int], thr: int = HIGH) -> Dict[str, flo
 
 def calibrate(rows: Iterable[Dict], min_support: int = 10, folds: int = 5,
               seed: int = 7, families: Optional[Dict[str, str]] = None) -> Dict:
-    from tools.splits import group_folds, group_of
-    rows = [r for r in rows if "indicators" in r]
+    from tools.splits import dedupe, group_folds, group_of
+    # L-C10: a file present twice counts once; one labelled both ways is left out
+    rows, duplicates, conflicts = dedupe(r for r in rows if "indicators" in r)
     families = families or {}
     names = sorted({k for r in rows for k in r["indicators"]})
     current: Dict[str, float] = {}
@@ -189,6 +211,7 @@ def calibrate(rows: Iterable[Dict], min_support: int = 10, folds: int = 5,
     table.sort(key=lambda t: -abs(t["change"]))
     return {
         "indicators": table,
+        "duplicates": duplicates, "conflicts": len(conflicts),
         "current": rates(rows, cur_scores),
         "proposed_in_sample": rates(rows, score_rows(rows, proposed)),
         "proposed_cross_validated": (rates([r for r, _ in cv_scores], [s for _, s in cv_scores])

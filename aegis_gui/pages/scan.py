@@ -89,6 +89,7 @@ class ScanPage(BasePage):
             selected = [".pdf"]
         self.app.settings["file_extensions"] = selected
         self.app.scanner.file_extensions = selected
+        self.app.save_scan_settings()                # M28: also for the service
 
     def refresh_directories(self):
         for child in self.dir_list.winfo_children():
@@ -122,12 +123,14 @@ class ScanPage(BasePage):
                 directories.append(chosen)
                 self.app.settings["scan_directories"] = directories
                 self.app.scanner.scan_dirs = directories
+                self.app.save_scan_settings()
             self.refresh_directories()
 
     def _remove_directory(self, directory):
         directories = [d for d in self.app.settings["scan_directories"] if d != directory]
         self.app.settings["scan_directories"] = directories
         self.app.scanner.scan_dirs = directories
+        self.app.save_scan_settings()
         self.refresh_directories()
 
     def _scan_single_file(self):

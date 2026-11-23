@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, TextIO, Tuple
 
 from detectors import FUZZY_AVAILABLE, OLEVBA_AVAILABLE, YARA_AVAILABLE
 from detectors.qr_scanner import QR_AVAILABLE
@@ -13,6 +13,7 @@ from detectors.relationship_scanner import defang
 
 from .completeness import COMPLETE, PRECEDENCE, verdict_label
 from .config import ENGINE_VERSION
+from .logs import printable
 
 logger = logging.getLogger("RansomwareScanner")
 
@@ -41,10 +42,10 @@ class ReportMixin:
 
         # Create a timestamp for the report file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_file = os.path.join(self.report_dir, f"ransomware_scan_{timestamp}.json")
+        report_file, f = _new_report_file(self.report_dir, f"ransomware_scan_{timestamp}")
 
         # Write detailed JSON report (full evidence trail, unchanged shape)
-        with open(report_file, 'w') as f:
+        with f:
             json.dump(results, f, indent=4)
 
         total_files = len(results)
@@ -88,11 +89,11 @@ LLM posture:            {self._llm_posture_label()}
             report_text += f"\n[Allowlist] {len(allowed)} known-good file(s) scanned but not scored:\n"
             for r in allowed[:20]:
                 note = r["scan_results"]["allowlist"].get("note") or "no note"
-                report_text += f"  - {r.get('file_path')} ({note})\n"
+                report_text += f"  - {printable(r.get('file_path'))} ({note})\n"
         if canary_report is not None and canary_report.triggered:
             report_text += f"\n{'!' * 60}\nCANARY TRIPWIRE TRIGGERED\n{'!' * 60}\n"
             for f in canary_report.findings:
-                report_text += f"  [{f.status}] {f.path}\n      {f.evidence}\n"
+                report_text += f"  [{f.status}] {printable(f.path)}\n      {f.evidence}\n"
 
         incomplete = [r for r in results if r.get("scan_status", COMPLETE) != COMPLETE]
         if malicious_files == 0:
@@ -121,10 +122,13 @@ LLM posture:            {self._llm_posture_label()}
         report_text += f"\nDetailed JSON report saved to: {report_file}\n"
 
         # Also save the text report
-        text_report_file = os.path.join(self.report_dir, f"ransomware_scan_{timestamp}.txt")
-        with open(text_report_file, 'w') as f:
-            f.write(report_text)
+        text_report_file = report_file[:-len(".json")] + ".txt"
+        with open(text_report_file, "w", encoding="utf-8") as tf:
+            tf.write(report_text)
 
+        # optional cloud storage: the redacted upload view, queued (core/cloud.py)
+        from core.cloud import spool_report
+        spool_report(results, getattr(self, "config", {}) or {})
         return report_text
 
     @staticmethod
@@ -145,13 +149,13 @@ LLM posture:            {self._llm_posture_label()}
         out += f"{'#' * 60}\n"
         if encrypted:
             out += f"  Files whose content looks encrypted: {len(encrypted)}\n"
-            out += "".join(f"    - {p}\n" for p in encrypted[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in encrypted[:10])
         if note_count:
             out += f"  Ransom-note-like files: {note_count}\n"
-            out += "".join(f"    - {p}\n" for p in notes[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in notes[:10])
         if ext_count:
             out += f"  Files with known ransomware extensions: {ext_count}\n"
-            out += "".join(f"    - {p}\n" for p in ext_files[:10])
+            out += "".join(f"    - {printable(p)}\n" for p in ext_files[:10])
         return out
 
     def _format_file_finding(self, result: Dict) -> str:
@@ -160,7 +164,7 @@ LLM posture:            {self._llm_posture_label()}
         quarantine note and the score breakdown."""
         sr = result.get("scan_results", {})
         lines = [
-            f"\n- File:     {result.get('file_path')}",
+            f"\n- File:     {printable(result.get('file_path'))}",
             f"  Verdict:  {verdict_label(result) if result.get('verdict') else 'n/a'} "
             f"(risk {result.get('risk_score', 0)}/100, "
             f"severity {result.get('severity_score', 0)}/10)",
@@ -190,8 +194,15 @@ LLM posture:            {self._llm_posture_label()}
             layers.append("qr")
         if getattr(self, "ml", None) is not None:
             layers.append("ml")
-        layers.append("llm")
-        layers.append("virustotal")
+        # L-C3: only the external layers that can run (an LLM backend that is
+        # available; a VirusTotal key here, or VirusTotal on the intel service).
+        backend = getattr(self, "llm_backend", None)
+        if backend is not None and backend.available:
+            layers.append("llm")
+        intel = getattr(self, "intel", None)
+        if (intel.service("virustotal").get("enabled") if intel is not None
+                else (getattr(self, "config", None) or {}).get("virustotal_api_key")):
+            layers.append("virustotal")
         emulator = getattr(self, "emulator", None)
         if emulator is not None and emulator.available:
             layers.append("emulation")
@@ -204,12 +215,13 @@ LLM posture:            {self._llm_posture_label()}
         backend = getattr(self, "llm_backend", None)
         if backend is None:
             return "none"
-        name = backend.__class__.__name__
-        if "Ollama" in name:
-            return f"LOCAL ({getattr(backend, 'model', 'ollama')})"
-        if "OpenAI" in name:
-            return "CLOUD (OpenAI - documents leave the machine)"
-        return "disabled"
+        # L-C6: ask the backend, so the intel service's LLM is described too.
+        if not backend.available:
+            return "disabled"
+        model = getattr(backend, "model", "") or backend.name
+        if backend.is_local:
+            return f"LOCAL ({model})"
+        return f"CLOUD ({model} - documents leave the machine)"
 
 
 # --------------------------------------------------------------------------
@@ -218,6 +230,20 @@ LLM posture:            {self._llm_posture_label()}
 # and one entry in FINDING_SECTIONS; the order there is the order in reports.
 # --------------------------------------------------------------------------
 Lines = List[str]
+
+
+def _new_report_file(report_dir: str, stem: str) -> Tuple[str, TextIO]:
+    """Create `<stem>.json` (or `<stem>_2.json`, `_3`, ... when that name is
+    taken) and return its path and open UTF-8 handle. Exclusive creation means
+    two reports finished in the same second, by this or another process, never
+    overwrite each other; the first report keeps the historical name."""
+    n = 1
+    while True:
+        path = os.path.join(report_dir, f"{stem}.json" if n == 1 else f"{stem}_{n}.json")
+        try:
+            return path, open(path, "x", encoding="utf-8")
+        except FileExistsError:
+            n += 1
 
 
 def _provenance_lines(results: List[Dict], fallback: Dict) -> str:
@@ -267,7 +293,7 @@ def _gap_lines(result: Dict, limit: int = 5) -> Lines:
     for r in reasons[:limit]:
         where = r.get("member_path") or result.get("file_path")
         lines.append(f"              - [{r.get('layer')}] {r.get('reason')}"
-                     + (f"  ({where})" if where != result.get("file_path") else ""))
+                     + (f"  ({printable(where)})" if where != result.get("file_path") else ""))
     if len(reasons) > limit:
         lines.append(f"              ... {len(reasons) - limit} more in the JSON report")
     return lines
@@ -280,7 +306,7 @@ def _incomplete_section(results: List[Dict]) -> str:
     out = f"\n{'=' * 60}\nNOT FULLY INSPECTED ({len(results)})\n{'=' * 60}\n"
     for r in sorted(results, key=lambda r: PRECEDENCE.index(r.get("scan_status", COMPLETE)),
                     reverse=True):
-        out += f"\n- File:     {r.get('file_path')}\n  Verdict:  {verdict_label(r)}\n"
+        out += f"\n- File:     {printable(r.get('file_path'))}\n  Verdict:  {verdict_label(r)}\n"
         out += "".join(f"{line}\n" for line in _gap_lines(r, limit=3))
     return out
 

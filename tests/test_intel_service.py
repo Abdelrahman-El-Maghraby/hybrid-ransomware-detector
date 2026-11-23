@@ -187,7 +187,7 @@ def test_hash_lookup_reaches_only_virustotal(intel):
     assert r.status_code == 200 and r.json()["malicious_detections"] == 3
     assert vt.seen == [f"https://www.virustotal.com/api/v3/files/{SHA}"]
     assert service.destinations == {"virustotal": ["https://www.virustotal.com:443"], "llm": [],
-                                    "sandbox": ["http://cape.lab:8000"]}
+                                    "sandbox": ["http://cape.lab:8000"], "email": []}
 
 
 def test_upload_needs_the_intel_side_switch(intel):
@@ -455,3 +455,19 @@ def test_no_unix_sockets_means_unreachable_not_a_crash(monkeypatch):
     monkeypatch.delattr(IC.socket, "AF_UNIX", raising=False)
     with pytest.raises(IC.IntelError, match="unreachable"):
         IC.IntelClient("/run/aegis/intel/intel.sock", TOKEN).vt_lookup(SHA)
+
+
+@pytest.mark.parametrize("route", ["/v1/virustotal/lookup", "/v1/llm/analyze",
+                                   "/v1/sandbox/poll", "/v1/alert/email"])
+def test_the_token_is_checked_before_the_body_is_parsed(intel, route):
+    """I-x: these routes took `Body(...)`, which FastAPI parses before running the
+    token dependency, so a client without the token had its JSON parsed (and got
+    422 for a broken body instead of 401)."""
+    api, _, _ = intel()
+    broken = {"content": b"{not json", "headers": {"Content-Type": "application/json"}}
+    assert api.post(route, **broken).status_code == 401
+    wrong = {"Authorization": "Bearer " + "w" * 40, "Content-Type": "application/json"}
+    assert api.post(route, content=b"{not json", headers=wrong).status_code == 401
+    ok = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    expected = 403 if route == "/v1/alert/email" else 422    # no mailer here: refused first
+    assert api.post(route, content=b"{not json", headers=ok).status_code == expected

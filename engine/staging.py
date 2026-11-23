@@ -10,8 +10,8 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, cast
 
 from .completeness import assess, verdict_label
 from .config import ENGINE_VERSION
@@ -29,6 +29,10 @@ class StagedPipelineMixin:
     pipeline: List[Layer]
     scoring: Any
     _heavy_pool: Optional[ThreadPoolExecutor]
+    provisional_listener: Optional[Callable[[Dict, bool], None]]   # set in a worker (M26)
+
+    completed_listener: Optional[Callable[[Dict], None]]
+    clear_provisional_listener: Optional[Callable[[], None]]
 
     # ------------------------------------------------------------- scanning
     def scan_file(self, file_path: str, _depth: int = 0,
@@ -51,22 +55,14 @@ class StagedPipelineMixin:
                 continue
             self._run_heavy(heavy, ctx)          # a fast layer after slow ones keeps its order
             heavy = []
+            self._clear_provisional(ctx)
             self._run_layer(layer, ctx)
         self._run_heavy(heavy, ctx)
 
-        # Fuse every signal through the weighted scoring matrix
-        score = self.scoring.score(ctx.signals)
-        result = ctx.result
-        result["is_malicious"] = score.is_malicious
-        result["severity_score"] = score.severity_score   # legacy 0-10 (DB hit => 10.0)
-        result["risk_score"] = score.risk_score            # 0-100
-        result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
-        result["score_breakdown"] = score.as_dict()        # full evidence trail
-        # How far the evidence goes; independent of the score and verdict above.
-        result["scan_status"], result["incomplete_reasons"] = assess(
-            cast("RansomwareScanner", self), ctx)
-        result["verdict_label"] = verdict_label(result)
-        result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
+        result = self._assemble(ctx)
+        completed = getattr(self, "completed_listener", None)
+        if self._in_worker(ctx) and completed is not None:
+            completed(result)  # evidence only; delivery remains in the parent
         own = [s for s in result["provenance"]["shared"] if "member_path" not in s]
         if own:
             logger.info("Sent outside for %s: %s", display,
@@ -85,6 +81,72 @@ class StagedPipelineMixin:
                    "duration_ms": result["scan_duration_ms"]})
         return result
 
+    def _assemble(self, ctx: ScanContext) -> Dict:
+        """Score the file and write the verdict, completeness and provenance into
+        ctx.result. No logging and no other side effect: the M26 provisional
+        result is built with it too."""
+        score = self.scoring.score(ctx.signals)     # every signal through the scoring matrix
+        result = ctx.result
+        result["is_malicious"] = score.is_malicious
+        result["severity_score"] = score.severity_score   # legacy 0-10 (DB hit => 10.0)
+        result["risk_score"] = score.risk_score            # 0-100
+        result["verdict"] = score.verdict                  # Clean|Low|Medium|High|Critical
+        result["score_breakdown"] = score.as_dict()        # full evidence trail
+        # How far the evidence goes; independent of the score and verdict above.
+        result["scan_status"], result["incomplete_reasons"] = assess(
+            cast("RansomwareScanner", self), ctx)
+        result["verdict_label"] = verdict_label(result)
+        result["provenance"] = file_provenance(cast("RansomwareScanner", self), ctx)
+        return result
+
+    def assembled_copy(self, ctx: ScanContext, entries: Dict[str, Tuple[str, Dict[str, Any]]]
+                       ) -> Dict:
+        """The result the file would get with `entries` ({layer: (result key,
+        result)}) added, assembled on a copy (ctx is not changed)."""
+        sub = copy.copy(ctx)
+        sub.result = {**ctx.result, "scan_results": {**ctx.scan_results,
+                                                     **{k: e for k, e in entries.values()}}}
+        sub.signals = ctx.signals.copy()
+        sub.layer_log = list(ctx.layer_log) + [(layer, RAN) for layer in entries]
+        sub.member_reasons = list(ctx.member_reasons)
+        sub.member_shared = list(ctx.member_shared)
+        return self._assemble(sub)
+
+    def provisional_result(self, ctx: ScanContext,
+                           stopped: Dict[str, Tuple[str, Dict[str, Any]]]) -> Dict:
+        """M26, I-6: the result the file gets if the worker must be stopped while
+        the `stopped` layers (sandbox, VirusTotal, LLM) wait on their service:
+        those layers at `timeout`, named in `scan_results.stopped_layers`. The
+        worker sends it before that wait; the parent uses it only if it stops
+        the worker at the scan limit."""
+        result = self.assembled_copy(ctx, stopped)
+        result["scan_results"]["stopped_layers"] = sorted(stopped)
+        return result
+
+    def _in_worker(self, ctx: ScanContext) -> bool:
+        return (ctx.depth == 0 and getattr(self, "provisional_listener", None) is not None
+                and cast("RansomwareScanner", self).time_left() is not None)
+
+    def _send_stage_provisional(self, layers: List[Layer], ctx: ScanContext) -> None:
+        """I-6: before the slow layers that may wait on an outside service
+        (VirusTotal, the LLM) run in a worker, send the parent the result it
+        keeps if the worker is stopped during their wait."""
+        stopped = {}
+        for layer in layers:
+            entry = layer.stopped_entry(cast("RansomwareScanner", self), ctx)
+            if entry is not None:
+                stopped[layer.name] = entry
+        if stopped:
+            listen = self.provisional_listener
+            if listen is not None:
+                listen(self.provisional_result(ctx, stopped), False)
+
+    def _sandbox_last(self, ctx: ScanContext) -> bool:
+        """M26: in an isolated worker with a sandbox, the sandbox runs after the
+        other slow layers, so the provisional result it sends first holds their
+        findings. Elsewhere the slow layers run together as before."""
+        return self._in_worker(ctx) and getattr(self, "sandbox", None) is not None
+
     def _run_layer(self, layer: Layer, ctx: ScanContext) -> None:
         """Run one layer; a parser that raises on a hostile file costs that layer's
         evidence, not the whole file's verdict. The error is kept in the result."""
@@ -94,6 +156,8 @@ class StagedPipelineMixin:
             # a layer that does not apply to this file type returns without evidence
             ctx.layer_log.append((layer.name, RAN if set(ctx.scan_results) - keys
                                   else NOT_APPLICABLE))
+        except MemoryError:
+            raise  # the worker must report a memory failure, never a timeout fallback
         except Exception as e:
             ctx.layer_log.append((layer.name, FAILED))
             logger.warning("Layer %s failed on %s: %s: %s", layer.name, ctx.display,
@@ -123,8 +187,22 @@ class StagedPipelineMixin:
                           "change the verdict.",
             }
             return
+        last = [layer for layer in layers if layer.name == "sandbox"] \
+            if self._sandbox_last(ctx) else []
+        if last:                                 # M26: the others first, then the sandbox
+            self._run_together([layer for layer in layers if layer not in last], ctx)
+            for layer in last:
+                self._run_layer(layer, ctx)
+            return
+        self._run_together(layers, ctx)
+
+    def _run_together(self, layers: List[Layer], ctx: ScanContext) -> None:
+        if not layers:
+            return
         if len(layers) == 1 or not self.config.get("parallel_heavy_layers", True):
             for layer in layers:
+                self._clear_provisional(ctx)
+                self._publish_pending([layer], ctx)
                 self._run_layer(layer, ctx)
             return
 
@@ -132,6 +210,10 @@ class StagedPipelineMixin:
             sub = copy.copy(ctx)
             sub.result = {**ctx.result, "scan_results": {}}
             sub.signals = ctx.signals.copy()
+            # No mutable bookkeeping is shared with other layer threads.
+            sub.layer_log = []
+            sub.member_reasons = list(ctx.member_reasons)
+            sub.member_shared = list(ctx.member_shared)
             self._run_layer(layer, sub)
             return sub
 
@@ -139,13 +221,49 @@ class StagedPipelineMixin:
             self._heavy_pool = ThreadPoolExecutor(max_workers=4,
                                                   thread_name_prefix="heavy-layer")
         before_signals, before_result = ctx.signals.copy(), dict(ctx.result)
-        futures = [self._heavy_pool.submit(run_on_copy, layer) for layer in layers]
-        for fut in futures:                      # merge in pipeline order: same report order
-            sub = fut.result()
-            ctx.scan_results.update(sub.scan_results)
-            for key, value in sub.signals.changed_since(before_signals).items():
-                ctx.signals.set(key, value)              # only what this layer changed
-            for key, value in sub.result.items():
-                if key != "scan_results" and value is not before_result.get(key):
-                    ctx.result[key] = value
+        self._publish_pending(layers, ctx)
+        futures = {self._heavy_pool.submit(run_on_copy, layer): i
+                   for i, layer in enumerate(layers)}
+        finished: Dict[int, ScanContext] = {}
+        for fut in as_completed(futures):
+            finished[futures[fut]] = fut.result()
+            # Only the coordinator assembles snapshots. Completed contexts are
+            # immutable here; merging in pipeline order makes conflicting fields
+            # deterministic even when completion order differs.
+            snapshot = copy.copy(ctx)
+            snapshot.result = copy.deepcopy(ctx.result)
+            snapshot.signals = ctx.signals.copy()
+            snapshot.layer_log = list(ctx.layer_log)
+            for index in sorted(finished):
+                self._merge_layer(snapshot, finished[index], before_signals, before_result)
+            pending = [layer for i, layer in enumerate(layers) if i not in finished]
+            self._publish_pending(pending, snapshot)
+        for index in sorted(finished):
+            self._merge_layer(ctx, finished[index], before_signals, before_result)
 
+    def _clear_provisional(self, ctx: ScanContext) -> None:
+        clear = getattr(self, "clear_provisional_listener", None)
+        if self._in_worker(ctx) and clear is not None:
+            clear()
+
+    def _publish_pending(self, pending: List[Layer], ctx: ScanContext) -> None:
+        if not pending or not self._in_worker(ctx):
+            return
+        # A stalled parser/ML/emulator is a failure, not an external timeout.
+        if any(layer.stopped_entry(cast("RansomwareScanner", self), ctx) is None
+               for layer in pending):
+            return
+        self._send_stage_provisional(pending, ctx)
+
+    @staticmethod
+    def _merge_layer(ctx: ScanContext, sub: ScanContext, before_signals: Any,
+                     before_result: Dict) -> None:
+        ctx.scan_results.update({k: v for k, v in sub.scan_results.items() if k != "layer_errors"})
+        if sub.scan_results.get("layer_errors"):
+            ctx.scan_results.setdefault("layer_errors", {}).update(sub.scan_results["layer_errors"])
+        ctx.layer_log.extend(sub.layer_log)
+        for key, value in sub.signals.changed_since(before_signals).items():
+            ctx.signals.set(key, value)
+        for key, value in sub.result.items():
+            if key != "scan_results" and value is not before_result.get(key):
+                ctx.result[key] = value

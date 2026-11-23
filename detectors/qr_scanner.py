@@ -31,7 +31,7 @@ import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 logger = logging.getLogger("RansomwareScanner")
@@ -97,6 +97,10 @@ class QRResult:
     images_checked: int = 0
     codes: List[QRCode] = field(default_factory=list)
     detail: str = ""
+    # L-D5: images or pages over a limit that were not decoded, and an error that
+    # stopped the image collection; either makes the scan partial
+    not_checked: str = ""
+    error: str = ""
 
     @property
     def urls(self) -> List[str]:
@@ -109,7 +113,9 @@ class QRResult:
     def as_dict(self) -> Dict:
         return {"available": self.available, "backend": self.backend or "none",
                 "images_checked": self.images_checked,
-                "codes": [c.as_dict() for c in self.codes], "detail": self.detail}
+                "codes": [c.as_dict() for c in self.codes], "detail": self.detail,
+                **({"not_checked": self.not_checked} if self.not_checked else {}),
+                **({"error": self.error} if self.error else {})}
 
 
 def assess_url(url: str) -> Tuple[bool, List[str]]:
@@ -181,20 +187,30 @@ class QRScanner:
         if not QR_AVAILABLE:
             res.detail = f"QR codes not checked: no decoder installed ({QR_INSTALL_HINT})."
             return res
+        notes: List[str] = []
         try:
-            images = self._collect(Path(path))
+            images = self._collect(Path(path), notes)
         except Exception as e:                       # hostile container: not checked
             logger.debug("QR image collection failed for %s: %s", path, e)
+            res.error = f"images could not be read ({type(e).__name__})"
             images = []
         seen = set()
+        too_big = 0
         for source, data in images:
             res.images_checked += 1
-            for payload in self._decode(data):
+            payloads = self._decode(data)
+            if payloads is None:
+                too_big += 1
+                continue
+            for payload in payloads:
                 if payload in seen:
                     continue
                 seen.add(payload)
                 is_url, reasons = assess_url(payload)
                 res.codes.append(QRCode(payload, source, is_url, reasons))
+        if too_big:
+            notes.append(f"{too_big} image(s) over {self.max_pixels} pixels not decoded")
+        res.not_checked = "; ".join(notes)[:500]
         if res.codes:
             n_sus = len(res.suspicious)
             res.detail = (f"{len(res.codes)} QR code(s) in {res.images_checked} image(s); "
@@ -204,34 +220,51 @@ class QRScanner:
         return res
 
     # ------------------------------------------------------------- collection
-    def _collect(self, path: Path) -> List[Tuple[str, bytes]]:
+    def _collect(self, path: Path, notes: List[str]) -> List[Tuple[str, bytes]]:
+        """The images to decode; what a limit leaves out is added to `notes` (L-D5)."""
         ext = path.suffix.lower()
         if ext in IMAGE_EXTENSIONS:
             if path.stat().st_size <= self.max_image_bytes:
                 return [(path.name, path.read_bytes())]
+            notes.append(self._over_size(1))
             return []
         if ext in OOXML_EXTENSIONS:
-            return self._ooxml_images(path)
+            return self._ooxml_images(path, notes)
         if ext == ".pdf":
-            return self._pdf_images(path)
+            return self._pdf_images(path, notes)
         return []
 
-    def _ooxml_images(self, path: Path) -> List[Tuple[str, bytes]]:
+    def _over_size(self, n: int) -> str:
+        mib = 1024 * 1024
+        limit = (f"{self.max_image_bytes // mib} MiB" if self.max_image_bytes % mib == 0
+                 else f"{self.max_image_bytes}-byte")
+        return f"{n} image(s) over the {limit} limit not decoded"
+
+    def _ooxml_images(self, path: Path, notes: List[str]) -> List[Tuple[str, bytes]]:
         out: List[Tuple[str, bytes]] = []
         if not zipfile.is_zipfile(path):
             return out
+        big = over = 0
         with zipfile.ZipFile(path) as z:
             for info in z.infolist():
-                if len(out) >= self.max_images:
-                    break
                 name = info.filename
-                if (name.startswith(_OOXML_MEDIA)
+                if not (name.startswith(_OOXML_MEDIA)
                         and PurePosixPath(name).suffix.lower() in IMAGE_EXTENSIONS
-                        and 0 < info.file_size <= self.max_image_bytes):
+                        and info.file_size > 0):
+                    continue
+                if info.file_size > self.max_image_bytes:
+                    big += 1
+                elif len(out) >= self.max_images:
+                    over += 1
+                else:
                     out.append((name, z.read(info)))
+        if big:
+            notes.append(self._over_size(big))
+        if over:
+            notes.append(f"{over} image(s) over the {self.max_images}-image limit not decoded")
         return out
 
-    def _pdf_images(self, path: Path) -> List[Tuple[str, bytes]]:
+    def _pdf_images(self, path: Path, notes: List[str]) -> List[Tuple[str, bytes]]:
         out: List[Tuple[str, bytes]] = []
         try:
             from pypdf import PdfReader  # type: ignore
@@ -240,27 +273,50 @@ class QRScanner:
                 from PyPDF2 import PdfReader  # type: ignore
             except ImportError:
                 return out
+        with open(path, "rb") as fh:            # A2: a program merely named .pdf is not
+            if b"%PDF" not in fh.read(1024):     # a PDF the layer failed to read
+                return out
         reader = PdfReader(str(path), strict=False)
+        total = len(reader.pages)
+        if total > self.max_pdf_pages:
+            notes.append(f"pages {self.max_pdf_pages + 1}-{total} not checked "
+                         f"(limit {self.max_pdf_pages})")
+        big, unreadable = 0, []
         for pno, page in enumerate(reader.pages[: self.max_pdf_pages], 1):
             try:
                 images = list(page.images)
             except Exception as e:
                 logger.debug("PDF page %d images unreadable: %s", pno, e)
+                unreadable.append(str(pno))
                 continue
             for img in images:
                 if len(out) >= self.max_images:
-                    return out
+                    notes.append(f"image limit ({self.max_images}) reached on page {pno}: "
+                                 "later images not decoded")
+                    break
                 data = getattr(img, "data", b"") or b""
-                if 0 < len(data) <= self.max_image_bytes:
+                if len(data) > self.max_image_bytes:
+                    big += 1
+                elif data:
                     out.append((f"page {pno}: {getattr(img, 'name', 'image')}", data))
+            else:
+                continue
+            break
+        if big:
+            notes.append(self._over_size(big))
+        if unreadable:
+            notes.append(f"images of page(s) {', '.join(unreadable[:5])} unreadable")
         return out
 
     # ---------------------------------------------------------------- decoding
-    def _decode(self, data: bytes) -> List[str]:
+    def _decode(self, data: bytes) -> Optional[List[str]]:
+        """Decoded payloads; None for an image over the pixel limit (L-D5: named)."""
         try:
             opened = Image.open(io.BytesIO(data))
             w, h = opened.size
-            if w * h > self.max_pixels or w < 21 or h < 21:   # bomb, or too small for a QR
+            if w * h > self.max_pixels:              # a decompression bomb: not decoded
+                return None
+            if w < 21 or h < 21:                     # too small to hold a QR code
                 return []
             img = opened.convert("L")
         except Exception:

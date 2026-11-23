@@ -29,6 +29,7 @@ token > "$AEGIS_SECRETS_DIR/intel_token"
 : > "$AEGIS_SECRETS_DIR/virustotal_api_key"      # external services stay off
 : > "$AEGIS_SECRETS_DIR/openai_api_key"
 : > "$AEGIS_SECRETS_DIR/sandbox_token"
+: > "$AEGIS_SECRETS_DIR/smtp_password"             # e-mail alerts stay off
 chmod 0644 "$AEGIS_SECRETS_DIR"/*                  # read by uid 10001 / 10002 in the containers
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
   -keyout "$AEGIS_TLS_DIR/key.pem" -out "$AEGIS_TLS_DIR/cert.pem" 2>/dev/null

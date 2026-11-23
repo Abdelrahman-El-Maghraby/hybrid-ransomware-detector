@@ -7,7 +7,8 @@ How much of a file was actually inspected: `scan_status` and `incomplete_reasons
     partial      an applicable, enabled layer errored or was unavailable, or part of
                  the content was not unpacked (limits, a missing decompressor)
     locked       encrypted or password-protected content was not opened
-    failed       the scan worker timed out, crashed or ran out of memory
+    failed       the scan worker timed out, crashed or ran out of memory, or no
+                 isolated worker could start, so the file was not scanned at all
 
 A container takes the most severe status among itself and its members, in this
 order (docs/RELEASE_SCOPE.md, criterion C1):
@@ -58,7 +59,7 @@ _EXTERNAL_RESULTS = (("llm", "chatgpt_analysis"), ("virustotal", "virustotal"),
 _CONTAINER_RESULTS = ("archive", "mail", "web", "embedded")
 # core layers that report "could not analyse" as data (an `error` field)
 _ANALYSIS_RESULTS = (("yara", "yara"), ("macro", "macro_analysis"),
-                     ("relationships", "relationships"))
+                     ("relationships", "relationships"), ("qr", "qr_codes"))
 
 Reason = Dict[str, str]
 
@@ -118,6 +119,8 @@ def _layer_gaps(scanner: RansomwareScanner, ctx: ScanContext, out: List[Reason])
         if isinstance(entry, dict) and entry.get("error"):
             out.append(reason(PARTIAL, ctx.display, layer, f"{layer} could not analyse the file: "
                                                           f"{entry['error']}"))
+        if isinstance(entry, dict) and entry.get("not_checked"):
+            out.append(reason(PARTIAL, ctx.display, layer, str(entry["not_checked"])))
     for layer, key in _EXTERNAL_RESULTS:
         entry = sr.get(key)
         if not isinstance(entry, dict):
@@ -175,6 +178,19 @@ def _embedded_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
         out.append(reason(PARTIAL, ctx.display, "embedded", f"not unpacked: {text}"))
 
 
+def _web_gaps(sr: Dict, ctx: ScanContext, out: List[Reason]) -> None:
+    web = sr.get("web")
+    if not isinstance(web, dict):
+        return
+    if web.get("truncated"):
+        # RV-S1: only the first MAX_READ bytes were analysed (embedded payloads too);
+        # a fuzzy limit at the same size used to hide this
+        out.append(reason(PARTIAL, ctx.display, "web",
+                          "page longer than the analysis limit: only its beginning was read"))
+    for text in web.get("skipped") or []:
+        out.append(reason(PARTIAL, ctx.display, "web", f"not scanned: {text}"))
+
+
 def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
                  out: List[Reason]) -> None:
     for key in _CONTAINER_RESULTS:
@@ -186,7 +202,8 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
                               f"{box['not_scanned_budget']} member(s) over the scan budget: "
                               "listed, not scanned"))
         if (ctx.depth >= scanner.max_nesting and not box.get("deep_scanned")
-                and (box.get("member_count") or box.get("attachment_count") or box.get("members"))):
+                and (box.get("member_count") or box.get("attachment_count") or box.get("members")
+                     or box.get("payloads"))):              # web pages name theirs payloads
             out.append(reason(PARTIAL, ctx.display, key,
                               f"nesting limit ({scanner.max_nesting}) reached: members listed, "
                               "not scanned"))
@@ -196,9 +213,31 @@ def _budget_gaps(scanner: RansomwareScanner, sr: Dict, ctx: ScanContext,
         # the PDF parser, but it is analysed as what it is
         out.append(reason(PARTIAL, ctx.display, "prompt-guard",
                           f"document text not read: {sr['text_extraction']['error']}"))
+    if (sr.get("text_extraction") or {}).get("not_checked"):
+        # TX-1: a text limit left visible text unread; the injection checks saw
+        # only the text before it (an omission, not a parser failure: no format test)
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          str(sr["text_extraction"]["not_checked"])))
+    if (sr.get("text_extraction") or {}).get("strings_not_checked"):
+        # TX-2: the printable-strings pass (phrasing check and LLM) stopped at its
+        # input or output limit with strings left after it
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          str(sr["text_extraction"]["strings_not_checked"])))
+    guard_error = (sr.get("prompt_guard") or {}).get("error")
+    if guard_error and fmt in ("pdf", "zip", "ole"):
+        # the hidden-content check stopped part-way (its findings so far are kept);
+        # as above, only for content that really is a PDF / Office file
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard",
+                          f"hidden-content check incomplete: {guard_error}"))
+    guard_skipped = (sr.get("prompt_guard") or {}).get("not_checked")
+    if guard_skipped:
+        # parts the hidden-content check could not read (over its size limit)
+        out.append(reason(PARTIAL, ctx.display, "prompt-guard", str(guard_skipped)))
     if (sr.get("mail") or {}).get("error"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"message not analysed: {sr['mail']['error']}"))
+    if (sr.get("mail") or {}).get("body_not_checked"):
+        out.append(reason(PARTIAL, ctx.display, "mail", str(sr["mail"]["body_not_checked"])))
     if (sr.get("mail") or {}).get("attachments_skipped"):
         out.append(reason(PARTIAL, ctx.display, "mail",
                           f"{sr['mail']['attachments_skipped']} attachment(s) not unpacked"))
@@ -262,6 +301,7 @@ def assess(scanner: RansomwareScanner, ctx: ScanContext) -> Tuple[str, List[Reas
     _layer_gaps(scanner, ctx, out)
     _archive_gaps(ctx.scan_results, ctx, out)
     _embedded_gaps(ctx.scan_results, ctx, out)
+    _web_gaps(ctx.scan_results, ctx, out)
     _budget_gaps(scanner, ctx.scan_results, ctx, out)
     _format_gaps(ctx, out)
     out.extend(ctx.member_reasons)
@@ -274,9 +314,10 @@ def assess(scanner: RansomwareScanner, ctx: ScanContext) -> Tuple[str, List[Reas
     return status, out
 
 
-def failed(path: str, why: str) -> Tuple[str, List[Reason]]:
-    """Status for a file whose worker timed out, crashed or hit the memory limit."""
-    return FAILED, [reason(FAILED, path, "worker", why)]
+def failed(path: str, why: str, layer: str = "worker") -> Tuple[str, List[Reason]]:
+    """Status for a file whose worker timed out, crashed or hit the memory limit
+    (layer "worker"), or that no isolated worker could take (layer "isolation")."""
+    return FAILED, [reason(FAILED, path, layer, why)]
 
 
 def verdict_label(result: Dict) -> str:

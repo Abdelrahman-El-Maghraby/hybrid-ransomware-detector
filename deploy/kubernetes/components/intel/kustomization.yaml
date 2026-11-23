@@ -1,0 +1,55 @@
+# Optional: the intel service on Kubernetes (docs/KUBERNETES.md, decision record
+# K8S-1, option E). Without this component the deployment has no external
+# services. With it, analysis reaches intel over TLS on one port and nothing else:
+#
+#   components:
+#     - ../../components/intel        (path from your overlay)
+#
+# and in the overlay: the intel Service's ClusterIP (the same address in the
+# Service and in AEGIS_INTEL_URL), the intel settings below, and the operator's
+# Secrets and CA ConfigMap (docs/KUBERNETES.md, "Intel"). check_manifests.py
+# checks that the two addresses match and that analysis has exactly one egress rule.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# The base's namespace and image settings do not reach a component's objects; an
+# overlay's own namespace and images still apply after this.
+namespace: aegis-sentinel
+images:
+  - name: aegis-sentinel
+    newTag: SET-VERSION-IN-OVERLAY
+  - name: aegis-sentinel-proxy
+    newTag: SET-VERSION-IN-OVERLAY
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: aegis-sentinel
+    includeSelectors: false
+resources:
+  - intel.yaml
+  - networkpolicy.yaml
+patches:
+  - path: analysis-patch.yaml
+configMapGenerator:
+  # Non-secret intel settings, as in docker-compose.yml's intel service. Keys and
+  # passwords are Secret files (aegis-intel-credentials), never here.
+  - name: aegis-intel-config
+    literals:
+      - LOG_FORMAT=json
+      - VT_UPLOAD_UNKNOWN=false
+      - LLM_PROVIDER=none
+      - OLLAMA_HOST=
+      - SANDBOX_URL=
+      - SANDBOX_WAIT_SECONDS=600
+      - SCAN_TIMEOUT_SECONDS=300
+      - SMTP_HOST=
+      - SMTP_PORT=465
+      - SMTP_SECURITY=tls
+      - SMTP_USER=
+      - ALERT_EMAIL_FROM=
+      - ALERT_EMAIL_TO=
+      - ALERT_EMAIL_PER_HOUR=20
+      - ALERT_EMAIL_PER_DAY=100
+      - AEGIS_INTEL_MAX_UPLOAD_MB=100
+  # TLS in front of intel's socket, inside the intel Pod
+  - name: aegis-intel-proxy
+    files:
+      - Caddyfile

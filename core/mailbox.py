@@ -31,7 +31,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 logger = logging.getLogger("RansomwareScanner.mailbox")
 
@@ -76,12 +76,22 @@ class ImapSettings:
         return f"{self.user}@{self.host}:{self.port}/{self.folder}"
 
 
+_FETCH_FAILED = object()               # _fetch: the server did not return the message
+
+
+class _CutMessage(bytes):
+    """L-C7: a message cut at max_bytes because the server did not report its size
+    beforehand. It is scanned, and its result is marked partial."""
+
+
 @dataclass
 class MailboxRun:
     results: List[Dict] = field(default_factory=list)
     skipped_too_large: List[int] = field(default_factory=list)
+    fetch_failed: List[int] = field(default_factory=list)   # the server did not return the body
     new_messages: int = 0
     more_waiting: bool = False         # more new messages than max_messages
+    not_scanned: int = 0               # no isolated worker could start; retried next run
 
 
 def _default_connect(s: ImapSettings):
@@ -147,16 +157,24 @@ class MailboxScanner:
 
             paths: List[str] = []
             labels: Dict[str, Tuple[int, str]] = {}
+            cut: Set[int] = set()
             for uid in uids:
                 raw = self._fetch(conn, uid)
                 if raw is None:
                     out.skipped_too_large.append(uid)
                     continue
+                if raw is _FETCH_FAILED:              # I-x: not a size problem
+                    out.fetch_failed.append(uid)
+                    continue
+                if isinstance(raw, _CutMessage):
+                    cut.add(uid)
                 path = workdir / f"{uid}.eml"
                 path.write_bytes(raw)
                 paths.append(str(path))
                 labels[str(path)] = (uid, f"imap://{s.user}@{s.host}/{s.folder};UID={uid}")
 
+            from engine.workers import isolation_unavailable
+            unscanned: Set[int] = set()
             if paths:
                 for result in self.scanner._scan_targets(paths):
                     uid, label = labels.get(result.get("file_path", ""), (0, ""))
@@ -165,9 +183,25 @@ class MailboxScanner:
                         result["file_name"] = f"{s.folder} UID {uid}"
                         result["mailbox"] = {"host": s.host, "user": s.user,
                                              "folder": s.folder, "uid": uid}
+                        if uid in cut:
+                            _mark_cut(result, label, s.max_bytes)
+                        if isolation_unavailable(result):
+                            unscanned.add(uid)
                     out.results.append(result)
-            if uids:
-                state[s.key] = {"uidvalidity": validity, "last_uid": max(uids)}
+            out.not_scanned = len(unscanned)
+            # Mark as seen only the messages up to the first one that was not
+            # scanned (fail closed): the rest are fetched again on the next run.
+            seen = last_uid
+            for uid in uids:
+                if uid in unscanned:
+                    break
+                seen = uid
+            if unscanned:
+                logger.error("Mailbox: %d message(s) were not scanned because no isolated "
+                             "worker could start; they will be fetched again.", len(unscanned),
+                             extra={"event": "mailbox_not_scanned", "files": len(unscanned)})
+            if seen > last_uid:
+                state[s.key] = {"uidvalidity": validity, "last_uid": seen}
                 self._save_state(state)
             return out
         finally:
@@ -188,7 +222,8 @@ class MailboxScanner:
         uids = sorted({int(x) for x in b" ".join(d for d in data if d).split() if x.isdigit()})
         return [u for u in uids if u > last_uid]   # "N:*" also returns the last one
 
-    def _fetch(self, conn, uid: int) -> Optional[bytes]:
+    def _fetch(self, conn, uid: int) -> Any:
+        """The message, None when it is over the size limit, or _FETCH_FAILED."""
         typ, data = conn.uid("FETCH", str(uid), "(RFC822.SIZE)")
         size_match = _SIZE.search(b" ".join(_flatten(data))) if typ == "OK" else None
         if size_match and int(size_match.group(1)) > self.settings.max_bytes:
@@ -197,11 +232,30 @@ class MailboxScanner:
             return None
         typ, data = conn.uid("FETCH", str(uid), "(BODY.PEEK[])")   # PEEK: stays unread
         if typ != "OK":
-            return None
+            logger.warning("Mailbox: the server did not return UID %d (%s).", uid, typ)
+            return _FETCH_FAILED
         for item in data or []:
             if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
-                return item[1][:self.settings.max_bytes]
-        return None
+                if len(item[1]) > self.settings.max_bytes:       # L-C7: no size answer
+                    logger.warning("Mailbox: UID %d was cut at the %d-byte limit (the server "
+                                   "did not report its size); its scan is partial.",
+                                   uid, self.settings.max_bytes)
+                    return _CutMessage(item[1][:self.settings.max_bytes])
+                return item[1]
+        logger.warning("Mailbox: the answer for UID %d held no message.", uid)
+        return _FETCH_FAILED
+
+
+def _mark_cut(result: Dict[str, Any], label: str, max_bytes: int) -> None:
+    """L-C7: the scan of a cut message is partial; its findings are kept."""
+    from engine.completeness import PARTIAL, reason, verdict_label, worst
+    result["mailbox"]["truncated"] = True
+    result["incomplete_reasons"] = list(result.get("incomplete_reasons") or []) + [reason(
+        PARTIAL, label, "mailbox",
+        f"message cut at the {max_bytes}-byte limit (the server did not report its size): "
+        "the rest was not scanned")]
+    result["scan_status"] = worst([str(result.get("scan_status") or "complete"), PARTIAL])
+    result["verdict_label"] = verdict_label(result)
 
 
 def _quote(folder: str) -> str:

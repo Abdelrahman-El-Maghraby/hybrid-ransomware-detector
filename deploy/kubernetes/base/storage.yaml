@@ -1,0 +1,30 @@
+# ReadWriteOncePod: one Pod in the whole cluster may use each claim, so the
+# content-update Job cannot run while the analysis Pod holds the content, and two
+# analysis Pods can never share the state. It needs a CSI storage driver
+# (Kubernetes 1.29+); without one the claim stays Pending, which is the safe
+# failure. Set storageClassName in the overlay when the default class is not CSI.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aegis-analysis-state
+  labels:
+    app.kubernetes.io/component: analysis
+spec:
+  accessModes: [ReadWriteOncePod]
+  resources:
+    requests:
+      storage: 2Gi
+---
+# Detection content (rule packs, allowlist, hash and fuzzy databases). Written only
+# by the content-update Job (deploy/kubernetes/jobs/); analysis mounts it read-only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aegis-content
+  labels:
+    app.kubernetes.io/component: content
+spec:
+  accessModes: [ReadWriteOncePod]
+  resources:
+    requests:
+      storage: 1Gi

@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d5" width="1600" height="1384" viewBox="0 0 1600 1384" role="img" aria-labelledby="d5-title d5-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d5-title">Deployment: where each part runs, and what separates it</title>
+<desc id="d5-desc">Deployment and trust-boundary diagram of Aegis Sentinel: the desktop app and CLI on one computer, the Docker deployment with its four containers, and the external services each mode can reach.</desc>
+<rect x="0" y="0" width="1600" height="1384" fill="#ffffff"/>
+<g id="d5-frame">
+<rect x="760" y="12" width="820" height="62" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<rect x="1280" y="22" width="40" height="16" fill="#eff6ff" rx="3" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="774" y="48" width="40" height="16" fill="#f0fdf4" rx="3" stroke="#b91c1c" stroke-width="3"/>
+<rect x="20" y="90" width="1190" height="600" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="110" font-size="13" fill="#0f172a" font-weight="700">Mode 1  Desktop app and CLI: one computer, one OS user</text>
+<text x="32" y="126.9" font-size="12" fill="#334155">Everything below runs as the signed-in user, with that user&#x27;s files, network and keys.</text>
+<rect x="310" y="352" width="490" height="312" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="322" y="372" font-size="13" fill="#0f172a" font-weight="700">Worker processes (spawn), same OS user</text>
+<rect x="20" y="714" width="1190" height="650" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="734" font-size="13" fill="#0f172a" font-weight="700">Mode 2  Docker deployment: one host, four containers (docker-compose.yml)</text>
+<text x="32" y="750.9" font-size="12" fill="#334155">Distinct users, read-only root file systems, all capabilities dropped, no-new-privileges, memory, CPU and process limits.</text>
+<rect x="550" y="1006" width="370" height="112" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="562" y="1026" font-size="13" fill="#0f172a" font-weight="700">Workers, same uid 10001</text>
+<rect x="1230" y="90" width="350" height="1274" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1242" y="110" font-size="13" fill="#0f172a" font-weight="700">External services, when configured</text>
+<text x="1242" y="126.9" font-size="12" fill="#334155">Chips: the modes that reach each one.</text>
+</g>
+<g id="d5-edge">
+<path d="M774,30 L818,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="818,30 808,34.2 808,25.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M920,30 L964,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="954,34.6 964,30 954,25.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M465,274 L465,404" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="460.4,394 465,404 469.6,394" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M645,404 L645,274" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="649.6,284 645,274 640.4,284" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M155,264 L155,458 Q155,466 163,466 L330,466" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="330,466 320,470.2 320,461.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M270,212 L330,212" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="330,212 320,216.2 320,207.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M555,528 L555,560" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550.4,550 555,560 559.6,550" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,205.8 L807,205.8 Q815,205.8 815,213.8 L815,225 Q815,233 823,233 L860,233" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="850,237.6 860,233 850,228.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,230.6 L822,230.6 Q830,230.6 830,238.6 L830,309 Q830,317 838,317 L860,317" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="860,317 850,321.2 850,312.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M780,255.4 L837,255.4 Q845,255.4 845,263.4 L845,393.5 Q845,401 852.5,401 L860,401" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="850,405.6 860,401 850,396.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M190,835 L250,845" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="250,845 239.4,847.5 240.8,839.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M470,828.5 L530,828.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="530,828.5 520,832.7 520,824.3" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M530,867 L470,867" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="480,862.4 470,867 480,871.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M735,986 L735,1046" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="735,1046 730.8,1036 739.2,1036" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M940,841.8 L1000,841.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="990,846.4 1000,841.8 990,837.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M940,934.5 L1000,934.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="990,939.1 1000,934.5 990,929.9" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,164.9 L1210,164.9 Q1218,164.9 1218,172.9 L1218,463" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,193 L1250,193" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,197.6 1250,193 1240,188.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,283 L1250,283" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,287.6 1250,283 1240,278.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,373 L1250,373" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,377.6 1250,373 1240,368.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1250,463 L1220,463" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1230,458.4 1220,463 1230,467.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,497 L1210,497 Q1218,497 1218,505 L1218,762" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,573 L1250,573" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,577.6 1250,573 1240,568.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,663 L1250,663" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,667.6 1250,663 1240,658.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1218,762 L1250,762" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,766.6 1250,762 1240,757.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1200,840 L1214,840 Q1222,840 1222,848 L1222,870 Q1222,878 1230,878 L1250,878" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,882.6 1250,878 1240,873.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d5-node">
+<text x="826" y="34" font-size="12" fill="#0f172a">file content</text>
+<text x="972" y="34" font-size="12" fill="#0f172a">paths, results, requests or alerts (metadata)</text>
+<text x="1328" y="34" font-size="12" fill="#0f172a">process separation, not a security boundary</text>
+<text x="822" y="60" font-size="12" fill="#0f172a">container: OS-enforced boundary</text>
+<rect x="1040" y="46" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1051.5" y="60.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1066" y="46" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1077.5" y="60.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">K</text>
+<text x="1094" y="60" font-size="12" fill="#0f172a">reached from the desktop mode (D) or the Docker mode (K)</text>
+<rect x="40" y="160" width="230" height="104" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="155" y="192.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Files to scan</text>
+<text x="155" y="208.9" font-size="12.5" fill="#0f172a" text-anchor="middle">scan folders, chosen files, watched</text>
+<text x="155" y="225.4" font-size="12.5" fill="#0f172a" text-anchor="middle">folders (WATCH_DIRS), saved</text>
+<text x="155" y="241.9" font-size="12.5" fill="#0f172a" text-anchor="middle">IMAP messages</text>
+<rect x="330" y="150" width="450" height="124" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="183.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Parent process (GUI, CLI or --background)</text>
+<text x="555" y="200.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ScanController, run_scan(), FolderMonitor, MailboxScanner,</text>
+<text x="555" y="217.2" font-size="12.5" fill="#0f172a" text-anchor="middle">CanaryWatcher, the alert outbox.</text>
+<text x="555" y="233.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Configuration and keys from the OS keyring or .env. Reads files to walk,</text>
+<text x="555" y="250.2" font-size="12.5" fill="#0f172a" text-anchor="middle">hash and quarantine them; never parses them.</text>
+<rect x="860" y="200" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="229.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Reports, JSON Lines, logs, outbox</text>
+<text x="1025" y="246.4" font-size="12.5" fill="#0f172a" text-anchor="middle">report_directory and the data folder</text>
+<rect x="860" y="284" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="313.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Quarantine vault and key</text>
+<text x="1025" y="330.4" font-size="12.5" fill="#0f172a" text-anchor="middle">encrypted files; key in the keystore (mode 0600)</text>
+<rect x="860" y="368" width="330" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1025" y="397.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Canary files in guarded folders</text>
+<text x="1025" y="414.4" font-size="12.5" fill="#0f172a" text-anchor="middle">a trip runs containment on the user&#x27;s processes</text>
+<rect x="330" y="404" width="450" height="124" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="437.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers: one file each</text>
+<text x="555" y="454.7" font-size="12.5" fill="#0f172a" text-anchor="middle">The whole detection pipeline. Time limit SCAN_TIMEOUT_SECONDS;</text>
+<text x="555" y="471.2" font-size="12.5" fill="#0f172a" text-anchor="middle">memory limit: RLIMIT_AS (Linux), Job Object (Windows), RSS watchdog</text>
+<text x="555" y="487.7" font-size="12.5" fill="#0f172a" text-anchor="middle">(macOS); a private temp folder.</text>
+<text x="555" y="504.2" font-size="12.5" fill="#0f172a" text-anchor="middle">They receive the full configuration, API keys included.</text>
+<rect x="330" y="560" width="450" height="84" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="555" y="590.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Helper programs started by a worker</text>
+<text x="555" y="607.2" font-size="12.5" fill="#0f172a" text-anchor="middle">7-Zip or unar, Tesseract, poppler, box-js. Stopped with their worker; one</text>
+<text x="555" y="623.7" font-size="12.5" fill="#0f172a" text-anchor="middle">that detached before discovery can survive (L-E5).</text>
+<rect x="40" y="800" width="150" height="70" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="115" y="831.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">API client</text>
+<text x="115" y="848.4" font-size="12.5" fill="#0f172a" text-anchor="middle">HTTPS, bearer token</text>
+<rect x="250" y="790" width="220" height="110" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="360" y="825.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
+<text x="360" y="841.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003, network edge;</text>
+<text x="360" y="858.4" font-size="12.5" fill="#0f172a" text-anchor="middle">publishes port 8443; TLS ends</text>
+<text x="360" y="874.9" font-size="12.5" fill="#0f172a" text-anchor="middle">here</text>
+<rect x="530" y="780" width="410" height="206" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="735" y="863.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">analysis: api.server (_ScanService)</text>
+<text x="735" y="879.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; network_mode none: no interface but loopback.</text>
+<text x="735" y="896.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Secrets: api_token and intel_token only. tmpfs /tmp; volumes</text>
+<text x="735" y="912.9" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis-state (reports, logs, outbox) and content (rules, read-only).</text>
+<rect x="565" y="1046" width="340" height="56" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="735" y="1070.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers</text>
+<text x="735" y="1087.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time and memory limits; no network, no API keys</text>
+<rect x="1000" y="780" width="200" height="300" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="1100" y="877.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">intel: api.intel</text>
+<text x="1100" y="893.9" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10002; network egress.</text>
+<text x="1100" y="910.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Secrets: VirusTotal and OpenAI</text>
+<text x="1100" y="926.9" font-size="12.5" fill="#0f172a" text-anchor="middle">keys, sandbox token, SMTP</text>
+<text x="1100" y="943.4" font-size="12.5" fill="#0f172a" text-anchor="middle">password.</text>
+<text x="1100" y="959.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Fixed operations; only the</text>
+<text x="1100" y="976.4" font-size="12.5" fill="#0f172a" text-anchor="middle">destinations its own</text>
+<text x="1100" y="992.9" font-size="12.5" fill="#0f172a" text-anchor="middle">configuration names.</text>
+<rect x="530" y="1170" width="410" height="92" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="735" y="1204.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">content (tools profile, run by hand)</text>
+<text x="735" y="1221.2" font-size="12.5" fill="#0f172a" text-anchor="middle">--update-rules; network_mode none; writes the content volume that</text>
+<text x="735" y="1237.7" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis mounts read-only</text>
+<rect x="40" y="1170" width="440" height="92" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="260" y="1196.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Named volumes and Docker secrets</text>
+<text x="260" y="1212.9" font-size="12.5" fill="#0f172a" text-anchor="middle">api-socket and intel-socket carry Unix sockets between containers;</text>
+<text x="260" y="1229.4" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis-state, content and intel-state hold data; secrets are files under</text>
+<text x="260" y="1245.9" font-size="12.5" fill="#0f172a" text-anchor="middle">/run/secrets.</text>
+<polygon points="40,1300 928,1300 940,1312 940,1349 40,1349" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="928,1300 928,1312 940,1312" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="1319.6" font-size="12" fill="#0f172a">Not in this mode: webhooks, JSON Lines, S3 uploads, automatic quarantine and --scan-imap. The analysis side has no network and intel offers no IMAP</text>
+<text x="49" y="1335.7" font-size="12" fill="#0f172a">operation; API results reach e-mail only, through intel.</text>
+<rect x="1250" y="160" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="189.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1405" y="206.4" font-size="12.5" fill="#0f172a" text-anchor="middle">alert e-mails (metadata only)</text>
+<rect x="1511.4" y="150" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="164.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="250" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="279.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Webhook receiver</text>
+<text x="1405" y="296.4" font-size="12.5" fill="#0f172a" text-anchor="middle">signed alerts (metadata only)</text>
+<rect x="1527.8" y="240" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="254.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="340" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="369.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">S3-compatible storage</text>
+<text x="1405" y="386.4" font-size="12.5" fill="#0f172a" text-anchor="middle">reports and logs (opt-in)</text>
+<rect x="1527.8" y="330" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="344.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="430" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="459.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">IMAP mail server</text>
+<text x="1405" y="476.4" font-size="12.5" fill="#0f172a" text-anchor="middle">messages fetched read-only</text>
+<rect x="1527.8" y="420" width="23" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1539.3" y="434.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D</text>
+<rect x="1250" y="540" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="569.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1405" y="586.4" font-size="12.5" fill="#0f172a" text-anchor="middle">hash look-ups; uploads only if switched on</text>
+<rect x="1511.4" y="530" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="544.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="630" width="310" height="66" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="659.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM: OpenAI or Ollama</text>
+<text x="1405" y="676.4" font-size="12.5" fill="#0f172a" text-anchor="middle">document text sent for an opinion</text>
+<rect x="1511.4" y="620" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="634.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="720" width="310" height="84" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="750.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1405" y="767.2" font-size="12.5" fill="#0f172a" text-anchor="middle">your own server in a separately isolated</text>
+<text x="1405" y="783.7" font-size="12.5" fill="#0f172a" text-anchor="middle">environment; files are detonated there, never here</text>
+<rect x="1511.4" y="710" width="36" height="20" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1"/>
+<text x="1529.4" y="724.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">D K</text>
+<rect x="1250" y="836" width="310" height="84" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="858.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Docker: through intel only</text>
+<text x="1405" y="874.9" font-size="12.5" fill="#0f172a" text-anchor="middle">intel reaches the services marked K over its egress</text>
+<text x="1405" y="891.4" font-size="12.5" fill="#0f172a" text-anchor="middle">network; the analysis container cannot reach any</text>
+<text x="1405" y="907.9" font-size="12.5" fill="#0f172a" text-anchor="middle">of them</text>
+<polygon points="1250,950 1548,950 1560,962 1560,1031 1250,1031" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,950 1548,962 1560,962" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1259" y="969.6" font-size="12" fill="#0f172a">Security boundaries: the containers, and the</text>
+<text x="1259" y="985.7" font-size="12" fill="#0f172a">separate CAPE environment. Worker processes are</text>
+<text x="1259" y="1001.7" font-size="12" fill="#0f172a">not one: on a desktop they share the user&#x27;s access;</text>
+<text x="1259" y="1017.8" font-size="12" fill="#0f172a">in Docker they share uid 10001 with the API server.</text>
+</g>
+<g id="d5-label">
+<rect x="422.2" y="320.8" width="85.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="465" y="334.3" font-size="12" fill="#0f172a" text-anchor="middle">file path (pipe)</text>
+<rect x="578.8" y="320.8" width="132.5" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="645" y="334.3" font-size="12" fill="#0f172a" text-anchor="middle">JSON replies, checked</text>
+<rect x="106.4" y="350.8" width="97.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="155" y="364.3" font-size="12" fill="#0f172a" text-anchor="middle">read and parsed</text>
+<rect x="562" y="534.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="581" y="548.3" font-size="12" fill="#0f172a" text-anchor="middle">starts</text>
+<rect x="197.6" y="808.8" width="44.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="220" y="822.3" font-size="12" fill="#0f172a" text-anchor="middle">upload</text>
+<rect x="473.6" y="805.8" width="52.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="500" y="819.3" font-size="12" fill="#0f172a" text-anchor="middle">api.sock</text>
+<rect x="481" y="870.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="500" y="884.3" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="770.1" y="986.8" width="129.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="835" y="1000.3" font-size="12" fill="#0f172a" text-anchor="middle">file path; JSON replies</text>
+<rect x="942.5" y="814.8" width="54.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="970" y="828.3" font-size="12" fill="#0f172a" text-anchor="middle">requests</text>
+<rect x="946.3" y="923.8" width="47.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="970" y="937.3" font-size="12" fill="#0f172a" text-anchor="middle">e-mails</text>
+<rect x="927.1" y="144.7" width="165.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1010" y="158.2" font-size="12" fill="#334155" text-anchor="middle">parent: alerts, uploads, IMAP</text>
+<rect x="941" y="476.8" width="137.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1010" y="490.3" font-size="12" fill="#334155" text-anchor="middle">worker: hash, text or file</text>
+</g>
+<g id="d5-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Deployment: where each part runs, and what separates it</text>
+<text x="24" y="63" font-size="13" fill="#334155">Two execution modes and the boundaries between their parts. Branch review/production-hardening, commit e012d3f.</text>
+</g>
+</svg>

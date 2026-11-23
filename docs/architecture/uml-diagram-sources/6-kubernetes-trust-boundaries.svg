@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d6" width="1600" height="1090" viewBox="0 0 1600 1090" role="img" aria-labelledby="d6-title d6-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d6-title">Kubernetes deployment: Pods, containers and what separates them</title>
+<desc id="d6-desc">Kubernetes deployment and trust-boundary diagram of Aegis Sentinel: one Pod with the TLS proxy and the analysis service joined by a Unix socket, an isolation-gate init container, two single-Pod claims, a content Job, and the destinations the NetworkPolicy blocks.</desc>
+<rect x="0" y="0" width="1600" height="1090" fill="#ffffff"/>
+<g id="d6-frame">
+<rect x="760" y="12" width="820" height="62" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<rect x="1280" y="22" width="40" height="16" fill="#eff6ff" rx="3" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="774" y="48" width="40" height="16" fill="#ffffff" rx="3" stroke="#7c3aed" stroke-width="2"/>
+<rect x="1230" y="48" width="40" height="16" fill="#f0fdf4" rx="3" stroke="#b91c1c" stroke-width="3"/>
+<rect x="20" y="90" width="1190" height="980" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="110" font-size="13" fill="#0f172a" font-weight="700">Kubernetes cluster: namespace aegis-sentinel</text>
+<text x="32" y="126.9" font-size="12" fill="#334155">Pod Security restricted. NetworkPolicy: default deny; ingress TCP 8443 to the analysis Pod only; no egress in the base. Enforced only by a network plugin that implements it.</text>
+<rect x="290" y="150" width="700" height="670" fill="#faf5ff" rx="8" stroke="#7c3aed" stroke-width="1.4"/>
+<text x="302" y="170" font-size="13" fill="#0f172a" font-weight="700">Pod aegis-analysis: one replica, Recreate</text>
+<text x="302" y="186.9" font-size="12" fill="#334155">No service-account token; fsGroup 10001; RuntimeDefault seccomp; grace period 330 s.</text>
+<rect x="590" y="556" width="380" height="110" fill="#ffffff" rx="8" stroke="#64748b" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="602" y="576" font-size="13" fill="#0f172a" font-weight="700">Workers, same uid 10001</text>
+<rect x="1230" y="90" width="350" height="980" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1242" y="110" font-size="13" fill="#0f172a" font-weight="700">Outside the namespace</text>
+<text x="1242" y="126.9" font-size="12" fill="#334155">What the analysis Pod must not reach.</text>
+</g>
+<g id="d6-edge">
+<path d="M774,30 L818,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="818,30 808,34.2 808,25.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M920,30 L964,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="954,34.6 964,30 954,25.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M150,240 L150,290" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="150,290 145.8,280 154.2,280" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M260,348 L310,348" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="310,348 300,352.2 300,343.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M425,450 L425,470" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="425,470 420.8,460 429.2,460" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M540,503 L590,503" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="590,503 580,507.2 580,498.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M590,347.2 L540,347.2" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="550,342.6 540,347.2 550,351.8" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M780,536 L780,596" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="780,596 775.8,586 784.2,586" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M970,342 L1010,342" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1000,346.6 1010,342 1000,337.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1010,458 L970,458" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="980,453.4 970,458 980,462.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M990,898 L1092,898 Q1100,898 1100,890 L1100,506" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1104.6,516 1100,506 1095.4,516" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M970,240 L1250,240" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1240,244.6 1250,240 1240,235.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d6-node">
+<text x="826" y="34" font-size="12" fill="#0f172a">file content</text>
+<text x="972" y="34" font-size="12" fill="#0f172a">results, reads and writes, checks (metadata)</text>
+<text x="1328" y="34" font-size="12" fill="#0f172a">process separation, not a security boundary</text>
+<text x="822" y="60" font-size="12" fill="#0f172a">Pod: one network namespace; NetworkPolicy applies here</text>
+<text x="1278" y="60" font-size="12" fill="#0f172a">container: own user, mounts, processes</text>
+<rect x="40" y="170" width="220" height="70" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="201.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">API client</text>
+<text x="150" y="218.4" font-size="12.5" fill="#0f172a" text-anchor="middle">HTTPS, bearer token</text>
+<rect x="40" y="290" width="220" height="116" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="319.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Service aegis-sentinel :8443</text>
+<text x="150" y="336.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ClusterIP in the base;</text>
+<text x="150" y="353.2" font-size="12.5" fill="#0f172a" text-anchor="middle">LoadBalancer or NodePort with</text>
+<text x="150" y="369.7" font-size="12.5" fill="#0f172a" text-anchor="middle">externalTrafficPolicy Local keeps</text>
+<text x="150" y="386.2" font-size="12.5" fill="#0f172a" text-anchor="middle">the client address</text>
+<polygon points="40,440 248,440 260,452 260,553 40,553" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="248,440 248,452 260,452" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="459.6" font-size="12" fill="#0f172a">The node: the kubelet runs the exec</text>
+<text x="49" y="475.7" font-size="12" fill="#0f172a">probes. NetworkPolicy always</text>
+<text x="49" y="491.7" font-size="12" fill="#0f172a">allows traffic between a Pod and its</text>
+<text x="49" y="507.8" font-size="12" fill="#0f172a">own node. The kubelet&#x27;s</text>
+<text x="49" y="523.9" font-size="12" fill="#0f172a">podPidsLimit is the only process</text>
+<text x="49" y="540" font-size="12" fill="#0f172a">limit.</text>
+<rect x="40" y="600" width="220" height="104" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="615.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">ConfigMaps</text>
+<text x="150" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-analysis-config (settings,</text>
+<text x="150" y="648.9" font-size="12.5" fill="#0f172a" text-anchor="middle">public rule-pack keys) and</text>
+<text x="150" y="665.4" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-isolation-gate</text>
+<text x="150" y="681.9" font-size="12.5" fill="#0f172a" text-anchor="middle">(isolation_gate.py), mounted</text>
+<text x="150" y="698.4" font-size="12.5" fill="#0f172a" text-anchor="middle">read-only</text>
+<rect x="40" y="730" width="220" height="122" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="753.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Secrets, created by the</text>
+<text x="150" y="771.8" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">operator</text>
+<text x="150" y="788.6" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-api-token (analysis only),</text>
+<text x="150" y="805.1" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis-tls (proxy only); stored in</text>
+<text x="150" y="821.6" font-size="12.5" fill="#0f172a" text-anchor="middle">etcd: encryption at rest and RBAC</text>
+<text x="150" y="838.1" font-size="12.5" fill="#0f172a" text-anchor="middle">are the cluster&#x27;s</text>
+<rect x="310" y="205" width="660" height="70" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="640" y="228.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">init: prepare-state, then isolation-gate (uid 10001)</text>
+<text x="640" y="245.2" font-size="12.5" fill="#0f172a" text-anchor="middle">creates the state folders as 10001; then fails while the internet, DNS, the Kubernetes API or the metadata</text>
+<text x="640" y="261.7" font-size="12.5" fill="#0f172a" text-anchor="middle">address answers (again in every readiness probe)</text>
+<rect x="310" y="300" width="230" height="150" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="425" y="346.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">proxy (Caddy)</text>
+<text x="425" y="363.7" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10003; port 8443; TLS ends</text>
+<text x="425" y="380.2" font-size="12.5" fill="#0f172a" text-anchor="middle">here.</text>
+<text x="425" y="396.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Secret aegis-tls; emptyDirs /data,</text>
+<text x="425" y="413.2" font-size="12.5" fill="#0f172a" text-anchor="middle">/config.</text>
+<rect x="310" y="470" width="230" height="66" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="425" y="499.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">emptyDir api-socket</text>
+<text x="425" y="516.4" font-size="12.5" fill="#0f172a" text-anchor="middle">api.sock; this Pod only</text>
+<rect x="590" y="300" width="380" height="236" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="780" y="381.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">analysis: api.server (_ScanService)</text>
+<text x="780" y="398.4" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; listens on api.sock only; no egress.</text>
+<text x="780" y="414.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Secret aegis-api-token only. AEGIS_PROFILE production,</text>
+<text x="780" y="431.4" font-size="12.5" fill="#0f172a" text-anchor="middle">LLM_PROVIDER none.</text>
+<text x="780" y="447.9" font-size="12.5" fill="#0f172a" text-anchor="middle">/tmp: memory-backed emptyDir, 2 GiB, without noexec; cleared</text>
+<text x="780" y="464.4" font-size="12.5" fill="#0f172a" text-anchor="middle">at every start.</text>
+<rect x="605" y="596" width="350" height="56" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="780" y="620.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Scan workers</text>
+<text x="780" y="637.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time and memory limits; a fresh one per upload</text>
+<polygon points="310,690 958,690 970,702 970,739 310,739" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="958,690 958,702 970,702" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="319" y="709.6" font-size="12" fill="#0f172a">The containers share the Pod&#x27;s network: the proxy and analysis have the same interface and neither may send</text>
+<text x="319" y="725.7" font-size="12" fill="#0f172a">anything out. Analysis opens no port; the proxy reaches it only through the socket.</text>
+<rect x="1010" y="300" width="180" height="84" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1100" y="321.5" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">PVC</text>
+<text x="1100" y="339.3" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">aegis-analysis-state</text>
+<text x="1100" y="356.1" font-size="12.5" fill="#0f172a" text-anchor="middle">ReadWriteOncePod, 2 GiB:</text>
+<text x="1100" y="372.6" font-size="12.5" fill="#0f172a" text-anchor="middle">the log file</text>
+<rect x="1010" y="410" width="180" height="96" fill="#f8fafc" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1100" y="438.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">PVC aegis-content</text>
+<text x="1100" y="454.9" font-size="12.5" fill="#0f172a" text-anchor="middle">ReadWriteOncePod, 1 GiB:</text>
+<text x="1100" y="471.4" font-size="12.5" fill="#0f172a" text-anchor="middle">rule packs; read-only in</text>
+<text x="1100" y="487.9" font-size="12.5" fill="#0f172a" text-anchor="middle">analysis</text>
+<rect x="290" y="850" width="700" height="96" fill="#f0fdf4" rx="6" stroke="#b91c1c" stroke-width="3"/>
+<text x="640" y="886.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Job aegis-content-update (on demand)</text>
+<text x="640" y="903.2" font-size="12.5" fill="#0f172a" text-anchor="middle">uid 10001; no egress. Runs only while analysis is scaled to zero (content-update.sh); installs a signed pack from the</text>
+<text x="640" y="919.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ConfigMap aegis-rulepack-import with --update-rules.</text>
+<polygon points="40,975 1178,975 1190,987 1190,1024 40,1024" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1178,975 1178,987 1190,987" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="49" y="994.6" font-size="12" fill="#0f172a">Optional, not drawn: components/intel (option E of K8S-1) adds an intel Pod (intel and its TLS proxy on 9443) with its own egress; analysis then gets one egress rule, TLS to it with a private CA and the intel</text>
+<text x="49" y="1010.7" font-size="12" fill="#0f172a">token (docs/KUBERNETES.md, &quot;Intel&quot;). Without it, VirusTotal, the LLM, CAPE and e-mail alerts are off.</text>
+<rect x="1250" y="170" width="310" height="110" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="205.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Blocked by NetworkPolicy</text>
+<text x="1405" y="221.9" font-size="12.5" fill="#0f172a" text-anchor="middle">the internet (IPv4, IPv6), public and cluster DNS,</text>
+<text x="1405" y="238.4" font-size="12.5" fill="#0f172a" text-anchor="middle">the Kubernetes API, cloud metadata</text>
+<text x="1405" y="254.9" font-size="12.5" fill="#0f172a" text-anchor="middle">169.254.169.254; the gate checks each one</text>
+<rect x="1250" y="330" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="357.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<text x="1405" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
+<rect x="1250" y="416" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="443.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">LLM: OpenAI or Ollama</text>
+<text x="1405" y="460.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
+<rect x="1250" y="502" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="529.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1405" y="546.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
+<rect x="1250" y="588" width="310" height="62" fill="#f1f5f9" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1405" y="615.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SMTP server</text>
+<text x="1405" y="632.4" font-size="12.5" fill="#0f172a" text-anchor="middle">off in the base; only via the optional intel Pod</text>
+<polygon points="1250,684 1548,684 1560,696 1560,765 1250,765" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,684 1548,696 1560,696" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1259" y="703.6" font-size="12" fill="#0f172a">The Docker deployment reaches these through its</text>
+<text x="1259" y="719.7" font-size="12" fill="#0f172a">intel container (diagram 5). On Kubernetes only the</text>
+<text x="1259" y="735.7" font-size="12" fill="#0f172a">optional intel Pod holds their credentials; the analysis</text>
+<text x="1259" y="751.8" font-size="12" fill="#0f172a">Pod never does.</text>
+</g>
+<g id="d6-label">
+<rect x="127.6" y="255.8" width="44.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="150" y="269.3" font-size="12" fill="#0f172a" text-anchor="middle">upload</text>
+<rect x="546" y="324" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="565" y="337.5" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="785.1" y="536.8" width="129.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="850" y="550.3" font-size="12" fill="#0f172a" text-anchor="middle">file path; JSON replies</text>
+<rect x="1080" y="690.8" width="40" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1100" y="704.3" font-size="12" fill="#0f172a" text-anchor="middle">writes</text>
+<rect x="1061.1" y="216.8" width="97.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1110" y="230.3" font-size="12" fill="#0f172a" text-anchor="middle">must not answer</text>
+</g>
+<g id="d6-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Kubernetes deployment: Pods, containers and what separates them</text>
+<text x="24" y="63" font-size="13" fill="#334155">The optional Kubernetes deployment (deploy/kubernetes). Branch review/production-hardening, manifests at commit a1c752e.</text>
+</g>
+</svg>

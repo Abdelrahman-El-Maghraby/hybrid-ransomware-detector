@@ -223,6 +223,7 @@ def test_real_writer_is_suspended_and_reader_left_alone(tmp_path):
         for p in (writer, reader):
             p.kill()
             p.wait()
+            p.stdout.close()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Restart Manager")
@@ -239,6 +240,8 @@ def test_real_windows_holder_is_found_and_terminated(tmp_path):
         writer.wait(timeout=20)
     finally:
         writer.kill()
+        writer.wait()
+        writer.stdout.close()
 
 
 # ------------------------------------------------------------- folder lock
@@ -439,3 +442,58 @@ def test_stop_writers_records_what_it_suspended(tmp_path, monkeypatch):
     StopWritersAction({"containment_state_file": str(state), "canary_contain_mode": "terminate"},
                       system="Linux").run(dict(ALERT))
     assert C._load_state(state)["suspended"] == {"9": "evil"}     # killed ones are not added
+
+
+# ------------------------------------------------------------- L-A5
+def _docs(tmp_path):
+    docs = tmp_path / "Docs"
+    docs.mkdir()
+    for i in range(5):
+        (docs / f"f{i}.txt").write_text("x")
+    return docs
+
+
+def _writable(path):
+    return bool(stat.S_IMODE(path.stat().st_mode) & 0o200)
+
+
+@pytest.mark.skipif(not POSIX, reason="POSIX modes")
+def test_nothing_is_locked_when_the_record_cannot_be_saved(tmp_path):
+    """L-A5 (check 9): the record was saved after the permission change and a
+    failed save was only logged, so --unlock-folders restored nothing."""
+    docs = _docs(tmp_path)
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    locked, problems = C.lock_folders([str(docs)], blocker / "state.json", system="Linux")
+    assert locked == [] and any("cannot be saved" in p for p in problems)
+    assert all(_writable(p) for p in [docs, *docs.iterdir()])
+
+
+@pytest.mark.skipif(not POSIX, reason="POSIX modes")
+def test_a_crash_during_the_lock_can_still_be_undone(tmp_path, monkeypatch):
+    docs = _docs(tmp_path)
+    state = tmp_path / "state.json"
+    real_chmod, calls = os.chmod, []
+
+    def crash_after_two(path, mode):
+        if len(calls) == 2:
+            raise KeyboardInterrupt                      # killed in the middle
+        calls.append(path)
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(C.os, "chmod", crash_after_two)
+    with pytest.raises(KeyboardInterrupt):
+        C.lock_folders([str(docs)], state, system="Linux")
+    monkeypatch.setattr(C.os, "chmod", real_chmod)
+    restored, problems = C.unlock_folders(state, system="Linux")
+    assert not problems and restored >= 2
+    assert all(_writable(p) for p in [docs, *docs.iterdir()])
+
+
+@pytest.mark.skipif(not POSIX, reason="POSIX modes")
+def test_a_walk_cut_by_the_entry_cap_is_reported(tmp_path, monkeypatch):
+    docs = _docs(tmp_path)
+    monkeypatch.setattr(C, "MAX_LOCK_ENTRIES", 3)
+    locked, problems = C.lock_folders([str(docs)], tmp_path / "state.json", system="Linux")
+    assert locked == [str(docs)] and any("entries" in p and "writable" in p for p in problems)
+    C.unlock_folders(tmp_path / "state.json", system="Linux")

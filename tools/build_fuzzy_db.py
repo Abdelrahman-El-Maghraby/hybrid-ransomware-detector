@@ -88,7 +88,10 @@ def _near_duplicate(d: Dict, family: str, signatures: List[Dict], dedup: int) ->
 
 
 def build(samples: Path, labels: Optional[Path] = None, benign: Optional[Path] = None,
-          merge: Optional[Path] = None, dedup: int = 30) -> Dict:
+          merge: Optional[Path] = None, dedup: int = 30,
+          local_report: Optional[List[Dict]] = None) -> Dict:
+    """The database. L-C11: it may leave the VM, so a benign file that matched a
+    signature is named only in `local_report` (written next to it, kept local)."""
     fam_by_hash = _labels(labels)
     signatures: List[Dict] = []
     if merge and merge.exists():
@@ -132,8 +135,10 @@ def build(samples: Path, labels: Optional[Path] = None, benign: Optional[Path] =
             for s in signatures:
                 checker.signatures = [s]
                 if checker.match(d["tlsh"], d["ssdeep"]):
-                    dropped.append({"family": s["family"], "sha256": s["sha256"],
-                                    "benign_file": str(path.relative_to(benign))})
+                    dropped.append({"family": s["family"], "sha256": s["sha256"]})
+                    if local_report is not None:
+                        local_report.append({"family": s["family"], "sha256": s["sha256"],
+                                             "benign_file": str(path.relative_to(benign))})
                 else:
                     keep.append(s)
             signatures = keep
@@ -157,8 +162,13 @@ def main(argv=None) -> int:
     if not a.samples.is_dir():
         print(f"not a folder: {a.samples}", file=sys.stderr)
         return 2
-    db = build(a.samples, a.labels, a.benign, a.merge, a.dedup)
+    local: List[Dict] = []
+    db = build(a.samples, a.labels, a.benign, a.merge, a.dedup, local_report=local)
     a.out.write_text(json.dumps(db, indent=2))
+    if local:                             # L-C11: benign file names: not in the database
+        report = a.out.with_name(a.out.name + ".benign-matches.local.json")
+        report.write_text(json.dumps(local, indent=2))
+        print(f"Benign files that matched a signature (keep this file local): {report}")
     s = db["stats"]
     print(f"{len(db['signatures'])} signature(s) in {a.out}: {s['added']} new from {s['files']} "
           f"file(s); {s['duplicates']} duplicate(s), {s['near_duplicates']} near-duplicate(s), "

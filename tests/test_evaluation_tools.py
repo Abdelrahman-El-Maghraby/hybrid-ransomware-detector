@@ -4,6 +4,8 @@ calibration / test split or of a cross-validation fold, and incomplete scans and
 errors are visible. Synthetic files only (nothing here is malware)."""
 
 import csv
+import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -11,6 +13,29 @@ import pytest
 
 from tests.helpers import make_pe
 from tools import splits as S
+
+
+@pytest.fixture(autouse=True)
+def _logging_restored():
+    """I-T1 (owner-approved 2026-11-12): evaluate.main() and _init_worker() run
+    in this process here and call logging.disable(CRITICAL), as a pool worker
+    should. Without this, every later test in the run had logging switched off."""
+    level = logging.root.manager.disable
+    yield
+    logging.disable(level)
+
+
+@pytest.fixture(autouse=True)
+def _no_memory_limit_on_the_test_process(monkeypatch):
+    """_init_worker() applies the worker memory limit; run in this process on
+    Linux it set RLIMIT_AS (soft and hard, so it cannot be raised again) on the
+    whole test run, and later tests failed with MemoryError. The call itself is
+    covered in tests/test_worker_limits.py."""
+    from engine import workers
+    applied = []
+    monkeypatch.setattr(workers, "_limit_memory",
+                        lambda megabytes, platform=None: applied.append(megabytes) or "")
+    yield applied
 
 
 def test_split_is_deterministic_and_keeps_families_together():
@@ -99,7 +124,7 @@ def test_evaluate_end_to_end_reports_dedupe_split_and_completeness(tmp_path, fol
     assert "Duplicates (same SHA-256) counted once: 1" in summary
     assert "labelled both malicious and benign, left out: 1" in summary
     assert "## Scan completeness" in summary and "Split: **all**" in summary
-    rows = list(csv.DictReader(open(out / "results.csv", encoding="utf-8")))
+    rows = list(csv.DictReader((out / "results.csv").read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 4 and {r["label"] for r in rows} == {"malicious", "benign"}
     assert all(r["split"] in ("calibration", "test") and r["scan_status"] for r in rows)
 
@@ -107,7 +132,8 @@ def test_evaluate_end_to_end_reports_dedupe_split_and_completeness(tmp_path, fol
     E.main(["--malicious", str(mal), "--benign", str(ben), "--out", str(only_test),
             "--jobs", "1", "--timeout", "120", "--split", "test"])
     if (only_test / "results.csv").exists():
-        test_rows = list(csv.DictReader(open(only_test / "results.csv", encoding="utf-8")))
+        test_rows = list(csv.DictReader(
+            (only_test / "results.csv").read_text(encoding="utf-8").splitlines()))
         assert all(r["split"] == "test" for r in test_rows)
 
 
@@ -141,3 +167,80 @@ def test_files_recognised_by_content_are_measured(tmp_path):
     text = E.summarise(rows, [files["notes.xyz"]], out, args)
     assert "Recognised by content, extension not in the scanner's list: 3" in text
     assert ".elf (elf) 1" in text and "Unsupported extensions skipped: 1" in text
+
+
+def test_errored_files_are_not_counted_as_clean(tmp_path):
+    """I-x: an errored or timed-out file got verdict "Clean" for the per-verdict
+    table, so a timeout on a malicious sample looked like a clean miss."""
+    import argparse
+
+    from tools import evaluate as E
+    base = {"ext": ".pdf", "by_content": "", "family": "", "split": "test", "folder": "x",
+            "group": "x", "family_group": "unlabelled",
+            "supported": True}
+    rows = [dict(base, label="malicious", path="/m/a.pdf", verdict="High", risk=80,
+                 reasons="", seconds=1, scan_status="complete"),
+            dict(base, label="malicious", path="/m/b.pdf", error="timeout after 5s", seconds=5)]
+    args = argparse.Namespace(alert="Medium", with_vt=False, with_llm=False, prep={})
+    out = tmp_path / "out"
+    out.mkdir()
+    text = E.summarise(rows, [], out, args)
+    table = text[text.index("| Clean |"):].splitlines()
+    assert table[0].startswith("| Clean | 0 |")
+    assert any(line.startswith("| Error | 1 |") for line in text.splitlines())
+
+
+def test_the_tools_never_submit_to_a_sandbox(monkeypatch):
+    """L-C4: evaluate.py and calibrate_weights.py had switches for VirusTotal and
+    the LLM but none for the sandbox, so a configured SANDBOX_URL received every
+    evaluation sample."""
+    from engine import config
+    from tools import calibrate_weights as CW
+    from tools import evaluate as E
+    monkeypatch.setitem(config.CONFIG, "sandbox_url", "https://sandbox.example.invalid")
+    monkeypatch.setitem(config.CONFIG, "sandbox_token", "t")
+    for name in ("CACHE_ENABLED", "LLM_PROVIDER", "VIRUSTOTAL_API_KEY", "SANDBOX_URL"):
+        monkeypatch.setenv(name, os.environ.get(name, ""))   # restored after the test
+    monkeypatch.setattr(E, "_scanner", None)
+    E._init_worker(False, False)                          # builds the pool worker's scanner
+    assert E._scanner.sandbox is None
+    assert CW._scanner().sandbox is None
+
+
+def _summary_rows():
+    base = {"ext": ".exe", "by_content": "", "split": "test", "group": "x",
+            "supported": True, "seconds": 1, "reasons": ""}
+    rows = [dict(base, label="malicious", path=f"/m/l{i}.exe", family="lockbit",
+                 verdict="High", risk=80, scan_status="complete") for i in range(6)]
+    rows += [dict(base, label="malicious", path="/m/c.exe", family="conti", verdict="Clean",
+                  risk=0, scan_status="complete"),
+             dict(base, label="malicious", path="/m/u1.exe", family="unlabelled",
+                  verdict="Medium", risk=45, scan_status="partial"),
+             dict(base, label="malicious", path="/m/u2.exe", family="unlabelled",
+                  verdict="Clean", risk=0, scan_status="complete"),
+             dict(base, label="benign", path="/b/a.exe", family="", verdict="Medium",
+                  risk=40, scan_status="partial"),
+             dict(base, label="benign", path="/b/b.exe", family="", verdict="Clean",
+                  risk=0, scan_status="complete")]
+    return rows
+
+
+def test_summary_reports_rates_on_complete_scans_and_label_coverage(tmp_path):
+    """Item 1 (evaluation): a partial scan's verdict can move a rate either way, an
+    unlabelled malicious file is its own split group (related variants can sit on
+    both sides), and one family can dominate the rate. The summary now shows all
+    three instead of leaving them to be worked out from results.csv."""
+    import argparse
+
+    from tools import evaluate as E
+    args = argparse.Namespace(alert="Medium", with_vt=False, with_llm=False,
+                              prep={"duplicates": 0, "conflicts": [], "split": "test"})
+    text = E.summarise(_summary_rows(), [], tmp_path, args)
+    complete = text[text.index("## Rates on complete scans only"):]
+    # malicious complete: 6 High lockbit + conti Clean + u2 Clean -> 6/8 at Medium
+    assert "| Medium | 75.0% (6/8) | 0.00% (0/1) |" in complete
+    assert "Incomplete scans left out here: 1 malicious, 1 benign" in complete
+    labels = text[text.index("## Family labels and split leakage"):]
+    assert "Malicious files without a family label: 2 of 9 (22%)" in labels
+    assert "lockbit: 6 of 9 (67%)" in labels           # above the 15% guideline
+    assert "conti" not in labels.split("## ")[1].split("above")[1]

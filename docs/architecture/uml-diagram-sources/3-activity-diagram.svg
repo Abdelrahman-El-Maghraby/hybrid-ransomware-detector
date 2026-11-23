@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d3" width="1600" height="2632" viewBox="0 0 1600 2632" role="img" aria-labelledby="d3-title d3-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d3-title">Activity diagram: How does one file get a verdict?</title>
+<desc id="d3-desc">UML activity diagram with four swimlanes: entry point, parent process, worker process and external services. It shows the pipeline, the messages on the pipe and where time-out and failure paths end.</desc>
+<rect x="0" y="0" width="1600" height="2632" fill="#ffffff"/>
+<g id="d3-back">
+<rect x="20" y="84" width="220" height="2528" fill="#f8fafc" stroke="#475569" stroke-width="1.4"/>
+<rect x="20" y="84" width="220" height="50" fill="#1e293b" stroke="#1e293b" stroke-width="1.4"/>
+<rect x="240" y="84" width="640" height="2528" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<rect x="240" y="84" width="640" height="50" fill="#1e293b" stroke="#1e293b" stroke-width="1.4"/>
+<rect x="880" y="84" width="500" height="2528" fill="#f8fafc" stroke="#475569" stroke-width="1.4"/>
+<rect x="880" y="84" width="500" height="50" fill="#1e293b" stroke="#1e293b" stroke-width="1.4"/>
+<rect x="1380" y="84" width="200" height="2528" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<rect x="1380" y="84" width="200" height="50" fill="#1e293b" stroke="#1e293b" stroke-width="1.4"/>
+</g>
+<g id="d3-frame">
+<rect x="904" y="1672" width="452" height="196" fill="#ffffff" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<text x="130" y="105" font-size="14.5" fill="#ffffff" font-weight="700" text-anchor="middle">Entry point</text>
+<text x="130" y="123" font-size="12" fill="#e2e8f0" text-anchor="middle">GUI, CLI, REST API, monitor, IMAP</text>
+<text x="560" y="105" font-size="14.5" fill="#ffffff" font-weight="700" text-anchor="middle">Parent process</text>
+<text x="560" y="123" font-size="12" fill="#e2e8f0" text-anchor="middle">RansomwareScanner and _IsolatedScan (engine/workers.py)</text>
+<text x="1130" y="105" font-size="14.5" fill="#ffffff" font-weight="700" text-anchor="middle">Worker process</text>
+<text x="1130" y="123" font-size="12" fill="#e2e8f0" text-anchor="middle">_worker_main(): scan_file() runs the pipeline</text>
+<text x="1480" y="105" font-size="14.5" fill="#ffffff" font-weight="700" text-anchor="middle">External services</text>
+<text x="1480" y="123" font-size="12" fill="#e2e8f0" text-anchor="middle">optional</text>
+</g>
+<g id="d3-edge">
+<path d="M130,179 L130,198" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="130,198 125.8,188 134.2,188" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M228,241 L500,241" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="500,241 490,245.2 490,236.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M680,283 L680,317" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="680,317 675.8,307 684.2,307" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M550,361 L506,361" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="506,361 516,356.8 516,365.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M256,361 L228,361" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="228,361 238,356.8 238,365.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M130,411 L130,439" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="130,439 125.8,429 134.2,429" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M680,405 L680.1,455" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="680.1,455 675.9,445 684.3,445" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M840,497 L930,497" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="920,501.6 930,497 920,492.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1130,539 L1130,575" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,575 1125.8,565 1134.2,565" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,710 L1130,748" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,748 1125.8,738 1134.2,738" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,840 L1130,874" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,874 1125.8,864 1134.2,864" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M956,881 L956,903" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="956,903 951.8,893 960.2,893" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1072,881 L1072,903" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1072,903 1067.8,893 1076.2,893" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1188,881 L1188,903" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1188,903 1183.8,893 1192.2,893" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1304,881 L1304,903" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1304,903 1299.8,893 1308.2,893" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M956,983 L956,1013" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="956,1013 951.8,1003 960.2,1003" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1072,983 L1072,1013" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1072,1013 1067.8,1003 1076.2,1003" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1188,983 L1188,1013" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1188,1013 1183.8,1003 1192.2,1003" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1304,983 L1304,1013" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1304,1013 1299.8,1003 1308.2,1003" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1020 L1130,1048" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1048 1125.8,1038 1134.2,1038" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1148 L1130,1188" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1188 1125.8,1178 1134.2,1178" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1290 L1130,1314" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1314 1125.8,1304 1134.2,1304" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M980,794 L900,794 Q892,794 892,802 L892,1322 Q892,1330 900,1330 L1107,1330" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1107,1330 1097,1334.2 1097,1325.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M960,1098 L892,1098" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="892,1098 902,1093.8 902,1102.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1346 L1130,1376" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1376 1125.8,1366 1134.2,1366" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1445 L1130,1479" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1479 1125.8,1469 1134.2,1469" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,1565 L1130,1594" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1130,1594 1125.8,1584 1134.2,1584" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M690,539 L690,575" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="690,575 685.8,565 694.2,565" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M930,642.5 L830,642.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="840,637.9 830,642.5 840,647.1" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M903,1016.5 L830,1016.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="840,1011.9 830,1016.5 840,1021.1" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M930,1239 L830,1239" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="840,1234.4 830,1239 840,1243.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M930,1522 L830,1522" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="840,1517.4 830,1522 840,1526.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1357,919.5 L1392,919.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1382,924.1 1392,919.5 1382,914.9" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1219.8,983 L1219.8,991.5 Q1219.8,999.5 1227.8,999.5 L1392,999.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1382,1004.1 1392,999.5 1382,994.9" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1330,1242.5 L1392,1242.5" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1382,1247.1 1392,1242.5 1382,1237.9" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M672.5,1565 L672.5,1575 Q672.5,1583 664.5,1583 L568,1583 Q560,1583 560,1591 L560,1599" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="560,1599 555.8,1589 564.2,1589" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M560,1687 L560,1713" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M326,1713 L802,1713" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M326,1713 L326,1825" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="326,1825 321.8,1815 330.2,1815" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M486,1713 L486,1825" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="486,1825 481.8,1815 490.2,1815" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M646,1713 L646,1825" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="646,1825 641.8,1815 650.2,1815" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M802,1713 L802,1825" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="802,1825 797.8,1815 806.2,1815" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M486,1937 L486,1967 Q486,1975 494,1975 L623,1975" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="623,1975 613,1979.2 613,1970.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M646,1937 L646,1959" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="646,1959 641.8,1949 650.2,1949" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M802,1937 L802,1967 Q802,1975 794,1975 L669,1975" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="669,1975 679,1970.8 679,1979.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M646,1991 L646,2013" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="646,2013 641.8,2003 650.2,2003" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M596,2020 L596,2048" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="596,2048 591.8,2038 600.2,2038" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M538,2130 L538,2151" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="538,2151 533.8,2141 542.2,2141" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M326,1937 L326,2205 Q326,2213 334,2213 L457,2213" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="457,2213 447,2217.2 447,2208.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M700,2020 L700,2205 Q700,2213 692,2213 L503,2213" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="503,2213 513,2208.8 513,2217.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M480,2229 L480,2257" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="480,2257 475.8,2247 484.2,2247" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M654,2315 L708,2315" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="708,2315 698,2319.2 698,2310.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M480,2373 L480,2419" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="480,2419 475.8,2409 484.2,2409" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M790,2367 L790,2453 Q790,2461 782,2461 L662,2461" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="662,2461 672,2456.8 672,2465.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M262,2461 L228,2461" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="228,2461 238,2456.8 238,2465.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M130,2516 L130,2544" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="130,2544 125.8,2534 134.2,2534" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M918,1800 L962,1800" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="962,1800 952,1804.2 952,1795.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M918,1826 L962,1826" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="952,1830.6 962,1826 952,1821.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g id="d3-node">
+<ellipse cx="130" cy="170" rx="9" ry="9" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<rect x="32" y="198" width="196" height="86" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="130" y="221.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Submit a file for scanning</text>
+<text x="130" y="237.9" font-size="12.5" fill="#0f172a" text-anchor="middle">from the GUI, the CLI, the</text>
+<text x="130" y="254.4" font-size="12.5" fill="#0f172a" text-anchor="middle">REST API, a watched folder or</text>
+<text x="130" y="270.9" font-size="12.5" fill="#0f172a" text-anchor="middle">a mailbox</text>
+<rect x="500" y="199" width="360" height="84" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="680" y="229.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_one() or _scan_targets() calls scan_isolated()</text>
+<text x="680" y="246.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Start a worker process (the REST API hands over one it</text>
+<text x="680" y="262.7" font-size="12.5" fill="#0f172a" text-anchor="middle">started earlier) and wait for its &#x27;ready&#x27; message.</text>
+<polygon points="550,361 680,317 810,361 680,405" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="680" y="357.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Did a worker start</text>
+<text x="680" y="373.6" font-size="12.5" fill="#0f172a" text-anchor="middle">and send &#x27;ready&#x27;?</text>
+<rect x="256" y="311" width="250" height="100" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="381" y="341.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Fail closed: isolation unavailable</text>
+<text x="381" y="357.9" font-size="12.5" fill="#0f172a" text-anchor="middle">After 3 failed starts: failure_result() with</text>
+<text x="381" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">the code isolation_unavailable. Nothing</text>
+<text x="381" y="390.9" font-size="12.5" fill="#0f172a" text-anchor="middle">is parsed in the parent.</text>
+<rect x="32" y="311" width="196" height="100" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="130" y="341.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Report: not scanned</text>
+<text x="130" y="357.9" font-size="12.5" fill="#0f172a" text-anchor="middle">The CLI exits 3, the API</text>
+<text x="130" y="374.4" font-size="12.5" fill="#0f172a" text-anchor="middle">answers 503, the GUI offers a</text>
+<text x="130" y="390.9" font-size="12.5" fill="#0f172a" text-anchor="middle">retry.</text>
+<ellipse cx="130" cy="451" rx="12" ry="12" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<ellipse cx="130" cy="451" rx="7" ry="7" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<rect x="540" y="455" width="300" height="84" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="690" y="485.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_dispatch(w)</text>
+<text x="690" y="502.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Send the path over the pipe and start the clock:</text>
+<text x="690" y="518.7" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_timeout_seconds (300 s).</text>
+<rect x="930" y="455" width="400" height="84" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="485.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_serve(): take the next path</text>
+<text x="1130" y="502.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Set scan_deadline = now + scan_timeout_seconds; scan_file()</text>
+<text x="1130" y="518.7" font-size="12.5" fill="#0f172a" text-anchor="middle">builds the ScanContext.</text>
+<rect x="930" y="575" width="400" height="135" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="597.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Fast layers, in pipeline order (_run_layer)</text>
+<text x="1130" y="614.7" font-size="12.5" fill="#0f172a" text-anchor="middle">hashes, allowlist, fuzzy, local-db, macro, yara, integrity, elf, pe,</text>
+<text x="1130" y="631.2" font-size="12.5" fill="#0f172a" text-anchor="middle">script, mail, prompt-guard, relationships, qr, archive, web,</text>
+<text x="1130" y="647.7" font-size="12.5" fill="#0f172a" text-anchor="middle">embedded.</text>
+<text x="1130" y="664.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Container members go through the same pipeline at depth + 1. A</text>
+<text x="1130" y="680.7" font-size="12.5" fill="#0f172a" text-anchor="middle">layer that raises is recorded in layer_errors and the scan goes on</text>
+<text x="1130" y="697.2" font-size="12.5" fill="#0f172a" text-anchor="middle">(partial).</text>
+<polygon points="980,794 1130,748 1280,794 1130,840" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="1130" y="790.4" font-size="12.5" fill="#0f172a" text-anchor="middle">Allowlisted, or risk</text>
+<text x="1130" y="806.6" font-size="12.5" fill="#0f172a" text-anchor="middle">already 100?</text>
+<rect x="903" y="874" width="454" height="7" fill="#0f172a" rx="2" stroke="#0f172a" stroke-width="1"/>
+<rect x="903" y="903" width="106" height="80" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="956" y="931.7" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">emulation</text>
+<text x="956" y="947.6" font-size="12" fill="#0f172a" text-anchor="middle">box-js,</text>
+<text x="956" y="963.5" font-size="12" fill="#0f172a" text-anchor="middle">if enabled</text>
+<rect x="1019" y="903" width="106" height="80" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1072" y="931.7" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">ml</text>
+<text x="1072" y="947.6" font-size="12" fill="#0f172a" text-anchor="middle">byte-structure</text>
+<text x="1072" y="963.5" font-size="12" fill="#0f172a" text-anchor="middle">classifier</text>
+<rect x="1135" y="903" width="106" height="80" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1188" y="931.7" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">llm</text>
+<text x="1188" y="947.6" font-size="12" fill="#0f172a" text-anchor="middle">ask the LLM</text>
+<text x="1188" y="963.5" font-size="12" fill="#0f172a" text-anchor="middle">(time-bounded)</text>
+<rect x="1251" y="903" width="106" height="80" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1304" y="931.7" font-size="12.5" fill="#0f172a" font-weight="700" text-anchor="middle">virustotal</text>
+<text x="1304" y="947.6" font-size="12" fill="#0f172a" text-anchor="middle">hash lookup</text>
+<text x="1304" y="963.5" font-size="12" fill="#0f172a" text-anchor="middle">(time-bounded)</text>
+<rect x="903" y="1013" width="454" height="7" fill="#0f172a" rx="2" stroke="#0f172a" stroke-width="1"/>
+<polygon points="960,1098 1130,1048 1300,1098 1130,1148" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="1130" y="1086.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Sandbox configured, and</text>
+<text x="1130" y="1102.5" font-size="12.5" fill="#0f172a" text-anchor="middle">risk &gt;= 25 or</text>
+<text x="1130" y="1118.8" font-size="12.5" fill="#0f172a" text-anchor="middle">SANDBOX_SUBMIT = all?</text>
+<rect x="930" y="1188" width="400" height="102" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="1210.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">SandboxLayer.run(): last, on its own</text>
+<text x="1130" y="1227.7" font-size="12.5" fill="#0f172a" text-anchor="middle">With less than one 15 s poll left before the safety margin: sandbox</text>
+<text x="1130" y="1244.2" font-size="12.5" fill="#0f172a" text-anchor="middle">= timeout and nothing is submitted. Otherwise send &#x27;provisional&#x27;</text>
+<text x="1130" y="1260.7" font-size="12.5" fill="#0f172a" text-anchor="middle">(sandbox = timeout), submit the file to CAPE and poll, then send</text>
+<text x="1130" y="1277.2" font-size="12.5" fill="#0f172a" text-anchor="middle">&#x27;settled&#x27;.</text>
+<polygon points="1107,1330 1130,1314 1153,1330 1130,1346" fill="#ffffff" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="930" y="1376" width="400" height="69" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="1398.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_assemble(ctx)</text>
+<text x="1130" y="1415.7" font-size="12.5" fill="#0f172a" text-anchor="middle">ScoringMatrix.score(ctx.signals) gives the risk score 0-100 and the</text>
+<text x="1130" y="1432.2" font-size="12.5" fill="#0f172a" text-anchor="middle">verdict; assess() gives scan_status; provenance is added.</text>
+<rect x="930" y="1479" width="400" height="86" fill="#f0fdf4" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="1502.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Reply to the parent</text>
+<text x="1130" y="1518.9" font-size="12.5" fill="#0f172a" text-anchor="middle">&#x27;completed&#x27; snapshot, &#x27;log&#x27; records, then &#x27;ok&#x27; with the result. A</text>
+<text x="1130" y="1535.4" font-size="12.5" fill="#0f172a" text-anchor="middle">MemoryError, RecursionError or other exception in scan_file() is</text>
+<text x="1130" y="1551.9" font-size="12.5" fill="#0f172a" text-anchor="middle">sent as &#x27;error&#x27; instead.</text>
+<ellipse cx="1130" cy="1605" rx="11" ry="11" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<line x1="1122.2" y1="1597.2" x2="1137.8" y2="1612.8" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="1122.2" y1="1612.8" x2="1137.8" y2="1597.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<rect x="620" y="575" width="210" height="990" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="725" y="599" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Watch the worker</text>
+<text x="725" y="617" font-size="12" fill="#334155" text-anchor="middle">_step(), every tick (50 ms at most)</text>
+<text x="632" y="638.5" font-size="12" fill="#0f172a">&#x27;container&#x27;, &#x27;member&#x27;:</text>
+<text x="632" y="654.5" font-size="12" fill="#0f172a">evidence so far is kept</text>
+<text x="632" y="1012.5" font-size="12" fill="#0f172a">&#x27;external&#x27;: what may leave</text>
+<text x="632" y="1028.5" font-size="12" fill="#0f172a">&#x27;provisional&#x27;: latest snapshot</text>
+<text x="632" y="1235" font-size="12" fill="#0f172a">&#x27;provisional&#x27;, &#x27;sandbox&#x27;,</text>
+<text x="632" y="1251" font-size="12" fill="#0f172a">&#x27;settled&#x27;: snapshot, state</text>
+<text x="632" y="1518" font-size="12" fill="#0f172a">&#x27;completed&#x27;, &#x27;log&#x27;, then</text>
+<text x="632" y="1534" font-size="12" fill="#0f172a">&#x27;ok&#x27; or &#x27;error&#x27;</text>
+<text x="632" y="1115.8" font-size="12" fill="#334155">Each tick also checks the</text>
+<text x="632" y="1131.8" font-size="12" fill="#334155">time limit and, on macOS,</text>
+<text x="632" y="1147.8" font-size="12" fill="#334155">the worker&#x27;s memory use.</text>
+<polygon points="256,575 584,575 596,587 596,736 256,736" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="584,575 584,587 596,587" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="265" y="594.6" font-size="12" fill="#0f172a" font-weight="700">Messages on the pipe</text>
+<text x="265" y="610.7" font-size="12" fill="#0f172a">Parent to worker: the file path, then None to stop.</text>
+<text x="265" y="626.7" font-size="12" fill="#0f172a">Worker to parent: JSON, read with a size limit and</text>
+<text x="265" y="642.8" font-size="12" fill="#0f172a">checked by check_reply() before any field is used. Kinds:</text>
+<text x="265" y="658.9" font-size="12" fill="#0f172a">ready, log, ok, error, container, member, provisional,</text>
+<text x="265" y="675" font-size="12" fill="#0f172a">settled, sandbox, external, completed, clear.</text>
+<text x="265" y="691.1" font-size="12" fill="#0f172a">&#x27;provisional&#x27; is the result the file gets if the worker has to</text>
+<text x="265" y="707.1" font-size="12" fill="#0f172a">be stopped now. &#x27;settled&#x27; and &#x27;completed&#x27; need no more</text>
+<text x="265" y="723.2" font-size="12" fill="#0f172a">waiting. &#x27;clear&#x27; drops a stale snapshot.</text>
+<rect x="1392" y="886" width="176" height="67" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1480" y="908.3" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal API</text>
+<text x="1480" y="924.5" font-size="12" fill="#0f172a" text-anchor="middle">hash lookup; upload</text>
+<text x="1480" y="940.3" font-size="12" fill="#0f172a" text-anchor="middle">only if opted in</text>
+<rect x="1392" y="966" width="176" height="67" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1480" y="988.3" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">LLM service</text>
+<text x="1480" y="1004.5" font-size="12" fill="#0f172a" text-anchor="middle">Ollama (local) or</text>
+<text x="1480" y="1020.3" font-size="12" fill="#0f172a" text-anchor="middle">OpenAI (cloud)</text>
+<rect x="1392" y="1209" width="176" height="67" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1480" y="1231.3" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1480" y="1247.5" font-size="12" fill="#0f172a" text-anchor="middle">runs the file and</text>
+<text x="1480" y="1263.3" font-size="12" fill="#0f172a" text-anchor="middle">returns a report</text>
+<polygon points="1390,1320 1558,1320 1570,1332 1570,1433 1390,1433" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1558,1320 1558,1332 1570,1332" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1399" y="1339.6" font-size="12" fill="#0f172a">Docker: the worker has no</text>
+<text x="1399" y="1355.7" font-size="12" fill="#0f172a">network. These calls go</text>
+<text x="1399" y="1371.7" font-size="12" fill="#0f172a">through the intel service</text>
+<text x="1399" y="1387.8" font-size="12" fill="#0f172a">(api/intel.py) over a Unix</text>
+<text x="1399" y="1403.9" font-size="12" fill="#0f172a">socket; on Kubernetes with</text>
+<text x="1399" y="1420" font-size="12" fill="#0f172a">option E, over TLS.</text>
+<polygon points="430,1643 560,1599 690,1643 560,1687" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="560" y="1639.4" font-size="12.5" fill="#0f172a" text-anchor="middle">How did the</text>
+<text x="560" y="1655.6" font-size="12.5" fill="#0f172a" text-anchor="middle">wait end?</text>
+<rect x="252" y="1825" width="148" height="112" fill="#dcfce7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="326" y="1869.5" font-size="12" fill="#0f172a" text-anchor="middle">_finish(path, result):</text>
+<text x="326" y="1885.3" font-size="12" fill="#0f172a" text-anchor="middle">the worker&#x27;s own</text>
+<text x="326" y="1901.2" font-size="12" fill="#0f172a" text-anchor="middle">result is used</text>
+<rect x="412" y="1825" width="148" height="112" fill="#dcfce7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="486" y="1861.6" font-size="12" fill="#0f172a" text-anchor="middle">The snapshot is</text>
+<text x="486" y="1877.4" font-size="12" fill="#0f172a" text-anchor="middle">kept as the result:</text>
+<text x="486" y="1893.2" font-size="12" fill="#0f172a" text-anchor="middle">nothing was</text>
+<text x="486" y="1909.1" font-size="12" fill="#0f172a" text-anchor="middle">still pending</text>
+<rect x="572" y="1825" width="148" height="112" fill="#ffedd5" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="646" y="1853.6" font-size="12" fill="#0f172a" text-anchor="middle">stopped_result():</text>
+<text x="646" y="1869.5" font-size="12" fill="#0f172a" text-anchor="middle">finished layers kept,</text>
+<text x="646" y="1885.3" font-size="12" fill="#0f172a" text-anchor="middle">stalled ones listed in</text>
+<text x="646" y="1901.2" font-size="12" fill="#0f172a" text-anchor="middle">stopped_layers;</text>
+<text x="646" y="1917" font-size="12" fill="#0f172a" text-anchor="middle">scan_status partial</text>
+<rect x="732" y="1825" width="140" height="112" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="802" y="1853.6" font-size="12" fill="#0f172a" text-anchor="middle">failure_result():</text>
+<text x="802" y="1869.5" font-size="12" fill="#0f172a" text-anchor="middle">scan_failed (Medium,</text>
+<text x="802" y="1885.3" font-size="12" fill="#0f172a" text-anchor="middle">or the kept member</text>
+<text x="802" y="1901.2" font-size="12" fill="#0f172a" text-anchor="middle">evidence if higher);</text>
+<text x="802" y="1917" font-size="12" fill="#0f172a" text-anchor="middle">scan_status failed</text>
+<polygon points="623,1975 646,1959 669,1975 646,1991" fill="#ffffff" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="566" y="2013" width="160" height="7" fill="#0f172a" rx="2" stroke="#0f172a" stroke-width="1"/>
+<rect x="396" y="2048" width="284" height="82" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="538" y="2069.6" font-size="12" fill="#0f172a" text-anchor="middle">_replace(i): stop and replace the worker. Kill it</text>
+<text x="538" y="2085.4" font-size="12" fill="#0f172a" text-anchor="middle">and its helper programs, delete its temp folder,</text>
+<text x="538" y="2101.2" font-size="12" fill="#0f172a" text-anchor="middle">start a new worker. An &#x27;error&#x27; reply keeps the</text>
+<text x="538" y="2117.1" font-size="12" fill="#0f172a" text-anchor="middle">worker.</text>
+<ellipse cx="538" cy="2162" rx="11" ry="11" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<line x1="530.2" y1="2154.2" x2="545.8" y2="2169.8" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="530.2" y1="2169.8" x2="545.8" y2="2154.2" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+<polygon points="457,2213 480,2197 503,2213 480,2229" fill="#ffffff" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon points="306,2315 480,2257 654,2315 480,2373" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="480" y="2303.2" font-size="12.5" fill="#0f172a" text-anchor="middle">In collect(): a batch scan with</text>
+<text x="480" y="2319.5" font-size="12.5" fill="#0f172a" text-anchor="middle">AUTO_QUARANTINE set, and the</text>
+<text x="480" y="2335.8" font-size="12.5" fill="#0f172a" text-anchor="middle">verdict at or above it?</text>
+<rect x="708" y="2263" width="164" height="104" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="790" y="2287.6" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">QuarantineVault</text>
+<text x="790" y="2303.5" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">.quarantine():</text>
+<text x="790" y="2319.3" font-size="12" fill="#0f172a" text-anchor="middle">encrypt (AES-256-GCM),</text>
+<text x="790" y="2335.2" font-size="12" fill="#0f172a" text-anchor="middle">verify the SHA-256,</text>
+<text x="790" y="2351" font-size="12" fill="#0f172a" text-anchor="middle">remove the original</text>
+<rect x="262" y="2419" width="400" height="84" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="462" y="2449.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">collect(): keep the result</text>
+<text x="462" y="2466.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Append it, record metrics, call the progress callback;</text>
+<text x="462" y="2482.7" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_isolated() returns to the caller.</text>
+<rect x="32" y="2406" width="196" height="110" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="130" y="2441.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Report the verdict</text>
+<text x="130" y="2457.9" font-size="12.5" fill="#0f172a" text-anchor="middle">Write the report, deliver alerts</text>
+<text x="130" y="2474.4" font-size="12.5" fill="#0f172a" text-anchor="middle">and outputs, show or return</text>
+<text x="130" y="2490.9" font-size="12.5" fill="#0f172a" text-anchor="middle">the result.</text>
+<ellipse cx="130" cy="2556" rx="12" ry="12" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+<ellipse cx="130" cy="2556" rx="7" ry="7" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="918" y="1694" font-size="13" fill="#0f172a" font-weight="700">Key</text>
+<ellipse cx="928" cy="1716" rx="7" ry="7" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="948" y="1720" font-size="12" fill="#0f172a">start of the activity</text>
+<ellipse cx="1148" cy="1716" rx="9" ry="9" fill="#ffffff" stroke="#0f172a" stroke-width="1.6"/>
+<ellipse cx="1148" cy="1716" rx="5" ry="5" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1166" y="1720" font-size="12" fill="#0f172a">end of the activity</text>
+<ellipse cx="928" cy="1744" rx="9" ry="9" fill="#ffffff" stroke="#0f172a" stroke-width="1.6"/>
+<line x1="922" y1="1738" x2="934" y2="1750" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+<line x1="922" y1="1750" x2="934" y2="1738" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+<text x="948" y="1748" font-size="12" fill="#0f172a">one flow ends, the rest goes on</text>
+<polygon points="1136,1744 1148,1736 1160,1744 1148,1752" fill="#fef9c3" stroke="#0f172a" stroke-width="1.3" stroke-linejoin="round"/>
+<text x="1166" y="1748" font-size="12" fill="#0f172a">decision, with [guards]</text>
+<rect x="918" y="1769" width="44" height="6" fill="#0f172a" rx="2" stroke="#0f172a" stroke-width="1"/>
+<text x="972" y="1776" font-size="12" fill="#0f172a">fork or join: the flows between two bars run in parallel</text>
+<text x="972" y="1804" font-size="12" fill="#0f172a">control flow: what happens next</text>
+<text x="972" y="1830" font-size="12" fill="#0f172a">message on the pipe, or a call to an external service</text>
+<polygon points="929,1852 940,1844 951,1852 940,1860" fill="#ffffff" stroke="#0f172a" stroke-width="1.3" stroke-linejoin="round"/>
+<text x="972" y="1856" font-size="12" fill="#0f172a">merge: alternative flows come together</text>
+</g>
+<g id="d3-label">
+<rect x="513.8" y="338.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="528" y="352.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="40" y="469.8" width="180.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="130" y="483.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">End: the file was not scanned</text>
+<rect x="689.1" y="417.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="706" y="431.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="869.1" y="475.8" width="31.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="885" y="489.3" font-size="12" fill="#0f172a" text-anchor="middle">path</text>
+<rect x="1093.8" y="846.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1108" y="860.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="1136.8" y="851.8" width="226.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1250" y="865.3" font-size="12" fill="#334155" text-anchor="middle">heavy layers run in parallel (thread pool)</text>
+<rect x="1137.1" y="1157.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1154" y="1171.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="892.9" y="755.1" width="86.2" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="936" y="768.6" font-size="12" fill="#0f172a" text-anchor="middle">[yes] heavy</text>
+<text x="936" y="784" font-size="12" fill="#0f172a" text-anchor="middle">layers skipped</text>
+<rect x="921.8" y="1075.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="936" y="1089.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="1211.4" y="1588.1" width="137.3" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1280" y="1601.6" font-size="12" fill="#334155" text-anchor="middle">done in the worker:</text>
+<text x="1280" y="1617" font-size="12" fill="#334155" text-anchor="middle">it waits for the next path</text>
+<rect x="294.8" y="1759.8" width="62.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="326" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;ok&#x27; reply]</text>
+<rect x="433" y="1744.5" width="105.9" height="49.1" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="486" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">[time limit passed;</text>
+<text x="486" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">snapshot settled</text>
+<text x="486" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">or completed]</text>
+<rect x="593" y="1744.5" width="105.9" height="49.1" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="646" y="1758" font-size="12" fill="#0f172a" text-anchor="middle">[time limit passed;</text>
+<text x="646" y="1773.3" font-size="12" fill="#0f172a" text-anchor="middle">snapshot still</text>
+<text x="646" y="1788.7" font-size="12" fill="#0f172a" text-anchor="middle">provisional]</text>
+<rect x="750.4" y="1721.4" width="103.3" height="95.2" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="802" y="1734.9" font-size="12" fill="#0f172a" text-anchor="middle">[&#x27;error&#x27; or invalid</text>
+<text x="802" y="1750.3" font-size="12" fill="#0f172a" text-anchor="middle">reply, a result for</text>
+<text x="802" y="1765.6" font-size="12" fill="#0f172a" text-anchor="middle">another file, dead</text>
+<text x="802" y="1781" font-size="12" fill="#0f172a" text-anchor="middle">worker, memory</text>
+<text x="802" y="1796.4" font-size="12" fill="#0f172a" text-anchor="middle">limit, or time limit</text>
+<text x="802" y="1811.7" font-size="12" fill="#0f172a" text-anchor="middle">with no snapshot]</text>
+<rect x="385.7" y="2145.1" width="120.5" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="446" y="2158.6" font-size="12" fill="#334155" text-anchor="middle">the stopped worker&#x27;s</text>
+<text x="446" y="2174" font-size="12" fill="#334155" text-anchor="middle">flow ends here</text>
+<rect x="681" y="2079.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="700" y="2093.3" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="664.1" y="2292.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="681" y="2306.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="489.8" y="2383.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="504" y="2397.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="41" y="2574.8" width="178.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="130" y="2588.3" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">End: verdict and scan_status</text>
+</g>
+<g id="d3-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Activity diagram: How does one file get a verdict?</text>
+<text x="24" y="63" font-size="13" fill="#334155">One file, from submission to its final result, in an isolated scan (the default). Branch review/production-hardening, commit e012d3f.</text>
+</g>
+</svg>

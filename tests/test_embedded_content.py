@@ -3,7 +3,9 @@
 Every sample is built here and is inert: the "embedded scripts" only echo text,
 the "add-in" is a bare MZ/PE header with an export name, and nothing is run."""
 
+import os
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -70,7 +72,7 @@ def test_onenote_embedded_files_are_carved(tmp_path):
     with EmbeddedContentAnalyzer().open(onenote(tmp_path / "n.one", [BATCH, _pe_bytes(2048)])) as r:
         assert [m.name for m in r.members] == ["embedded1.bat", "embedded2.exe"]
         assert r.risky_members == ["embedded1.bat", "embedded2.exe"]
-        assert all(open(m.path, "rb").read() for m in r.members)
+        assert all(Path(m.path).read_bytes() for m in r.members)
 
 
 def test_onenote_with_impossible_length_is_a_finding_not_a_crash(tmp_path):
@@ -93,13 +95,12 @@ def test_onenote_through_the_scanner(scanner, tmp_path):
 def test_chm_pages_are_scanned_and_shortcut_object_flagged(tmp_path, monkeypatch):
     page = (b'<html><object id=x classid="clsid:adb880a6-d8ff-11cf-9377-00aa003b7a11">'
             b'<param name="Command" value="ShortCut"></object></html>')
-
-    def fake_extract(tool, archive, out, timeout=120, runner=None):
-        (out / "index.htm").write_bytes(page)
-        (out / "#SYSTEM").write_bytes(b"internal")
-
     import detectors.macos_packages as mp
-    monkeypatch.setattr(mp, "sevenzip_extract", fake_extract)
+    monkeypatch.setattr(mp, "sevenzip_list", lambda tool, archive, *a, **k: [
+        mp.ListedItem("index.htm", len(page), False, False),
+        mp.ListedItem("#SYSTEM", 8, False, False)])
+    monkeypatch.setattr(mp, "sevenzip_read", lambda tool, archive, name, *a, **k:
+                        page if name == "index.htm" else b"internal")
     p = tmp_path / "help.chm"
     p.write_bytes(b"ITSF" + b"\x00" * 200)
     with EmbeddedContentAnalyzer(sevenzip=lambda: "7z").open(p) as r:
@@ -138,7 +139,7 @@ def test_encrypted_docx_opens_with_a_default_password(tmp_path):
     assert sniff(p) == "office-encrypted"
     with EmbeddedContentAnalyzer().open(p) as r:
         assert r.decrypted_with == "VelvetSweatshop" and r.members
-        assert open(r.members[0].path, "rb").read(2) == b"PK"
+        assert Path(r.members[0].path).read_bytes()[:2] == b"PK"
 
 
 @needs_crypto
@@ -163,3 +164,15 @@ def test_mail_password_opens_an_encrypted_document_and_its_content_is_scanned(sc
     ind = _indicators(r)
     assert any("mail_archive_password_in_body" in i for i in ind)
     assert any("embedded_member:" in i for i in ind)          # decrypted content was scored
+
+
+@pytest.mark.parametrize("name", ["..", ".", ""])
+def test_embedded_member_named_dots_is_written_inside_the_sandbox(tmp_path, name):
+    """M12 (same class): a member called '..' was written to the sandbox folder
+    itself, which raised and ended the analysis."""
+    res = ec.EmbeddedResult()
+    EmbeddedContentAnalyzer()._add(res, tmp_path, True, name, b"MZ payload")
+    EmbeddedContentAnalyzer()._add(res, tmp_path, True, "next.exe", b"MZ next")
+    assert [m.name for m in res.members] == ["member", "next.exe"]
+    assert all(os.path.isfile(m.path) for m in res.members)
+    assert all(os.path.dirname(os.path.dirname(m.path)) == str(tmp_path) for m in res.members)

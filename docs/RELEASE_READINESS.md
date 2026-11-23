@@ -1,7 +1,9 @@
 # Release readiness: v4.7 (first paid edition)
 
 The acceptance criteria live in [`RELEASE_SCOPE.md`](RELEASE_SCOPE.md) section 6.
-This file tracks every task against them.
+This file tracks every task against them. It records the v4.7 work; what is
+verified on the current 4.8 hardening branch, by platform and service, is in
+[`VERIFICATION_MATRIX.md`](VERIFICATION_MATRIX.md).
 
 **Status values:** `done` (evidence given) · `failed` · `external dependency`
 (needs an OS, credential, certificate or service that is not available here, recorded
@@ -32,7 +34,7 @@ These are recorded so they are not confused with regressions.
 |---|---|---|---|
 | B1 | **Fixed in A4 (7277af8).** `tests/test_rar.py`: `test_encrypted_rar5_opened_with_delivery_password`, `test_encrypted_file_names_opened_with_delivery_password`, `test_unknown_password_is_reported` fail | No RAR decompressor on the machine (7-Zip, unrar or unar). These tests fail instead of skipping, unlike the other tool-dependent tests. CI installs `unar` on macOS, `7zip`/`unar` in the coverage job. | Local runs without a decompressor. Proposed fix (A4): skip when no decompressor is found. |
 | B2 | **Fixed in A10 (485eda7).** mypy: 10 errors in `detectors/container_extractor.py` (5), `core/canary_watch.py` (2), `detectors/tlsh_py.py`, `detectors/entropy.py`, `detectors/ml_classifier.py` | The optional-import fallback (`except ImportError: _np = None`) and the pycdlib types only type-check when the optional packages are installed. CI's mypy job installs core dependencies only (`pip install -e .`), so CI never sees them. | The gate passes in CI but fails on a full developer install. Proposed fix (A10): run mypy in CI with the extras installed and fix the 10 errors. |
-| B3 | `requirements.lock` does not install on Python 3.14 | `backports-zstd==1.8.0` is pinned without an environment marker and requires Python < 3.14. | Only 3.14; CI and the release use 3.12. The Docker image will use 3.12. |
+| B3 | **Fixed in d64add6** (lock entry now `backports-zstd==1.8.0 ; python_full_version < '3.14'`; confirmed by reading the lock in the 2026-11-08 review, PROJECT_REVIEW 28). `requirements.lock` does not install on Python 3.14 | `backports-zstd==1.8.0` is pinned without an environment marker and requires Python < 3.14. | Only 3.14; CI and the release use 3.12. The Docker image will use 3.12. |
 | B5 | **Fixed in A7 (ffaf4a5).** `tests/test_workers.py::test_memory_limit_stops_runaway_allocation` fails on this Mac (also on `main` at `93b19f2`; it passed in the first baseline run) | On an 8 GB macOS host, `bytearray(8 GiB)` is zero-filled on demand, so resident memory never passes the 1 GiB limit and the watchdog has nothing to stop. The test depends on the host's memory behaviour. | Local macOS only. Proposed fix (A7): a hog that touches its pages. Deselected in local Phase 1 runs; CI runs it. |
 | B4 | The bandit command in the working rules scanned `.venv` | `pyproject.toml` has no `[tool.bandit]` section, so `-c pyproject.toml` excludes nothing. | Local only; fixed in the working rules with `-x ./.venv`. |
 

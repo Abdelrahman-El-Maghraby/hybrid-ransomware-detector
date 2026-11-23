@@ -43,12 +43,14 @@ FORMATS AND LIBRARIES (all optional, pure Python or prebuilt wheels)
 A recognised archive whose library is missing is reported as unreadable, with
 the package to install.
 
-RAR is the only format that runs an external program. It is only ever asked to
-decompress ONE member to stdout (`7z e -so`, `unrar p`), never to write files,
-so its own path handling (the source of past unrar traversal bugs) is never
-used: every byte comes back through the same bounded writer and the sandbox
-naming as the other formats. Member names, sizes, encryption and symlinks are
-read by `rarfile` in Python, so the name checks work even with no tool installed.
+RAR and macOS disk images (and CHM help files, detectors/embedded_content.py)
+run an external program. It is only ever asked to decompress ONE member to
+stdout (`7z e -so`, `unrar p`), never to write files, so its own path and link
+handling (the source of past unrar traversal bugs) is never used: every byte
+comes back through a bounded writer and the sandbox naming as the other
+formats. RAR member names, sizes, encryption and symlinks are read by `rarfile`
+in Python, so the name checks work even with no tool installed; a disk image is
+listed with `7z l -slt` first and its links and folders are never requested.
 """
 
 from __future__ import annotations
@@ -73,13 +75,15 @@ from core.tools import trusted_which
 from .macos_packages import (
     FS_IMAGE_SUFFIXES,
     BudgetExceeded,
+    CpioEntry,
     FormatError,
+    SevenZipMember,
     TooManyEntries,
+    Truncated,
     dmg_kind,
     is_xar,
     read_cpio,
     read_xar,
-    sevenzip_extract,
     sevenzip_list,
     sevenzip_tool,
     stream_decompress,
@@ -324,9 +328,27 @@ def visible_name(name: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "?", out)
 
 
+# M20: on Windows these names (any case, with any extension, before trailing
+# spaces) open a device, not a file, so a member written as "NUL.exe" never
+# reaches the disk and is never examined.
+_WINDOWS_DEVICE = re.compile(r"(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(?=[ .]|\Z)",
+                             re.I)
+
+
+def windows_name(name: str) -> str:
+    """M24: the name Windows saves. Its file API drops trailing dots and spaces,
+    so "invoice.pdf.exe." lands on disk as "invoice.pdf.exe"."""
+    return name.rstrip(". ")
+
+
+def not_a_device(name: str) -> str:
+    """A sandbox file name that is never a Windows device name ("_NUL.exe")."""
+    return "_" + name if _WINDOWS_DEVICE.match(name) else name
+
+
 def _priority_name(name: str) -> bool:
     """Unpack these first when an archive has more entries than the member limit."""
-    suffix = PurePosixPath(name.replace("\\", "/").replace(RTLO, "")).suffix.lower()
+    suffix = PurePosixPath(windows_name(name.replace("\\", "/").replace(RTLO, ""))).suffix.lower()
     return RTLO in name or suffix in EXECUTABLE_EXTENSIONS or suffix in _CONTAINER_SUFFIXES
 
 
@@ -540,8 +562,12 @@ class ContainerExtractor:
         base = PurePosixPath(name.replace("\\", "/")).name or "member"
         target_dir = sandbox / f"m{len(res.members):04d}"
         target_dir.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:] or "member"
-        return target_dir / safe
+        safe = windows_name(re.sub(r"[^\w.\- ]", "_", base.replace(RTLO, ""))[-120:])
+        if not safe:
+            # "", ".", ".." (e.g. ".<RTLO>.") or only dots and spaces would name the
+            # member folder or the sandbox itself; Windows also drops trailing dots.
+            safe = "member"
+        return target_dir / not_a_device(safe)
 
     def _new_member(self, name: str, size: int, csize: int, encrypted: bool, shown: str,
                     res: ContainerResult) -> ArchiveMember:
@@ -920,6 +946,9 @@ class ContainerExtractor:
             except BudgetExceeded:
                 self._too_large(shown, entry.size, res)
                 continue
+            except Truncated as e:                   # L-D2: keep what it held
+                self._cut_short(shown, f"{len(e.partial)} bytes read before the cut", res)
+                data = e.partial
             except Exception as e:
                 res.unreadable_members += 1
                 logger.debug("Package entry %s failed: %s", shown, e)
@@ -940,19 +969,31 @@ class ContainerExtractor:
                     res: ContainerResult, scripts: bool) -> None:
         """A component's Scripts or Payload: a compressed cpio archive."""
         budget = self.max_total_bytes - res.total_uncompressed
+        shown_stream = f"{display}!/{visible_name(stream)}"
+        cut = False
+        items: List[CpioEntry] = []
         try:
-            raw = stream_decompress(data, budget)
-            items = [c for c in read_cpio(raw, self.max_members) if c.is_file]
+            try:
+                raw = stream_decompress(data, budget)
+            except Truncated as e:                   # L-D2: a cut stream; keep what it held
+                raw, cut = e.partial, True
+            for c in read_cpio(raw, self.max_members):
+                if c.is_file:
+                    items.append(c)
         except TooManyEntries:
-            self._too_many(f"{display}!/{visible_name(stream)}", self.max_members + 1, res)
+            self._too_many(shown_stream, self.max_members + 1, res)
             return
         except BudgetExceeded:
-            self._too_large(f"{display}!/{visible_name(stream)}", len(data), res)
+            self._too_large(shown_stream, len(data), res)
             return
         except Exception as e:
-            res.unreadable_members += 1
             logger.debug("Package stream %s/%s unreadable: %s", display, stream, e)
-            return
+            if not items:
+                res.unreadable_members += 1
+                return
+            cut = True                               # members before the error are kept
+        if cut:
+            self._cut_short(shown_stream, f"{len(items)} file(s) read before the cut", res)
         if len(res.members) + len(items) > self.max_members:
             self._too_many(f"{display}!/{visible_name(stream)}", len(items), res)
             return
@@ -973,6 +1014,14 @@ class ContainerExtractor:
             member.extracted, member.path = True, str(target)
             self._finish(member, target, sandbox, depth, res)
 
+    @staticmethod
+    def _cut_short(shown: str, kept: str, res: ContainerResult) -> None:
+        """L-D2: a package stream or entry that ends early: what it held is scanned,
+        and it is listed as not fully unpacked (scan_status partial)."""
+        res.unreadable_members += 1
+        res.members.append(ArchiveMember(f"{shown} (cut short)",
+                                         skipped_reason=f"cut short: {kept}"))
+
     # ---------- macOS disk image (.dmg: UDIF -> HFS+/APFS, through 7-Zip)
     def _walk_dmg(self, archive: Path, display: str, sandbox: Path, depth: int,
                   res: ContainerResult) -> None:
@@ -990,14 +1039,19 @@ class ContainerExtractor:
 
     def _sevenzip_image(self, tool: str, image: Path, display: str, sandbox: Path,
                         depth: int, res: ContainerResult, level: int) -> None:
-        """List, size-check, extract; open file-system images inside one level deeper."""
+        """List and size-check, then stream each regular file through the byte
+        budget with `7z e -so`, one at a time (RF-4). 7-Zip never writes a file,
+        so its own path and link handling is not relied on (S-01); links and
+        folders are never requested, and an entry 7-Zip cannot read costs that
+        entry only, not the whole image. File-system images inside are opened
+        one level deeper."""
         try:
             items = sevenzip_list(tool, image)
         except Exception as e:
             res.unreadable_members += 1
             logger.debug("7-Zip could not list %s: %s", display, e)
             return
-        files = [i for i in items if not i.is_dir and not i.is_link]
+        files = sorted((i for i in items if not i.is_dir and not i.is_link), key=lambda i: i.path)
         declared = sum(i.size for i in files)
         if len(res.members) + len(files) > self.max_members:
             self._too_many(f"{display}!/", len(files), res)
@@ -1005,37 +1059,53 @@ class ContainerExtractor:
         if res.total_uncompressed + declared > self.max_total_bytes:
             self._too_large(f"{display}!/", declared, res)   # large apps are normal here
             return
-        out = Path(tempfile.mkdtemp(prefix="img_", dir=sandbox))
+        work = Path(tempfile.mkdtemp(prefix="img_", dir=sandbox))    # 7-Zip's cwd: stays empty
+        for item in files:
+            rel = item.path.replace("\\", "/").lstrip("/")
+            shown = f"{display}!/{visible_name(rel)}"
+            if len(res.members) >= self.max_members:
+                self._too_many(shown, 1, res)
+                return
+            target = self._target(rel, sandbox, res)
+            outcome = self._stream_image_member(tool, image, item.path, target, work, res)
+            if outcome == "too-large":                 # the listing under-stated the size
+                self._too_large(shown, item.size, res)
+                return
+            if (outcome == "ok" and level < 2 and rel.lower().endswith(FS_IMAGE_SUFFIXES)
+                    and not detect_container(target)):
+                self._sevenzip_image(tool, target, shown, sandbox, depth, res, level + 1)
+                target.unlink(missing_ok=True)
+                continue
+            member = self._new_member(rel, item.size, item.size, False, shown, res)
+            if outcome == "ok":
+                member.extracted, member.path = True, str(target)
+            else:
+                member.skipped_reason = "7-Zip could not extract this file"
+            self._finish(member, target, sandbox, depth, res)
+
+    def _stream_image_member(self, tool: str, image: Path, name: str, target: Path,
+                             work: Path, res: ContainerResult) -> str:
+        """'ok' | 'too-large' (past the byte budget while streaming) | 'failed'."""
+        budget = self.max_total_bytes - res.total_uncompressed
+        written = 0
+        member = SevenZipMember(tool, image, name, work)
         try:
-            sevenzip_extract(tool, image, out)
-        except Exception as e:
-            res.unreadable_members += 1
-            logger.debug("7-Zip could not extract %s: %s", display, e)
-            return
-        for root, dirs, names in os.walk(out, followlinks=False):
-            dirs.sort()
-            for fn in sorted(names):
-                path = Path(root) / fn
-                if path.is_symlink() or not path.is_file():
-                    continue
-                rel = path.relative_to(out).as_posix()
-                shown = f"{display}!/{visible_name(rel)}"
-                size = path.stat().st_size
-                if res.total_uncompressed + size > self.max_total_bytes:
-                    self._too_large(shown, size, res)
-                    return
-                if level < 2 and rel.lower().endswith(FS_IMAGE_SUFFIXES) and not detect_container(path):
-                    res.total_uncompressed += size
-                    self._sevenzip_image(tool, path, shown, sandbox, depth, res, level + 1)
-                    path.unlink(missing_ok=True)
-                    continue
-                if len(res.members) >= self.max_members:
-                    self._too_many(shown, 1, res)
-                    return
-                member = self._new_member(rel, size, size, False, shown, res)
-                res.total_uncompressed += size
-                member.extracted, member.path = True, str(path)
-                self._finish(member, path, sandbox, depth, res)
+            with open(target, "wb") as dst:
+                for chunk in member.chunks():
+                    written += len(chunk)
+                    if written > budget:
+                        break
+                    dst.write(chunk)
+        finally:
+            ok = member.close()
+        if written > budget:
+            target.unlink(missing_ok=True)
+            return "too-large"
+        if not ok:
+            target.unlink(missing_ok=True)
+            return "failed"
+        res.total_uncompressed += written
+        return "ok"
 
     @staticmethod
     def _too_many(shown: str, count: int, res: ContainerResult) -> None:
@@ -1056,7 +1126,7 @@ class ContainerExtractor:
     @staticmethod
     def _classify_name(base: str, shown: str, member: ArchiveMember,
                        res: ContainerResult) -> None:
-        clean = base.replace(RTLO, "")
+        clean = windows_name(base.replace(RTLO, ""))
         suffixes = [s.strip().lower() for s in PurePosixPath(clean).suffixes]
         if RTLO in base:
             res.rtlo_members.append(shown)

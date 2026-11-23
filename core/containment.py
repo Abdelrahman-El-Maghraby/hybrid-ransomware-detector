@@ -450,6 +450,11 @@ def lock_folders(dirs: Sequence[str], state_file: Path, system: str = "",
     system = system or platform.system()
     locked, problems = [], []
     state = _load_state(state_file)
+    # L-A5: the record is saved before each change, so a crash, a kill or a full
+    # disk never leaves files read-only that --unlock-folders cannot restore.
+    unsaved = f"{state_file}: the folder-lock record cannot be saved; nothing was changed"
+    if not _save_state(state_file, state):
+        return [], [unsaved]
     for d in dirs:
         if not d or not os.path.isdir(d):
             problems.append(f"{d}: not a folder")
@@ -460,16 +465,32 @@ def lock_folders(dirs: Sequence[str], state_file: Path, system: str = "",
                 icacls = trusted_which("icacls") or trusted_which("icacls.exe")
                 if not icacls:
                     raise OSError("icacls not found")
+                denied = state.setdefault("windows_denied", [])
+                if d not in denied:
+                    denied.append(d)
+                if not _save_state(state_file, state):
+                    problems.append(unsaved)
+                    break
                 done = runner([icacls, d, "/deny", "*S-1-1-0:(OI)(CI)(W,D,DC)", "/C", "/Q"],
                               capture_output=True, text=True, timeout=TIMEOUT, check=False)
                 if done.returncode != 0:
                     raise OSError((done.stderr or done.stdout or "").strip()[:200])
-                state.setdefault("windows_denied", [])
-                if d not in state["windows_denied"]:
-                    state["windows_denied"].append(d)
             else:
                 modes = state.setdefault("posix_modes", {})
-                _posix_lock(d, modes)
+                entries, cut = _posix_entries(d)
+                for path, mode in entries:
+                    modes.setdefault(path, mode)
+                if not _save_state(state_file, state):
+                    problems.append(unsaved)
+                    break
+                for path, _mode in entries:      # files first, folders last (os.walk order)
+                    try:
+                        os.chmod(path, modes[path] & ~0o222)
+                    except OSError:
+                        continue
+                if cut:
+                    problems.append(f"{d}: more than {MAX_LOCK_ENTRIES:,} entries; "
+                                    "the rest stay writable")
             locked.append(d)
         except OSError as e:
             problems.append(f"{d}: {e}")
@@ -477,26 +498,26 @@ def lock_folders(dirs: Sequence[str], state_file: Path, system: str = "",
     return locked, problems
 
 
-def _posix_lock(root: str, modes: Dict[str, int]) -> None:
-    count = 0
-    entries: List[str] = []
+def _posix_entries(root: str) -> Tuple[List[Tuple[str, int]], bool]:
+    """(path, current mode) of the files and folders under `root` (no links), at
+    most MAX_LOCK_ENTRIES, and whether the cap cut the walk."""
+    paths: List[str] = []
+    cut = False
     for top, _subdirs, names in os.walk(root):
-        for n in names:
-            entries.append(os.path.join(top, n))
-        entries.append(top)
-        count += len(names) + 1
-        if count >= MAX_LOCK_ENTRIES:
+        paths.extend(os.path.join(top, n) for n in names)
+        paths.append(top)
+        if len(paths) >= MAX_LOCK_ENTRIES:
+            cut = True
             break
-    for path in entries:                     # files first, folders last (os.walk order)
+    entries = []
+    for path in paths:
         try:
             st = os.lstat(path)
-            if stat.S_ISLNK(st.st_mode):
-                continue
-            mode = stat.S_IMODE(st.st_mode)
-            modes.setdefault(path, mode)
-            os.chmod(path, mode & ~0o222)
         except OSError:
             continue
+        if not stat.S_ISLNK(st.st_mode):
+            entries.append((path, stat.S_IMODE(st.st_mode)))
+    return entries, cut
 
 
 def unlock_folders(state_file: Path, system: str = "",
@@ -525,10 +546,17 @@ def unlock_folders(state_file: Path, system: str = "",
         else:
             problems.append(f"{d}: {(done.stderr or '').strip()[:200]}")
     if not problems:
-        try:
-            state_file.unlink()
-        except OSError:
-            pass
+        # Drop only what the folder lock recorded: the list of processes the
+        # tripwire suspended must survive, or --resume-pid refuses them.
+        state.pop("posix_modes", None)
+        state.pop("windows_denied", None)
+        if state:
+            _save_state(state_file, state)
+        else:
+            try:
+                state_file.unlink()
+            except OSError:
+                pass
     return restored, problems
 
 
@@ -540,12 +568,15 @@ def _load_state(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _save_state(path: Path, state: Dict[str, Any]) -> None:
+def _save_state(path: Path, state: Dict[str, Any]) -> bool:
     try:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(json.dumps(state, indent=1), encoding="utf-8")
+        from engine.fsutil import write_atomic  # L-A3: never a half-written record
+        write_atomic(path, json.dumps(state, indent=1).encode("utf-8"))
+        return True
     except OSError as e:
         logger.error("Could not save the folder-lock state (%s): %s", path, e)
+        return False
 
 
 # ------------------------------------------------------------------ Windows APIs

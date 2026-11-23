@@ -19,6 +19,30 @@ test_smoke.py
 .env.*
 *.log
 *.sqlite3*
+# L-B4: tool caches, review scratch and the local data and secret files that
+# .gitignore keeps out of the repository (keys, hash CSVs, vault items, models)
+.arena
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+.coverage
+.coverage.*
+coverage.xml
+.DS_Store
+**/.DS_Store
+.idea
+.vscode
+*.key
+secrets.*
+*.csv
+*.quar
+*.joblib
+keystore
+quarantine
+scan_reports
+data
+datasets
 CLAUDE.md
 scanner.spec
 build.py

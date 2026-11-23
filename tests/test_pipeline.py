@@ -160,3 +160,45 @@ def test_build_script_reads_the_engine_version():
     build = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(build)
     assert build.engine_version() == RS.ENGINE_VERSION
+
+
+# ------------------------------------------------------------------ item 8: ordering
+def test_the_default_pipeline_meets_every_ordering_requirement():
+    from engine.layers import pipeline_order_problems
+    assert pipeline_order_problems(default_pipeline()) == []
+
+
+@pytest.mark.parametrize("move,expected", [
+    (("llm", 0), "hashes must run before llm"),
+    (("prompt-guard", 30), "prompt-guard must run before llm"),
+    (("mail", 30), "mail must run before prompt-guard"),
+    (("allowlist", 30), "allowlist must be a fast layer before every slow layer"),
+    (("sandbox", 18), "sandbox must be the last layer"),
+])
+def test_a_broken_order_is_reported(move, expected):
+    from engine.layers import pipeline_order_problems
+    layers = default_pipeline()
+    name, index = move
+    layer = next(x for x in layers if x.name == name)
+    layers.remove(layer)
+    layers.insert(min(index, len(layers)), layer)
+    problems = pipeline_order_problems(layers)
+    assert any(p.startswith(expected) for p in problems), problems
+
+
+def test_the_llm_receives_the_text_the_prompt_guard_extracted(scanner, tmp_path, monkeypatch):
+    """The prompt-guard -> llm dependency is real: the LLM layer gets ctx.text."""
+    seen = {}
+
+    class Backend:
+        available = True
+
+    def analyze(path, text, strings, sha256=None):
+        seen["text"] = text
+        return {"is_malicious": False, "confidence": 0, "suspicious_elements": []}
+    monkeypatch.setattr(scanner, "llm_backend", Backend())
+    monkeypatch.setattr(scanner, "analyze_with_llm", analyze)
+    p = tmp_path / "scan" / "letter.pdf"
+    p.write_bytes(make_pdf("quarterly invoice attached"))
+    scanner.scan_file(str(p))
+    assert "quarterly invoice attached" in seen["text"]

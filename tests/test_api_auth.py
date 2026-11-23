@@ -3,12 +3,12 @@ rotating wrong tokens gave a fresh bucket every time. Now: a per-IP limit before
 authentication, a failed-attempt lockout per IP checked before the compare, and the
 per-token quota only for valid tokens."""
 
-import time
 
 import pytest
 
 from api.limits import AuthGuard, client_ip
 from engine.metrics import METRICS
+from tests.helpers import wait_for
 from tests.test_scanner_integration import _config
 
 TOKEN = "a" * 32
@@ -119,8 +119,7 @@ def test_lockout_expires(make_api):
     _get(api, token="wrong-token-aaaaaaaaaaaa")
     _get(api, token="wrong-token-bbbbbbbbbbbb")
     assert _get(api, token=TOKEN).status_code == 429
-    time.sleep(1.2)
-    assert _get(api, token=TOKEN).status_code == 200
+    assert wait_for(lambda: _get(api, token=TOKEN).status_code == 200, step=0.2)  # S-T1
 
 
 def test_missing_token_counts_as_a_failure(make_api):
@@ -169,3 +168,91 @@ def test_token_can_come_from_a_secret_file(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN"):
         create_app(_config(tmp_path), isolate=False)
+
+
+@pytest.mark.parametrize("module", ["api.server", "api.intel"])
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-5"])
+def test_abuse_limit_settings_refuse_nan_inf_and_negative(monkeypatch, module, value):
+    """nan made the lockout window and every rate limit pass silently (min(burst,
+    nan) is burst; nan comparisons are false) and -1 MB answered every upload 413."""
+    pytest.importorskip("fastapi")
+    import importlib
+    mod = importlib.import_module(module)
+    monkeypatch.setenv("AEGIS_TEST_NUMBER", value)
+    with pytest.raises(RuntimeError, match="AEGIS_TEST_NUMBER"):
+        mod._env_number("AEGIS_TEST_NUMBER", 5)
+    monkeypatch.setenv("AEGIS_TEST_NUMBER", "0")
+    assert mod._env_number("AEGIS_TEST_NUMBER", 5) == 0          # 0 = no limit, as documented
+    with pytest.raises(RuntimeError, match="above 0"):
+        mod._env_number("AEGIS_TEST_NUMBER", 5, positive=True)
+    monkeypatch.delenv("AEGIS_TEST_NUMBER")
+    assert mod._env_number("AEGIS_TEST_NUMBER", 5) == 5
+
+
+def test_lockout_settings_are_checked_when_the_app_is_built(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    monkeypatch.setenv("AEGIS_API_AUTH_WINDOW_SECONDS", "nan")
+    with pytest.raises(RuntimeError, match="AEGIS_API_AUTH_WINDOW_SECONDS"):
+        create_app(_config(tmp_path), token="t" * 32, isolate=False)
+
+
+@pytest.mark.parametrize("problem", ["missing", "empty"])
+def test_an_unreadable_token_file_does_not_fall_back_to_another_token(tmp_path, monkeypatch,
+                                                                      problem):
+    """A configured secret file that is missing or empty must stop the start, not
+    quietly accept an older AEGIS_API_TOKEN from the environment or .env."""
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    secret = tmp_path / "api_token"
+    if problem == "empty":
+        secret.write_text("\n", encoding="utf-8")
+    monkeypatch.setenv("AEGIS_API_TOKEN", "o" * 32)
+    monkeypatch.setenv("AEGIS_API_TOKEN_FILE", str(secret))
+    with pytest.raises(RuntimeError, match="AEGIS_API_TOKEN_FILE"):
+        create_app(_config(tmp_path), isolate=False)
+
+
+def test_a_used_spare_is_replaced_even_when_the_scan_raises(tmp_path, monkeypatch):
+    """RV-S3: the refill ran only after a normal return; an exception from
+    scan_isolated left one spare fewer for good. No realistic trigger was found;
+    the exception is injected."""
+    pytest.importorskip("fastapi")
+    import api.server as server
+    import engine.workers as workers
+    from tests.test_scanner_integration import _config
+    svc = server._ScanService.__new__(server._ScanService)
+    svc.isolate, svc.config, svc.scanner = True, _config(tmp_path), None
+    spare = object()
+    refills = []
+    monkeypatch.setattr(svc, "_take_spare", lambda: spare, raising=False)
+    monkeypatch.setattr(svc, "_refill", lambda: refills.append(1), raising=False)
+
+    def boom(*a, **k):
+        raise RuntimeError("unexpected")
+    monkeypatch.setattr(workers, "scan_isolated", boom)
+    with pytest.raises(RuntimeError):
+        svc.scan(str(tmp_path / "x"), "x")
+    assert refills == [1]
+
+
+def test_a_stalled_upload_gives_up_its_slot(monkeypatch):
+    """RV-S4: the slot is taken before the body is read (M4); an authenticated client
+    that stopped sending held it for good (reproduced on loopback). The body must now
+    arrive within AEGIS_API_UPLOAD_SECONDS."""
+    pytest.importorskip("fastapi")
+    import asyncio
+
+    from fastapi import HTTPException
+
+    import api.server as server
+    monkeypatch.setattr(server, "UPLOAD_SECONDS", 0.2)
+
+    class Stalled:
+        async def form(self, **kwargs):
+            await asyncio.sleep(30)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(server._scan_upload(Stalled(), None, None))
+    assert e.value.status_code == 408

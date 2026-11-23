@@ -1,0 +1,119 @@
+/* Print stylesheet for the Aegis Sentinel overview (headless Chrome 131+:
+   page margin boxes, named pages). */
+:root {
+  --ink: #0f172a; --muted: #475569; --line: #cbd5e1; --soft: #f1f5f9;
+  --accent: #1e3a8a; --accent-soft: #dbeafe;
+}
+@page {
+  size: A4 portrait;
+  margin: 20mm 17mm 18mm 17mm;
+  @top-left { font: 7.5pt Arial, Helvetica, sans-serif; color: #64748b; }
+  @top-right { content: "Aegis Sentinel"; font: 7.5pt Arial, Helvetica, sans-serif; color: #64748b; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages);
+                  font: 8pt Arial, Helvetica, sans-serif; color: #475569; }
+}
+@page:first { @top-left { content: none; } @top-right { content: none; } @bottom-right { content: none; } }
+@page wide { size: A4 landscape; margin: 14mm 12mm 13mm 12mm; }
+
+* { box-sizing: border-box; }
+html { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9.6pt;
+       line-height: 1.42; color: var(--ink); -webkit-print-color-adjust: exact;
+       print-color-adjust: exact; }
+body { margin: 0; background: #fff; }
+p { margin: 0 0 6pt; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 6pt; padding-left: 15pt; }
+li { margin: 0 0 2pt; }
+a { color: var(--accent); text-decoration: none; }
+code { font-family: Menlo, "SF Mono", Consolas, monospace; font-size: 0.86em;
+       background: var(--soft); padding: 0 2pt; border-radius: 2pt; overflow-wrap: break-word; }
+pre { font-family: Menlo, Consolas, monospace; font-size: 7.6pt; line-height: 1.35;
+      background: var(--soft); border: 0.5pt solid var(--line); padding: 5pt 7pt;
+      white-space: pre-wrap; break-inside: avoid; margin: 0 0 7pt; }
+pre code { background: none; padding: 0; font-size: inherit; }
+strong { font-weight: 700; }
+hr { border: 0; border-top: 0.5pt solid var(--line); margin: 8pt 0; }
+
+/* headings */
+h1, h2, h3, h4 { position: relative; color: var(--accent); break-after: avoid; line-height: 1.22; }
+h1 { font-size: 18pt; margin: 0 0 10pt; padding-bottom: 4pt; border-bottom: 1.2pt solid var(--accent); }
+h1.chapter { break-before: page; }
+h2 { font-size: 12.6pt; margin: 13pt 0 5pt; }
+h3 { font-size: 10.6pt; margin: 10pt 0 4pt; color: #1e293b; }
+h4 { font-size: 9.8pt; margin: 8pt 0 3pt; color: #1e293b; }
+h1 .num, h2 .num, h3 .num { color: #64748b; font-weight: 600; margin-right: 4pt; }
+.mk { position: absolute; left: 0; top: 0; font-size: 2pt; color: #fff; }
+
+/* cover */
+.cover { height: 250mm; display: flex; flex-direction: column; break-after: page; }
+.cover-band { align-self: flex-start; font-size: 9pt; font-weight: 700; letter-spacing: .06em;
+              text-transform: uppercase; color: #fff; background: var(--accent);
+              padding: 4pt 9pt; border-radius: 2pt; margin-top: 30mm; }
+.cover-title { font-size: 30pt; border: 0; margin: 14mm 0 4mm; color: var(--ink); }
+.cover-sub { font-size: 13pt; color: var(--muted); margin: 0 0 14mm; max-width: 150mm; }
+.cover-meta { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+.cover-meta th { text-align: left; width: 38mm; color: var(--muted); font-weight: 600;
+                 padding: 4pt 0; border-top: 0.5pt solid var(--line); vertical-align: top; }
+.cover-meta td { padding: 4pt 0; border-top: 0.5pt solid var(--line); }
+.cover-note { margin-top: auto; font-size: 8.6pt; color: var(--muted); border-top: 0.5pt solid var(--line);
+              padding-top: 6pt; }
+
+/* table of contents */
+nav.toc { break-after: page; }
+nav.toc ol { list-style: none; padding: 0; margin: 0; }
+nav.toc li { margin: 0; }
+nav.toc a { display: flex; color: var(--ink); padding: 1.4pt 0; }
+nav.toc li.t1 { margin-top: 4.5pt; font-weight: 700; }
+nav.toc li.t2 a { padding-left: 14pt; font-size: 8.8pt; color: #1e293b; }
+nav.toc .tn { min-width: 22pt; padding-right: 5pt; color: #64748b; }
+nav.toc li.t1 .tn { min-width: 22pt; }
+nav.toc li.t1:has(.tn:not(:empty)) .tn { white-space: nowrap; }
+nav.toc .tt { flex: 1; border-bottom: 0.5pt dotted #94a3b8; margin-right: 4pt; }
+nav.toc .tp { min-width: 16pt; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; margin: 3pt 0 9pt; font-size: 8.3pt; line-height: 1.3; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td { border: 0.5pt solid var(--line); padding: 2.6pt 4pt; text-align: left; vertical-align: top; }
+th { background: #e2e8f0; font-weight: 700; color: #0f172a; }
+tbody tr:nth-child(even) td { background: #f8fafc; }
+td code, th code { font-size: 0.92em; }
+
+/* status chips */
+.st { display: inline-block; font-size: 6.9pt; font-weight: 700; letter-spacing: .02em;
+      padding: 0.3pt 3.5pt; border-radius: 6pt; white-space: nowrap; vertical-align: 0.6pt;
+      border: 0.5pt solid transparent; }
+.st-impl { background: #dcfce7; color: #14532d; border-color: #86efac; }
+.st-local { background: #dbeafe; color: #1e3a8a; border-color: #93c5fd; }
+.st-ci { background: #e0e7ff; color: #312e81; border-color: #a5b4fc; }
+.st-pending { background: #fee2e2; color: #7f1d1d; border-color: #fca5a5; }
+.st-opt { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+.st-prop { background: #fef3c7; color: #78350f; border-color: #fcd34d; }
+.st-gap { background: #ffedd5; color: #7c2d12; border-color: #fdba74; }
+
+/* callouts */
+.callout { border-left: 2.5pt solid var(--accent); background: #f8fafc; padding: 5pt 8pt;
+           margin: 4pt 0 9pt; break-inside: avoid; }
+.callout > :last-child { margin-bottom: 0; }
+.callout.warn { border-color: #b45309; background: #fffbeb; }
+.callout.proposed { border-color: #b45309; background: #fffbeb; }
+.callout.key { border-color: #15803d; background: #f0fdf4; }
+
+/* diagrams */
+figure.dgm { margin: 0; break-inside: avoid; }
+figure.dgm .svgbox { border: 0.5pt solid var(--line); background: #fff; }
+figure.dgm svg { display: block; width: 100%; height: auto; }
+figure.dgm-landscape { page: wide; break-before: page; break-after: page; }
+figure.dgm-landscape svg { max-height: 172mm; }
+figure.dgm-portrait svg { max-height: 232mm; }
+figure.dgm-inline svg { max-height: 120mm; }
+figcaption { font-size: 8pt; color: var(--muted); margin-top: 3pt; }
+section.landscape { page: wide; break-before: page; }
+section.landscape table { font-size: 7.7pt; }
+section.landscape th, section.landscape td { padding: 2pt 3.5pt; }
+section.landscape + * { break-before: page; }
+.pb { break-after: page; }
+
+/* small print helpers */
+.small { font-size: 8pt; }
+.cols2 { columns: 2; column-gap: 8mm; }

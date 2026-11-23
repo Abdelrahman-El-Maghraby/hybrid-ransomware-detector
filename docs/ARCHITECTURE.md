@@ -1,7 +1,12 @@
 # Architecture overview
 
 A short, defensible tour of how Aegis Sentinel is built and why. Each section
-ends with the files to read.
+ends with the files to read. The same structure as eleven diagrams (class, use
+case, activity, system flowchart, Docker deployment and trust boundaries, the
+optional Kubernetes deployment, and focused views of one file's sequence, the layer
+data flow, nested containers, scoring versus completeness and Kubernetes option E),
+with the facts also stated in text, is in [architecture/README.md](architecture/README.md).
+The full technical overview (PDF) is in [security-overview](security-overview/README.md).
 
 ## 1. One file, one context, many independent layers
 
@@ -51,8 +56,8 @@ proposes data-driven values (cross-validated) for review.
 
 - **Bounded everything:** depth, member count, bytes, compression ratio, pixels,
   pages, decoding depth.
-- **Guards:** each layer runs in a try-block (`layer_errors`); folder and API scans
-  run each file in a worker process with a time and memory limit (`scan_failed`):
+- **Guards:** each layer runs in a try-block (`layer_errors`); every scan (folders,
+  single files, the folder monitor, the mailbox, the API) runs each file in a worker process with a time and memory limit (`scan_failed`):
   RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog in the
   parent on macOS.
 - **Fail fast on configuration:** importing `engine/config.py` has no side
@@ -94,8 +99,16 @@ metadata only.
 CLI (`RansomwareScanner.py`), desktop app (`aegis_gui/`), background scheduler with
 canary tripwires and containment (`core/response.py`, `core/containment.py`: stop
 the writing process, lock folders, cut the network), IMAP mailbox scanning
-(`core/mailbox.py`, read-only), JSON Lines and signed webhooks for SIEM/SOAR, and an
-optional REST API with abuse limits (`api/limits.py`). All results follow
+(`core/mailbox.py`, read-only), folder monitoring (`core/folder_watch.py`), JSON Lines
+and signed webhooks for SIEM/SOAR (desktop and CLI; API scans send e-mail alerts
+only, D22), a persistent alert outbox with e-mail alerts
+(`core/outbox.py`, `core/mailer.py`), optional report and log upload to
+S3-compatible storage (`core/cloud.py`), and an optional REST API with abuse limits
+(`api/limits.py`). In the Docker edition the analysis service has no network; the
+intel service (`api/intel.py`, `core/intel_client.py`) holds the external services
+and their secrets. The optional Kubernetes deployment (`deploy/kubernetes/`,
+`docs/KUBERNETES.md`) runs the analysis service and the TLS proxy without intel, so
+external services and e-mail alerts are off there. All results follow
 `api/scan_result.schema.json` (`schema_version`). Operations: structured JSON logs
 (`engine/logs.py`) and counters (`engine/metrics.py`, `GET /metrics`); see
 `docs/DEPLOYMENT.md`.
@@ -134,6 +147,6 @@ the source contains no raw bidirectional control characters.
 | Why not one ML model? | No labelled data for most file types; explainability matters to an analyst; ML is one capped layer. |
 | Why can't the LLM decide? | It reads attacker-controlled text. It is spotlighted, capped, and cannot clear technical findings. |
 | How do you avoid false positives on compressed files? | Randomness is only tested after the format signature is already missing. |
-| What if a parser hangs? | Worker timeout → `scan_failed` (Medium), the scan continues. |
+| What if a parser hangs? | Worker timeout → `scan_failed` (Medium, or higher from the container findings and finished members kept in `partial_evidence`), the scan continues. |
 | How are weights justified? | Registry + regression corpus now; calibration from labelled data next. |
 | What does it not catch? | Run-time-only behaviour without the sandbox; detection rate on real samples is not yet measured. |

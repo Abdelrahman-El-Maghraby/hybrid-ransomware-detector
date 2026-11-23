@@ -45,7 +45,7 @@
       }
     },
     "scan_duration_ms": {"type": "integer", "minimum": 0, "description": "Wall-clock time of the scan in milliseconds (schema 1.1)."},
-    "scan_status": {"enum": ["complete", "partial", "locked", "unsupported", "failed"], "description": "How far the evidence goes, independent of risk_score and verdict (schema 1.2). complete: every applicable, enabled layer ran; partial: an applicable layer errored or was unavailable, or content was not unpacked; locked: encrypted content was not opened; unsupported: the format has no type-specific analysis; failed: the worker timed out, crashed or ran out of memory. A container takes its most severe member status: failed > locked > partial > unsupported > complete."},
+    "scan_status": {"enum": ["complete", "partial", "locked", "unsupported", "failed"], "description": "How far the evidence goes, independent of risk_score and verdict (schema 1.2). complete: every applicable, enabled layer ran; partial: an applicable layer errored or was unavailable, or content was not unpacked; locked: encrypted content was not opened; unsupported: the format has no type-specific analysis; failed: the worker timed out, crashed or ran out of memory, or no isolated worker could start (the file was not scanned). A container takes its most severe member status: failed > locked > partial > unsupported > complete."},
     "incomplete_reasons": {
       "type": "array",
       "description": "Every gap behind a scan_status other than complete (schema 1.2).",
@@ -62,7 +62,7 @@
     },
     "provenance": {
       "type": "object",
-      "description": "What produced this result (schema 1.2; shared: 1.3). Never contains keys, tokens, passwords or service URLs.",
+      "description": "What produced this result (schema 1.2; shared: 1.3; isolation: 1.4). Never contains keys, tokens, passwords or service URLs.",
       "properties": {
         "engine_version": {"type": "string"},
         "schema_version": {"type": "string"},
@@ -74,6 +74,7 @@
           "sha256": {"type": "string", "pattern": "^([0-9a-f]{64})?$"}}},
         "fuzzy_signatures": {"type": "object"},
         "profile": {"enum": ["standard", "production"]},
+        "isolation": {"enum": ["worker", "in_process", "unavailable"], "description": "Where the file was parsed (schema 1.4): worker, an isolated worker process with a time and memory limit; in_process, the scanning process itself (only with the ISOLATE_SCANS=0 development opt-out, refused under the production profile); unavailable, no isolated worker could start, so the file was not scanned (scan_status failed, scan_results.scan_failed.code isolation_unavailable)."},
         "external_services": {"type": "object", "additionalProperties": {"type": "string"},
                               "description": "llm / virustotal / sandbox: 'off' or how each is used."},
         "layers_disabled": {"type": "array", "items": {"type": "object", "required": ["layer", "reason"]}},

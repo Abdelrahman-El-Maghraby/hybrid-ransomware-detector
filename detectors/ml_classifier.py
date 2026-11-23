@@ -60,7 +60,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from .entropy import shannon_entropy
 from .file_integrity import trusted_vault
@@ -320,6 +320,27 @@ def _check_model_file(path: Path) -> None:
         raise PermissionError(f"refusing to load {path.name}: owned by another user")
 
 
+def _load_same_version(model_path: PathLike) -> Any:
+    """joblib.load, refusing estimators pickled by another scikit-learn version:
+    scikit-learn records its version in each one and only warns on a mismatch,
+    and such a model's predictions are not guaranteed. The scan then uses the
+    rule engine (MLClassifier.load_error says why)."""
+    import warnings
+    try:
+        from sklearn.exceptions import InconsistentVersionWarning
+    except ImportError:                       # scikit-learn < 1.3 has no such warning
+        return _joblib.load(model_path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", InconsistentVersionWarning)
+        try:
+            return _joblib.load(model_path)
+        except InconsistentVersionWarning as w:
+            import sklearn
+            saved = getattr(w, "original_sklearn_version", "another version")
+            raise ValueError(f"model was saved with scikit-learn {saved}; this is "
+                             f"{sklearn.__version__}: retrain it") from None
+
+
 class MLClassifier:
     """`classify()` never raises; it uses a trained model if one is loaded."""
 
@@ -368,7 +389,7 @@ class MLClassifier:
             raise ImportError("scikit-learn/joblib not installed "
                               "(pip install -r requirements-ml.txt)")
         _check_model_file(Path(model_path))
-        bundle = _joblib.load(model_path)
+        bundle = _load_same_version(model_path)
         if not isinstance(bundle, dict) or bundle.get("format") != MODEL_FORMAT:
             raise ValueError("not a hybrid-ransomware-detector model file")
         if list(bundle.get("feature_names", [])) != FEATURE_NAMES:

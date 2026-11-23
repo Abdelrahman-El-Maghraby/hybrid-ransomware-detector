@@ -34,6 +34,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Tuple
@@ -81,6 +82,7 @@ from engine.config import (  # noqa: F401
     init_runtime,
     logger,
 )
+from engine.metrics import METRICS
 from engine.scanner import RansomwareScanner
 from engine.text import extract_suspicious_strings  # noqa: F401
 from engine.validation import ConfigError, check_config
@@ -141,35 +143,21 @@ def setup_macos_autostart() -> bool:
         agents_dir = Path.home() / "Library" / "LaunchAgents"
         agents_dir.mkdir(parents=True, exist_ok=True)
         plist_path = agents_dir / f"{AUTOSTART_LABEL}.plist"
-        script_line = f"\n        <string>{script_path}</string>" if script_path else ""
-        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{AUTOSTART_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{python_exe}</string>{script_line}
-        <string>--background</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{LOG_FILE}</string>
-    <key>StandardErrorPath</key>
-    <string>{LOG_FILE}</string>
-</dict>
-</plist>
-"""
-        plist_path.write_text(plist)
+        # L-C5: plistlib escapes the paths ("&", "<" in a home or install folder).
+        import plistlib
+        args = [str(python_exe)] + ([str(script_path)] if script_path else []) + ["--background"]
+        plist_path.write_bytes(plistlib.dumps({
+            "Label": AUTOSTART_LABEL, "ProgramArguments": args,
+            "RunAtLoad": True, "KeepAlive": True,
+            "StandardOutPath": str(LOG_FILE), "StandardErrorPath": str(LOG_FILE)}))
         # Reload the agent (unload first in case it already exists)
         subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True, text=True)
         result = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
-        if result.returncode != 0 and result.stderr.strip():
-            logger.warning(f"launchctl load reported: {result.stderr.strip()}")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()[:200]
+            logger.error(f"launchctl load failed ({result.returncode}): {detail}")
+            print(f"❌ macOS autostart: launchctl load failed ({detail or result.returncode}).")
+            return False
         logger.info(f"Installed launchd agent at {plist_path}")
         print(f"✅ Configured to run at macOS login (launchd agent: {plist_path}).")
         return True
@@ -389,21 +377,29 @@ def import_hash_database(source_path: str, destination_path: str = None) -> Dict
         return outcome
 
     try:
-        shutil.copy2(source_path, destination_path)
-
-        with open(destination_path, encoding="utf-8", newline="") as f:
+        # L-C1: check the new file first; the working database is replaced only
+        # by a valid one, and atomically.
+        with open(source_path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
             outcome["entries"] = sum(1 for _ in reader)
 
         required_columns = ['FileName', 'md5Hash', 'Benign']
         outcome["missing_columns"] = [col for col in required_columns if col not in header]
-        outcome["ok"] = not outcome["missing_columns"]
-        outcome["message"] = (
-            f"Database format validated. Found {outcome['entries']} entries."
-            if outcome["ok"]
-            else f"Missing required columns: {', '.join(outcome['missing_columns'])}"
-        )
+        if outcome["missing_columns"]:
+            outcome["message"] = (f"Missing required columns: "
+                                  f"{', '.join(outcome['missing_columns'])}; "
+                                  "the current database was kept")
+            return outcome
+        tmp = f"{destination_path}.tmp"
+        try:
+            shutil.copy2(source_path, tmp)
+            os.replace(tmp, destination_path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        outcome["ok"] = True
+        outcome["message"] = f"Database format validated. Found {outcome['entries']} entries."
         logger.info(f"Hash database imported from {source_path} -> {destination_path} "
                     f"({outcome['entries']} entries)")
         return outcome
@@ -755,17 +751,17 @@ def _setup_command(args) -> bool:
         outcome = import_hash_database(args.import_database)
         if outcome["error_kind"] == "missing_source":
             print(f"Error: Cannot find database file at {args.import_database}")
-            return True
+            sys.exit(EXIT_INPUT_ERROR)
         if outcome["error_kind"] == "exception":
             print(f"❌ Error importing database: {outcome['message']}")
-            return True
+            sys.exit(EXIT_INPUT_ERROR)
+        if outcome["missing_columns"]:                     # L-C1: nothing was replaced
+            print(f"❌ Not imported: missing required columns: "
+                  f"{', '.join(outcome['missing_columns'])}. The current database was kept.")
+            sys.exit(EXIT_INPUT_ERROR)
         print(f"✅ Successfully imported database from {args.import_database}")
         print(f"   Database saved to {outcome['destination']}")
-        if outcome["missing_columns"]:
-            print(f"⚠️  Missing required columns: {', '.join(outcome['missing_columns'])}")
-            print("   The scanner may not work properly without these columns.")
-        else:
-            print(f"✅ Database format validated. Found {outcome['entries']} entries.")
+        print(f"✅ Database format validated. Found {outcome['entries']} entries.")
         return True
     return False
 
@@ -886,22 +882,60 @@ def _mailbox_command(args, scanner) -> bool:
     if run.skipped_too_large:
         print(f"⚠️  {len(run.skipped_too_large)} message(s) over IMAP_MAX_MB were not scanned "
               f"(UIDs {', '.join(map(str, run.skipped_too_large[:10]))}).")
+    if run.fetch_failed:
+        print(f"⚠️  {len(run.fetch_failed)} message(s) could not be fetched from the server "
+              f"and were not scanned (UIDs {', '.join(map(str, run.fetch_failed[:10]))}).")
     if run.more_waiting:
         print("⚠️  More new messages are waiting; run --scan-imap again.")
+    if run.not_scanned:
+        _isolation_error(run.not_scanned)
+        print("   They were not marked as seen and are fetched again on the next run.",
+              file=sys.stderr)
+        sys.exit(EXIT_ISOLATION_UNAVAILABLE)
     return True
+
+
+EXIT_INPUT_ERROR = 1            # L-C2: a missing file or a database that was not imported
+EXIT_ISOLATION_UNAVAILABLE = 3
+
+
+def _isolation_error(count: int) -> None:
+    """The CLI side of failing closed (D-E): say why files were not scanned."""
+    print(f"❌ Isolated scan workers could not start: {count} file(s) were not scanned. "
+          "No file was scanned in the main process. See the log for the cause.",
+          file=sys.stderr)
+
+
+def _pause(prompt: str) -> None:
+    """Wait for Enter in an interactive terminal. Without one (cron, a service
+    manager, a SIEM job) or when input is closed, carry on at once, so the exit
+    code still says whether every file was scanned. Ctrl-C still interrupts."""
+    stdin = sys.stdin
+    if stdin is None or not stdin.isatty():
+        return
+    try:
+        input(prompt)
+    except EOFError:
+        print()
 
 
 def _scan_or_schedule(args, scanner) -> None:
     """--scan-file, --scan-now and the scheduled background loop."""
-    # --scan-file: analyse exactly one file, print its verdict, and exit.
+    # --scan-file: analyse exactly one file (in an isolated worker), print its
+    # verdict, and exit.
     if args.scan_file:
         if not os.path.exists(args.scan_file):
             print(f"Error: file not found: {args.scan_file}")
-            return
-        result = scanner.scan_file(args.scan_file)
-        print(scanner.generate_report([result]))
+            sys.exit(EXIT_INPUT_ERROR)
+        result = scanner.scan_one(args.scan_file)
         from core.outputs import deliver
-        deliver([result], CONFIG)
+        try:
+            print(scanner.generate_report([result]))
+        finally:              # M17: alerts and the exit status even when the report fails
+            deliver([result], CONFIG)
+            if scanner.last_not_scanned:
+                _isolation_error(scanner.last_not_scanned)
+                sys.exit(EXIT_ISOLATION_UNAVAILABLE)
         return
 
     if args.scan_now:
@@ -911,8 +945,13 @@ def _scan_or_schedule(args, scanner) -> None:
         print(report)
         print("=" * 56)
         print(f"\nDetailed reports saved to: {CONFIG['report_directory']}")
+        unscanned = scanner.last_not_scanned
+        if unscanned:
+            _isolation_error(unscanned)
         if not args.background:
-            input("\nPress Enter to exit...")
+            _pause("\nPress Enter to exit...")
+            if unscanned:
+                sys.exit(EXIT_ISOLATION_UNAVAILABLE)
 
     if args.background or not args.scan_now:
         if not os.path.exists(CONFIG['kaggle_database_path']):
@@ -920,41 +959,126 @@ def _scan_or_schedule(args, scanner) -> None:
             print("   Import one with the --import-database option, e.g.:")
             print(f"   python {Path(__file__).name} --import-database /path/to/your/dataset.csv")
             if not args.background:
-                input("\nPress Enter to continue anyway...")
+                _pause("\nPress Enter to continue anyway...")
 
-        logger.info(f"Scheduling scans every {CONFIG['scan_interval_hours']} hours.")
-        schedule.every(CONFIG['scan_interval_hours']).hours.do(scanner.run_scan)
-        # Always scheduled: with no canaries deployed the check is a no-op, and
-        # canaries deployed later (from the GUI or CLI) are picked up live.
-        minutes = max(1, int(CONFIG.get("canary_check_minutes", 5)))
         watcher = CanaryWatcher(
             scanner.canaries, lambda: scanner.check_canaries(touched=watcher.take_touched()))
-        if scanner.canaries.entries():
-            realtime = watcher.start()
-            logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
-                        "watched in real time" if realtime else
-                        ("no real-time watching (pip install watchdog)"
-                         if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
-                        minutes)
-        schedule.every(minutes).minutes.do(scanner.check_canaries)
-        # Canaries deployed or removed later (GUI or CLI) are picked up here.
-        schedule.every(minutes).minutes.do(watcher.refresh)
-        imap_minutes = int(CONFIG.get("imap_check_minutes", 0) or 0)
-        if imap_minutes > 0 and CONFIG.get("imap_host"):
-            logger.info("Mailbox %s checked every %d minute(s).", CONFIG["imap_folder"], imap_minutes)
-            schedule.every(imap_minutes).minutes.do(scanner.scan_mailbox_safely)
-
-        if not args.scan_now:
-            scanner.run_scan()
+        _schedule_background_jobs(scanner, watcher, CONFIG)
+        service_jobs = _ServiceJobThread()          # I-4: short jobs keep their cadence
+        service_jobs.start()
+        from core.folder_watch import monitor_from_config
+        monitor = monitor_from_config(scanner, CONFIG)      # WATCH_DIRS (desktop, F1)
+        if monitor is not None:
+            monitor.start()
 
         try:
-            while True:
-                schedule.run_pending()
-                time.sleep(30)
+            if not args.scan_now:
+                _guarded("scan", scanner.run_scan)()
+            _run_background_loop()
         except KeyboardInterrupt:
             logger.info("Scanner stopped by user.")
         finally:
+            service_jobs.stop()
             watcher.stop()
+            if monitor is not None:
+                monitor.stop()
+
+
+def _guarded(name: str, job):
+    """A scheduled job that cannot end the background service (PR-07): an
+    exception is logged and counted, and the job runs again at its next time.
+    The schedule library itself does not catch anything."""
+    def run():
+        try:
+            return job()
+        except Exception as e:
+            METRICS.job_failed(name)
+            logger.error("Background job '%s' failed: %s: %s (it runs again on schedule).",
+                         name, type(e).__name__, e,
+                         extra={"event": "scheduled_job_failed", "job": name})
+            return None
+    run.__name__ = f"guarded_{name}"
+    return run
+
+
+# I-4: the short jobs (canary checks, alert retries, cloud uploads) run on their own
+# scheduler and thread, so a long folder scan or mailbox check no longer holds them
+# back. Scans and mailbox checks stay on the main loop, one at a time, as before:
+# they never overlap, and Ctrl+C stops them and their workers as before.
+SERVICE_JOBS = schedule.Scheduler()
+
+
+def _schedule_background_jobs(scanner, watcher, config) -> None:
+    """Register the background service's jobs, each one guarded: the scans on the
+    main scheduler (`schedule`), the short jobs on SERVICE_JOBS (I-4)."""
+    logger.info(f"Scheduling scans every {config['scan_interval_hours']} hours.")
+    schedule.every(config['scan_interval_hours']).hours.do(_guarded("scan", scanner.run_scan))
+    # Always scheduled: with no canaries deployed the check is a no-op, and
+    # canaries deployed later (from the GUI or CLI) are picked up live.
+    minutes = max(1, int(config.get("canary_check_minutes", 5)))
+    if scanner.canaries.entries():
+        realtime = watcher.start()
+        logger.info("Canary tripwires armed: %s, plus a check every %d minute(s).",
+                    "watched in real time" if realtime else
+                    ("no real-time watching (pip install watchdog)"
+                     if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
+                    minutes)
+    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
+    # Canaries deployed or removed later (GUI or CLI) are picked up here.
+    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    # optional cloud storage (core/cloud.py): spool cleaned at start and daily,
+    # uploads every 5 minutes; nothing is queued or uploaded while it is off
+    from core import cloud
+    _guarded("cloud_cleanup", lambda: cloud.run_uploads(config, cleanup=True))()
+    SERVICE_JOBS.every(5).minutes.do(_guarded("cloud_upload", lambda: cloud.run_uploads(config)))
+    SERVICE_JOBS.every(1).days.do(_guarded("cloud_cleanup",
+                                           lambda: cloud.run_uploads(config, cleanup=True)))
+    # alerts a receiver did not take yet (core/outbox.py) are retried every minute
+    from core.outbox import flush_pending
+    SERVICE_JOBS.every(1).minutes.do(_guarded("alert_outbox", lambda: flush_pending(config)))
+    imap_minutes = int(config.get("imap_check_minutes", 0) or 0)
+    if imap_minutes > 0 and config.get("imap_host"):
+        logger.info("Mailbox %s checked every %d minute(s).", config["imap_folder"], imap_minutes)
+        schedule.every(imap_minutes).minutes.do(_guarded("mailbox", scanner.scan_mailbox_safely))
+
+
+def _run_background_loop(sleep=time.sleep, keep_going=lambda: True, jobs=None) -> None:
+    """Run due jobs every 30 s until interrupted. Jobs are guarded; anything
+    else that goes wrong in one pass is logged and the loop carries on. `jobs` is
+    a schedule.Scheduler; by default the main one (scans and mailbox checks)."""
+    while keep_going():
+        try:
+            (schedule if jobs is None else jobs).run_pending()
+        except Exception as e:
+            logger.error("Background scheduler error: %s", e,
+                         extra={"event": "scheduled_job_failed", "job": "scheduler"})
+        sleep(30)
+
+
+class _ServiceJobThread:
+    """Runs SERVICE_JOBS on a daemon thread until stop() (I-4). Every job there is
+    guarded and short; the outbox and cloud spool lock their folders for every
+    thread and process, and canary checks are serialised (ProtectionMixin)."""
+
+    def __init__(self, jobs: schedule.Scheduler = SERVICE_JOBS, tick: float = 30.0):
+        self.jobs, self.tick = jobs, tick
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="aegis-service-jobs",
+                                        daemon=True)
+
+    def _loop(self) -> None:
+        _run_background_loop(sleep=lambda _s: self._stop.wait(self.tick),
+                             keep_going=lambda: not self._stop.is_set(), jobs=self.jobs)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, timeout: float = 10.0) -> bool:
+        """Ask the thread to end after the job it is running; True once it has."""
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+        return not self._thread.is_alive()
 
 
 def main():
@@ -976,6 +1100,8 @@ def main():
     except ConfigError as e:
         print(f"❌ {e}")
         sys.exit(2)
+    from core.cloud import install_event_spool
+    install_event_spool(CONFIG)          # only with CLOUD_UPLOAD=true
     if _capabilities_command(args) or _standalone_command(args):
         return
     utility_mode = _is_utility_mode(args)

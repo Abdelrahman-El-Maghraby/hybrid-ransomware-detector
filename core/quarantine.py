@@ -63,6 +63,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from engine.fsutil import write_atomic
+
 logger = logging.getLogger("RansomwareScanner.quarantine")
 
 try:
@@ -168,13 +170,12 @@ class QuarantineVault:
                     "Restore it from a backup; refusing to overwrite it.")
             return data
         key = os.urandom(32)
-        # O_EXCL: if another process created it a moment ago, use theirs.
+        # L-A3: written whole or not at all; create_only: if another process created
+        # it a moment ago, use theirs.
         try:
-            fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            write_atomic(key_path, key, create_only=True)
         except FileExistsError:
             return self._load_or_create_master_key()
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(key)
         try:
             os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
         except OSError:  # pragma: no cover - e.g. some Windows filesystems
@@ -254,14 +255,10 @@ class QuarantineVault:
                     "would become unreadable if it were replaced; back it up first, then "
                     "import with --replace-key.")
             backup = key_path.with_name(f"{KEY_FILE_NAME}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-            fd = os.open(str(backup), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(current)
-            key_path.unlink()
+            write_atomic(backup, current, create_only=True)
             status = "replaced"
-        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(key)
+        # L-A3: one atomic step from the old key to the new one (no empty slot).
+        write_atomic(key_path, key, create_only=status == "installed")
         self._key = key
         logger.info("Imported quarantine key (fingerprint %s): %s", self.key_fingerprint(), status)
         return status
@@ -298,11 +295,15 @@ class QuarantineVault:
     # ----------------------------------------------------------- quarantine
     def quarantine(self, file_path: PathLike, reason: str = "",
                    extra: Optional[Dict[str, Any]] = None,
-                   delete_original: bool = True) -> Dict[str, Any]:
+                   delete_original: bool = True,
+                   expected_sha256: str = "") -> Dict[str, Any]:
         """Encrypt `file_path` into the vault; remove the original once verified.
 
         Returns the item's metadata record. `original_removed` tells whether the
-        original could actually be deleted (it may be locked on Windows).
+        original could actually be deleted (it may be locked on Windows). With
+        `expected_sha256` (the hash of the file that was scanned), a file whose
+        content changed since - another file renamed into its place - is refused:
+        only the file that was judged is ever vaulted.
         """
         src = Path(file_path)
         if src.is_symlink():
@@ -318,6 +319,9 @@ class QuarantineVault:
 
         st = src.stat()
         original_sha256 = _sha256_file(src, self.chunk_size)
+        if expected_sha256 and original_sha256 != expected_sha256.lower():
+            raise QuarantineError("The file changed after it was scanned; it was not "
+                                  "quarantined (scan it again).")
         self.vault_dir.mkdir(parents=True, exist_ok=True)
         item_id = uuid.uuid4().hex[:12]
         vault_file = self._vault_path(item_id)
@@ -339,6 +343,7 @@ class QuarantineVault:
                                   json.dumps(meta).encode("utf-8"), _aad_meta())
         try:
             with src.open("rb") as fin, vault_file.open("wb") as fout:
+                read_st = os.fstat(fin.fileno())    # FI-2: the file actually vaulted
                 fout.write(MAGIC + salt + prefix)
                 fout.write(_HEADER.pack(self.chunk_size, len(enc_meta)))
                 fout.write(enc_meta)
@@ -367,14 +372,26 @@ class QuarantineVault:
 
         removed = False
         if delete_original:
+            # FI-2: remove the path only while it is still the file that was read
+            # and vaulted, not one renamed into its place since (a narrow window
+            # remains between this check and the unlink).
             try:
-                src.unlink()
-                removed = True
-            except OSError as e:
-                logger.error("Vaulted %s but could not delete the original: %s", src, e)
+                now = os.lstat(src)
+                same = (now.st_dev, now.st_ino) == (read_st.st_dev, read_st.st_ino)
+            except OSError:
+                same = False
+            if not same:
+                logger.error("Vaulted %s but did not delete it: another file is now at "
+                             "that path.", src)
+            else:
+                try:
+                    src.unlink()
+                    removed = True
+                except OSError as e:
+                    logger.error("Vaulted %s but could not delete the original: %s", src, e)
         meta["original_removed"] = removed
         meta["vault_file"] = str(vault_file)
-        self._sidecar_path(item_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        write_atomic(self._sidecar_path(item_id), json.dumps(meta, indent=2).encode("utf-8"))
         logger.warning("QUARANTINED %s -> vault id %s (%s), by %s", src, item_id,
                        reason or "no reason", _os_user(), extra={"event": "quarantined"})
         return meta

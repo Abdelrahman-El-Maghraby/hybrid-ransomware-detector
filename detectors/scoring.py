@@ -327,6 +327,16 @@ def _prompt_guard(m: ScoringMatrix, s: Signals) -> List[Contribution]:
     return out
 
 
+def _file_name(m: ScoringMatrix, s: Signals) -> List[Contribution]:
+    """M30: the scanned file's own name, scored as an archive member's is."""
+    i = s.integrity
+    if i is None or not i.rtlo_name:
+        return []
+    return [C("file_rtlo_spoof", "technical", m.W_FILE_RTLO,
+              "Right-to-left override in the file name (the shown extension is "
+              f"reversed): {i.rtlo_name}.")]
+
+
 def _appended_payload(m: ScoringMatrix, s: Signals) -> List[Contribution]:
     i = s.integrity
     if i is None or not i.appended_payload:
@@ -688,7 +698,7 @@ def _llm(m: ScoringMatrix, s: Signals) -> List[Contribution]:
 # The order here is the order of contributions in reports and breakdowns.
 SCORERS: Tuple[Scorer, ...] = (
     _local_db, _yara, _fuzzy, _macro,
-    _integrity, _prompt_guard, _appended_payload, _relationships, _archive,
+    _integrity, _file_name, _prompt_guard, _appended_payload, _relationships, _archive,
     _mail, _web, _elf, _qr, _pe, _script, _embedded, _scan_failed,
     _ml, _emulation, _sandbox, _virustotal, _llm,
 )

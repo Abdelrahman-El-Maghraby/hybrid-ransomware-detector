@@ -41,7 +41,7 @@ import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Optional
 
 import requests
 
@@ -102,10 +102,12 @@ def _empty_analysis(detail: str, error: bool = False) -> Dict:
 def _parse_analysis(content: str) -> Dict:
     """Robustly parse a model's JSON reply into our normalised result dict.
 
-    Handles models that wrap JSON in ```json fences or add stray prose.
+    Handles models that wrap JSON in ```json fences or add stray prose. A reply
+    with no usable JSON object is an error (L-L1): the model gave no opinion, so
+    the scan is partial rather than complete.
     """
     if not content:
-        return _empty_analysis("LLM returned an empty response.")
+        return _empty_analysis("LLM returned an empty response.", error=True)
     text = content.strip()
     # Strip Markdown code fences if present.
     if text.startswith("```"):
@@ -123,9 +125,9 @@ def _parse_analysis(content: str) -> Dict:
         data = json.loads(text)
     except json.JSONDecodeError:
         logger.error("Could not parse LLM response as JSON: %s", content[:200])
-        return _empty_analysis("LLM response was not valid JSON.")
+        return _empty_analysis("LLM response was not valid JSON.", error=True)
     if not isinstance(data, dict):
-        return _empty_analysis("LLM response was not a JSON object.")
+        return _empty_analysis("LLM response was not a JSON object.", error=True)
     try:
         confidence = float(data.get("confidence_score", 0) or 0)
     except (TypeError, ValueError):
@@ -142,13 +144,19 @@ def _parse_analysis(content: str) -> Dict:
     }
 
 
+def _capped(own: float, limit: Optional[float]) -> float:
+    return own if limit is None else max(0.01, min(float(own), limit))
+
+
 class LLMBackend(ABC):
     name = "base"
     is_local = False
 
     @abstractmethod
-    def analyze(self, combined_content: str) -> Dict:
-        """Return a normalised analysis dict for the given document content."""
+    def analyze(self, combined_content: str, timeout: Optional[float] = None) -> Dict:
+        """Return a normalised analysis dict for the given document content.
+        `timeout` (I-6): an isolated worker's time left; it caps the backend's own
+        request timeout."""
         raise NotImplementedError
 
     @property
@@ -163,7 +171,7 @@ class NullBackend(LLMBackend):
     def available(self) -> bool:
         return False
 
-    def analyze(self, combined_content: str) -> Dict:
+    def analyze(self, combined_content: str, timeout: Optional[float] = None) -> Dict:
         return _empty_analysis("No LLM backend configured; semantic layer skipped.")
 
 
@@ -184,7 +192,7 @@ class OpenAIBackend(LLMBackend):
     def available(self) -> bool:
         return bool(self.api_key)
 
-    def analyze(self, combined_content: str) -> Dict:
+    def analyze(self, combined_content: str, timeout: Optional[float] = None) -> Dict:
         if not self.api_key:
             return _empty_analysis("OpenAI API key not configured; LLM layer skipped.")
         headers = {
@@ -199,7 +207,7 @@ class OpenAIBackend(LLMBackend):
         }
         try:
             resp = self.http.post(self.api_url, headers=headers, json=payload,
-                                 timeout=self.timeout)
+                                  timeout=_capped(self.timeout, timeout))
             if resp.status_code == 200:
                 content = resp.json()["choices"][0]["message"]["content"]
                 return _parse_analysis(content)
@@ -230,7 +238,7 @@ class OllamaBackend(LLMBackend):
         except Exception:
             return False
 
-    def analyze(self, combined_content: str) -> Dict:
+    def analyze(self, combined_content: str, timeout: Optional[float] = None) -> Dict:
         url = f"{self.host}/api/chat"
         payload = {
             "model": self.model,
@@ -240,7 +248,7 @@ class OllamaBackend(LLMBackend):
             "options": {"temperature": 0.0},
         }
         try:
-            resp = self.http.post(url, json=payload, timeout=self.timeout)
+            resp = self.http.post(url, json=payload, timeout=_capped(self.timeout, timeout))
             if resp.status_code == 200:
                 content = resp.json().get("message", {}).get("content", "")
                 return _parse_analysis(content)

@@ -36,6 +36,9 @@ rule Ransomware_Stops_Services_And_Processes
         $t13 = "sophos"          nocase ascii wide
         $t14 = "acronis"         nocase ascii wide
     condition:
+        // S-Y4: bulk service stopping is also used during backup maintenance.
+        // The same commands cannot establish intent. Keep coverage for service-
+        // only inhibition; the known maintenance false positive is documented.
         any of ($k*) and 5 of ($t*)
 }
 

@@ -18,11 +18,12 @@ from aegis_gui.common import (
     RS,
     TEXT,
     ctk,
+    filedialog,
     messagebox,
     set_key,
 )
 from aegis_gui.pages.base import BasePage
-from aegis_gui.widgets import Section
+from aegis_gui.widgets import SecretDialog, Section
 
 AUTO_QUARANTINE_CHOICES = {"Off": "", "High and above": "high", "Critical only": "critical"}
 
@@ -101,6 +102,22 @@ class ProtectionPage(BasePage):
                                variable=self.auto_var, command=self._auto_changed,
                                selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
                                font=app.font_small).pack(side="left", padx=10)
+        key_row = ctk.CTkFrame(sec.body, fg_color="transparent")
+        key_row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkLabel(key_row, text="Vault key:", font=app.font_ui,
+                     text_color=TEXT).pack(side="left")
+        for text, command in (("Export key backup…", self._export_key),
+                              ("Import key backup…", self._import_key)):
+            ctk.CTkButton(key_row, text=text, width=150, height=28, font=app.font_small,
+                          fg_color="transparent", hover_color=PANEL_2, border_width=1,
+                          border_color=BORDER_2, text_color=TEXT,
+                          command=command).pack(side="left", padx=(10, 0))
+        self.key_label = ctk.CTkLabel(sec.body, text="Without the key, quarantined files "
+                                      "cannot be restored on another machine or after a "
+                                      "reinstall: keep a backup.", font=app.font_small,
+                                      text_color=MUTED, anchor="w", wraplength=720,
+                                      justify="left")
+        self.key_label.pack(fill="x", padx=14, pady=(0, 6))
         self.vault_rows = ctk.CTkFrame(sec.body, fg_color="transparent")
         self.vault_rows.pack(fill="x", padx=10, pady=(2, 12))
 
@@ -192,6 +209,50 @@ class ProtectionPage(BasePage):
                  f"({st['expired']} expired) · {st['hits']} hit(s) this session\n{st['path']}")
 
     # -- actions ---------------------------------------------------------------------
+    # (the dialogs are attributes so the GUI smoke test can answer them)
+    ask_save_path = staticmethod(lambda: filedialog.asksaveasfilename(
+        title="Save the quarantine key backup", defaultextension=".aegiskey",
+        initialfile="quarantine-key.aegiskey"))
+    ask_open_path = staticmethod(lambda: filedialog.askopenfilename(
+        title="Choose a quarantine key backup"))
+
+    def ask_secret(self, title: str, prompt: str):
+        return SecretDialog.ask(self.app, title, prompt)
+
+    def _export_key(self):
+        from aegis_gui.integration import export_key_backup
+        path = self.ask_save_path()
+        if not path:
+            return
+        first = self.ask_secret("Key backup", "Passphrase for the backup (10+ characters):")
+        if not first:
+            return
+        again = self.ask_secret("Key backup", "The same passphrase again:")
+        if again is None:
+            return
+        message = export_key_backup(self.app.scanner.quarantine_vault, path, first, again)
+        self.key_label.configure(text=message, text_color=ACCENT_SOFT
+                                 if message.startswith("Key backup written") else AMBER_SOFT)
+
+    def _import_key(self):
+        from aegis_gui.integration import import_key_backup
+        path = self.ask_open_path()
+        if not path:
+            return
+        passphrase = self.ask_secret("Key backup", "Passphrase of the backup:")
+        if not passphrase:
+            return
+        vault = self.app.scanner.quarantine_vault
+        message = import_key_backup(vault, path, passphrase)
+        if "different quarantine key is already installed" in message and messagebox.askyesno(
+                "Replace the vault key?",
+                "A different key is installed. Items it encrypted can only be restored "
+                "with it. Replace it (the current key is kept as a .bak file)?"):
+            message = import_key_backup(vault, path, passphrase, replace=True)
+        self.key_label.configure(text=message, text_color=AMBER_SOFT
+                                 if message.startswith("Not imported") else ACCENT_SOFT)
+        self._refresh_vault()
+
     def _deploy(self):
         dirs = [d for d in self.app.settings["scan_directories"] if os.path.isdir(d)]
         if not dirs:

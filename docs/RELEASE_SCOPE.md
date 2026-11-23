@@ -20,9 +20,10 @@ contribution. The customer pays a subscription for signed rule-pack updates and 
 | Surface | In the edition | Notes |
 |---|---|---|
 | REST API (`aegis-api`) | **Yes, primary** | Behind the customer's TLS reverse proxy. `/scan`, `/health`, `/ready` (Phase 1), `/version`, `/schema`, `/metrics`. |
-| CLI inside the container | Yes | Folder and single-file triage, `--scan-imap` (read-only mailbox scanning), rule-pack install, quarantine management. |
-| JSON Lines and signed webhooks | Yes | SIEM / SOAR integration; metadata only, never file content. |
-| Encrypted quarantine vault | Yes | Restore needs authorisation and is audit-logged (A8). Quarantining is a separate action decision, not the verdict. |
+| CLI inside the container | Yes | Folder and single-file triage, rule-pack install. `--scan-imap` needs a route to the mail server, and the containers that run the scanner (`analysis`, `content`) have `network_mode: none` while intel offers no IMAP operation, so mailbox scanning is a desktop/CLI feature outside the shipped compose file. |
+| E-mail alerts | Yes | API results at or above `ALERT_EMAIL_MIN_VERDICT` (and incomplete or failed scans) are e-mailed by the intel service; metadata only, never file content. |
+| JSON Lines and signed webhooks | **No** (desktop and CLI only) | SIEM / SOAR outputs of the desktop app and the CLI; metadata only, never file content. API scans in the Docker edition write no JSON Lines file and send no webhook (`api/server.py`, `_Alerts`); the analysis service has no network (D22). |
+| Encrypted quarantine vault | **No** (desktop and CLI only) | The server deployment does not quarantine files (`docs/OPERATIONS.md`). On a desktop, restore needs authorisation and is audit-logged (A8); quarantining is a separate action decision, not the verdict (D23). |
 | Desktop GUI (`aegis_gui/`) | **Decision D2** | Proposal: supported as an analyst workstation app on Windows and macOS. It is not part of the Docker deployment, and it ships as unsigned binaries until certificates exist. |
 | Host protection (canaries, `stop_writers`, `lock_folders`, `network_off`, Controlled Folder Access) | **Decision D3** | Proposal: not part of the Docker edition. A container cannot watch or contain processes on the customer's endpoints, and it must not hold kill / network rights (Phase 2). The features stay in the desktop build, outside the paid support scope. |
 
@@ -59,12 +60,13 @@ An optional layer that is disabled by configuration is recorded in provenance. I
 
 | Platform | Support | Evidence today |
 |---|---|---|
-| Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | No Dockerfile yet (Phase 2). |
+| Docker Engine on Linux x86_64 (image based on Python 3.12) | **Supported** (the product) | `Dockerfile` and `docker-compose.yml` since 4.7; built and checked by the `docker` workflow (`deploy/check-deployment.sh`). |
 | Docker Engine on Linux arm64 | **Decision D5**; proposed "supported once the image is built and tested in CI" | Dependencies ship arm64 wheels (README); not tested yet. |
+| Kubernetes 1.29+ (`deploy/kubernetes/`, single instance, intel optional over TLS) | **Not in the accepted scope**; optional manifests, unverified on a cluster. Support status is an owner decision, after K8S-1 and a test-cluster run | Rendered and checked offline (`tests/test_kubernetes.py`); `docs/KUBERNETES.md`, `docs/VERIFICATION_MATRIX.md` section 4. |
 | Docker Desktop on macOS / Windows | Evaluation only, not production | macOS cannot enforce RLIMIT_AS, so worker memory falls back to a 0.25 s watchdog (THREAT_MODEL §1). |
-| Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025. |
-| Python 3.13 | The lock file is resolved for it | `requirements.lock` header. |
-| Python 3.14 | Not supported yet | `requirements.lock` does not install (`backports-zstd==1.8.0` requires < 3.14); see RELEASE_READINESS baseline B3. |
+| Source install, Python 3.9 and 3.12 (Linux, macOS, Windows) | Tested in CI | `tests` workflow, 6 jobs green on `93b19f2`. **Decision D6:** Python 3.9 reached end of life in October 2025; 4.8 keeps supporting it (D26). |
+| Python 3.13 | The lock file is resolved for 3.12 and later | `requirements.lock` header; not run in CI. |
+| Python 3.14 | Installs from the lock (B3 fixed) | Local runs of the review stage on macOS arm64 used Python 3.14.2; not run in CI. |
 | Desktop binaries (Windows, macOS, Linux) | Only if D2 = yes | Built and smoke-tested by `release.yml`; unsigned. Signing and notarisation need certificates the owner buys. Signing does not remove every OS warning (for example SmartScreen reputation). |
 
 ## 5. Explicitly out of scope
@@ -160,4 +162,4 @@ the files that doc leaves unassigned placed in an area.
 | D3 | Are canaries and containment part of the paid edition? | No: desktop build only, outside paid support. |
 | D4 | Is the VirusTotal hash look-up off by default in the production profile (not only upload)? | Off; one setting turns on look-up, a second turns on upload. |
 | D5 | Is Linux arm64 a supported image? | Yes, once it is built and tested in CI. |
-| D6 | Python 3.9 is end of life. Keep it in the test matrix for v4.7? | Keep it for v4.7, as the hard rules require; drop it in the next release. |
+| D6 | Python 3.9 is end of life. Keep it in the test matrix for v4.7? | Keep it for v4.7, as the hard rules require; drop it in the next release. **Updated 2026-11-13 (D26):** 4.8 still declares and tests Python 3.9 (`pyproject.toml` `requires-python = ">=3.9"`, the `tests` workflow matrix), and the owner chose to keep it supported for now; dropping it is a later, separate decision. |

@@ -1,0 +1,83 @@
+# Option E (docs/KUBERNETES.md, K8S-1). The base's default-deny still applies to
+# every Pod; these add exactly what intel needs. Policies match Pods, so the rules
+# name the intel Pods and their target port, not the Service; whether the plugin
+# applies them to ClusterIP traffic is shown on a cluster (verify-cluster.sh).
+#
+# 1. Analysis may open TCP 9443 to the intel Pods, and nothing else. (The analysis
+#    Pod's TLS proxy shares that network; it holds no intel token.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-analysis-to-intel
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: analysis
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aegis-sentinel
+              app.kubernetes.io/component: intel
+      ports:
+        - {protocol: TCP, port: 9443}
+---
+# 2. Intel accepts TCP 9443 from the analysis Pods only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-intel-from-analysis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: intel
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aegis-sentinel
+              app.kubernetes.io/component: analysis
+      ports:
+        - {protocol: TCP, port: 9443}
+---
+# 3. Intel's own egress: the cluster DNS (it resolves VirusTotal, OpenAI, the SMTP
+#    server) and HTTPS / SMTP to public addresses. Private, link-local (the
+#    metadata address) and loopback ranges are excluded, so intel cannot reach
+#    analysis or other cluster services; NetworkPolicy cannot filter by name, so
+#    intel's origin allowlist (core/http.py) stays the real filter. Add an
+#    internal destination (CAPE, Ollama) in the overlay as its own narrow rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-intel-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: intel
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16,
+                     172.16.0.0/12, 192.168.0.0/16]
+        - ipBlock:
+            cidr: ::/0
+            except: ["::1/128", "fc00::/7", "fe80::/10"]
+      ports:
+        - {protocol: TCP, port: 443}     # VirusTotal, OpenAI
+        - {protocol: TCP, port: 465}     # SMTP over TLS
+        - {protocol: TCP, port: 587}     # SMTP with STARTTLS

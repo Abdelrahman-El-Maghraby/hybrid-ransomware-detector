@@ -39,9 +39,10 @@ import shutil
 import struct
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable, Dict, Iterator, List, Optional, Sequence, Union
+from pathlib import Path, PurePosixPath
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
+from .container_extractor import not_a_device
 from .file_integrity import detect_format
 
 logger = logging.getLogger("RansomwareScanner.embedded")
@@ -61,6 +62,15 @@ except ImportError:  # pragma: no cover
 
 MAX_READ = 64 * 1024 * 1024
 MAX_MEMBERS = 25
+MAX_SKIPPED = 50          # L-D4: entries listed in `skipped`; the rest are counted
+# L-D7 (option b, owner-approved): pages and files of a CHM read with `7z e -so`, one
+# process each. Phishing CHMs have a handful of pages and product help a few hundred;
+# the rest are named in `skipped`, so the scan reads partial.
+MAX_CHM_READS = 1000
+# Markers core/outbox.incomplete_alert looks for in a result's gaps (L-D7 ii): CHM
+# content left unread by the read limit, or not scanned because of the member limit.
+CHM_READ_LIMIT_MARK = "help pages not read (read limit"
+CHM_MEMBER_LIMIT_MARK = "member limit reached (help file)"
 MAX_MEMBER_BYTES = 30 * 1024 * 1024
 
 ONENOTE_MAGIC = bytes.fromhex("E4525C7B8CD8A74DAEB15378D02996D3")
@@ -77,13 +87,51 @@ _EXT_BY_FORMAT = {"pe": ".exe", "elf": ".elf", "macho": ".macho", "lnk": ".lnk",
 RISKY_EXTENSIONS = frozenset({".exe", ".dll", ".scr", ".lnk", ".hta", ".vbs", ".vbe", ".js",
                               ".jse", ".wsf", ".ps1", ".bat", ".cmd", ".elf", ".macho", ".sh"})
 
-_SCRIPT_GUESS = (
-    (".hta", re.compile(rb"<hta:application", re.I)),
-    (".wsf", re.compile(rb"<job\b[^>]*>|<script\s+language\s*=\s*[\"']?(?:vbscript|jscript)", re.I)),
-    (".ps1", re.compile(rb"\$[a-z_]\w*\s*=|invoke-|new-object\s|-encodedcommand|\[convert\]::", re.I)),
-    (".vbs", re.compile(rb"createobject\s*\(|wscript\.|\bdim\s+\w+|\bsub\s+\w+\s*\(", re.I)),
-    (".bat", re.compile(rb"^\s*@?echo\s+off|^\s*(?:set|start|call|goto)\s", re.I | re.M)),
-    (".js", re.compile(rb"activexobject|\bvar\s+\w+\s*=|function\s*\w*\s*\(", re.I)),
+# M22: these run on every OneNote and MSI block, so each one is linear. The
+# old `.bat` pattern let `^\s*` cross lines (quadratic on blank lines) and the
+# old `.wsf` and `.js` patterns rescanned the rest of a run from every `<job` or
+# `function`; the helpers below give the same yes/no answer in one pass.
+_WSF_JOB = re.compile(rb"<job\b", re.I)
+_WSF_SCRIPT = re.compile(rb"<script\s+language\s*=\s*[\"']?(?:vbscript|jscript)", re.I)
+_JS_WORDS = re.compile(rb"activexobject|\bvar\s+\w+\s*=", re.I)
+_JS_FUNCTION = re.compile(rb"function", re.I)
+_JS_FUNCTION_TAIL = re.compile(rb"\s*(?:\w+\s*)?\(")   # = \s*\w*\s*\( with one owner per run
+_WORD_RUN = re.compile(rb"\w*")
+
+
+def _looks_wsf(head: bytes) -> bool:
+    r"""`<job\b[^>]*>|<script language=...`: a `<job` with any later `>` is a match."""
+    job = _WSF_JOB.search(head)
+    return bool(job and head.find(b">", job.end()) >= 0) or bool(_WSF_SCRIPT.search(head))
+
+
+def _looks_js(head: bytes) -> bool:
+    r"""`activexobject|\bvar\s+\w+\s*=|function\s*\w*\s*\(` without the rescans.
+
+    Every `function` that a word character follows inside one word run reaches
+    the same end of that run, so it gives the same answer as the first one;
+    only the first and the one that ends the run are tried."""
+    if _JS_WORDS.search(head):
+        return True
+    pos = 0
+    while True:
+        m = _JS_FUNCTION.search(head, pos)
+        if m is None:
+            return False
+        if _JS_FUNCTION_TAIL.match(head, m.end()):
+            return True
+        run = _WORD_RUN.match(head, m.end())       # `\w*` always matches
+        run_end = run.end() if run else m.end()
+        pos = max(m.start() + 1, run_end - len(b"function"))
+
+
+_SCRIPT_GUESS: Tuple[Tuple[str, Callable[[bytes], object]], ...] = (
+    (".hta", re.compile(rb"<hta:application", re.I).search),
+    (".wsf", _looks_wsf),
+    (".ps1", re.compile(rb"\$[a-z_]\w*\s*=|invoke-|new-object\s|-encodedcommand|\[convert\]::", re.I).search),
+    (".vbs", re.compile(rb"createobject\s*\(|wscript\.|\bdim\s+\w+|\bsub\s+\w+\s*\(", re.I).search),
+    (".bat", re.compile(rb"^[^\S\n]*@?echo\s+off|^[^\S\n]*(?:set|start|call|goto)\s", re.I | re.M).search),
+    (".js", _looks_js),
 )
 
 
@@ -112,6 +160,13 @@ class EmbeddedResult:
     password_from_message: bool = False
     skipped: List[str] = field(default_factory=list)
     detail: str = ""
+    skipped_more: int = 0             # L-D4: entries over MAX_SKIPPED
+
+    def skip(self, text: str) -> None:
+        if len(self.skipped) < MAX_SKIPPED:
+            self.skipped.append(text)
+        else:
+            self.skipped_more += 1
 
     def as_dict(self) -> Dict:
         return {"kind": self.kind, "members": [m.as_dict() for m in self.members],
@@ -120,15 +175,17 @@ class EmbeddedResult:
                 "msi_script_actions": self.msi_script_actions, "xll_addin": self.xll_addin,
                 "encrypted": self.encrypted, "decrypted": self.decrypted_with is not None,
                 "password_from_message": self.password_from_message,
-                "skipped": self.skipped, "detail": self.detail}
+                "skipped": self.skipped + ([f"... {self.skipped_more:,} more not listed"]
+                                           if self.skipped_more else []),
+                "detail": self.detail}
 
 
 def _guess_text_extension(data: bytes) -> str:
     head = data[:65536]
     if head.count(b"\x00") > len(head) // 20:
         return ".bin"
-    for ext, rx in _SCRIPT_GUESS:
-        if rx.search(head):
+    for ext, looks in _SCRIPT_GUESS:
+        if looks(head):
             return ext
     return ".txt"
 
@@ -211,7 +268,7 @@ class EmbeddedContentAnalyzer:
                     handler(p, res, sandbox, extract)
             except Exception as e:                    # hostile file: a finding, not a crash
                 logger.debug("Embedded-content parsing failed for %s: %s", p, e)
-                res.skipped.append(f"could not be parsed completely ({type(e).__name__})")
+                res.skip(f"could not be parsed completely ({type(e).__name__})")
             res.detail = self._summary(res)
             yield res
         finally:
@@ -219,17 +276,20 @@ class EmbeddedContentAnalyzer:
 
     # ------------------------------------------------------------- helpers
     def _add(self, res: EmbeddedResult, sandbox: Path, extract: bool, name: str,
-             data: bytes, kind: Optional[str] = None) -> None:
+             data: bytes, kind: Optional[str] = None,
+             limit_note: str = "member limit reached") -> None:
         if len(res.members) >= MAX_MEMBERS:
-            res.skipped.append(f"{name}: member limit reached")
+            res.skip(f"{name}: {limit_note}")
             return
         if len(data) > MAX_MEMBER_BYTES:
-            res.skipped.append(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
+            res.skip(f"{name}: larger than {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
             return
-        safe = re.sub(r"[^\w.\-]", "_", Path(name).name)[:80] or "member"
+        safe = re.sub(r"[^\w.\-]", "_", Path(name).name)[:80]
+        if not safe.strip("."):                  # "", "." or ".." would name a folder
+            safe = "member"
         member = EmbeddedMember(safe, len(data), kind or Path(safe).suffix.lstrip(".") or "data")
         if extract:
-            target = sandbox / f"m{len(res.members)}" / safe
+            target = sandbox / f"m{len(res.members)}" / not_a_device(safe)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             member.path = str(target)
@@ -252,7 +312,7 @@ class EmbeddedContentAnalyzer:
             length = struct.unpack_from("<Q", header, 0)[0]
             start, end = pos + 36, pos + 36 + length
             if length == 0 or end > len(data):
-                res.skipped.append("embedded file with an impossible length")
+                res.skip("embedded file with an impossible length")
                 pos += 16
                 continue
             blob = data[start:end]
@@ -263,29 +323,41 @@ class EmbeddedContentAnalyzer:
 
     # ------------------------------------------------------------- CHM
     def _chm(self, path: Path, res: EmbeddedResult, sandbox: Path, extract: bool) -> None:
-        from .macos_packages import sevenzip_extract
+        """Pages and files of a compiled help file, read one at a time with
+        `7z e -so` (7-Zip never writes a file; see container_extractor)."""
+        from .macos_packages import sevenzip_list, sevenzip_read
         tool = self.sevenzip()
         if not tool:
-            res.skipped.append("7-Zip is needed to unpack CHM files")
+            res.skip("7-Zip is needed to unpack CHM files")
             return
-        out = sandbox / "chm"
-        out.mkdir()
-        sevenzip_extract(tool, path, out)
-        for f in sorted(out.rglob("*")):
-            if not f.is_file() or f.is_symlink() or f.name.startswith(("#", "$")):
+        work = sandbox / "chm"
+        work.mkdir()
+        pages = []
+        for item in sorted(sevenzip_list(tool, path), key=lambda i: i.path):
+            name = PurePosixPath(item.path.replace("\\", "/")).name
+            if item.is_dir or item.is_link or not name or name.startswith(("#", "$")):
                 continue                                 # internal index streams
-            size = f.stat().st_size
-            if size > MAX_MEMBER_BYTES:
-                res.skipped.append(f"{f.name}: too large")
+            pages.append((item, name))
+        if len(pages) > MAX_CHM_READS:                   # L-D7: say what was not read
+            res.skip(f"{len(pages) - MAX_CHM_READS} of {len(pages)} "
+                     f"{CHM_READ_LIMIT_MARK} {MAX_CHM_READS})")
+        for item, name in pages[:MAX_CHM_READS]:
+            if item.size > MAX_MEMBER_BYTES:
+                res.skip(f"{name}: too large")
                 continue
-            data = f.read_bytes()
+            data = sevenzip_read(tool, path, item.path, work, MAX_MEMBER_BYTES)
+            if data is None:
+                res.skip(f"{name}: could not be read")
+                continue
             low = data.lower()
             if _HHCTRL_CLSID.encode() in low and (b'"shortcut"' in low or b"'shortcut'" in low
                                                   or b"value=shortcut" in low):
                 res.chm_shortcut = True
-            if f.suffix.lower() in (".htm", ".html", ".js", ".vbs", ".hta", ".exe", ".dll",
-                                    ".bat", ".cmd", ".ps1", ".lnk") or detect_format(data[:4096]):
-                self._add(res, sandbox, extract, f.name, data)
+            if PurePosixPath(name).suffix.lower() in (
+                    ".htm", ".html", ".js", ".vbs", ".hta", ".exe", ".dll", ".bat", ".cmd",
+                    ".ps1", ".lnk") or detect_format(data[:4096]):
+                self._add(res, sandbox, extract, name, data,
+                          limit_note=CHM_MEMBER_LIMIT_MARK)
         if res.chm_shortcut:
             res.findings.append("help page runs a command through the HTML Help ShortCut object")
 
@@ -318,7 +390,7 @@ class EmbeddedContentAnalyzer:
     def _office(self, path: Path, res: EmbeddedResult, sandbox: Path, extract: bool) -> None:
         res.encrypted = True
         if not MSOFFCRYPTO_AVAILABLE:
-            res.skipped.append("password-protected document; install msoffcrypto-tool to try "
+            res.skip("password-protected document; install msoffcrypto-tool to try "
                                "known passwords")
             return
         from_message = [p for p in self.password_source() if p]
@@ -345,7 +417,7 @@ class EmbeddedContentAnalyzer:
                                 + (" with the password from the message" if res.password_from_message
                                    else ""))
             return
-        res.skipped.append("password-protected document; password unknown")
+        res.skip("password-protected document; password unknown")
 
     # ------------------------------------------------------------- XLL
     @staticmethod

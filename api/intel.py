@@ -13,11 +13,19 @@ It is not a proxy. It offers a fixed set of operations and never takes a URL:
     POST /v1/llm/analyze         {"content": "<at most MAX_LLM_CHARS characters>"}
     POST /v1/sandbox/submit      body = the file; X-Aegis-Extension: .docx (optional)
     POST /v1/sandbox/poll        {"task_id": <a task this service submitted>}
+    POST /v1/alert/email         exactly the fields of core/mailer.EMAIL_FIELDS
+                                 (metadata only); sent with this service's SMTP
+                                 settings to its configured recipients
 
 Every destination comes from this service's own configuration, and each service
 gets its own session that refuses any other origin, redirects included
 (core/http.py AllowlistSession): VirusTotal's API host, the configured LLM URL,
 the configured SANDBOX_URL. Secrets (API keys, the sandbox token) live only here.
+E-mail alerts go only to the configured SMTP_HOST:SMTP_PORT over TLS with
+certificate verification (core/mailer.py); the SMTP password, the sender and
+the recipients live only here, and the message is built from a fixed template.
+The operation has its own hourly and daily caps (ALERT_EMAIL_PER_HOUR /
+ALERT_EMAIL_PER_DAY) and ignores an alert id it has already sent.
 
 Every request needs `Authorization: Bearer <AEGIS_INTEL_TOKEN>` (at least 32
 characters, compared in constant time); the socket directory is open only to the
@@ -32,7 +40,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -42,7 +52,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from api.limits import BodyLimit, TokenBuckets
@@ -57,14 +67,22 @@ VIRUSTOTAL_ORIGIN = "https://www.virustotal.com"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_EXT = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
 OPERATIONS = ("capabilities", "vt_lookup", "vt_upload", "llm_analyze", "sandbox_submit",
-              "sandbox_poll")
+              "sandbox_poll", "alert_email")
+MAX_SENT_IDS = 10_000                      # remembered e-mail alert ids (de-duplication)
 
 
-def _env_number(name: str, default: float) -> float:
+def _env_number(name: str, default: float, positive: bool = False) -> float:
+    """A numeric setting. nan, inf and negative values are refused (L-E2 for the API):
+    they pass or fail every comparison and switched rate limits and the lockout off."""
+    raw = os.getenv(name, "")
     try:
-        return float(os.getenv(name, "") or default)
+        number = float(raw or default)
     except ValueError:
         raise RuntimeError(f"{name} must be a number") from None
+    if not math.isfinite(number) or number < 0 or (positive and number <= 0):
+        raise RuntimeError(f"{name}={raw!r} must be a finite number "
+                           f"{'above 0' if positive else 'of at least 0'}")
+    return number
 
 
 def _origins(*urls: str) -> List[str]:
@@ -134,10 +152,15 @@ class IntelService:
         if url:
             self.destinations["sandbox"] = _origins(url)
             self.sandbox = CapeClient(url, token=str(config.get("sandbox_token") or ""),
-                                      session=build_session(user_agent="aegis-sentinel/4.7",
-                                                            allowed_origins=self.destinations["sandbox"]))
+                                      session=build_session(allowed_origins=self.destinations["sandbox"]))
         self._tasks: OrderedDict[int, str] = OrderedDict()     # task id -> sample sha256
         self._tasks_lock = threading.Lock()
+        from core.mailer import SmtpMailer, email_configured
+        self.mailer = SmtpMailer(config) if email_configured(config) else None
+        self.destinations["email"] = [self.mailer.destination] if self.mailer else []
+        self._sent_alerts: OrderedDict[str, bool] = OrderedDict()
+        self._sending: set = set()          # AL-1: ids whose send is running now
+        self._sent_lock = threading.Lock()
 
     def capabilities(self, max_upload: int) -> Dict:
         sandbox = self.sandbox
@@ -149,6 +172,7 @@ class IntelService:
             "sandbox": {"enabled": sandbox is not None,
                         "server": self._sandbox_layer().split(":", 1)[1] if sandbox else "",
                         "options": sandbox.options if sandbox else ""},
+            "email": {"enabled": self.mailer is not None},
             "limits": {"max_upload_bytes": max_upload, "max_llm_chars": MAX_LLM_CHARS},
         }
 
@@ -215,6 +239,46 @@ class IntelService:
             self.cache.put(sha, self._sandbox_layer(), res.as_dict())
         return res.as_dict()
 
+    # ------------------------------------------------------------ e-mail alerts
+    def alert_email(self, fields: Dict) -> Dict:
+        """Send one validated alert (fields checked by _email_fields); an id
+        already sent is acknowledged without a second message."""
+        from core.mailer import MailError, RateLimited
+        if self.mailer is None:
+            raise HTTPException(status_code=403, detail="e-mail alerts are not configured")
+        alert_id = fields["alert_id"]
+        with self._sent_lock:
+            if alert_id in self._sent_alerts:
+                return {"sent": False, "duplicate": True}
+            if alert_id in self._sending:
+                # AL-1: a retry while the first send still runs (the caller gave up
+                # waiting; SMTP did not): answered later, not sent a second time
+                raise HTTPException(status_code=409, detail="this alert is being sent",
+                                    headers={"Retry-After": "60"})
+            self._sending.add(alert_id)
+        try:
+            self.mailer.send(fields)
+        except BaseException as e:
+            with self._sent_lock:
+                self._sending.discard(alert_id)
+            if isinstance(e, RateLimited):
+                raise HTTPException(status_code=429, detail=str(e),
+                                    headers={"Retry-After": "300"}) from e
+            if isinstance(e, MailError):
+                logger.warning("Intel: e-mail alert %s not sent: %s", alert_id, e,
+                               extra={"event": "intel_email_failed"})
+                raise HTTPException(status_code=502,
+                                    detail="the SMTP server did not take the message") from e
+            raise
+        with self._sent_lock:                 # recorded before it stops being "sending"
+            self._sending.discard(alert_id)
+            self._sent_alerts[alert_id] = True
+            while len(self._sent_alerts) > MAX_SENT_IDS:
+                self._sent_alerts.popitem(last=False)
+        logger.info("Intel: e-mail alert %s sent (%s, %s).", alert_id, fields["kind"],
+                    fields["verdict"], extra={"event": "intel_email_sent"})
+        return {"sent": True, "duplicate": False}
+
     def _sandbox_layer(self) -> str:
         """Cache key part: a report belongs to the CAPE server and options that made it."""
         box = self.sandbox
@@ -264,10 +328,27 @@ def _task_id(payload: Any) -> int:
     return task_id
 
 
+def _email_fields(payload: Any) -> Dict:
+    from core.mailer import validate_fields
+    try:
+        return validate_fields(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+
 def _extension(value: str) -> str:
     if value and not _SAFE_EXT.match(value):
         raise HTTPException(status_code=422, detail="X-Aegis-Extension must look like .docx")
     return value.lower()
+
+
+async def _json_body(request: Request) -> Any:
+    """I-x: parsed inside the route, so after the token check (a `Body(...)`
+    parameter is parsed by FastAPI before the route's dependencies run)."""
+    try:
+        return json.loads(await request.body())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="the body is not JSON") from None
 
 
 def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
@@ -278,7 +359,7 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         raise RuntimeError("Set AEGIS_INTEL_TOKEN (or AEGIS_INTEL_TOKEN_FILE) to a random "
                            "value of at least 32 characters.")
     service = service or IntelService(config or CONFIG)
-    max_upload = int(_env_number("AEGIS_INTEL_MAX_UPLOAD_MB", 100) * 1024 * 1024)
+    max_upload = int(_env_number("AEGIS_INTEL_MAX_UPLOAD_MB", 100, positive=True) * 1024 * 1024)
     buckets = TokenBuckets(_env_number("AEGIS_INTEL_RATE_PER_MINUTE", 120),
                            int(_env_number("AEGIS_INTEL_BURST", 20)))
     app = FastAPI(title="Aegis Sentinel intel", version=ENGINE_VERSION,
@@ -323,8 +404,9 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return service.capabilities(max_upload)
 
     @app.post("/v1/virustotal/lookup", dependencies=[Depends(guard("vt_lookup"))])
-    def vt_lookup(payload: Any = Body(...)) -> Dict:
-        return service.vt_lookup(_sha256(payload))
+    async def vt_lookup(request: Request) -> Dict:
+        sha = _sha256(await _json_body(request))
+        return await run_in_threadpool(service.vt_lookup, sha)
 
     @app.post("/v1/virustotal/upload", dependencies=[Depends(guard("vt_upload"))])
     async def vt_upload(request: Request) -> Dict:
@@ -334,8 +416,9 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
         return await with_sample(request, "", service.vt_upload)
 
     @app.post("/v1/llm/analyze", dependencies=[Depends(guard("llm_analyze"))])
-    def llm_analyze(payload: Any = Body(...)) -> Dict:
-        return service.llm_analyze(_content(payload))
+    async def llm_analyze(request: Request) -> Dict:
+        content = _content(await _json_body(request))
+        return await run_in_threadpool(service.llm_analyze, content)
 
     @app.post("/v1/sandbox/submit", dependencies=[Depends(guard("sandbox_submit"))])
     async def sandbox_submit(request: Request,
@@ -347,8 +430,16 @@ def create_intel_app(config: Optional[Dict] = None, token: Optional[str] = None,
                                  lambda path: service.sandbox_submit(path, f"sample{ext}"))
 
     @app.post("/v1/sandbox/poll", dependencies=[Depends(guard("sandbox_poll"))])
-    def sandbox_poll(payload: Any = Body(...)) -> Dict:
-        return service.sandbox_poll(_task_id(payload))
+    async def sandbox_poll(request: Request) -> Dict:
+        task = _task_id(await _json_body(request))
+        return await run_in_threadpool(service.sandbox_poll, task)
+
+    @app.post("/v1/alert/email", dependencies=[Depends(guard("alert_email"))])
+    async def alert_email(request: Request) -> Dict:
+        if service.mailer is None:                  # before looking at the fields
+            raise HTTPException(status_code=403, detail="e-mail alerts are not configured")
+        fields = _email_fields(await _json_body(request))
+        return await run_in_threadpool(service.alert_email, fields)
 
     return app
 
@@ -372,7 +463,7 @@ def main() -> None:
     try:
         # its own settings, checked like the analysis service's (AEGIS_INTEL_SOCKET is
         # where this service listens, not a client setting here)
-        check_config(dict(CONFIG, intel_socket=""))
+        check_config(dict(CONFIG, intel_socket="", intel_url=""))
         app = create_intel_app()
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-intel: {e}") from e

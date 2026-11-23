@@ -1,0 +1,52 @@
+# Example overlay: copy this folder outside the repository (or to a private
+# repository), fill in every REPLACE value, render, check, then apply:
+#
+#   kubectl kustomize ./my-overlay > aegis.yaml
+#   python3 deploy/kubernetes/check_manifests.py aegis.yaml
+#   kubectl --context CONTEXT apply -f aegis.yaml
+#
+# Until the image references are replaced, check_manifests.py fails and the
+# kubelet cannot pull the placeholder tags.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  # The images you built from this repository (docs/KUBERNETES.md, "Images").
+  # Prefer a digest: newName: registry.example.internal/aegis-sentinel and
+  # digest: sha256:... . Never `latest`.
+  - name: aegis-sentinel
+    newName: REPLACE-registry.example.internal/aegis-sentinel
+    newTag: REPLACE-VERSION
+  - name: aegis-sentinel-proxy
+    newName: REPLACE-registry.example.internal/aegis-sentinel-proxy
+    newTag: REPLACE-VERSION
+configMapGenerator:
+  - name: aegis-analysis-config
+    behavior: merge
+    literals:
+      - RULEPACK_PUBLIC_KEYS=REPLACE-base64-ed25519-public-key
+patches:
+  # Storage: a CSI class that supports ReadWriteOncePod.
+  - target: {kind: PersistentVolumeClaim}
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: REPLACE-csi-storage-class
+  # Access: a LoadBalancer that keeps the client address, so the API's per-client
+  # rate limits and token lockout see the real client (docs/KUBERNETES.md, "Access").
+  - target: {kind: Service, name: aegis-sentinel}
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: LoadBalancer
+      - op: add
+        path: /spec/externalTrafficPolicy
+        value: Local
+  # Only these client networks may reach the HTTPS port.
+  - target: {kind: NetworkPolicy, name: aegis-allow-https}
+    patch: |-
+      - op: add
+        path: /spec/ingress/0/from
+        value:
+          - ipBlock: {cidr: REPLACE-client-network/24}

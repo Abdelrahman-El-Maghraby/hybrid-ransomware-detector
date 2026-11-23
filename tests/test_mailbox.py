@@ -133,3 +133,116 @@ def test_settings_from_config_need_host_and_user(tmp_path):
     s = ImapSettings.from_config({"imap_host": "h", "imap_user": "u", "imap_password": "s3cret-app-pw",
                                   "imap_max_mb": 2, "imap_folder": "Junk"})
     assert s.max_bytes == 2 * 1024 * 1024 and s.folder == "Junk" and "s3cret" not in repr(s)
+
+
+def test_messages_not_scanned_for_lack_of_workers_are_retried(setup, monkeypatch):
+    """M8: when no isolated worker could start, last_uid still advanced past the
+    messages, so they were never scanned; the run also looked successful."""
+    from engine.workers import ISOLATION_UNAVAILABLE, failure_result
+    scanner, settings, tmp_path = setup
+    msgs = _messages(tmp_path)
+    real = scanner._scan_targets
+    unavailable = {"on": True}
+
+    def scan_targets(paths, *a, **kw):
+        if not unavailable["on"]:
+            scanner.last_not_scanned = 0
+            return real(paths, *a, **kw)
+        scanner.last_not_scanned = len(paths)
+        return [failure_result(scanner, p, "isolated scan workers could not start",
+                               code=ISOLATION_UNAVAILABLE, isolation="unavailable")
+                for p in paths]
+
+    monkeypatch.setattr(scanner, "_scan_targets", scan_targets)
+    run = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert run.not_scanned == 2 and len(run.results) == 2
+    assert not (tmp_path / "imap_state.json").exists()          # nothing marked as seen
+    unavailable["on"] = False
+    again = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert again.not_scanned == 0
+    assert sorted(r["mailbox"]["uid"] for r in again.results) == [101, 102]
+    state = json.loads((tmp_path / "imap_state.json").read_text())
+    assert state[settings.key]["last_uid"] == 102
+
+
+def test_last_uid_stops_before_the_first_unscanned_message(setup, monkeypatch):
+    from engine.workers import ISOLATION_UNAVAILABLE, failure_result
+    scanner, settings, tmp_path = setup
+    msgs = _messages(tmp_path)
+    msgs[103] = msgs[101]
+    real = scanner._scan_targets
+
+    def scan_targets(paths, *a, **kw):                  # the worker pool broke after one
+        first = real(paths[:1], *a, **kw)
+        scanner.last_not_scanned = len(paths) - 1
+        return first + [failure_result(scanner, p, "isolated scan workers could not start",
+                                       code=ISOLATION_UNAVAILABLE, isolation="unavailable")
+                        for p in paths[1:]]
+
+    monkeypatch.setattr(scanner, "_scan_targets", scan_targets)
+    run = MailboxScanner(scanner, settings, connect=lambda s: FakeImap(msgs)).run()
+    assert run.not_scanned == 2
+    state = json.loads((tmp_path / "imap_state.json").read_text())
+    assert state[settings.key]["last_uid"] == 101
+
+
+def test_cli_imap_pass_exits_3_when_messages_were_not_scanned(monkeypatch, capsys):
+    from core.mailbox import MailboxRun
+    run = MailboxRun(results=[{}], new_messages=1, not_scanned=1)
+    scanner = type("S", (), {"scan_mailbox": lambda self: ("report", run)})()
+    with pytest.raises(SystemExit) as info:
+        RS._mailbox_command(type("A", (), {"scan_imap": True})(), scanner)
+    assert info.value.code == RS.EXIT_ISOLATION_UNAVAILABLE
+    assert "not scanned" in capsys.readouterr().err
+
+
+class FailingBodyImap(FakeImap):
+    """The size answer works; fetching the body of UID 102 fails."""
+
+    def uid(self, command, *args):
+        if command == "FETCH" and args[1] == "(BODY.PEEK[])" and int(args[0]) == 102:
+            self.calls.append(("uid", command) + args)
+            return "NO", [b"server error"]
+        return super().uid(command, *args)
+
+
+def test_a_failed_fetch_is_not_reported_as_too_large(setup):
+    """I-x: _fetch returned None for an over-limit message and for a failed
+    fetch alike, so failures were counted under skipped_too_large."""
+    scanner, settings, tmp_path = setup
+    run = MailboxScanner(scanner, settings, connect=lambda s: FailingBodyImap(_messages(tmp_path))).run()
+    assert run.skipped_too_large == [] and run.fetch_failed == [102]
+    assert [r["mailbox"]["uid"] for r in run.results] == [101]
+
+
+class NoSizeImap(FakeImap):
+    """A server whose size answer has no RFC822.SIZE (L-C7)."""
+
+    def uid(self, command, *args):
+        if command == "FETCH" and args[1] == "(RFC822.SIZE)":
+            self.calls.append(("uid", command) + args)
+            return "OK", [f"1 (UID {args[0]})".encode()]
+        return super().uid(command, *args)
+
+
+def test_a_message_cut_at_the_limit_is_partial_and_keeps_its_findings(setup):
+    """L-C7 (owner-approved 2026-11-12): with no size answer the message is read,
+    cut at IMAP_MAX_MB and scanned. It was reported as complete; it is partial
+    now, says it was cut, and its findings from the part read are kept."""
+    scanner, settings, tmp_path = setup
+    msgs = _messages(tmp_path)
+    settings.max_bytes = len(msgs[102]) - 200            # the bad message's end is cut
+    run = MailboxScanner(scanner, settings, connect=lambda s: NoSizeImap(msgs)).run()
+    by_uid = {r["mailbox"]["uid"]: r for r in run.results}
+    cut = by_uid[102]
+    assert cut["scan_status"] == "partial" and cut["verdict_label"].endswith("(partial scan)")
+    assert any(g["layer"] == "mailbox" and "cut at" in g["reason"]
+               for g in cut["incomplete_reasons"])
+    assert cut["mailbox"]["truncated"] is True
+    assert by_uid[101]["scan_status"] == "complete" and "truncated" not in by_uid[101]["mailbox"]
+    whole = MailboxScanner(scanner, ImapSettings(
+        host="imap.example", user="me@example", password="app-pass",
+        state_path=str(tmp_path / "s2.json")), connect=lambda s: NoSizeImap(msgs)).run()
+    full = {r["mailbox"]["uid"]: r for r in whole.results}[102]
+    assert full["scan_status"] != "partial"
+    assert cut["risk_score"] > 0                          # what was read still counts

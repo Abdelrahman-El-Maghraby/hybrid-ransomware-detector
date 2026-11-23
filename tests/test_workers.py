@@ -4,6 +4,8 @@ is reported (scan_failed) and the scan carries on."""
 import sys
 import threading
 
+import pytest
+
 import RansomwareScanner as RS
 from engine.workers import default_workers
 from tests.helpers import make_pdf
@@ -43,6 +45,20 @@ def test_hang_and_crash_become_findings_and_the_scan_continues(tmp_path):
     assert res["ok1.pdf"]["verdict"] == "Clean" and res["ok2.pdf"]["verdict"] == "Clean"
 
 
+def test_a_worker_that_keeps_sending_messages_is_still_stopped_at_the_limit(tmp_path):
+    """Every valid progress message used to end the step before the time and memory
+    checks, so a worker sending them faster than the poll interval ran on and its
+    late "complete" result was accepted."""
+    import time
+    s = _setup(tmp_path, ["chatty.pdf"], scan_timeout_seconds=2, scan_workers=1)
+    started = time.monotonic()
+    res = {r["file_name"]: r for r in s.scan_all_directories()}
+    assert time.monotonic() - started < 20          # the stand-in chats for 30 s
+    r = res["chatty.pdf"]
+    assert r["scan_status"] == "failed" and r["verdict"] == "Medium"
+    assert "timed out" in r["scan_results"]["scan_failed"]["reason"]
+
+
 def test_a_killed_worker_leaves_no_extracted_files(tmp_path):
     """A worker killed mid-scan never runs its own clean-up; the parent removes the
     worker's temporary folder, so hostile files cannot fill /tmp one timeout at a time."""
@@ -77,12 +93,24 @@ def test_worker_count():
     assert 1 <= default_workers({}) <= 4
 
 
-def test_workers_that_cannot_start_fall_back_to_in_process(tmp_path):
+def test_workers_that_cannot_start_fail_closed(tmp_path, monkeypatch):
+    """PR-02 / D-E (this test asserted the in-process fallback before 4.8): no file
+    is parsed in the main process; each one gets an isolation_unavailable result."""
+    from engine.workers import ISOLATION_UNAVAILABLE, isolation_unavailable
     s = _setup(tmp_path, ["a.pdf", "b.pdf", "c.pdf"],
                _scanner_factory="tests.worker_fakes:does_not_exist")
+    monkeypatch.setattr(s, "scan_file", lambda *a, **k: pytest.fail("parsed in the main process"))
     res = s.scan_all_directories()
     assert sorted(r["file_name"] for r in res) == ["a.pdf", "b.pdf", "c.pdf"]
-    assert all(r["verdict"] == "Clean" for r in res)
+    assert s.last_not_scanned == 3
+    for r in res:
+        assert isolation_unavailable(r) and r["scan_status"] == "failed"
+        assert r["scan_results"]["scan_failed"]["code"] == ISOLATION_UNAVAILABLE
+        assert r["provenance"]["isolation"] == "unavailable"
+        assert r["incomplete_reasons"][0]["layer"] == "isolation"
+        # never opened: no "file broke the scanner" indicator, so no quarantine or alert
+        assert r["verdict"] == "Clean" and r["verdict_label"] == "Clean (failed scan)"
+        assert not r["score_breakdown"]["contributions"] and len(r["sha256_hash"]) == 64
 
 
 def test_a_script_without_main_guard_is_not_rerun_by_the_workers(tmp_path):
@@ -110,3 +138,62 @@ print(len(res))
                          timeout=240, cwd=tmp_path)
     assert out.stdout.strip().splitlines()[-1] == "3", out.stderr[-2000:]
     assert runs.read_text().count("run") == 1
+
+
+def test_a_worker_that_fails_to_start_leaves_no_temp_folder(tmp_path, monkeypatch):
+    """The folder is made before the process starts; when start() raises (no
+    resources, spawn refused) nothing owns it, so it is removed at once."""
+    import multiprocessing as mp
+    import tempfile
+
+    import engine.workers as W
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(W, "_SWEPT", True)
+    ctx = mp.get_context("spawn")
+
+    def refuse(self):
+        raise OSError("cannot start")
+    monkeypatch.setattr(ctx.Process, "start", refuse)
+    with pytest.raises(OSError):
+        W._Worker(ctx, {}, 0)
+    assert [p.name for p in tmp_path.iterdir()] == []
+
+
+def test_a_result_naming_another_file_is_refused(tmp_path):
+    """RV-S2: a worker's final result names the file it scanned; it was not checked
+    against the file it was given (snapshots were), so a compromised worker could
+    make the main process auto-quarantine (remove) another file."""
+    s = _setup(tmp_path, ["relabel.pdf"], scan_workers=1, auto_quarantine="High")
+    decoy = tmp_path / "scan" / "relabel.pdf.decoy"
+    decoy.write_text("an ordinary document\n", encoding="utf-8")
+    res = s.scan_all_directories()
+    assert decoy.exists() and decoy.read_text(encoding="utf-8") == "an ordinary document\n"
+    r = next(x for x in res if x["file_name"] == "relabel.pdf")
+    assert r["scan_status"] == "failed"
+    assert "another file" in r["scan_results"]["scan_failed"]["reason"]
+    assert not any(x.get("file_path") == str(decoy) and x.get("quarantine") for x in res)
+
+
+def test_a_file_replaced_during_a_failed_scan_is_not_quarantined(tmp_path):
+    """FI-1: a failed scan's hash was computed in the parent after the failure,
+    from whatever file was then at the path. The quarantine guard (TMA-5) then
+    compared the replacement with itself, and auto-quarantine (Medium covers a
+    failed scan) removed a file that was never scanned."""
+    pytest.importorskip("cryptography")
+    s = _setup(tmp_path, ["swapexit.pdf"], scan_workers=1, auto_quarantine="medium",
+               quarantine_dir=str(tmp_path / "vault"), keystore_dir=str(tmp_path / "keys"))
+    target = tmp_path / "scan" / "swapexit.pdf"
+    [r] = s.scan_all_directories()
+    assert r["scan_status"] == "failed" and "died" in r["scan_results"]["scan_failed"]["reason"]
+    assert target.exists() and b"unrelated document" in target.read_bytes()
+    assert r["sha256_hash"] == "" and "error" in r["quarantine"]
+    assert s.quarantine_vault.list() == []
+
+
+def test_an_unchanged_file_of_a_failed_scan_keeps_its_hash(tmp_path):
+    """FI-1: the hash is still recorded when the file is the one dispatched."""
+    s = _setup(tmp_path, ["exit.pdf"], scan_workers=1)
+    target = tmp_path / "scan" / "exit.pdf"
+    [r] = s.scan_all_directories()
+    assert r["scan_status"] == "failed"
+    assert r["sha256_hash"] == s.calculate_hashes(str(target))["sha256"]

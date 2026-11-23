@@ -9,7 +9,14 @@ from pathlib import Path
 
 import docx as docxlib
 
+# L-B3: the same isolation as pytest (tests/conftest.py, which only sets the
+# environment): a disposable HOME, no OS keyring, no keys or service settings.
+_REAL_HOME = os.path.expanduser("~")
+import tests.conftest  # noqa: F401, I001  (before the scanner is imported)
+
 import RansomwareScanner as RS
+
+assert not str(RS.APP_DIR).startswith(_REAL_HOME + os.sep), RS.APP_DIR
 
 tmp = Path(tempfile.mkdtemp())
 scan_dir = tmp / "docs"; scan_dir.mkdir()

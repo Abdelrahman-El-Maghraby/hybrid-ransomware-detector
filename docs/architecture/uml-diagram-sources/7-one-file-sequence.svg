@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d7" width="1600" height="1010" viewBox="0 0 1600 1010" role="img" aria-labelledby="d7-title d7-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d7-title">One file across processes: an isolated scan, step by step</title>
+<desc id="d7-desc">Sequence diagram: the entry point hands a file to the parent coordinator, which starts a worker process, sends the path, receives checked JSON messages while the pipeline runs, and hands the result back.</desc>
+<rect x="0" y="0" width="1600" height="1010" fill="#ffffff"/>
+<g id="d7-frame">
+<rect x="300" y="856" width="700" height="112" fill="#ffffff" rx="4" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="300" y="856" width="52" height="22" fill="#fee2e2" rx="2" stroke="#b91c1c" stroke-width="1.2"/>
+<text x="326" y="871" font-size="12" fill="#0f172a" font-weight="700" text-anchor="middle">alt</text>
+<text x="364" y="872" font-size="12" fill="#0f172a" font-weight="700">[time limit, dead worker, invalid reply, memory limit]</text>
+<text x="316" y="896" font-size="12" fill="#0f172a">settled or completed snapshot: kept as the result</text>
+<text x="316" y="914" font-size="12" fill="#0f172a">provisional snapshot: stopped_result(), status partial, waiting layers named</text>
+<text x="316" y="932" font-size="12" fill="#0f172a">no snapshot or a failure: failure_result(), status failed (scan_failed, Medium)</text>
+<text x="316" y="950" font-size="12" fill="#0f172a">then: kill the worker and its helpers, delete its temp folder, start another</text>
+</g>
+<g id="d7-edge">
+<path d="M160,156 L160,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M480,156 L480,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M800,156 L800,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M1120,156 L1120,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M1440,156 L1440,862" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<path d="M160,190 L480,190" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="480,190 470,194.2 470,185.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M480,234 L800,234" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="800,234 790,238.2 790,229.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,326 L480,326" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,321.4 480,326 490,330.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,366 L800,366" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="800,366 790,370.2 790,361.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,406 L1120,406" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1120,406 1110,410.2 1110,401.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,496 L480,496" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,491.4 480,496 490,500.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1120,496 L1440,496" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1440,496 1430,500.2 1430,491.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M800,536 L480,536" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,531.4 480,536 490,540.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1440,536 L1120,536" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1130,531.4 1120,536 1130,540.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800,674 L480,674" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="490,669.4 480,674 490,678.6" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M480,770 L160,770" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="160,770 170,765.8 170,774.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d7-node">
+<rect x="30" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="160" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Entry point</text>
+<text x="160" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">GUI, CLI, API, monitor, IMAP</text>
+<rect x="350" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="480" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Parent: _IsolatedScan</text>
+<text x="480" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">engine/workers.py</text>
+<rect x="670" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="800" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Worker process</text>
+<text x="800" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">_worker_main, _serve</text>
+<rect x="990" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1120" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Pipeline in the worker</text>
+<text x="1120" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">scan_file, layers, _assemble</text>
+<rect x="1310" y="104" width="260" height="52" fill="#1e293b" rx="4" stroke="#1e293b" stroke-width="1.5"/>
+<text x="1440" y="127.1" font-size="14" fill="#ffffff" font-weight="700" text-anchor="middle">Services (optional)</text>
+<text x="1440" y="143.6" font-size="12" fill="#e2e8f0" text-anchor="middle">VirusTotal, LLM, CAPE</text>
+<rect x="650" y="254" width="300" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="800" y="270.4" font-size="12" fill="#0f172a" text-anchor="middle">memory limit, own process group,</text>
+<text x="800" y="286.2" font-size="12" fill="#0f172a" text-anchor="middle">own temp folder; build the scanner</text>
+<rect x="975" y="428" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="444.4" font-size="12" fill="#0f172a" text-anchor="middle">fast layers in order; containers send</text>
+<text x="1120" y="460.2" font-size="12" fill="#0f172a" text-anchor="middle">members back through scan_file</text>
+<rect x="975" y="558" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="574.4" font-size="12" fill="#0f172a" text-anchor="middle">heavy layers on context copies;</text>
+<text x="1120" y="590.2" font-size="12" fill="#0f172a" text-anchor="middle">sandbox last, alone, in a worker</text>
+<rect x="975" y="608" width="290" height="40" fill="#f0fdf4" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1120" y="624.4" font-size="12" fill="#0f172a" text-anchor="middle">_assemble: score, scan_status,</text>
+<text x="1120" y="640.2" font-size="12" fill="#0f172a" text-anchor="middle">provenance</text>
+<rect x="330" y="689" width="300" height="58" fill="#eff6ff" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="480" y="706.5" font-size="12" fill="#0f172a" text-anchor="middle">read_reply: at most 16 MiB of JSON;</text>
+<text x="480" y="722.3" font-size="12" fill="#0f172a" text-anchor="middle">check_reply: shape and types;</text>
+<text x="480" y="738.2" font-size="12" fill="#0f172a" text-anchor="middle">the result must name this file</text>
+<rect x="35" y="796" width="250" height="40" fill="#eff6ff" rx="4" stroke="#0f172a" stroke-width="1.5"/>
+<text x="160" y="812.4" font-size="12" fill="#0f172a" text-anchor="middle">auto-quarantine (batch scans</text>
+<text x="160" y="828.2" font-size="12" fill="#0f172a" text-anchor="middle">only), then report and deliver</text>
+<polygon points="1060,852 1548,852 1560,864 1560,965 1060,965" fill="#fffbeb" stroke="#92400e" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline points="1548,852 1548,864 1560,864" fill="none" stroke="#92400e" stroke-width="1.2"/>
+<text x="1069" y="871.6" font-size="12" fill="#0f172a">Parent to worker: the path, then None to stop.</text>
+<text x="1069" y="887.7" font-size="12" fill="#0f172a">Worker to parent: one JSON message each; kinds ready, log, ok, error, container,</text>
+<text x="1069" y="903.7" font-size="12" fill="#0f172a">member, provisional, settled, sandbox, external, completed, clear.</text>
+<text x="1069" y="919.8" font-size="12" fill="#0f172a">Three failed starts: no file is parsed in the parent; each gets an isolation_unavailable</text>
+<text x="1069" y="935.9" font-size="12" fill="#0f172a">result (scan_status failed).</text>
+<text x="1069" y="952" font-size="12" fill="#0f172a">ISOLATE_SCANS=0 (development only): the parent calls scan_file itself.</text>
+</g>
+<g id="d7-label">
+<rect x="247.3" y="169.8" width="145.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="320" y="183.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_isolated(targets, ...)</text>
+<rect x="569" y="213.8" width="142" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="227.3" font-size="12" fill="#0f172a" text-anchor="middle">start a spawned Process</text>
+<rect x="618.4" y="305.8" width="43.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="319.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;ready&#x27;</text>
+<rect x="578.2" y="345.8" width="123.6" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="359.3" font-size="12" fill="#0f172a" text-anchor="middle">file path (clock starts)</text>
+<rect x="915.9" y="385.8" width="88.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="960" y="399.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_file(path)</text>
+<rect x="580.3" y="475.8" width="119.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="489.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;container&#x27;, &#x27;member&#x27;</text>
+<rect x="1222.9" y="475.8" width="114.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1280" y="489.3" font-size="12" fill="#0f172a" text-anchor="middle">hash or text (opt-in)</text>
+<rect x="576.9" y="515.8" width="126.2" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="529.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;external&#x27;, &#x27;provisional&#x27;</text>
+<rect x="1256.3" y="515.8" width="47.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1280" y="529.3" font-size="12" fill="#0f172a" text-anchor="middle">answer</text>
+<rect x="579.3" y="653.8" width="121.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="640" y="667.3" font-size="12" fill="#0f172a" text-anchor="middle">&#x27;completed&#x27;, &#x27;log&#x27;, &#x27;ok&#x27;</text>
+<rect x="266" y="749.8" width="108" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="320" y="763.3" font-size="12" fill="#0f172a" text-anchor="middle">on_result: collect()</text>
+</g>
+<g id="d7-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">One file across processes: an isolated scan, step by step</text>
+<text x="24" y="63" font-size="13" fill="#334155">Isolated scan (the default). Branch review/production-hardening, code at commit d45715a.</text>
+</g>
+</svg>

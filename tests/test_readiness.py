@@ -128,7 +128,8 @@ def test_not_ready_answers_503_while_health_stays_200(make_api, monkeypatch):
 def test_isolated_warm_up_proves_workers_start(make_api):
     api = make_api(isolate=True)
     report = api.get("/ready", headers={"Authorization": f"Bearer {TOKEN}"}).json()
-    assert report["checks"]["workers"] == {"ok": True, "detail": "isolated workers start"}
+    assert report["checks"]["workers"]["ok"] is True                # live since 4.8 (PR-11)
+    assert report["checks"]["workers"]["detail"].startswith("isolated workers start")
     r = api.post("/scan", headers={"Authorization": f"Bearer {TOKEN}"},
                  files={"file": ("a.pdf", make_pdf("hello"))})
     assert r.status_code == 200

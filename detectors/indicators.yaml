@@ -57,6 +57,7 @@ weights:         # points when an indicator fires fully
   W_ARCHIVE_BOMB: 60.0   # decompression bomb
   W_ARCHIVE_DOUBLE_EXT: 60.0   # invoice.pdf.exe
   W_ARCHIVE_RTLO: 60.0   # right-to-left-override filename spoof
+  W_FILE_RTLO: 60.0   # the same in the scanned file's own name (M30)
   W_ARCHIVE_EXECUTABLE: 35.0   # executable/script/shortcut inside an archive
   W_ARCHIVE_ENCRYPTED: 20.0   # encrypted content the scanner could not open
   W_ARCHIVE_PARTIAL: 10.0   # more members than the limit: the rest not unpacked
@@ -156,6 +157,7 @@ indicators:      # name -> category, the weight it uses, label in the app
   archive_zip_bomb: {category: technical, weight: W_ARCHIVE_BOMB, label: "decompression bomb"}
   archive_double_extension: {category: technical, weight: W_ARCHIVE_DOUBLE_EXT, label: "double extension"}
   archive_rtlo_spoof: {category: technical, weight: W_ARCHIVE_RTLO, label: "spoofed file name"}
+  file_rtlo_spoof: {category: technical, weight: W_FILE_RTLO, label: "spoofed file name"}
   archive_executable: {category: technical, weight: W_ARCHIVE_EXECUTABLE, label: "program inside archive"}
   archive_encrypted: {category: technical, weight: W_ARCHIVE_ENCRYPTED, label: "locked archive"}
   archive_partially_scanned: {category: technical, weight: W_ARCHIVE_PARTIAL, label: "archive only partly unpacked"}

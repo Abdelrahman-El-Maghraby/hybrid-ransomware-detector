@@ -7,8 +7,11 @@
 
 :8443 {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+	# Above the API's own limit (AEGIS_API_MAX_UPLOAD_MB 50 MiB plus 64 KiB of form
+	# overhead), so the API answers an oversized upload. Caddy reads MB as 1,000,000
+	# bytes and MiB as 1,048,576: 52MB was below a 50 MiB file.
 	request_body {
-		max_size 52MB
+		max_size 51MiB
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000"

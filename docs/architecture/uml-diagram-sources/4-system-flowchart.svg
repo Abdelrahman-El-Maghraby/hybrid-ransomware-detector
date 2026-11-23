@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" id="d4" width="1600" height="1876" viewBox="0 0 1600 1876" role="img" aria-labelledby="d4-title d4-desc" font-family="Arial, Helvetica, 'Liberation Sans', sans-serif">
+<title id="d4-title">Flowchart: How does the whole system fit together?</title>
+<desc id="d4-desc">Flowchart of Aegis Sentinel: six intake channels, the scan engine, the isolated worker with its detection stages, scoring, and eight result destinations.</desc>
+<rect x="0" y="0" width="1600" height="1876" fill="#ffffff"/>
+<g id="d4-frame">
+<rect x="884" y="14" width="696" height="54" fill="#f8fafc" rx="6" stroke="#94a3b8" stroke-width="1"/>
+<polygon points="1376,30 1388,22 1400,30 1388,38" fill="#fef9c3" stroke="#0f172a" stroke-width="1.3" stroke-linejoin="round"/>
+<rect x="20" y="86" width="1560" height="152" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="106" font-size="13" fill="#0f172a" font-weight="700">1  Intake channels: every way a file reaches the scanner</text>
+<rect x="20" y="256" width="1560" height="376" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="276" font-size="13" fill="#0f172a" font-weight="700">2  Scan engine</text>
+<rect x="300" y="648" width="720" height="132" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="312" y="668" font-size="13" fill="#0f172a" font-weight="700">3  Isolation</text>
+<rect x="20" y="820" width="1380" height="412" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="1388" y="840" font-size="13" fill="#0f172a" font-weight="700" text-anchor="end">4  Worker process: _worker_main() runs scan_file(path), the detection pipeline</text>
+<rect x="1420" y="820" width="160" height="412" fill="#ffffff" rx="8" stroke="#475569" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1432" y="840" font-size="13" fill="#0f172a" font-weight="700">External services</text>
+<rect x="20" y="1254" width="1560" height="252" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="1274" font-size="13" fill="#0f172a" font-weight="700">5  Back in the parent process</text>
+<rect x="20" y="1524" width="1560" height="332" fill="#f8fafc" rx="8" stroke="#475569" stroke-width="1.4"/>
+<text x="32" y="1544" font-size="13" fill="#0f172a" font-weight="700">6  Result destinations</text>
+</g>
+<g id="d4-edge">
+<path d="M898,30 L942,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="942,30 932,34.2 932,25.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1146,30 L1190,30" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1180,34.6 1190,30 1180,25.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M160,224 L160,270 Q160,278 168,278 L280,278 Q288,278 288,286 L288,303" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="288,303 283.8,293 292.2,293" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M416,224 L416,270 Q416,278 408,278 L296,278 Q288,278 288,286 L288,303" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="288,303 283.8,293 292.2,293" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M180,345 L128,345 Q120,345 120,353 L120,424" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="120,424 115.8,414 124.2,414" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M396,345 L442,345 Q450,345 450,353 L450,424" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="450,424 445.8,414 454.2,414" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M672,224 L672,384 Q672,392 664,392 L548,392 Q540,392 540,400 L540,424" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="540,424 535.8,414 544.2,414" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M600,470 L650,470" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="650,470 640,474.2 640,465.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M950,470 L1000,470" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1000,470 990,474.2 990,465.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M928,224 L928,384 Q928,392 936,392 L1052,392 Q1060,392 1060,400 L1060,424" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1060,424 1055.8,414 1064.2,414" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1184,224 L1184,424" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1184,424 1179.8,414 1188.2,414" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M150,516 L150,522 Q150,528 156,528 L654,528 Q660,528 660,534 L660,540" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="660,540 655.8,530 664.2,530" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1130,516 L1130,522 Q1130,528 1124,528 L666,528 Q660,528 660,534 L660,540" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="660,540 655.8,530 664.2,530" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M525,580 L460,580" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="460,580 470,575.8 470,584.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M660,620 L660,678" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="660,678 655.8,668 664.2,668" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1440,224 L1440,714 Q1440,722 1432,722 L1004,722" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1004,722 1014,717.8 1014,726.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M398.6,764 L398.6,792 Q398.6,800 390.6,800 L168,800 Q160,800 160,808 L160,862" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="160,862 155.8,852 164.2,852" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M236,603 L236,800" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,800 231.8,790 240.2,790" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M280,957 L310,957" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="310,957 300,961.2 300,952.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M550,957 L580,957" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="580,957 570,961.2 570,952.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M870,957 L890,957" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="890,957 880,961.2 880,952.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1080,957 L1120,957" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1120,957 1110,961.2 1110,952.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M725,1052 L725,1082 Q725,1090 717,1090 L168,1090 Q160,1090 160,1082 L160,1052" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="160,1052 164.2,1062 155.8,1062" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M985,1007 L985,1118" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="985,1118 980.8,1108 989.2,1108" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1252.5,1052 L1252.5,1118" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1252.5,1118 1248.3,1108 1256.7,1108" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1385,888 L1432,888" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1422,892.6 1432,888 1422,883.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1385,950 L1432,950" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1422,954.6 1432,950 1422,945.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1385,1012 L1432,1012" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<polyline points="1422,1016.6 1432,1012 1422,1007.4" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1122.5,1204 L1122.5,1235 Q1122.5,1243 1114.5,1243 L608,1243 Q600,1243 600,1251 L600,1310" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="600,1310 595.8,1300 604.2,1300" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M465,1370 L420,1370" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="420,1370 430,1365.8 430,1374.2" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M735,1370 L825,1370" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="825,1370 815,1374.2 815,1365.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M230,1408 L230,1460 Q230,1468 238,1468 L788,1468 Q796,1468 796,1460 L796,1370" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="796,1370 800.2,1380 791.8,1380" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1155,1370 L1215,1370" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1215,1370 1205,1374.2 1205,1365.8" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M990,1432 L990,1478 Q990,1486 998,1486 L1162,1486 Q1170,1486 1170,1494 L1170,1698" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1301.2,1395 L1301.2,1478 Q1301.2,1486 1293.2,1486 L1170,1486" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1480.7,1395 L1480.7,1570" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1480.7,1570 1476.5,1560 1484.9,1560" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M220,1698 L1360,1698" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M220,1698 L220,1676" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="220,1676 224.2,1686 215.8,1686" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M600,1698 L600,1676" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="600,1676 604.2,1686 595.8,1686" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M980,1698 L980,1676" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="980,1676 984.2,1686 975.8,1686" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M220,1698 L220,1720" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="220,1720 215.8,1710 224.2,1710" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M600,1698 L600,1720" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="600,1720 595.8,1710 604.2,1710" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M980,1698 L980,1720" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="980,1720 975.8,1710 984.2,1710" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+<path d="M1360,1698 L1360,1720" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1360,1720 1355.8,1710 1364.2,1710" fill="#0f172a" stroke="#0f172a" stroke-width="1" stroke-linejoin="round"/>
+</g>
+<g id="d4-node">
+<text x="950" y="34" font-size="12" fill="#0f172a">the file or its result moves on</text>
+<text x="1198" y="34" font-size="12" fill="#0f172a">call to an external service</text>
+<text x="1408" y="34" font-size="12" fill="#0f172a">decision</text>
+<rect x="898" y="43" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="916" y="57.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="939" y="43" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="956" y="57.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="978" y="43" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="994.5" y="57.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="1016" y="43" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="1037.5" y="57.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="1064" y="43" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="1086.5" y="57.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="1114" y="43" width="35" height="20" fill="#e0e7ff" rx="10" stroke="#312e81" stroke-width="1"/>
+<text x="1131.5" y="57.3" font-size="12" fill="#312e81" font-weight="700" text-anchor="middle">API</text>
+<text x="1158" y="57" font-size="12" fill="#0f172a">intake channel codes, repeated on each destination that channel reaches</text>
+<rect x="40" y="128" width="240" height="96" fill="#dbeafe" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="160" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Desktop GUI</text>
+<text x="160" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">aegis_gui: ScanController</text>
+<text x="160" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">a file, a folder or all folders</text>
+<rect x="50" y="118" width="36" height="20" fill="#ffffff" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="68" y="132.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="296" y="128" width="240" height="96" fill="#dcfce7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="416" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Command line</text>
+<text x="416" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">RansomwareScanner.py</text>
+<text x="416" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">--scan-file PATH, --scan-now</text>
+<rect x="306" y="118" width="34" height="20" fill="#ffffff" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="323" y="132.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="552" y="128" width="240" height="96" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="672" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Background service</text>
+<text x="672" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">--background scheduler</text>
+<text x="672" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">run_scan() every N hours</text>
+<rect x="562" y="118" width="33" height="20" fill="#ffffff" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="578.5" y="132.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="808" y="128" width="240" height="96" fill="#fae8ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="928" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Folder monitoring</text>
+<text x="928" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">FolderMonitor (watchdog)</text>
+<text x="928" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">new or changed files, once settled</text>
+<rect x="818" y="118" width="43" height="20" fill="#ffffff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="839.5" y="132.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="1064" y="128" width="240" height="96" fill="#ffe4e6" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1184" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">IMAP mailbox</text>
+<text x="1184" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">MailboxScanner (--scan-imap)</text>
+<text x="1184" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">new messages, read-only</text>
+<rect x="1074" y="118" width="45" height="20" fill="#ffffff" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="1096.5" y="132.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="1320" y="128" width="240" height="96" fill="#e0e7ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1440" y="164.4" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">REST API</text>
+<text x="1440" y="181.2" font-size="12.5" fill="#0f172a" text-anchor="middle">POST /scan: _ScanService</text>
+<text x="1440" y="197.7" font-size="12.5" fill="#0f172a" text-anchor="middle">token, rate and size limits</text>
+<rect x="1330" y="118" width="35" height="20" fill="#ffffff" rx="10" stroke="#312e81" stroke-width="1"/>
+<text x="1347.5" y="132.3" font-size="12" fill="#312e81" font-weight="700" text-anchor="middle">API</text>
+<polygon points="180,345 288,303 396,345 288,387" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="288" y="341.4" font-size="12.5" fill="#0f172a" text-anchor="middle">One file,</text>
+<text x="288" y="357.6" font-size="12.5" fill="#0f172a" text-anchor="middle">or folders?</text>
+<rect x="40" y="424" width="220" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="150" y="466.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_one(file_path)</text>
+<text x="150" y="483.4" font-size="12.5" fill="#0f172a" text-anchor="middle">one file; no automatic quarantine</text>
+<rect x="320" y="424" width="280" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="460" y="441.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_all_directories()</text>
+<text x="460" y="458.7" font-size="12.5" fill="#0f172a" text-anchor="middle">all scan folders (a folder the GUI names:</text>
+<text x="460" y="475.2" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_directory()); the CLI and background</text>
+<text x="460" y="491.7" font-size="12.5" fill="#0f172a" text-anchor="middle">service come in through run_scan(), which</text>
+<text x="460" y="508.2" font-size="12.5" fill="#0f172a" text-anchor="middle">checks the canaries first</text>
+<rect x="650" y="424" width="300" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="800" y="450.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_collect_target_files(directory)</text>
+<text x="800" y="466.9" font-size="12.5" fill="#0f172a" text-anchor="middle">walks each folder; keeps the configured file</text>
+<text x="800" y="483.4" font-size="12.5" fill="#0f172a" text-anchor="middle">types; skips canary files, ~$ lock files and</text>
+<text x="800" y="499.9" font-size="12.5" fill="#0f172a" text-anchor="middle">non-regular files</text>
+<rect x="1000" y="424" width="260" height="92" fill="#eff6ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1130" y="466.6" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">_scan_targets(targets)</text>
+<text x="1130" y="483.4" font-size="12.5" fill="#0f172a" text-anchor="middle">a batch of files; collects every result</text>
+<polygon points="525,580 660,540 795,580 660,620" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="660" y="576.4" font-size="12.5" fill="#0f172a" text-anchor="middle">ISOLATE_SCANS on?</text>
+<text x="660" y="592.6" font-size="12.5" fill="#0f172a" text-anchor="middle">(the default)</text>
+<rect x="180" y="557" width="280" height="46" fill="#fff7ed" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="320" y="576.2" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_file() in the caller&#x27;s process</text>
+<text x="320" y="592.8" font-size="12.5" fill="#0f172a" text-anchor="middle">ISOLATE_SCANS=0: development only</text>
+<rect x="316" y="678" width="688" height="86" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="660" y="701.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">scan_isolated() runs _IsolatedScan (engine/workers.py)</text>
+<text x="660" y="717.9" font-size="12.5" fill="#0f172a" text-anchor="middle">A pool of spawned worker processes: up to 4 by default, 1 with a VirusTotal key. One file per worker at a time, with a</text>
+<text x="660" y="734.4" font-size="12.5" fill="#0f172a" text-anchor="middle">time limit (SCAN_TIMEOUT_SECONDS, 300 s) and a memory limit (WORKER_MEMORY_MB, 2048). The path goes</text>
+<text x="660" y="750.9" font-size="12.5" fill="#0f172a" text-anchor="middle">out over a pipe; every reply comes back as JSON and is checked before it is used.</text>
+<rect x="40" y="862" width="240" height="190" fill="#f0fdf4" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="160" y="884" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Identify the file</text>
+<line x1="50" y1="894" x2="270" y2="894" stroke="#64748b" stroke-width="1" stroke-linecap="round"/>
+<ellipse cx="55" cy="913.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="64" y="918" font-size="12.5" fill="#0f172a" font-weight="700">hashes</text>
+<text x="111.9" y="918" font-size="12.5" fill="#0f172a">MD5 and SHA-256</text>
+<ellipse cx="55" cy="933.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="64" y="938" font-size="12.5" fill="#0f172a" font-weight="700">allowlist</text>
+<text x="118.3" y="938" font-size="12.5" fill="#0f172a">known-good SHA-256</text>
+<ellipse cx="55" cy="953.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="64" y="958" font-size="12.5" fill="#0f172a" font-weight="700">fuzzy</text>
+<text x="99.9" y="958" font-size="12.5" fill="#0f172a">TLSH / ssdeep likeness</text>
+<ellipse cx="55" cy="973.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="64" y="978" font-size="12.5" fill="#0f172a" font-weight="700">local-db</text>
+<text x="116.9" y="978" font-size="12.5" fill="#0f172a">known-bad MD5</text>
+<rect x="310" y="862" width="240" height="190" fill="#f0fdf4" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="430" y="884" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Inspect structure and code</text>
+<line x1="320" y1="894" x2="540" y2="894" stroke="#64748b" stroke-width="1" stroke-linecap="round"/>
+<ellipse cx="325" cy="913.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="918" font-size="12.5" fill="#0f172a" font-weight="700">macro</text>
+<text x="376.3" y="918" font-size="12.5" fill="#0f172a">VBA / XLM macros</text>
+<ellipse cx="325" cy="933.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="938" font-size="12.5" fill="#0f172a" font-weight="700">yara</text>
+<text x="364.2" y="938" font-size="12.5" fill="#0f172a">rule matches</text>
+<ellipse cx="325" cy="953.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="958" font-size="12.5" fill="#0f172a" font-weight="700">integrity</text>
+<text x="388.3" y="958" font-size="12.5" fill="#0f172a">format vs extension</text>
+<ellipse cx="325" cy="973.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="978" font-size="12.5" fill="#0f172a" font-weight="700">elf</text>
+<text x="352.9" y="978" font-size="12.5" fill="#0f172a">Linux programs</text>
+<ellipse cx="325" cy="993.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="998" font-size="12.5" fill="#0f172a" font-weight="700">pe</text>
+<text x="352.9" y="998" font-size="12.5" fill="#0f172a">Windows programs</text>
+<ellipse cx="325" cy="1013.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="334" y="1018" font-size="12.5" fill="#0f172a" font-weight="700">script</text>
+<text x="372.7" y="1018" font-size="12.5" fill="#0f172a">JS, VBS, PS1, BAT ...</text>
+<rect x="580" y="862" width="290" height="190" fill="#f0fdf4" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="725" y="884" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Open containers and documents</text>
+<line x1="590" y1="894" x2="860" y2="894" stroke="#64748b" stroke-width="1" stroke-linecap="round"/>
+<ellipse cx="595" cy="913.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="918" font-size="12.5" fill="#0f172a" font-weight="700">mail</text>
+<text x="633.5" y="918" font-size="12.5" fill="#0f172a">e-mail and attachments</text>
+<ellipse cx="595" cy="933.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="938" font-size="12.5" fill="#0f172a" font-weight="700">prompt-guard</text>
+<text x="691.6" y="938" font-size="12.5" fill="#0f172a">hidden text, injection</text>
+<ellipse cx="595" cy="953.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="958" font-size="12.5" fill="#0f172a" font-weight="700">relationships</text>
+<text x="687.4" y="958" font-size="12.5" fill="#0f172a">Office external links</text>
+<ellipse cx="595" cy="973.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="978" font-size="12.5" fill="#0f172a" font-weight="700">qr</text>
+<text x="620.8" y="978" font-size="12.5" fill="#0f172a">QR codes and their links</text>
+<ellipse cx="595" cy="993.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="998" font-size="12.5" fill="#0f172a" font-weight="700">archive</text>
+<text x="652.7" y="998" font-size="12.5" fill="#0f172a">ZIP, 7z, RAR, ISO members</text>
+<ellipse cx="595" cy="1013.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="1018" font-size="12.5" fill="#0f172a" font-weight="700">web</text>
+<text x="632.8" y="1018" font-size="12.5" fill="#0f172a">payloads hidden in HTML / SVG</text>
+<ellipse cx="595" cy="1033.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="604" y="1038" font-size="12.5" fill="#0f172a" font-weight="700">embedded</text>
+<text x="671.8" y="1038" font-size="12.5" fill="#0f172a">OneNote, CHM, MSI ...</text>
+<polygon points="890,957 985,907 1080,957 985,1007" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="985" y="945.2" font-size="12.5" fill="#0f172a" text-anchor="middle">Allowlisted,</text>
+<text x="985" y="961.5" font-size="12.5" fill="#0f172a" text-anchor="middle">or risk</text>
+<text x="985" y="977.8" font-size="12.5" fill="#0f172a" text-anchor="middle">already 100?</text>
+<rect x="1120" y="862" width="265" height="190" fill="#f0fdf4" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1252.5" y="884" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Heavy layers, run in parallel</text>
+<line x1="1130" y1="894" x2="1375" y2="894" stroke="#64748b" stroke-width="1" stroke-linecap="round"/>
+<ellipse cx="1135" cy="913.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1144" y="918" font-size="12.5" fill="#0f172a" font-weight="700">emulation</text>
+<text x="1208.2" y="918" font-size="12.5" fill="#0f172a">box-js (opt-in)</text>
+<ellipse cx="1135" cy="933.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1144" y="938" font-size="12.5" fill="#0f172a" font-weight="700">ml</text>
+<text x="1162.9" y="938" font-size="12.5" fill="#0f172a">byte-structure classifier</text>
+<ellipse cx="1135" cy="953.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1144" y="958" font-size="12.5" fill="#0f172a" font-weight="700">llm</text>
+<text x="1166.4" y="958" font-size="12.5" fill="#0f172a">LLM opinion on the text</text>
+<ellipse cx="1135" cy="973.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1144" y="978" font-size="12.5" fill="#0f172a" font-weight="700">virustotal</text>
+<text x="1205.4" y="978" font-size="12.5" fill="#0f172a">reputation by hash</text>
+<ellipse cx="1135" cy="993.5" rx="2.2" ry="2.2" fill="#0f172a" stroke="#0f172a" stroke-width="1"/>
+<text x="1144" y="998" font-size="12.5" fill="#0f172a" font-weight="700">sandbox</text>
+<text x="1200.4" y="998" font-size="12.5" fill="#0f172a">CAPE (opt-in), runs last</text>
+<rect x="860" y="1118" width="525" height="86" fill="#fef3c7" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1122.5" y="1141.1" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Score and assemble the result: _assemble()</text>
+<text x="1122.5" y="1157.9" font-size="12.5" fill="#0f172a" text-anchor="middle">ScoringMatrix.score(Signals) adds the weighted contributions, capped per category, into</text>
+<text x="1122.5" y="1174.4" font-size="12.5" fill="#0f172a" text-anchor="middle">a risk score 0-100 and the verdict Clean, Low, Medium, High or Critical. assess() sets</text>
+<text x="1122.5" y="1190.9" font-size="12.5" fill="#0f172a" text-anchor="middle">scan_status: complete, unsupported, partial, locked or failed.</text>
+<rect x="1432" y="868" width="136" height="40" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1500" y="892.7" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">VirusTotal</text>
+<rect x="1432" y="924" width="136" height="52" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1500" y="946.8" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">LLM service</text>
+<text x="1500" y="962.9" font-size="12" fill="#0f172a" text-anchor="middle">Ollama or OpenAI</text>
+<rect x="1432" y="992" width="136" height="40" fill="#ffffff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1500" y="1016.7" font-size="13" fill="#0f172a" font-weight="700" text-anchor="middle">CAPE sandbox</text>
+<text x="1500" y="1064" font-size="12" fill="#334155" text-anchor="middle">Reached directly, or</text>
+<text x="1500" y="1080" font-size="12" fill="#334155" text-anchor="middle">through intel: a Unix</text>
+<text x="1500" y="1096" font-size="12" fill="#334155" text-anchor="middle">socket (Docker) or TLS</text>
+<text x="1500" y="1112" font-size="12" fill="#334155" text-anchor="middle">(Kubernetes, option E).</text>
+<polygon points="465,1370 600,1310 735,1370 600,1430" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="600" y="1366.4" font-size="12.5" fill="#0f172a" text-anchor="middle">&#x27;ok&#x27; reply before</text>
+<text x="600" y="1382.6" font-size="12.5" fill="#0f172a" text-anchor="middle">the time limit?</text>
+<rect x="40" y="1306" width="380" height="102" fill="#fee2e2" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="230" y="1328.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">Time-out or failure</text>
+<text x="230" y="1345.7" font-size="12.5" fill="#0f172a" text-anchor="middle">Time limit: the latest snapshot is kept, or stopped_result()</text>
+<text x="230" y="1362.2" font-size="12.5" fill="#0f172a" text-anchor="middle">marks the stalled layers (partial). No snapshot, a crash, an</text>
+<text x="230" y="1378.7" font-size="12.5" fill="#0f172a" text-anchor="middle">&#x27;error&#x27; or invalid reply, or the memory limit: failure_result()</text>
+<text x="230" y="1395.2" font-size="12.5" fill="#0f172a" text-anchor="middle">(scan_failed, status failed). A stopped worker is replaced.</text>
+<polygon points="825,1370 990,1308 1155,1370 990,1432" fill="#fef9c3" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+<text x="990" y="1358.2" font-size="12.5" fill="#0f172a" text-anchor="middle">AUTO_QUARANTINE set and</text>
+<text x="990" y="1374.5" font-size="12.5" fill="#0f172a" text-anchor="middle">verdict at or above it?</text>
+<text x="990" y="1390.8" font-size="12.5" fill="#0f172a" text-anchor="middle">(folder, monitor, IMAP scans)</text>
+<rect x="1215" y="1326" width="345" height="69" fill="#f5f3ff" rx="10" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1387.5" y="1348.9" font-size="13.5" fill="#0f172a" font-weight="700" text-anchor="middle">QuarantineVault.quarantine()</text>
+<text x="1387.5" y="1365.7" font-size="12.5" fill="#0f172a" text-anchor="middle">encrypts the file (AES-256-GCM), verifies its SHA-256,</text>
+<text x="1387.5" y="1382.2" font-size="12.5" fill="#0f172a" text-anchor="middle">then removes the original</text>
+<rect x="40" y="1570" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="52" y="1592" font-size="13.5" fill="#0f172a" font-weight="700">GUI dashboard and detail window</text>
+<text x="52" y="1612.5" font-size="12.5" fill="#334155">one row per file as it finishes, details on demand;</text>
+<text x="52" y="1629" font-size="12.5" fill="#334155">folder-monitor results too when monitoring runs in the GUI</text>
+<text x="52" y="1663" font-size="12" fill="#334155">from</text>
+<rect x="83.5" y="1649" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="101.5" y="1663.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="420" y="1570" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="432" y="1592" font-size="13.5" fill="#0f172a" font-weight="700">Console report</text>
+<text x="432" y="1612.5" font-size="12.5" fill="#334155">the text report, printed by --scan-file, --scan-now and</text>
+<text x="432" y="1629" font-size="12.5" fill="#334155">--scan-imap</text>
+<text x="432" y="1663" font-size="12" fill="#334155">from</text>
+<rect x="463.5" y="1649" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="480.5" y="1663.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="800" y="1570" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="812" y="1592" font-size="13.5" fill="#0f172a" font-weight="700">JSON response</text>
+<text x="812" y="1612.5" font-size="12.5" fill="#334155">the result as api/scan_result.schema.json; HTTP 503 when</text>
+<text x="812" y="1629" font-size="12.5" fill="#334155">no worker can start</text>
+<text x="812" y="1663" font-size="12" fill="#334155">from</text>
+<rect x="843.5" y="1649" width="35" height="20" fill="#e0e7ff" rx="10" stroke="#312e81" stroke-width="1"/>
+<text x="861" y="1663.3" font-size="12" fill="#312e81" font-weight="700" text-anchor="middle">API</text>
+<rect x="1180" y="1570" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1192" y="1592" font-size="13.5" fill="#0f172a" font-weight="700">Encrypted quarantine vault</text>
+<text x="1192" y="1612.5" font-size="12.5" fill="#334155">&lt;id&gt;.quar files; restored with --restore or from the GUI</text>
+<text x="1192" y="1663" font-size="12" fill="#334155">from</text>
+<rect x="1223.5" y="1649" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="1241.5" y="1663.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="1264.5" y="1649" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="1281.5" y="1663.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="1303.5" y="1649" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="1320" y="1663.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="1341.5" y="1649" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="1363" y="1663.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="1389.5" y="1649" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="1412" y="1663.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="40" y="1720" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="52" y="1742" font-size="13.5" fill="#0f172a" font-weight="700">Report files</text>
+<text x="52" y="1762.5" font-size="12.5" fill="#334155">ransomware_scan_&lt;time&gt;.json and .txt in the report folder</text>
+<text x="52" y="1779" font-size="12.5" fill="#334155">(generate_report)</text>
+<text x="52" y="1813" font-size="12" fill="#334155">from</text>
+<rect x="83.5" y="1799" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="101.5" y="1813.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="124.5" y="1799" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="141.5" y="1813.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="163.5" y="1799" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="180" y="1813.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="201.5" y="1799" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="223" y="1813.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="249.5" y="1799" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="272" y="1813.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="420" y="1720" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="432" y="1742" font-size="13.5" fill="#0f172a" font-weight="700">JSON Lines file</text>
+<text x="432" y="1762.5" font-size="12.5" fill="#334155">one result per line at JSONL_PATH, for a SIEM or log</text>
+<text x="432" y="1779" font-size="12.5" fill="#334155">shipper (deliver)</text>
+<text x="432" y="1813" font-size="12" fill="#334155">from</text>
+<rect x="463.5" y="1799" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="481.5" y="1813.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="504.5" y="1799" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="521.5" y="1813.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="543.5" y="1799" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="560" y="1813.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="581.5" y="1799" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="603" y="1813.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="629.5" y="1799" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="652" y="1813.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="800" y="1720" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="812" y="1742" font-size="13.5" fill="#0f172a" font-weight="700">Alerts through the outbox</text>
+<text x="812" y="1762.5" font-size="12.5" fill="#334155">signed webhook and e-mail from the alert level up (default</text>
+<text x="812" y="1779" font-size="12.5" fill="#334155">High), retried for up to 24 h; the API sends e-mail only</text>
+<text x="812" y="1813" font-size="12" fill="#334155">from</text>
+<rect x="843.5" y="1799" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="861.5" y="1813.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="884.5" y="1799" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="901.5" y="1813.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="923.5" y="1799" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="940" y="1813.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="961.5" y="1799" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="983" y="1813.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="1009.5" y="1799" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="1032" y="1813.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+<rect x="1059.5" y="1799" width="35" height="20" fill="#e0e7ff" rx="10" stroke="#312e81" stroke-width="1"/>
+<text x="1077" y="1813.3" font-size="12" fill="#312e81" font-weight="700" text-anchor="middle">API</text>
+<rect x="1180" y="1720" width="360" height="106" fill="#f8fafc" rx="8" stroke="#0f172a" stroke-width="1.5"/>
+<text x="1192" y="1742" font-size="13.5" fill="#0f172a" font-weight="700">Cloud storage (optional)</text>
+<text x="1192" y="1762.5" font-size="12.5" fill="#334155">redacted reports and logs to an S3-compatible bucket</text>
+<text x="1192" y="1779" font-size="12.5" fill="#334155">(CLOUD_UPLOAD)</text>
+<text x="1192" y="1813" font-size="12" fill="#334155">from</text>
+<rect x="1223.5" y="1799" width="36" height="20" fill="#dbeafe" rx="10" stroke="#1e3a8a" stroke-width="1"/>
+<text x="1241.5" y="1813.3" font-size="12" fill="#1e3a8a" font-weight="700" text-anchor="middle">GUI</text>
+<rect x="1264.5" y="1799" width="34" height="20" fill="#dcfce7" rx="10" stroke="#14532d" stroke-width="1"/>
+<text x="1281.5" y="1813.3" font-size="12" fill="#14532d" font-weight="700" text-anchor="middle">CLI</text>
+<rect x="1303.5" y="1799" width="33" height="20" fill="#fef3c7" rx="10" stroke="#78350f" stroke-width="1"/>
+<text x="1320" y="1813.3" font-size="12" fill="#78350f" font-weight="700" text-anchor="middle">BG</text>
+<rect x="1341.5" y="1799" width="43" height="20" fill="#fae8ff" rx="10" stroke="#701a75" stroke-width="1"/>
+<text x="1363" y="1813.3" font-size="12" fill="#701a75" font-weight="700" text-anchor="middle">MON</text>
+<rect x="1389.5" y="1799" width="45" height="20" fill="#ffe4e6" rx="10" stroke="#881337" stroke-width="1"/>
+<text x="1412" y="1813.3" font-size="12" fill="#881337" font-weight="700" text-anchor="middle">IMAP</text>
+</g>
+<g id="d4-label">
+<rect x="122.9" y="322.8" width="54.3" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="150" y="336.3" font-size="12" fill="#0f172a" text-anchor="middle">[one file]</text>
+<rect x="399.2" y="322.8" width="51.5" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="425" y="336.3" font-size="12" fill="#0f172a" text-anchor="middle">[folders]</text>
+<rect x="638.8" y="302.8" width="66.5" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="672" y="316.3" font-size="12" fill="#0f172a" text-anchor="middle">run_scan()</text>
+<rect x="888.6" y="302.8" width="78.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="928" y="316.3" font-size="12" fill="#0f172a" text-anchor="middle">scan_batch()</text>
+<rect x="1167.1" y="302.8" width="33.8" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1184" y="316.3" font-size="12" fill="#0f172a" text-anchor="middle">run()</text>
+<rect x="477.8" y="557.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="492" y="571.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="673.1" y="626.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="690" y="640.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="1359.8" y="423.1" width="160.4" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1440" y="436.6" font-size="12" fill="#0f172a" text-anchor="middle">_ScanService.scan()</text>
+<text x="1440" y="452" font-size="12" fill="#0f172a" text-anchor="middle">one fresh worker per upload</text>
+<rect x="84.5" y="683.1" width="86.9" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="128" y="696.6" font-size="12" fill="#334155" text-anchor="middle">same pipeline,</text>
+<text x="128" y="712" font-size="12" fill="#334155" text-anchor="middle">no worker</text>
+<rect x="1085.8" y="934.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1100" y="948.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="214.7" y="1080.8" width="455.7" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="442.5" y="1094.3" font-size="12" fill="#0f172a" text-anchor="middle">each member goes through the same pipeline at depth + 1 (limit: max_nesting = 2)</text>
+<rect x="941.9" y="1061.1" width="86.2" height="33.7" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="985" y="1074.6" font-size="12" fill="#0f172a" text-anchor="middle">[yes] heavy</text>
+<text x="985" y="1090" font-size="12" fill="#0f172a" text-anchor="middle">layers skipped</text>
+<rect x="685.8" y="1233.8" width="368.5" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="870" y="1247.3" font-size="12" fill="#0f172a" text-anchor="middle">reply over the pipe: &#x27;ok&#x27; and the result (JSON, checked before use)</text>
+<rect x="428.8" y="1347.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="443" y="1361.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="743.1" y="1347.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="760" y="1361.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="1169.1" y="1347.8" width="33.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1186" y="1361.3" font-size="12" fill="#0f172a" text-anchor="middle">[yes]</text>
+<rect x="1001.8" y="1440.8" width="28.4" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1016" y="1454.3" font-size="12" fill="#0f172a" text-anchor="middle">[no]</text>
+<rect x="1282.3" y="1442.8" width="37.9" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1301.2" y="1456.3" font-size="12" fill="#0f172a" text-anchor="middle">result</text>
+<rect x="1458.6" y="1442.8" width="44.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1480.7" y="1456.3" font-size="12" fill="#0f172a" text-anchor="middle">the file</text>
+<rect x="1097" y="1534.8" width="146.1" height="18.4" rx="3" fill="#ffffff" fill-opacity="0.94" stroke="none"/>
+<text x="1170" y="1548.3" font-size="12" fill="#334155" text-anchor="middle">results return to the caller</text>
+</g>
+<g id="d4-front">
+<text x="24" y="40" font-size="22" fill="#0f172a" font-weight="700">Flowchart: How does the whole system fit together?</text>
+<text x="24" y="63" font-size="13" fill="#334155">Follow a file from any intake channel to its outputs. Branch review/production-hardening, commit e012d3f.</text>
+</g>
+</svg>

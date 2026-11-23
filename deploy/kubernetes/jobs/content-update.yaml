@@ -1,0 +1,108 @@
+# Installs one signed rule pack into the aegis-content claim (docs/KUBERNETES.md,
+# "Rule packs"). Run it with deploy/kubernetes/content-update.sh, which scales the
+# analysis Deployment to zero first (the claim is ReadWriteOncePod), creates the
+# aegis-rulepack-import ConfigMap from the pack and its .sig, fills in the
+# placeholders below, and removes what it created afterwards.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aegis-content-update
+  labels:
+    app.kubernetes.io/name: aegis-sentinel
+    app.kubernetes.io/component: content
+    app.kubernetes.io/part-of: aegis-sentinel
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aegis-sentinel
+        app.kubernetes.io/component: content
+    spec:
+      restartPolicy: Never
+      serviceAccountName: aegis-sentinel
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The content claim is mounted inside home at
+        # RansomwareScanner/data. Left to the container runtime, those folders are
+        # created as root (0755) and uid 10001 cannot write its log file next to
+        # them; Docker seeds its named volume from the image instead. Created here
+        # first, as uid 10001, before any container mounts the content.
+        - name: prepare-state
+          image: AEGIS_IMAGE
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import os, sys
+              d = "/var/lib/aegis/RansomwareScanner"
+              try:
+                  os.makedirs(d + "/data", exist_ok=True)
+                  open(d + "/.aegis-write-test", "w").close()
+                  os.remove(d + "/.aegis-write-test")
+              except OSError as e:
+                  sys.exit(f"prepare-state: {d} is not writable by uid {os.getuid()}: {e} "
+                           "(does the storage driver apply fsGroup? docs/KUBERNETES.md, Storage)")
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 64Mi}
+          volumeMounts:
+            - {name: home, mountPath: /var/lib/aegis}
+      containers:
+        - name: content
+          image: AEGIS_IMAGE
+          imagePullPolicy: IfNotPresent
+          # The pack's signature, manifest hashes and version are checked before
+          # anything is installed (core/rulepack.py); an older pack is refused.
+          command: [python, RansomwareScanner.py, --update-rules, /import/pack.tar.gz]
+          env:
+            - {name: HOME, value: /var/lib/aegis}
+            - {name: TMPDIR, value: /tmp}
+            - {name: AEGIS_PROFILE, value: production}
+            - {name: LLM_PROVIDER, value: none}
+            - name: RULEPACK_PUBLIC_KEYS
+              valueFrom:
+                configMapKeyRef: {name: AEGIS_CONFIG_MAP, key: RULEPACK_PUBLIC_KEYS}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: "1", memory: 1Gi, ephemeral-storage: 256Mi}
+          volumeMounts:
+            - {name: home, mountPath: /var/lib/aegis}
+            - {name: content, mountPath: /var/lib/aegis/RansomwareScanner/data}
+            - {name: import, mountPath: /import, readOnly: true}
+            - {name: scratch, mountPath: /tmp}
+      volumes:
+        - name: home                     # the Job's own log and settings; discarded
+          emptyDir: {sizeLimit: 64Mi}
+        - name: content
+          persistentVolumeClaim: {claimName: aegis-content}
+        - name: import
+          configMap: {name: aegis-rulepack-import, defaultMode: 0444}
+        - name: scratch
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}

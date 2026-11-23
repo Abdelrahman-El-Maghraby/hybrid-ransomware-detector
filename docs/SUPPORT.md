@@ -19,8 +19,10 @@ unless support asks for it and your policy allows sharing it.
 5. For a desktop install, the **Diagnostics report** (Settings > Diagnostics > Copy
    report); for a server, the output of `GET /ready` with the token.
 
-Remove anything confidential from file names and paths before sending; the rest of
-the result does not contain document content.
+Remove anything confidential from file names and paths before sending. Check these
+result fields too, because they can hold document content: the hidden-text snippets
+of `prompt_guard` (`hidden_text_snippets`), the e-mail subject, URLs found in QR codes
+and scripts, and the LLM's quoted suspicious elements.
 
 ## While you wait
 

@@ -7,6 +7,7 @@ quarantine, and the canary tripwires with their containment response
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
@@ -29,6 +30,10 @@ class ProtectionMixin:
     canaries: CanaryManager
     _vault: Optional[QuarantineVault]
     _last_canary_signature: Optional[tuple]
+    # S-03: the scheduled check, the real-time watcher and a scan's own check can
+    # run at once (I-4 runs the scheduled one on its own thread). The compare and
+    # set of the last signature is atomic under this lock, not by bytecode luck.
+    _canary_lock = threading.Lock()
 
     @property
     def quarantine_vault(self) -> QuarantineVault:
@@ -48,11 +53,22 @@ class ProtectionMixin:
         extra = {}
         if result:
             extra = {k: result.get(k) for k in ("verdict", "risk_score", "sha256_hash")}
-        return self.quarantine_vault.quarantine(file_path, reason=reason, extra=extra)
+        # the file that was scanned, not one renamed into its place since (TMA-5)
+        expected = str((result or {}).get("sha256_hash") or "")
+        return self.quarantine_vault.quarantine(file_path, reason=reason, extra=extra,
+                                                expected_sha256=expected)
 
     def _maybe_auto_quarantine(self, result: Dict) -> None:
         threshold = VERDICT_RANK.get(str(self.config.get("auto_quarantine") or "").capitalize())
         if not threshold or VERDICT_RANK.get(result.get("verdict", "Clean"), 0) < threshold:
+            return
+        if not result.get("sha256_hash"):
+            # FI-1: without the scanned file's hash the guard against a file renamed
+            # into its place cannot run; an automatic action needs that proof.
+            why = ("The file was not quarantined automatically: there is no hash of the "
+                   "scanned file to confirm it is still the same file.")
+            logger.error("Auto-quarantine skipped for %s: %s", result.get("file_path"), why)
+            result["quarantine"] = {"error": why}
             return
         try:
             meta = self.quarantine_file(
@@ -79,24 +95,29 @@ class ProtectionMixin:
         raise a desktop notification (repeat findings stay quiet). `touched` are
         the paths the real-time watcher saw change."""
         report = self.canaries.verify()
-        if not report.triggered:
-            self._last_canary_signature = None
-            return report
-        signature = tuple(sorted((f.path, f.status) for f in report.findings))
-        if signature != self._last_canary_signature:
-            self._last_canary_signature = signature
+        with self._canary_lock:
+            if not report.triggered:
+                self._last_canary_signature = None
+                return report
+            signature = tuple(sorted((f.path, f.status) for f in report.findings))
+            new = signature != self._last_canary_signature
+            if new:
+                self._last_canary_signature = signature
+        if new:
             self._canary_alert(report, touched, notify)
         return report
 
     def _canary_alert(self, report: Any, touched: Iterable[str], notify: bool) -> None:
         """Run the containment actions, then write the alert file and notify."""
         from core.response import respond
+        # M25: a lost registry alone is an alert, never a containment action.
+        tripped = [f for f in report.findings if f.status != "registry"]
         actions = respond(self.config, {"summary": report.summary(),
                                         "checked_at": report.checked_at,
                                         "touched": sorted(set(touched)),
                                         "findings": [{"path": f.path, "status": f.status,
                                                       "evidence": f.evidence}
-                                                     for f in report.findings]})
+                                                     for f in tripped]}) if tripped else []
         lines = ["RANSOMWARE CANARY TRIPWIRE - rapid containment & damage mitigation",
                  "=" * 68,
                  f"Time:    {report.checked_at}", f"Summary: {report.summary()}", ""]
@@ -115,3 +136,6 @@ class ProtectionMixin:
             logger.error("Could not write canary alert file: %s", e)
         if notify:
             desktop_notify("Ransomware tripwire triggered", report.summary())
+        # PR-08: the alert outputs (webhook, e-mail) hear about it too, with retry
+        from core.outbox import canary_alert, queue_and_send
+        queue_and_send([canary_alert(report)], self.config)

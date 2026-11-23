@@ -25,3 +25,19 @@ def test_limit_and_cli(tmp_path, capsys):
     assert mbox_to_eml.main([str(tmp_path / "o"), str(box), "--limit", "3"]) == 0
     assert len(list((tmp_path / "o").glob("*.eml"))) == 3
     assert "3 message(s) written" in capsys.readouterr().out
+
+
+def test_two_mailboxes_with_one_name_keep_all_messages(tmp_path):
+    """L-C8: a/inbox.mbox and b/inbox.mbox both wrote inbox_00001.eml and up; the
+    second overwrote the first and both were counted as written."""
+    boxes = []
+    for folder in ("a", "b"):
+        (tmp_path / folder).mkdir()
+        box = tmp_path / folder / "inbox.mbox"
+        box.write_text(MSG.format(s=f"{folder}-1") + MSG.format(s=f"{folder}-2"))
+        boxes.append(box)
+    written, dups, errors = mbox_to_eml.split(boxes, tmp_path / "out")
+    files = list((tmp_path / "out").glob("*.eml"))
+    assert written == 4 and len(files) == 4
+    bodies = b"".join(f.read_bytes() for f in files)
+    assert all(f"Subject: {s}".encode() in bodies for s in ("a-1", "a-2", "b-1", "b-2"))

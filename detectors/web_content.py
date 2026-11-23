@@ -45,9 +45,10 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from .file_integrity import detect_format
+from .mail_analyzer import _strip_script_style, _strip_tags  # H2: the same patterns, linear
 
 logger = logging.getLogger("RansomwareScanner.web")
 
@@ -71,34 +72,48 @@ EXECUTABLE_PAYLOADS = frozenset({"pe", "elf", "macho", "lnk", "script"})
 
 _DATA_URI = re.compile(rb"data:([a-z0-9.+/-]*)((?:;[a-z0-9=._-]+)*);base64,([a-z0-9+/=\s\\]+)", re.I)
 _B64_LITERAL = re.compile(rb"""["'`]([A-Za-z0-9+/\s\\]{%d,}={0,2})["'`]""" % MIN_PAYLOAD_B64)
-_JS_CONCAT = re.compile(rb"""["']\s*\+\s*(?:\r?\n\s*)?["']""")
-_TAG = re.compile(r"<[^>]+>")
+# H-04+: was ["']\s*\+\s*(?:\r?\n\s*)?["']; \s already takes the line break,
+# and the extra group made a long run of white space quadratic.
+_JS_CONCAT = re.compile(rb"""["']\s*\+\s*["']""")
 
+# H-04+ (owner-approved 2026-11-12). The tag checks below used single patterns
+# such as <a\b[^>]*\bdownload\b. Many tag starts before one '>' (or none) made
+# each start scan to that '>': quadratic, and cubic for the meta refresh and the
+# data: download link (2 MB pages are read). A match cannot cross a '>', and a
+# later start before the same '>' sees a suffix of the first one's text, so it
+# can only match where the first one does. The helpers check the first start
+# per tag only and give the same results. tests/test_web_content_linear.py
+# keeps the old patterns as the reference.
 _SMUGGLE_BLOB = re.compile(r"new\s+blob\s*\(|\bblob\s*\(\s*\[", re.I)
 _SMUGGLE_URL = re.compile(r"createobjecturl\s*\(", re.I)
 _SMUGGLE_SAVE = re.compile(r"mssaveoropenblob|mssaveblob", re.I)
-_SMUGGLE_DOWNLOAD = re.compile(r"\.download\s*=|setattribute\s*\(\s*['\"]download['\"]|"
-                               r"<a\b[^>]*\bdownload\b", re.I)
+_SMUGGLE_DOWNLOAD = re.compile(r"\.download\s*=|setattribute\s*\(\s*['\"]download['\"]", re.I)
 _SMUGGLE_CLICK = re.compile(r"\.click\s*\(\s*\)|dispatchevent\s*\(", re.I)
 _ATOB = re.compile(r"\batob\s*\(", re.I)
-_DATA_DOWNLOAD_ANCHOR = re.compile(
-    r"<a\b[^>]*(?:\bdownload\b[^>]*href\s*=\s*['\"]?\s*data:|href\s*=\s*['\"]?\s*data:[^>]*\bdownload\b)",
-    re.I)
 
-_SVG_ACTIVE = (
-    ("script element", re.compile(r"<script\b", re.I)),
-    ("event handler attribute", re.compile(r"<[a-z][^>]*\son[a-z]{3,}\s*=", re.I)),
-    ("foreignObject (embedded HTML)", re.compile(r"<foreignobject\b", re.I)),
-    ("javascript: link", re.compile(r"javascript\s*:", re.I)),
-    ("embedded frame/object", re.compile(r"<(?:iframe|embed|object)\b", re.I)),
-)
-_REDIRECTS = (
-    re.compile(r"<meta[^>]+http-equiv\s*=\s*['\"]?refresh[^>]*url\s*=\s*['\"]?\s*(https?://[^\s'\">]+)", re.I),
+_A_OPEN = re.compile(r"<a\b", re.I)
+_ELEMENT_OPEN = re.compile(r"<[a-z]", re.I)
+_INPUT_OPEN = re.compile(r"<input", re.I)
+_FORM_OPEN = re.compile(r"<form", re.I)
+_META_OPEN = re.compile(r"<meta", re.I)
+_DOWNLOAD_WORD = re.compile(r"\bdownload\b", re.I)
+_DATA_HREF = re.compile(r"href\s*=\s*(?:['\"]\s*)?data:", re.I)       # \s*['"]?\s* before
+_EVENT_HANDLER = re.compile(r"\son[a-z]{3,}\s*=", re.I)
+_PASSWORD_TYPE = re.compile(r"type\s*=\s*['\"]?password", re.I)
+_ACTION_WORD = re.compile(r"action", re.I)
+_ACTION_URL = re.compile(r"action\s*=\s*['\"]?(https?://[^\s'\">]+)", re.I)
+_REFRESH = re.compile(r"http-equiv\s*=\s*['\"]?refresh", re.I)
+_URL_WORD = re.compile(r"url", re.I)
+_REFRESH_URL = re.compile(r"url\s*=\s*(?:['\"]\s*)?(https?://[^\s'\">]+)", re.I)
+
+_SVG_SCRIPT = re.compile(r"<script\b", re.I)
+_SVG_FOREIGN = re.compile(r"<foreignobject\b", re.I)
+_SVG_JS_LINK = re.compile(r"javascript\s*:", re.I)
+_SVG_FRAME = re.compile(r"<(?:iframe|embed|object)\b", re.I)
+_REDIRECTS = (          # the meta refresh is _meta_refresh_urls
     re.compile(r"(?:window\.|document\.|top\.|self\.)?location(?:\.href)?\s*=\s*['\"](https?://[^'\"]+)", re.I),
     re.compile(r"location\.(?:replace|assign)\s*\(\s*['\"](https?://[^'\"]+)", re.I),
 )
-_PASSWORD_FIELD = re.compile(r"<input[^>]+type\s*=\s*['\"]?password", re.I)
-_FORM_ACTION = re.compile(r"<form[^>]+action\s*=\s*['\"]?(https?://[^\s'\">]+)", re.I)
 _EXFIL = re.compile(r"api\.telegram\.org/bot|discord(?:app)?\.com/api/webhooks|"
                     r"hooks\.slack\.com/services|formsubmit\.co|ngrok(?:-free)?\.(?:io|app)", re.I)
 _OBFUSCATION = (
@@ -107,6 +122,91 @@ _OBFUSCATION = (
     ("long String.fromCharCode", re.compile(r"fromcharcode\s*\((?:\s*\d+\s*,){40,}", re.I)),
     ("long hex/unicode escape run", re.compile(r"(?:\\x[0-9a-f]{2}|\\u[0-9a-f]{4}){200,}", re.I)),
     ("document.write of decoded data", re.compile(r"document\.write\s*\(\s*(?:unescape|atob|decodeuri)", re.I)),
+)
+
+
+def _tags(text: str, opener: re.Pattern[str], skip: int = 0) -> Iterator[Tuple[int, int]]:
+    """(start, end) of the text after the first `opener` before each '>' (or
+    the end); `skip` = 1 for a pattern that needs [^>]+ after the opener."""
+    done = -1
+    for m in opener.finditer(text):
+        if m.start() < done:
+            continue
+        end = text.find(">", m.end())
+        done = end = len(text) if end < 0 else end
+        yield m.end() + skip, end
+
+
+def _in_tags(text: str, opener: re.Pattern[str], inner: re.Pattern[str], skip: int = 0) -> bool:
+    """opener[^>]*inner (skip=0) or opener[^>]+inner (skip=1), for an inner
+    pattern that cannot match a '>'."""
+    return any(inner.search(text, s, e) for s, e in _tags(text, opener, skip))
+
+
+def _download_anchor(text: str) -> bool:
+    r"""<a\b[^>]*\bdownload\b"""
+    return _in_tags(text, _A_OPEN, _DOWNLOAD_WORD)
+
+
+def _data_download_anchor(text: str) -> bool:
+    r"""<a\b[^>]*(?:\bdownload\b[^>]*HREF|HREF[^>]*\bdownload\b), HREF being
+    href\s*=\s*['"]?\s*data: . The two parts cannot overlap, so one tag that
+    has both has them in one of the two orders."""
+    return any(_DOWNLOAD_WORD.search(text, s, e) and _DATA_HREF.search(text, s, e)
+               for s, e in _tags(text, _A_OPEN))
+
+
+def _event_handler(text: str) -> bool:
+    r"""<[a-z][^>]*\son[a-z]{3,}\s*="""
+    return _in_tags(text, _ELEMENT_OPEN, _EVENT_HANDLER)
+
+
+def _password_field(text: str) -> bool:
+    r"""<input[^>]+type\s*=\s*['"]?password"""
+    return _in_tags(text, _INPUT_OPEN, _PASSWORD_TYPE, skip=1)
+
+
+def _last_match(text: str, word: re.Pattern[str], full: re.Pattern[str],
+                s: int, e: int) -> Optional[re.Match[str]]:
+    """The match of `full` that starts at the last `word` in s..e where it
+    matches: what a greedy [^>]+ before it picks. A failed try stops within
+    the white space after its own word."""
+    for start in reversed([m.start() for m in word.finditer(text, s, e)]):
+        m = full.match(text, start)
+        if m:
+            return m
+    return None
+
+
+def _form_action(text: str) -> Optional[str]:
+    r"""findall(<form[^>]+action\s*=\s*['"]?(https?://[^\s'">]+))[0]"""
+    for s, e in _tags(text, _FORM_OPEN, skip=1):
+        m = _last_match(text, _ACTION_WORD, _ACTION_URL, s, e)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _meta_refresh_urls(text: str) -> List[str]:
+    r"""group(1) of each finditer match of
+    <meta[^>]+http-equiv\s*=\s*['"]?refresh[^>]*url\s*=\s*['"]?\s*(https?://[^\s'">]+)
+    The greedy parts pick the tag's last url= with a refresh before it; at
+    most one match per tag, as the next one would need a later url=."""
+    urls = []
+    for s, e in _tags(text, _META_OPEN, skip=1):
+        url = _last_match(text, _URL_WORD, _REFRESH_URL, s, e)
+        refresh = _REFRESH.search(text, s, e) if url else None
+        if url and refresh and refresh.end() <= url.start():
+            urls.append(url.group(1))
+    return urls
+
+
+_SVG_ACTIVE = (
+    ("script element", _SVG_SCRIPT.search),
+    ("event handler attribute", _event_handler),
+    ("foreignObject (embedded HTML)", _SVG_FOREIGN.search),
+    ("javascript: link", _SVG_JS_LINK.search),
+    ("embedded frame/object", _SVG_FRAME.search),
 )
 
 
@@ -137,6 +237,9 @@ class WebResult:
     credential_reasons: List[str] = field(default_factory=list)
     obfuscation: List[str] = field(default_factory=list)
     truncated: bool = False
+    # payloads found but not extracted or scanned (the count and the reason are
+    # determined: each was decoded and recognised as a payload format)
+    skipped: List[str] = field(default_factory=list)
     detail: str = ""
 
     @property
@@ -157,6 +260,7 @@ class WebResult:
             "credential_reasons": self.credential_reasons,
             "obfuscation": self.obfuscation,
             "truncated": self.truncated,
+            "skipped": self.skipped,
             "detail": self.detail,
         }
 
@@ -183,9 +287,8 @@ def _b64decode(blob: bytes) -> Optional[bytes]:
 
 def visible_text(raw: bytes) -> str:
     """Readable text of a page (scripts and styles removed) for the text layers."""
-    text = raw.decode("utf-8", errors="replace")
-    text = re.sub(r"(?is)<(script|style)\b.*?</\1\s*>", " ", text)
-    return re.sub(r"\s+", " ", _TAG.sub(" ", text)).strip()
+    text = _strip_script_style(raw.decode("utf-8", errors="replace"))
+    return re.sub(r"\s+", " ", _strip_tags(text, " ")).strip()
 
 
 class WebContentAnalyzer:
@@ -230,7 +333,8 @@ class WebContentAnalyzer:
         blob = bool(_SMUGGLE_BLOB.search(text))
         save = bool(_SMUGGLE_SAVE.search(text))
         trigger = bool(_SMUGGLE_URL.search(text)) and bool(
-            _SMUGGLE_DOWNLOAD.search(text) or _SMUGGLE_CLICK.search(text))
+            _SMUGGLE_DOWNLOAD.search(text) or _download_anchor(text)
+            or _SMUGGLE_CLICK.search(text))
         if blob and (trigger or save):
             res.smuggling_construct = True
             res.smuggling_reasons.append("builds a Blob and makes the browser save it"
@@ -238,23 +342,24 @@ class WebContentAnalyzer:
                                             " (object URL + download/click)"))
             if _ATOB.search(text):
                 res.smuggling_reasons.append("decodes base64 in the page (atob)")
-        if _DATA_DOWNLOAD_ANCHOR.search(text) and res.payloads:
+        if res.payloads and _data_download_anchor(text):
             res.smuggling_construct = True
             res.smuggling_reasons.append("download link whose target is an embedded data: URI")
         res.smuggling = res.smuggling_construct and bool(res.payloads)
 
         if res.kind == "svg":
-            res.svg_active = [label for label, rx in _SVG_ACTIVE if rx.search(text)]
+            res.svg_active = [label for label, found in _SVG_ACTIVE if found(text)]
 
-        for rx in _REDIRECTS:
-            for m in rx.finditer(text):
-                if m.group(1) not in res.redirects:
-                    res.redirects.append(m.group(1))
+        found_urls = _meta_refresh_urls(text) + [
+            m.group(1) for rx in _REDIRECTS for m in rx.finditer(text)]
+        for url in found_urls:
+            if url not in res.redirects:
+                res.redirects.append(url)
 
-        if _PASSWORD_FIELD.search(text):
-            actions = [a for a in _FORM_ACTION.findall(text)]
-            if actions:
-                res.credential_reasons.append("password field submitted to " + actions[0])
+        if _password_field(text):
+            action = _form_action(text)
+            if action:
+                res.credential_reasons.append("password field submitted to " + action)
             if re.search(r"fetch\s*\(|xmlhttprequest|\$\.(?:ajax|post)\s*\(|sendbeacon", text, re.I):
                 res.credential_reasons.append("password field read by script that sends data out")
         exfil = _EXFIL.search(text)
@@ -269,11 +374,10 @@ class WebContentAnalyzer:
         candidates = [(m.group(3), "data URI") for m in _DATA_URI.finditer(raw)]
         joined = _JS_CONCAT.sub(b"", raw)            # "AAAA" + "BBBB" -> "AAAABBBB"
         candidates += [(m.group(1), "base64 string") for m in _B64_LITERAL.finditer(joined)]
+        beyond = 0                                    # payloads after MAX_PAYLOADS
         for blob, source in sorted(candidates, key=lambda c: -len(c[0])):
-            if len(res.payloads) >= MAX_PAYLOADS:
-                break
             data = _b64decode(blob)
-            if not data or len(data) > MAX_PAYLOAD_BYTES:
+            if not data:
                 continue
             digest = hash(data)
             if digest in seen:
@@ -282,6 +386,15 @@ class WebContentAnalyzer:
             fmt = payload_format(data)
             if fmt is None:
                 continue                              # an inline image, font, text...
+            # Past the limits a payload is only recognised (its magic bytes), never
+            # extracted or scanned, so the scan can say what it left out.
+            if len(data) > MAX_PAYLOAD_BYTES:
+                res.skipped.append(f"embedded {fmt} payload of {len(data):,} bytes over the "
+                                   f"{MAX_PAYLOAD_BYTES // (1024 * 1024)} MB payload limit")
+                continue
+            if len(res.payloads) >= MAX_PAYLOADS:
+                beyond += 1
+                continue
             payload = WebPayload(name=f"payload{len(res.payloads) + 1}{PAYLOAD_EXTENSIONS[fmt]}",
                                  format=fmt, size=len(data), source=source)
             if sandbox is not None:
@@ -290,6 +403,9 @@ class WebContentAnalyzer:
                 target.write_bytes(data)
                 payload.path = str(target)
             res.payloads.append(payload)
+        if beyond:
+            res.skipped.append(f"{beyond} embedded payload(s) beyond the {MAX_PAYLOADS}-payload "
+                               "limit")
 
     @staticmethod
     def _summary(res: WebResult) -> str:

@@ -41,7 +41,7 @@ rule Crypto_Ransom_Extortion_Combo
     strings:
         $e1 = "encrypted"        nocase wide ascii
         $e2 = "encryption"       nocase wide ascii
-        $p1 = "pay"              nocase wide ascii
+        $p1 = /\bpay\b/          nocase wide ascii      // M32: not "payroll", "payload"
         $p2 = "payment"          nocase wide ascii
         $p3 = "ransom"           nocase wide ascii
         $u1 = "within 24 hours"  nocase wide ascii
@@ -57,11 +57,17 @@ rule Crypto_Ransom_Extortion_Combo
         $r2 = "bitcoin"          nocase wide ascii
         $r3 = "monero"           nocase wide ascii
         $r4 = ".onion"           nocase wide ascii
+        // M32: what a note has and an advisory describing one does not: where
+        // to pay or whom to quote, or an instruction to send the money
+        $s1 = /\b(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b/ ascii wide          // a wallet
+        $s2 = /\b(your|personal|unique|victim)[ _-]?(id|key)\b[ :]/ nocase ascii wide
+        $s3 = /\b(send|transfer|buy|purchase|deposit)\b[^.!?\r\n]{0,40}\b(payment|bitcoin|btc|monero|xmr|ransom|usd)\b/ nocase ascii wide
     condition:
         // 4.4.0-beta.2: addressed to the victim ("your files ...") and note-sized;
         // dictionaries and licences contain every one of the other words.
         filesize < 2MB and (any of ($e*)) and (any of ($p*)) and (any of ($u*))
         and (any of ($y*)) and ($p3 or any of ($r*))   // translation bundles have the rest
+        and ($r4 or any of ($s*))                      // M32: a note, not a report of one
 }
 
 rule Bitcoin_Address_With_Payment_Context

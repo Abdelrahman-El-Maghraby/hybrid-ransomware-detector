@@ -27,6 +27,10 @@ from urllib.parse import urlsplit
 import requests
 from requests.adapters import HTTPAdapter
 
+from engine.config import ENGINE_VERSION
+
+USER_AGENT = f"aegis-sentinel/{ENGINE_VERSION}"     # I-B1: one name and the real version
+
 try:  # urllib3 ships with requests
     from urllib3.util.retry import Retry
 except Exception:  # pragma: no cover
@@ -74,7 +78,7 @@ class AllowlistSession(requests.Session):
 
 def build_session(total_retries: int = 3, backoff_factor: float = 2.0,
                   statuses: Iterable[int] = RETRY_STATUSES,
-                  user_agent: str = "hybrid-ransomware-detector/4.0",
+                  user_agent: str = USER_AGENT,
                   allowed_origins: Optional[Iterable[str]] = None) -> requests.Session:
     """A `requests.Session` that retries GET/HEAD on 429/5xx with backoff; with
     `allowed_origins`, one that refuses every other destination."""
@@ -108,6 +112,13 @@ class RateLimiter:
         self._sleep = sleep
         self._next_allowed = 0.0
         self._lock = threading.Lock()
+
+    def delay(self) -> float:
+        """Seconds a call made now would wait (without reserving the slot)."""
+        if self.interval <= 0:
+            return 0.0
+        with self._lock:
+            return max(0.0, self._next_allowed - self._clock())
 
     def wait(self) -> float:
         """Block until the next call is allowed; returns the seconds waited."""

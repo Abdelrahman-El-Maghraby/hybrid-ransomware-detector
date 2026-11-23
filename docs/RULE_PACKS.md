@@ -33,6 +33,10 @@ python tools/rulepack.py verify aegis-rules-2026.11.02.tar.gz --pub "$(cat ~/aeg
 
 Versions are compared numerically, part by part (`2026.11.10` is newer than
 `2026.11.9`); a scheme such as `YYYY.MM.DD[.N]` keeps them in date order.
+A version (and a rollback's `rollback_of`) must be purely numeric: one to six
+dot-separated groups of digits. It names the install folder, so `build`,
+`rollback`, `verify` and every install refuse anything else, even when the pack
+is validly signed.
 
 ## Rolling back a defective pack (signed rollback)
 
@@ -47,6 +51,22 @@ python tools/rulepack.py sign aegis-rules-2026.11.04.tar.gz --key ~/aegis-keys/r
 
 The manifest carries `rollback_of: 2026.11.02`; installs accept it because
 2026.11.04 is newer than the defective 2026.11.03.
+
+## No key configured (M27)
+
+A pack is used only while the key that signed it is configured. With
+`RULEPACK_PUBLIC_KEYS` empty, an installed pack that records its signer (every
+pack installed since 4.7) is **not used**: the scanner logs `rulepack_no_key`
+each time it loads its rules and falls back to the bundled ones, and `provenance.rules` no
+longer names the pack. Nothing is deleted; setting the key again (and
+restarting) puts the pack back in use. Packs installed before 4.7 recorded no
+signer and stay in use.
+
+Deployment impact: an installation that used a pack but has lost or never kept
+its key (for example a Docker host whose `.env` lacks `RULEPACK_PUBLIC_KEYS`, or
+an upgraded desktop whose key was only set in an old shell) now scans with the
+bundled rules until the key is configured. After upgrading, check the log for
+`rulepack_no_key` or check `provenance.rules` in a recent result.
 
 ## Rotating the signing key
 
@@ -65,6 +85,11 @@ enormous version (`9999.1`) so that no later pack is "newer".
    the scanner. A pack signed by a key that is no longer trusted is not used: the
    scanner falls back to the bundled rules at once (`rulepack_untrusted` in the
    log), and such a pack does not count as "installed" when checking versions.
+   This also holds when no key is left: since M27, a pack that records its signer is
+   not used while `RULEPACK_PUBLIC_KEYS` is empty (`rulepack_no_key` in the log),
+   and the bundled rules are used instead. Add the new key (step 2) in the same
+   change so the next pack can be installed. In Docker, set the keys in the `.env`
+   next to `docker-compose.yml`; compose passes them to `analysis` and `content`.
 2. **Publish a pack signed by a new key**, add that key to the customers'
    configuration, and they install it with `--update-rules`. From then on versions
    are monotonic again, against the new pack.

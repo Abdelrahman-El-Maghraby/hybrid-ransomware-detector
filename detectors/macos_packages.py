@@ -38,10 +38,11 @@ import lzma
 import os
 import struct
 import subprocess
+import threading
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, List, Optional, Tuple
+from typing import IO, Any, Callable, Iterator, List, Optional, Tuple, cast
 
 from core.tools import trusted_which
 
@@ -74,6 +75,15 @@ class FormatError(Exception):
     """The bytes are not a well-formed package / image of the expected kind."""
 
 
+class Truncated(FormatError):
+    """L-D2: a compressed stream that ends before its end marker. `partial` is what
+    it held up to the cut; the caller keeps it and reports the stream as cut."""
+
+    def __init__(self, message: str, partial: bytes = b""):
+        super().__init__(message)
+        self.partial = partial
+
+
 # --------------------------------------------------------------- decompression
 def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
     """Decompress one XAR heap entry (or a whole stream) without passing `budget`."""
@@ -82,16 +92,20 @@ def bounded_decompress(data: bytes, encoding: str, budget: int) -> bytes:
         if len(data) > budget:
             raise BudgetExceeded()
         return data
+    decoder: Any
     if "gzip" in enc or "zlib" in enc:
-        out = zlib.decompressobj(zlib.MAX_WBITS | 32).decompress(data, budget + 1)  # zlib/gzip
+        decoder = zlib.decompressobj(zlib.MAX_WBITS | 32)                    # zlib/gzip
     elif "bzip2" in enc:
-        out = bz2.BZ2Decompressor().decompress(data, budget + 1)
+        decoder = bz2.BZ2Decompressor()
     elif "lzma" in enc or "xz" in enc:
-        out = lzma.LZMADecompressor().decompress(data, budget + 1)
+        decoder = lzma.LZMADecompressor()
     else:
         raise FormatError(f"unknown encoding {encoding!r}")
+    out = decoder.decompress(data, budget + 1)
     if len(out) > budget:
         raise BudgetExceeded()
+    if not decoder.eof:                      # L-D2: the stream was cut before its end
+        raise Truncated(f"{enc or 'compressed'} stream ends early", out)
     return out
 
 
@@ -122,8 +136,11 @@ def pbzx_decompress(data: bytes, budget: int) -> bytes:
         if len(chunk) != length:
             raise FormatError("truncated pbzx chunk")
         pos += length
-        part = (bounded_decompress(chunk, "xz", budget - len(out))
-                if chunk.startswith(b"\xfd7zXZ\x00") else chunk)
+        try:
+            part = (bounded_decompress(chunk, "xz", budget - len(out))
+                    if chunk.startswith(b"\xfd7zXZ\x00") else chunk)
+        except Truncated as e:
+            raise Truncated("pbzx chunk ends early", bytes(out) + e.partial) from None
         out += part
         if len(out) > budget:
             raise BudgetExceeded()
@@ -150,6 +167,16 @@ class CpioEntry:
         return self.is_file and bool(self.mode & 0o111)
 
 
+def _cpio_int(field: bytes, base: int) -> int:
+    # int() also accepts signs/whitespace, which are not valid unsigned CPIO
+    # fields and could move the parser backwards. Keep malformed headers within
+    # the parser's FormatError contract, including the NUL found by Atheris.
+    digits = b"01234567" if base == 8 else b"0123456789abcdefABCDEF"
+    if not field or any(byte not in digits for byte in field):
+        raise FormatError("invalid cpio numeric field")
+    return int(field, base)
+
+
 def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
     """Entries of an odc ('070707', what pkgbuild writes) or newc cpio archive."""
     pos, n = 0, 0
@@ -159,9 +186,9 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
             if pos + 76 > len(data):
                 raise FormatError("truncated cpio header")
             h = data[pos:pos + 76]
-            mode = int(h[18:24], 8)
-            namesize = int(h[59:65], 8)
-            filesize = int(h[65:76], 8)
+            mode = _cpio_int(h[18:24], 8)
+            namesize = _cpio_int(h[59:65], 8)
+            filesize = _cpio_int(h[65:76], 8)
             name_start = pos + 76
             data_start = name_start + namesize
             nxt = data_start + filesize
@@ -169,9 +196,9 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
             if pos + 110 > len(data):
                 raise FormatError("truncated cpio header")
             h = data[pos:pos + 110]
-            mode = int(h[14:22], 16)
-            filesize = int(h[54:62], 16)
-            namesize = int(h[94:102], 16)
+            mode = _cpio_int(h[14:22], 16)
+            filesize = _cpio_int(h[54:62], 16)
+            namesize = _cpio_int(h[94:102], 16)
             name_start = pos + 110
             data_start = (name_start + namesize + 3) & ~3
             nxt = (data_start + filesize + 3) & ~3
@@ -188,6 +215,8 @@ def read_cpio(data: bytes, max_entries: int = 10_000) -> Iterator[CpioEntry]:
         yield CpioEntry(name[2:] if name.startswith("./") else name, mode,
                         data[data_start:data_start + filesize])
         pos = nxt
+    # L-D2: every archive ends with a TRAILER!!! record; without it, it was cut
+    raise FormatError("cpio archive ends without its trailer")
 
 
 # ------------------------------------------------------------------------- XAR
@@ -230,8 +259,8 @@ def read_xar(path: Path) -> Tuple[List[XarEntry], int]:
                 enc = data.find("encoding")
                 entries.append(XarEntry(
                     full, kind,
-                    int(data.findtext("offset") or 0), int(data.findtext("length") or 0),
-                    int(data.findtext("size") or 0),
+                    _toc_int(data.findtext("offset")), _toc_int(data.findtext("length")),
+                    _toc_int(data.findtext("size")),
                     enc.get("style", "") if enc is not None else ""))
             else:
                 entries.append(XarEntry(full, kind, 0, 0, 0, ""))
@@ -241,7 +270,21 @@ def read_xar(path: Path) -> Tuple[List[XarEntry], int]:
     return entries, header_size + toc_len
 
 
+def _toc_int(text: Optional[str]) -> int:
+    """L-D1: a number from the table of contents; not a whole number >= 0 is a
+    format error, not a ValueError or a negative read."""
+    value = (text or "").strip() or "0"       # empty: 0, as before
+    if not value.isdigit():
+        raise FormatError(f"not a size or offset in the table of contents: {value[:20]!r}")
+    return int(value)
+
+
 def xar_read_entry(path: Path, heap: int, entry: XarEntry, budget: int) -> bytes:
+    # L-D1: the table of contents says where an entry is; a range outside the
+    # file is refused before anything is read (a read of that length could ask
+    # for that much memory at once)
+    if heap + entry.offset + entry.length > os.path.getsize(path):
+        raise FormatError("package data outside the file")
     with open(path, "rb") as fh:
         fh.seek(heap + entry.offset)
         stored = fh.read(entry.length)
@@ -328,13 +371,76 @@ def sevenzip_list(tool: str, archive: Path, timeout: int = 60,
     return items
 
 
-def sevenzip_extract(tool: str, archive: Path, out_dir: Path, timeout: int = 120,
-                     runner: Callable = subprocess.run) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    proc = runner([tool, "x", "-y", "-p", f"-o{out_dir}", str(archive)],
-                  capture_output=True, timeout=timeout)
-    if proc.returncode not in (0, 1):             # 1 = warnings (e.g. a skipped link)
-        raise FormatError("7-Zip failed to extract the image")
+class SevenZipMember:
+    """One member's bytes from `7z e -so`: 7-Zip writes them to a pipe and never
+    creates a file, so its own path and link handling is never relied on (RF-4).
+    `-spd` makes the name literal (no wildcards) and `--` ends the switches, so a
+    name starting with "-" is not read as one. The process runs in `work_dir`
+    (an empty folder in the sandbox) and is killed after `timeout` seconds.
+
+        member = SevenZipMember(tool, image, "Payload/a.pdf", work)
+        try:
+            for chunk in member.chunks(): ...
+        finally:
+            ok = member.close()
+    """
+
+    CHUNK = 64 * 1024
+
+    def __init__(self, tool: str, archive: Path, name: str, work_dir: Path,
+                 timeout: float = 120, popen: Optional[Callable] = None):
+        self.proc = (popen or subprocess.Popen)([tool, "e", "-so", "-y", "-p", "-spd", "-bd", "--", str(archive), name],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, cwd=str(work_dir))
+        self.out: IO[bytes] = cast(IO[bytes], self.proc.stdout)    # stdout=PIPE
+        self.timed_out = False
+        self._timer = threading.Timer(timeout, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _expire(self) -> None:
+        self.timed_out = True
+        self._kill()
+
+    def _kill(self) -> None:
+        try:
+            self.proc.kill()
+        except OSError:
+            pass
+
+    def chunks(self) -> Iterator[bytes]:
+        return iter(lambda: self.out.read(self.CHUNK), b"")
+
+    def close(self) -> bool:
+        """Stop the process (a reader that stopped early closes the pipe); True when
+        7-Zip finished normally (exit code 0, or 1 for warnings) in time."""
+        self._timer.cancel()
+        try:
+            self.out.close()
+        except OSError:
+            pass
+        try:
+            code = self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._kill()
+            code = self.proc.wait()
+        return code in (0, 1) and not self.timed_out
+
+
+def sevenzip_read(tool: str, archive: Path, name: str, work_dir: Path, limit: int,
+                  timeout: float = 120, popen: Optional[Callable] = None) -> Optional[bytes]:
+    """A member's bytes, or None when 7-Zip failed or it is larger than `limit`."""
+    member = SevenZipMember(tool, archive, name, work_dir, timeout, popen)
+    parts, size = [], 0
+    try:
+        for chunk in member.chunks():
+            size += len(chunk)
+            if size > limit:
+                return None
+            parts.append(chunk)
+    finally:
+        ok = member.close()
+    return b"".join(parts) if ok else None
 
 
 def gzip_bytes(data: bytes) -> bytes:              # used by the package builder in tests

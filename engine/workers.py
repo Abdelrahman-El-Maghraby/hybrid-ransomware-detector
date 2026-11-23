@@ -22,6 +22,15 @@ Here each file is scanned in a worker process that
 A file that times out or kills its worker is reported with the `scan_failed`
 indicator (Medium): ordinary documents do not do that.
 
+Isolation fails closed (D-E). When workers cannot start (MAX_FAILED_STARTS
+starts end before the worker is ready), no further file is handed out, the
+files already in a worker finish, and every file not scanned gets one result
+with scan_status "failed" and the code `isolation_unavailable`. Nothing is ever
+parsed in the calling process instead. Those files were not opened, so they are
+not scored as "file broke the scanner". Each result records where it was parsed
+in `provenance.isolation`: "worker", "in_process" (only with the ISOLATE_SCANS=0
+development opt-out, refused under the production profile) or "unavailable".
+
 Workers also make folder scans parallel. The VirusTotal free quota is enforced
 per process, so with a VirusTotal key and pacing on, one worker is used.
 """
@@ -29,19 +38,44 @@ per process, so with a VirusTotal key and pacing on, one worker is used.
 from __future__ import annotations
 
 import contextlib
+import copy
 import ctypes
 import ctypes.util
+import json
 import logging
+import math
 import multiprocessing as mp
+import multiprocessing.connection
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections import deque
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+
+from engine.completeness import PRECEDENCE
+from engine.helper_processes import track_descendants
+from engine.metrics import METRICS, VERDICTS
 
 logger = logging.getLogger("RansomwareScanner")
+
+ISOLATION_UNAVAILABLE = "isolation_unavailable"
+ISOLATION_TEXT = ("isolated scan workers could not start; the file was not scanned "
+                  "(nothing is parsed in the main process)")
+
+
+class IsolationUnavailable(RuntimeError):
+    """Isolated scan workers could not start, so the file was not scanned."""
+
+
+def isolation_unavailable(result: Dict) -> bool:
+    """True for the result of a file that was not scanned because no isolated
+    worker could start."""
+    failed = (result.get("scan_results") or {}).get("scan_failed") or {}
+    return isinstance(failed, dict) and failed.get("code") == ISOLATION_UNAVAILABLE
 
 _SCANNER = None
 _START_LOCK = threading.Lock()
@@ -224,17 +258,355 @@ def linux_rss_reader(pid: int) -> Optional[int]:
         return None
 
 
-def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None:
+LOG_RECORDS_PER_FILE = 200
+LOG_TAIL_RECORDS = 50           # L-E8: the last records are kept too (the outer file's)
+
+
+# M18: what a worker sends its parent. A message is JSON bytes, read with a size
+# limit and checked before any field is used; the parent never unpickles worker
+# data, so a worker taken over by a parser exploit cannot run code in the
+# long-lived parent (the API process holds every client's uploads). The parent
+# still pickles the paths it sends: the worker trusts its parent, not the reverse.
+MAX_REPLY_BYTES = 16 * 1024 * 1024      # one message; a 500-member archive's result is ~50 KB
+MAX_ERROR_CHARS = 2000
+REPLY_KINDS = ("ready", "log", "ok", "error", "container", "member", "provisional", "settled",
+               "sandbox", "external", "completed", "clear")
+# I-6: the layers a provisional result may name as stopped, with their result keys
+STOPPABLE = {"sandbox": "sandbox", "virustotal": "virustotal", "llm": "chatgpt_analysis"}
+EXTERNAL_SENT = ("sha256", "file", "text")
+# H6 (b): while the outer file is still being scanned, the worker reports its
+# container's own findings once the container is opened ("container") and each
+# direct member whose scan finished ("member"), so a time-out or a dead worker
+# does not lose them. Nothing else of the unfinished file is sent.
+MEMBER_CONTAINERS = ("archive", "mail", "web", "embedded")
+# M26: before the sandbox's network wait the worker sends the result the file
+# would get if that wait never ended ("provisional": every other layer's findings,
+# the sandbox at `timeout`), then the submission state as it changes ("sandbox":
+# {"submission", "task_id"}), and once the sandbox's outcome is known the result
+# with that outcome ("settled"). The parent uses the latest of them only when it
+# stops the worker at the scan time limit; never for an invalid message, a dead
+# worker or the memory limit.
+SUBMISSION_STATES = ("not_attempted", "possible", "refused", "confirmed")
+TRANSMISSION = {"not_attempted": "none", "possible": "possible", "refused": "sent",
+                "confirmed": "sent"}
+MAX_KEPT_MEMBERS = 10                   # highest-risk members kept per file
+# Record keys that would replace a LogRecord method (getMessage, ...) when replayed.
+_LOG_KEYS_REFUSED = frozenset(k for k in dir(logging.LogRecord)
+                              if callable(getattr(logging.LogRecord, k)))
+# Result fields the parent and its outputs read, with the types they must have.
+_NUMBER = (int, float)
+_RESULT_FIELDS: Dict[str, Tuple[Any, bool]] = {   # name: (types, required)
+    "file_path": (str, True), "verdict": (str, True), "risk_score": (_NUMBER, True),
+    "scan_status": (str, True), "scan_results": (dict, True),
+    "file_name": (str, False), "file_size": (int, False), "scan_time": (str, False),
+    "md5_hash": (str, False), "sha256_hash": (str, False), "is_malicious": (bool, False),
+    "severity_score": (_NUMBER, False), "score_breakdown": (dict, False),
+    "incomplete_reasons": (list, False), "provenance": (dict, False),
+    "verdict_label": (str, False), "engine_version": (str, False),
+}
+
+
+_SEND_LOCK = threading.Lock()
+
+
+class InvalidReply(ValueError):
+    """A worker message that is too large, not JSON, or not of the expected shape."""
+
+
+def send_reply(conn, kind: str, payload: Any) -> bool:
+    """Worker side (M18): send one message as JSON bytes. Values JSON cannot hold
+    are sent as text, as the JSON Lines output writes them. A result over the
+    limit becomes an error; log records over it are dropped. False when nothing
+    was sent."""
+    data = json.dumps([kind, payload], default=str).encode("utf-8")
+    if len(data) > MAX_REPLY_BYTES:
+        if kind != "ok":
+            return False
+        data = json.dumps(["error", f"the scan result was too large to return "
+                                    f"({len(data)} bytes, limit {MAX_REPLY_BYTES})"]).encode()
+    with _SEND_LOCK:                # I-6: slow layers report from their own threads
+        conn.send_bytes(data)
+    return True
+
+
+def read_reply(conn) -> Tuple[str, Any]:
+    """Parent side (M18): read one worker message: at most MAX_REPLY_BYTES, JSON,
+    then checked by check_reply. Raises InvalidReply for a bad message, and the
+    connection's own errors (EOFError, OSError) for a closed pipe."""
+    try:
+        data = conn.recv_bytes(MAX_REPLY_BYTES)
+    except OSError as e:
+        if "bad message length" in str(e):   # over the limit; nothing was read into memory
+            raise InvalidReply(f"a message over {MAX_REPLY_BYTES} bytes") from None
+        raise
+    try:
+        msg = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as e:
+        raise InvalidReply(f"not JSON ({type(e).__name__})") from None
+    return check_reply(msg)
+
+
+def check_reply(msg: Any) -> Tuple[str, Any]:
+    """The shape a worker message must have before the parent uses any field."""
+    if not (isinstance(msg, list) and len(msg) == 2 and msg[0] in REPLY_KINDS):
+        raise InvalidReply("not a [kind, payload] pair of a known kind")
+    kind, payload = msg
+    if kind in ("ready", "clear"):
+        if payload is not None:
+            raise InvalidReply("a ready message with a payload")
+    elif kind == "error":
+        if not isinstance(payload, str):
+            raise InvalidReply("an error message that is not text")
+        payload = payload[:MAX_ERROR_CHARS]
+    elif kind == "log":
+        if not (isinstance(payload, list) and len(payload) <= LOG_RECORDS_PER_FILE + 1):
+            raise InvalidReply("log records that are not a list within the limit")
+        for rec in payload:
+            if not isinstance(rec, dict) or any(
+                    k in _LOG_KEYS_REFUSED or k.startswith("__") for k in rec) or (
+                    rec.get("args") is not None or rec.get("exc_info")):
+                raise InvalidReply("a log record that is not a plain record")
+    elif kind == "container":
+        if not (isinstance(payload, dict) and set(payload) == {"container", "signal"}
+                and payload["container"] in MEMBER_CONTAINERS
+                and isinstance(payload["signal"], dict)
+                and payload["signal"].get("worst") is None):
+            raise InvalidReply("a container report that is not {container, signal}")
+        try:
+            _signal_class(payload["container"])(**payload["signal"])
+        except (TypeError, ValueError):
+            raise InvalidReply("a container signal with unknown fields") from None
+    elif kind in ("provisional", "settled", "sandbox", "external", "completed"):
+        _check_sandbox_message(kind, payload)
+    elif kind == "member":
+        if not (isinstance(payload, dict) and set(payload) == {"container", "result"}
+                and payload["container"] in MEMBER_CONTAINERS):
+            raise InvalidReply("a member report that is not {container, result}")
+        _check_result(payload["result"])
+        _check_contributions(payload["result"])
+    else:
+        _check_result(payload)
+    return kind, payload
+
+
+def _check_sandbox_message(kind: str, payload: Any) -> None:
+    """M26: the provisional result (sandbox at timeout, nothing submitted yet),
+    the settled one (a sandbox outcome) and a submission-state report."""
+    if kind == "external":
+        if not (isinstance(payload, dict) and set(payload) == {"service", "sent", "destination"}
+                and payload["service"] in ("virustotal", "llm")
+                and isinstance(payload["sent"], list) and 0 < len(payload["sent"]) <= 3
+                and all(s in EXTERNAL_SENT for s in payload["sent"])
+                and payload["destination"] in (None, "local", "cloud")):
+            raise InvalidReply("an external-service report that is not {service, sent, "
+                               "destination}")
+        return
+    if kind == "sandbox":
+        task = payload.get("task_id") if isinstance(payload, dict) else None
+        if not (isinstance(payload, dict) and set(payload) == {"submission", "task_id"}
+                and payload["submission"] in SUBMISSION_STATES
+                and (task is None or (isinstance(task, int) and not isinstance(task, bool)
+                                      and 0 <= task < 2 ** 63))
+                and (task is None or payload["submission"] == "confirmed")):
+            raise InvalidReply("a sandbox progress report that is not {submission, task_id}")
+        return
+    _check_result(payload)
+    shared = payload.get("provenance", {}).get("shared", [])
+    if not (isinstance(shared, list) and all(isinstance(e, dict) for e in shared)):
+        raise InvalidReply(f"a {kind} result whose shared list is not plain")
+    if kind == "completed":
+        if "stopped_layers" in payload["scan_results"]:
+            raise InvalidReply("a completed result with stopped layers")
+        return
+    if kind == "provisional":
+        _check_provisional(payload)
+        return
+    box = payload["scan_results"].get("sandbox")
+    if not (isinstance(box, dict) and box.get("status") in ("reported", "timeout", "error")
+            and box.get("submission") in SUBMISSION_STATES
+            and box.get("transmission") == TRANSMISSION[box["submission"]]):
+        raise InvalidReply("a settled result without a sandbox outcome")
+
+
+def _check_provisional(payload: Dict[str, Any]) -> None:
+    """M26, I-6: a provisional result names the layers it stops
+    (`scan_results.stopped_layers`), each at `timeout`; a stopped sandbox has
+    submitted nothing yet; the scan is not complete."""
+    sr = payload["scan_results"]
+    stopped = sr.get("stopped_layers")
+    if not (isinstance(stopped, list) and stopped and all(isinstance(n, str) for n in stopped)
+            and len(set(stopped)) == len(stopped)
+            and all(name in STOPPABLE for name in stopped)
+            and payload["scan_status"] != "complete"):
+        raise InvalidReply("a provisional result without its stopped layers")
+    for name in stopped:
+        entry = sr.get(STOPPABLE[name])
+        if not (isinstance(entry, dict) and entry.get("status") == "timeout"):
+            raise InvalidReply(f"a provisional result whose {name} is not at timeout")
+    if "sandbox" in stopped and sr["sandbox"].get("submission") != "not_attempted":
+        raise InvalidReply("a provisional result whose sandbox already submitted")
+
+
+def _check_contributions(result: Dict[str, Any]) -> None:
+    """A member's contributions are scored again in the parent (H6 b)."""
+    contribs = (result.get("score_breakdown") or {}).get("contributions", [])
+    if not isinstance(contribs, list) or len(contribs) > 200:
+        raise InvalidReply("member contributions that are not a list within the limit")
+    for c in contribs:
+        if not (isinstance(c, dict) and isinstance(c.get("indicator"), str)
+                and isinstance(c.get("category", "technical"), str)
+                and isinstance(c.get("detail", ""), str)
+                and isinstance(c.get("points", 0), (int, float))
+                and not isinstance(c.get("points", 0), bool)
+                and math.isfinite(c.get("points", 0))):
+            raise InvalidReply("a member contribution that is not plain")
+    if not math.isfinite(result["risk_score"]):
+        raise InvalidReply("a member risk score that is not finite")
+
+
+def _signal_class(container: str):
+    from detectors.signals import ArchiveSignal, EmbeddedSignal, MailSignal, WebSignal
+    return {"archive": ArchiveSignal, "mail": MailSignal, "web": WebSignal,
+            "embedded": EmbeddedSignal}[container]
+
+
+def container_evidence(container: str, signal: Any) -> Optional[Dict[str, Any]]:
+    """Worker side (H6 b): the container's own signal as its layer computed it from
+    the opened container, before any member is scanned (no worst member yet)."""
+    import dataclasses
+    if container not in MEMBER_CONTAINERS or not isinstance(signal, _signal_class(container)):
+        return None
+    data = dataclasses.asdict(signal)
+    data.pop("worst", None)
+    return {"container": container, "signal": data}
+
+
+def member_evidence(container: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Worker side (H6 b): the part of a finished member's result the parent keeps,
+    as the worker scored it; nothing is added."""
+    keep = ("file_path", "file_name", "verdict", "risk_score", "scan_status",
+            "md5_hash", "sha256_hash")
+    out = {k: result[k] for k in keep if k in result}
+    out["scan_results"] = {}
+    password = ((result.get("scan_results") or {}).get("archive") or {}).get("password_used")
+    if password:
+        out["scan_results"]["archive"] = {"password_used": password}
+    out["score_breakdown"] = {"contributions": [
+        {k: c.get(k) for k in ("indicator", "category", "points", "detail") if k in c}
+        for c in (result.get("score_breakdown") or {}).get("contributions") or []]}
+    return {"container": container, "result": out}
+
+
+def _check_result(result: Any) -> None:
+    if not isinstance(result, dict):
+        raise InvalidReply("a result that is not an object")
+    for name, (types, required) in _RESULT_FIELDS.items():
+        if name not in result:
+            if required:
+                raise InvalidReply(f"a result without {name}")
+            continue
+        value = result[name]
+        if not isinstance(value, types) or (types is not bool and isinstance(value, bool)):
+            raise InvalidReply(f"a result whose {name} is a {type(value).__name__}")
+    if result["verdict"] not in VERDICTS or result["scan_status"] not in PRECEDENCE:
+        raise InvalidReply("a result with an unknown verdict or scan status")
+    if not all(isinstance(r, dict) for r in result.get("incomplete_reasons") or []):
+        raise InvalidReply("incomplete reasons that are not objects")
+
+
+def _plain(value: Any, depth: int = 0) -> bool:
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return True
+    if depth < 4 and isinstance(value, (list, tuple)):
+        return all(_plain(v, depth + 1) for v in value)
+    if depth < 4 and isinstance(value, dict):
+        return all(isinstance(k, str) and _plain(v, depth + 1) for k, v in value.items())
+    return False
+
+
+class _WorkerLogBuffer(logging.Handler):
+    """Collects the records a worker logs while it scans one file. They are sent
+    to the parent with the result and re-emitted there through its handlers
+    (log file, GUI log, cloud event spool), so events such as scan_completed,
+    external_share and layer_error are not lost in the worker process."""
+
+    def __init__(self, limit: int = LOG_RECORDS_PER_FILE, tail: int = LOG_TAIL_RECORDS):
+        super().__init__()
+        self.limit, self.dropped = limit, 0
+        self.tail_size = max(0, min(tail, limit - 1))
+        self.records: List[Dict[str, Any]] = []
+        # L-E8: the first records and the last ones; the outer file's own
+        # scan_completed and external_share come after its members' records.
+        self.tail: Deque[Dict[str, Any]] = deque()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            data = dict(record.__dict__)
+            data["msg"], data["args"] = record.getMessage(), None
+            if record.exc_info and not record.exc_text:
+                data["exc_text"] = logging.Formatter().formatException(record.exc_info)
+            data["exc_info"] = None
+            plain = {k: v if _plain(v) else repr(v) for k, v in data.items()}
+        except Exception:
+            self.dropped += 1
+            return
+        if len(self.records) < self.limit - self.tail_size:
+            self.records.append(plain)
+            return
+        self.tail.append(plain)
+        if len(self.tail) > self.tail_size:
+            self.tail.popleft()
+            self.dropped += 1
+
+    def take(self) -> List[Dict[str, Any]]:
+        out, self.records = self.records, []
+        tail, self.tail = list(self.tail), deque()
+        if self.dropped:
+            out.append(logging.makeLogRecord({
+                "name": "RansomwareScanner", "levelno": logging.WARNING,
+                "levelname": "WARNING", "args": None,
+                "msg": f"{self.dropped} log record(s) from a scan worker were dropped "
+                       f"(limit {self.limit} per file)."}).__dict__)
+            self.dropped = 0
+        return out + tail
+
+
+def replay_worker_logs(records: Any) -> None:
+    """Re-emit a worker's records in this process, under its logger levels."""
+    if not isinstance(records, list):
+        return
+    for data in records:
+        try:
+            record = logging.makeLogRecord(data)
+            target = logging.getLogger(record.name)
+            if target.isEnabledFor(record.levelno):
+                target.handle(record)
+        except Exception:
+            continue
+
+
+def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "",
+                 log_level: int = logging.WARNING) -> None:
     """Worker loop: build one scanner, then scan paths sent over the pipe. Every
     temporary file goes under `temp_dir`, which the parent removes when this
-    worker is killed (a killed worker never runs its own clean-up)."""
+    worker is killed (a killed worker never runs its own clean-up). Records
+    logged while a file is scanned go to the parent as a ("log", [...]) message
+    before the result; building the scanner stays quiet (WARNING, stderr) as
+    each worker would otherwise repeat the start-up lines."""
     global _SCANNER
     if temp_dir:
         tempfile.tempdir = temp_dir
         os.environ["TMPDIR"] = temp_dir          # helper programs (unar, 7z) too
+    if os.name == "posix":
+        # L-E5: a process group of its own, so the parent can stop this worker
+        # and the helper programs it started (OCR, 7-Zip, box-js) together
+        try:
+            os.setpgid(0, 0)
+        except OSError:
+            pass
     _limit_memory(memory_mb)
     logging.getLogger("RansomwareScanner").setLevel(logging.WARNING)
-    cfg = dict(config, isolate_scans=False, scan_workers=1)
+    cfg = dict(config, isolate_scans=False, scan_workers=1, _isolation="worker")
     factory = cfg.get("_scanner_factory")          # "module:callable"; used by the tests
     if factory:
         import importlib
@@ -243,7 +615,67 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None
     else:
         from engine.scanner import RansomwareScanner
         _SCANNER = RansomwareScanner(cfg)
-    conn.send(("ready", None))
+    buffer = _WorkerLogBuffer()
+    scan_logger = logging.getLogger("RansomwareScanner")
+    propagate = scan_logger.propagate
+    scan_logger.addHandler(buffer)
+    scan_logger.propagate = False
+    scan_logger.setLevel(log_level)
+    def report_member(event: str, container: str, data: Any) -> None:
+        try:
+            if event == "container":
+                report = container_evidence(container, data)
+                if report is not None:
+                    send_reply(conn, "container", report)
+            else:
+                send_reply(conn, "member", member_evidence(container, data))
+        except Exception:
+            pass                             # never stop a scan over a progress report
+    _SCANNER.member_listener = report_member   # read by engine/containers.py
+
+    def report_external(service: str, sent: Any, destination: Any = None) -> None:
+        try:
+            send_reply(conn, "external", {"service": service, "sent": list(sent),
+                                          "destination": destination})
+        except Exception:
+            pass
+    _SCANNER.external_listener = report_external      # read by engine/external.py
+
+    def report_provisional(result: Dict, settled: bool = False) -> None:
+        try:                                     # over the size limit: not sent
+            send_reply(conn, "settled" if settled else "provisional", result)
+        except Exception:
+            pass
+
+    def report_sandbox(state: str, task_id: Any = None) -> None:
+        try:
+            task = int(task_id) if state == "confirmed" and task_id is not None else None
+        except (TypeError, ValueError):
+            task = None
+        try:
+            send_reply(conn, "sandbox", {"submission": state, "task_id": task})
+        except Exception:
+            pass
+    def report_completed(result: Dict) -> None:
+        try:
+            send_reply(conn, "completed", result)
+        except Exception:
+            pass
+    def clear_provisional() -> None:
+        send_reply(conn, "clear", None)
+    _SCANNER.clear_provisional_listener = clear_provisional
+    _SCANNER.completed_listener = report_completed
+    _SCANNER.provisional_listener = report_provisional   # read by the sandbox layer
+    _SCANNER.sandbox_listener = report_sandbox
+    try:
+        send_reply(conn, "ready", None)
+        _serve(_SCANNER, conn, buffer)
+    finally:                                 # matters only when run in-process (tests)
+        scan_logger.removeHandler(buffer)
+        scan_logger.propagate = propagate
+
+
+def _serve(scanner: Any, conn, buffer: _WorkerLogBuffer) -> None:
     while True:
         try:
             path = conn.recv()
@@ -251,14 +683,29 @@ def _worker_main(config: Dict, memory_mb: int, conn, temp_dir: str = "") -> None
             return
         if path is None:
             return
+        # M26: the parent stops waiting scan_timeout_seconds after it sent the path
+        # (every caller passes that setting); this clock starts just after it.
+        limit = float((getattr(scanner, "config", None) or {}).get("scan_timeout_seconds") or 0)
+        scanner.scan_deadline = time.monotonic() + limit if limit > 0 else None
         try:
-            conn.send(("ok", _SCANNER.scan_file(path)))
+            reply: Tuple[str, Any] = ("ok", scanner.scan_file(path))
         except MemoryError:
-            conn.send(("error", "MemoryError: the file needed more memory than the worker limit"))
+            reply = ("error", "MemoryError: the file needed more memory than the worker limit")
         except RecursionError:
-            conn.send(("error", "RecursionError: a parser recursed too deeply"))
+            reply = ("error", "RecursionError: a parser recursed too deeply")
         except Exception as e:              # the engine should not raise; record it if it does
-            conn.send(("error", f"{type(e).__name__}: {e}"))
+            reply = ("error", f"{type(e).__name__}: {e}")
+        records = buffer.take()
+        if records:
+            try:
+                send_reply(conn, "log", records)
+            except Exception:
+                pass                         # never lose the result over its log lines
+        try:
+            send_reply(conn, *reply)
+        except (TypeError, ValueError) as e:     # not encodable (a circular value)
+            send_reply(conn, "error", f"the scan result could not be returned: "
+                                      f"{type(e).__name__}: {e}")
 
 
 @contextlib.contextmanager
@@ -293,16 +740,10 @@ def _pid_alive(pid: int) -> bool:
     """True when a process with this id exists (or might: when in doubt, alive)."""
     if os.name == "nt":                      # os.kill would terminate it on Windows
         try:
-            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
-            if not handle:
-                return False
-            code = ctypes.c_ulong()
-            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-            kernel32.CloseHandle(handle)
-            return code.value == 259                             # STILL_ACTIVE
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
         except (AttributeError, OSError):
             return True
+        return _pid_alive_windows(pid, kernel32, ctypes.get_last_error)  # type: ignore[attr-defined]
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -310,6 +751,30 @@ def _pid_alive(pid: int) -> bool:
     except OSError:                          # exists, owned by someone else
         return True
     return True
+
+
+ERROR_ACCESS_DENIED = 5
+ERROR_INVALID_PARAMETER = 87                 # OpenProcess: no process with that id
+
+
+def _pid_alive_windows(pid: int, kernel32: Any, last_error: Callable[[], int]) -> bool:
+    """L-E6: OpenProcess fails for a process that exists but belongs to someone
+    else (access denied) as well as for one that does not exist; only the
+    second means dead. Anything unclear counts as alive, so a live scanner's
+    folder is never swept."""
+    try:
+        handle = kernel32.OpenProcess(0x1000, False, pid)    # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return last_error() != ERROR_INVALID_PARAMETER
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259                             # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError):
+        return True
 
 
 def sweep_stale_worker_dirs(folder: Optional[str] = None) -> int:
@@ -344,17 +809,63 @@ class _Worker:
             sweep_stale_worker_dirs()
         self.parent, child = ctx.Pipe()
         self.temp_dir = tempfile.mkdtemp(prefix=f"{WORKER_TEMP_PREFIX}{os.getpid()}_")
-        self.proc = ctx.Process(target=_worker_main, args=(config, memory_mb, child, self.temp_dir),
+        level = logging.getLogger("RansomwareScanner").getEffectiveLevel()
+        self.proc = ctx.Process(target=_worker_main,
+                                args=(config, memory_mb, child, self.temp_dir, level),
                                 daemon=True)
-        with _START_LOCK, _main_not_reimported():
-            self.proc.start()
+        try:
+            with _START_LOCK, _main_not_reimported():
+                self.proc.start()
+        except BaseException:
+            # no process owns the folder, so the stale-folder sweep would keep it
+            child.close()
+            self.parent.close()
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+            raise
         child.close()
+        self.created = time.monotonic()
         self.path: Optional[str] = None
         self.started = 0.0
         self.watched = 0.0
         self.ready = False
+        self.retired = False                 # killed and not replaced (workers cannot start)
+        self.evidence = Evidence()           # H6 (b): members finished for self.path
+        self.identity: Optional[Tuple[int, ...]] = None   # FI-1: of self.path at dispatch
+        self.provisional: Optional[Dict] = None      # M26: checked, for self.path
+        self.settled = False                         # ... and holding the sandbox outcome
+        self.external: Dict[str, Dict[str, Any]] = {}  # I-6: what may have left, per service
+        self.pgid: Optional[int] = None              # L-E5: its own process group (POSIX)
+        self.sandbox_state: Optional[Dict] = None
+        self.descendants = track_descendants(self.proc.pid)
+
+    def note_group(self) -> None:
+        """L-E5: once the worker is ready (alive), remember its process group if
+        it leads one of its own; only that group is ever signalled."""
+        if os.name != "posix" or self.proc.pid is None:
+            return
+        descendants = getattr(self, "descendants", None)
+        if descendants is not None:
+            descendants.ready()
+        try:
+            if os.getpgid(self.proc.pid) == self.proc.pid:
+                self.pgid = self.proc.pid
+        except OSError:
+            pass
 
     def kill(self) -> None:
+        """Stop the worker and, on POSIX, the helper programs it started (its
+        process group). On supported macOS versions, use individually verified
+        generations instead, including observed session-escaped descendants.
+        Other POSIX systems retain the existing process-group cleanup."""
+        descendants = getattr(self, "descendants", None)
+        if descendants is not None:
+            descendants.stop(signal.SIGKILL)
+        pgid = getattr(self, "pgid", None)
+        if pgid is not None and descendants is None:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except OSError:
+                pass
         try:
             self.proc.kill()
             self.proc.join(5)
@@ -370,20 +881,60 @@ class _Worker:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
-def failure_result(scanner, path: str, reason: str) -> Dict:
-    """A result for a file whose scan timed out or crashed the worker."""
+def file_identity(path: str) -> Optional[Tuple[int, ...]]:
+    """FI-1: what identifies the file at `path` without reading it: device, inode,
+    size, modification and change times (the change time cannot be set back by a
+    program). None when the path cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def failure_result(scanner, path: str, reason: str, code: str = "",
+                   isolation: str = "worker", evidence: Optional[Evidence] = None,
+                   identity: Optional[Tuple[int, ...]] = None) -> Dict:
+    """A result for a file whose scan timed out or crashed the worker, or (code
+    ISOLATION_UNAVAILABLE, isolation "unavailable") that was never scanned because
+    no isolated worker could start. That file was not opened, so it gets no
+    `scan_failed` indicator: it is not evidence against the file.
+
+    FI-1: the hashes are read here, after the failure. With `identity` (taken when
+    the file was handed to the worker), a file that is no longer that one (renamed
+    into place or rewritten meanwhile) gets no hashes: the hash is what the
+    quarantine guard compares, and it must describe the file that was scanned."""
     import os as _os
     from datetime import datetime
 
     from engine.config import ENGINE_VERSION
+    replaced = identity is not None and file_identity(path) != identity
     try:
-        hashes = scanner.calculate_hashes(path)
+        hashes = {} if replaced else scanner.calculate_hashes(path)
     except Exception:
         hashes = {}
-    score = scanner.scoring.score({"scan_failed": reason})
+    if replaced:
+        logger.warning("%s changed while it was being scanned; its failed-scan result "
+                       "has no hash, so it is not quarantined automatically.", path,
+                       extra={"event": "scanned_file_replaced", "path": path})
+        reason = f"{reason}; the file changed during the scan (no hash recorded)"
+    unscanned = code == ISOLATION_UNAVAILABLE
+    score = scanner.scoring.score({} if unscanned else {"scan_failed": reason})
     from api import SCHEMA_VERSION
     from engine.completeness import failed, verdict_label
-    status, reasons = failed(path, reason)
+    from engine.containers import member_summary
+    kept = None if unscanned or evidence is None else evidence.score(scanner, path)
+    why = reason
+    if kept is not None and evidence is not None:   # H6 (b): findings made before the failure
+        if kept.risk_score > score.risk_score:
+            score = kept                      # the higher of the two (owner, 2026-11-12)
+        why = (f"{reason}; the findings made before the failure are kept (partial "
+               f"evidence: the container's own findings and {evidence.seen} member(s) "
+               f"scanned)")
+    status, reasons = failed(path, why, "isolation" if unscanned else "worker")
+    failure: Dict[str, str] = {"reason": reason}
+    if code:
+        failure["code"] = code
     result = {
         "schema_version": SCHEMA_VERSION,
         "file_path": path, "file_name": _os.path.basename(path),
@@ -391,18 +942,150 @@ def failure_result(scanner, path: str, reason: str) -> Dict:
         "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "engine_version": ENGINE_VERSION,
         "md5_hash": hashes.get("md5", ""), "sha256_hash": hashes.get("sha256", ""),
-        "scan_results": {"scan_failed": {"reason": reason}},
+        "scan_results": {"scan_failed": failure, **({"partial_evidence": {
+            "members_scanned": evidence.seen,
+            "containers": sorted(evidence.containers),
+            "indicators": [c.indicator for c in kept.contributions][:20],
+            "members": [dict(member_summary(r), container=c)
+                        for c, r in evidence.findings()]}}
+            if kept is not None and evidence is not None else {})},
         "is_malicious": score.is_malicious, "severity_score": score.severity_score,
         "risk_score": score.risk_score, "verdict": score.verdict,
         "score_breakdown": score.as_dict(),
         "scan_status": status, "incomplete_reasons": reasons,
         "provenance": {**(getattr(scanner, "provenance", None) or {}), "layers_run": [],
                        "layers_unavailable": [], "layers_not_applicable": [],
-                       "layers_failed": ["worker"],
-                       "layers_skipped": []},
+                       "layers_failed": ["isolation" if unscanned else "worker"],
+                       "layers_skipped": [], "isolation": isolation},
     }
     result["verdict_label"] = verdict_label(result)
     return result
+
+
+def stopped_result(provisional: Dict, state: Optional[Dict], external: Dict[str, Dict[str, Any]],
+                   timeout: float, elapsed: float) -> Dict:
+    """M26, I-6: the result of a file whose worker was stopped at the scan time
+    limit while a slow layer waited on its service: the checked provisional
+    result, each stopped layer completed from what the worker reported before
+    the stop (the sandbox's submission state; what VirusTotal and the LLM were
+    about to be sent). The other layers' findings, the score and the verdict are
+    the worker's; the scan stays partial."""
+    result = copy.deepcopy(provisional)
+    sr = result["scan_results"]
+    shared = result.setdefault("provenance", {}).setdefault("shared", [])
+    texts: Dict[str, str] = {}
+    for name in sr["stopped_layers"]:
+        if name == "sandbox":
+            texts[name] = _stop_sandbox(sr["sandbox"], state, timeout, shared)
+        else:
+            texts[name] = _stop_external(name, sr[STOPPABLE[name]], external.get(name),
+                                         timeout, shared)
+    for gap in result.get("incomplete_reasons") or []:
+        if gap.get("layer") in texts:
+            gap["reason"] = f"{gap['layer']} timeout: {texts[gap['layer']]}"
+    result["scan_duration_ms"] = int(elapsed * 1000)
+    return result
+
+
+def sandbox_stopped_result(provisional: Dict, state: Optional[Dict], timeout: float,
+                           elapsed: float) -> Dict:
+    """The M26 form of stopped_result (the sandbox only)."""
+    return stopped_result(provisional, state, {}, timeout, elapsed)
+
+
+def _stopped_text(what: str, timeout: float) -> str:
+    return (f"{what} did not answer before the scan time limit ({int(timeout)}s); the worker "
+            f"was stopped and the other layers' findings are kept")
+
+
+def _stop_sandbox(box: Dict[str, Any], state: Optional[Dict], timeout: float,
+                  shared: List[Dict[str, Any]]) -> str:
+    submission = str((state or {}).get("submission") or "not_attempted")
+    task = (state or {}).get("task_id") if submission == "confirmed" else None
+    transmission = TRANSMISSION[submission]
+    detail = _stopped_text("the sandbox", timeout)
+    detail += {"none": "; the file was not sent",
+               "possible": "; an upload had started: the file may have reached the sandbox "
+                           "(not confirmed)",
+               "sent": "; the sandbox received the request"}[transmission]
+    if task is not None:
+        detail += f" (task {task}; look it up in CAPE later)"
+    box.update(status="timeout", submitted=submission == "confirmed", task_id=task,
+               submission=submission, transmission=transmission, detail=detail)
+    if transmission != "none":
+        box["sent"] = ["file"]
+        if not any(e.get("service") == "sandbox" and "member_path" not in e for e in shared):
+            shared.append({"service": "sandbox", "sent": ["file"]})
+    return detail
+
+
+def _stop_external(name: str, entry: Dict[str, Any], seen: Optional[Dict[str, Any]],
+                   timeout: float, shared: List[Dict[str, Any]]) -> str:
+    """I-6: VirusTotal or the LLM. What the worker reported it was about to send is
+    a possible transmission: it may or may not have arrived."""
+    detail = _stopped_text("VirusTotal" if name == "virustotal" else "the LLM", timeout)
+    sent = list((seen or {}).get("sent") or [])
+    if sent:
+        detail += f"; possibly sent before the stop: {', '.join(sent)} (not confirmed)"
+        entry.update(sent=sent, transmission="possible")
+        if not any(e.get("service") == name and "member_path" not in e for e in shared):
+            item: Dict[str, Any] = {"service": name, "sent": sent}
+            if (seen or {}).get("destination"):
+                item["destination"] = seen["destination"]  # type: ignore[index]
+            shared.append(item)
+    else:
+        detail += "; nothing was sent"
+        entry["transmission"] = "none"
+    entry.update(status="timeout", detail=detail, details=detail)
+    return detail
+
+
+class Evidence:
+    """H6 (b): what a worker reported for the file it is scanning before it
+    finished: the container's own signal and its direct members that finished
+    (how many, and the highest-risk ones, at most MAX_KEPT_MEMBERS)."""
+
+    def __init__(self) -> None:
+        self.seen = 0
+        self.containers: Dict[str, Dict[str, Any]] = {}
+        self.kept: List[Tuple[str, Dict[str, Any]]] = []
+
+    def add_container(self, report: Dict[str, Any]) -> None:
+        self.containers[report["container"]] = report["signal"]
+
+    def add(self, report: Dict[str, Any]) -> None:
+        self.seen += 1
+        self.kept.append((report["container"], report["result"]))
+        self.kept.sort(key=lambda e: -float(e[1]["risk_score"]))
+        del self.kept[MAX_KEPT_MEMBERS:]
+
+    def findings(self) -> List[Tuple[str, Dict[str, Any]]]:
+        """Members with findings, highest risk first."""
+        return [e for e in self.kept if float(e[1]["risk_score"]) > 0]
+
+    def score(self, scanner, path: str):
+        """The score the container layer would give from this evidence alone: each
+        container's own signal with its worst finished member (WorstMember), as
+        engine/containers.py builds it. None when that finds nothing (or fails)."""
+        from detectors.signals import Signals, WorstMember
+        kinds = set(self.containers) | {c for c, _ in self.kept}
+        if not kinds:
+            return None
+        signals: Dict[str, Any] = {}
+        try:
+            for kind in kinds:
+                worst = next((r for c, r in self.findings() if c == kind), None)
+                member = None if worst is None else WorstMember(
+                    name=str(worst.get("file_name") or os.path.basename(path)),
+                    contributions=list((worst.get("score_breakdown") or {})
+                                       .get("contributions") or []))
+                signals[kind] = _signal_class(kind)(**self.containers.get(kind, {}),
+                                                    worst=member)
+            result = scanner.scoring.score(Signals(**signals))
+        except Exception as e:               # a forged signal must not break the failure path
+            logger.warning("Partial evidence of %s could not be scored: %s", path, e)
+            return None
+        return result if result.risk_score > 0 else None
 
 
 def start_worker(scanner, memory_mb: int) -> _Worker:
@@ -411,21 +1094,58 @@ def start_worker(scanner, memory_mb: int) -> _Worker:
     return _Worker(mp.get_context("spawn"), dict(scanner.config), memory_mb)
 
 
+def wait_ready(w: _Worker, timeout: float) -> bool:
+    """Wait until a started worker reports ready (counted in METRICS either way).
+    False, with the worker killed, when it ends or stays silent instead."""
+    deadline = time.monotonic() + timeout
+    why = f"not ready after {timeout:g}s"
+    while True:
+        remaining = deadline - time.monotonic()
+        try:
+            if w.parent.poll(max(0.0, min(remaining, 0.5))):
+                kind, _ = read_reply(w.parent)
+                if kind == "ready":
+                    w.ready = True
+                    w.note_group()
+                    METRICS.worker_start(True, time.monotonic() - w.created)
+                    return True
+                why = f"unexpected first message {kind!r}"
+                break
+        except InvalidReply as e:
+            why = f"invalid first message: {e}"
+            break
+        except Exception:
+            why = f"the worker process ended (exit code {w.proc.exitcode})"
+            break
+        if not w.proc.is_alive() and not w.parent.poll(0):
+            why = f"the worker process ended (exit code {w.proc.exitcode})"
+            break
+        if remaining <= 0:
+            break
+    METRICS.worker_start(False, reason=why)
+    w.kill()
+    return False
+
+
 def scan_isolated(scanner, targets: List[str], workers: int, timeout: float, memory_mb: int,
                   on_result: Callable[[int, str, Dict], None],
-                  cancel_event=None, spare: Optional[_Worker] = None) -> None:
+                  cancel_event=None, spare: Optional[_Worker] = None) -> int:
     """Scan `targets` in worker processes; call on_result(index, path, result) as files
     finish (index is the 1-based count of finished files). `spare` (start_worker)
-    joins the pool instead of one newly started worker."""
-    _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
-                  cancel_event, spare).run()
+    joins the pool instead of one newly started worker. Returns how many files were
+    not scanned because workers could not start (each still got a result)."""
+    scan = _IsolatedScan(scanner, targets, workers, timeout, memory_mb, on_result,
+                         cancel_event, spare)
+    scan.run()
+    return scan.not_scanned
 
 
 class _IsolatedScan:
     """One folder scan over a pool of worker processes (see the module docstring)."""
 
     MAX_FAILED_STARTS = 3
-    POLL_SECONDS = 0.05
+    START_SECONDS = 120.0                    # a worker silent this long after start has failed
+    POLL_SECONDS = 0.05                      # longest wait for a message before limits are checked
     WATCH_SECONDS = 0.25                     # memory watchdog interval (macOS)
 
     def __init__(self, scanner, targets: List[str], workers: int, timeout: float,
@@ -442,68 +1162,186 @@ class _IsolatedScan:
         self.config = dict(scanner.config)
         self.done = 0
         self.failed_starts = 0
+        self.broken = False                    # workers cannot start: hand out nothing more
+        self.not_scanned = 0
         self.rss = memory_watchdog(memory_mb)
         size = max(1, min(workers, len(targets)))
         self.pool: List[_Worker] = ([spare] if spare is not None else [])
-        self.pool += [_Worker(self.ctx, self.config, memory_mb)
-                      for _ in range(size - len(self.pool))]
+        while len(self.pool) < size and not self.broken:
+            w = self._start()
+            if w is not None:
+                self.pool.append(w)
 
     # ---------------------------------------------------------------- flow
     def run(self) -> None:
-        broken = False
         try:
-            while (self.pending and not self.cancelled()) or any(w.path for w in self.pool):
-                if not all(self._step(i) for i in range(len(self.pool))):
-                    broken = True
-                    break
+            while self._busy():
+                self._wait()
+                for i in range(len(self.pool)):
+                    self._step(i)
         finally:
             self._shutdown()
-        if broken and self.pending:
-            self._scan_in_process()
+        if self.pending and not self.cancelled():
+            self._not_scanned()
         if self.cancelled():
             logger.info("Scan cancelled by user after %d/%d files.", self.done, self.total)
+
+    def _wait(self) -> None:
+        """Sleep until any worker has a message (a result, "ready", or the EOF of
+        a dead worker), at most POLL_SECONDS, so time and memory limits are still
+        checked on that tick (PR-17). Before 4.8 each worker was polled in turn
+        for up to 50 ms, so dispatch slowed down as workers were added."""
+        if self._dispatchable():
+            return                             # an idle worker gets work at once
+        pipes = [w.parent for w in self.pool if not w.retired]
+        try:
+            if pipes:
+                multiprocessing.connection.wait(pipes, timeout=self.POLL_SECONDS)
+                return
+        except (OSError, ValueError):         # a pipe closed meanwhile: _step sees it
+            pass
+        time.sleep(self.POLL_SECONDS)
+
+    def _dispatchable(self) -> bool:
+        return (bool(self.pending) and not self.cancelled() and not self.broken
+                and any(w.ready and w.path is None and not w.retired for w in self.pool))
+
+    def _busy(self) -> bool:
+        if any(w.path for w in self.pool):     # files in a worker always finish
+            return True
+        return bool(self.pending) and not self.cancelled() and not self.broken
 
     def cancelled(self) -> bool:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _step(self, i: int) -> bool:
-        """Feed and poll worker i once. False when workers evidently cannot start."""
+        """Feed and poll worker i once. False when it is retired."""
         w = self.pool[i]
-        if w.ready and w.path is None and self.pending and not self.cancelled():
+        if w.retired:
+            return False
+        if (w.ready and w.path is None and self.pending and not self.cancelled()
+                and not self.broken):
             self._dispatch(w)
+        self._collect_helpers(w)
         kind, payload = self._receive(w)
-        if kind == "ready":
+        # A progress message is handled and then the time and memory limits are still
+        # checked: a worker that kept sending messages faster than POLL_SECONDS would
+        # otherwise never reach them and could run past the scan limit.
+        progressed = True
+        if kind == "log":
+            replay_worker_logs(payload)
+        elif kind == "ready":
             w.ready = True
-            return True
+            w.note_group()
+            METRICS.worker_start(True, time.monotonic() - w.created)
+        elif kind == "clear":
+            w.provisional, w.settled = None, False
+        elif kind in ("container", "member", "provisional", "settled", "sandbox", "external",
+                      "completed"):
+            if w.path is not None:
+                if kind in ("provisional", "settled", "completed") and payload["file_path"] != w.path:
+                    self._fail(w.path, "invalid reply: snapshot belongs to another file", w.evidence,
+                       getattr(w, "identity", None))
+                    w.path = None
+                    return self._replace(i)
+                self._progress(w, kind, payload)
+        else:
+            progressed = False
         if kind in ("ok", "error"):
-            path, w.path = w.path, None
-            if path is not None:
-                if kind == "ok" and isinstance(payload, dict):
-                    self._finish(path, payload)
-                else:
-                    self._fail(path, payload or "scan error")
-            return True
-        dead = kind == "dead" or not w.proc.is_alive()
+            return self._final_reply(i, w, kind, payload)
+        invalid = kind == "invalid"
+        # After a message, a worker that has just exited may still have its result in
+        # the pipe: it is judged dead on a later step that receives nothing.
+        dead = not progressed and (invalid or kind == "dead" or not w.proc.is_alive()
+                                   or (not w.ready
+                                       and time.monotonic() - w.created > self.START_SECONDS))
         overdue = w.path is not None and time.monotonic() - w.started > self.timeout
-        over_memory = not (dead or overdue) and self._over_memory(w)
+        over_memory = not dead and self._over_memory(w)
         if not (dead or overdue or over_memory):
             return True
         if w.path is not None:
             path, w.path = w.path, None
-            if over_memory:
+            if invalid:
+                reason = (f"the worker sent an invalid reply ({payload}) and was stopped; "
+                          f"nothing in it was used")
+            elif over_memory:
                 reason = (f"MemoryError: the worker used {over_memory // (1024 * 1024)} MB, "
                           f"over the {self.memory_mb} MB limit, and was stopped")
+            elif overdue and not dead and w.provisional is not None:
+                # M26: stopped during the sandbox wait, after a checked provisional
+                # result: the other layers' findings stand, the sandbox timed out
+                elapsed = time.monotonic() - w.started
+                if w.settled:
+                    logger.warning("The worker scanning %s was stopped at the scan limit (%ds) "
+                                   "after its analysis; that result is kept.",
+                                   path, int(self.timeout),
+                                   extra={"event": "sandbox_worker_stopped", "path": path})
+                    result = dict(copy.deepcopy(w.provisional),
+                                  scan_duration_ms=int(elapsed * 1000))
+                else:
+                    stopped = ", ".join(w.provisional["scan_results"]["stopped_layers"])
+                    logger.warning("%s did not answer for %s within the scan limit (%ds); the "
+                                   "worker was stopped and the other layers' findings are kept.",
+                                   stopped, path, int(self.timeout),
+                                   extra={"event": "sandbox_worker_stopped", "path": path,
+                                          "layers": stopped})
+                    result = stopped_result(w.provisional, w.sandbox_state, w.external,
+                                            self.timeout, elapsed)
+                self._finish(path, result)
+                return self._replace(i)
             elif overdue and not dead:
                 reason = f"timed out after {int(self.timeout)}s"
             else:
                 reason = f"the worker process died (exit code {w.proc.exitcode})"
-            self._fail(path, reason)
+            self._fail(path, reason, w.evidence,
+                       getattr(w, "identity", None))
         return self._replace(i)
+
+    def _final_reply(self, i: int, w: _Worker, kind: str, payload: Any) -> bool:
+        """The worker's last word on its file: a result or an error."""
+        path, w.path = w.path, None
+        if path is None:
+            return True
+        if kind == "ok" and isinstance(payload, dict):
+            if payload.get("file_path") != path:
+                # RV-S2: the result must be about the file this worker was given;
+                # its path drives auto-quarantine in this process
+                self._fail(path, "invalid reply: the result names another file", w.evidence,
+                       getattr(w, "identity", None))
+                return self._replace(i)
+            self._finish(path, payload)
+        else:
+            self._fail(path, payload or "scan error", w.evidence,
+                       getattr(w, "identity", None))
+        return True
+
+    @staticmethod
+    def _collect_helpers(w: _Worker) -> None:
+        descendants = getattr(w, "descendants", None)
+        if descendants is not None:
+            descendants.collect()
+
+    @staticmethod
+    def _progress(w: _Worker, kind: str, payload: Any) -> None:
+        """A checked report about the file in progress: H6 (b) evidence, or the
+        M26 provisional result and submission state."""
+        if kind == "container":
+            w.evidence.add_container(payload)
+        elif kind == "member":
+            w.evidence.add(payload)
+        elif kind in ("provisional", "settled", "completed"):
+            w.provisional, w.settled = payload, kind != "provisional"
+        elif kind == "external":
+            seen = w.external.setdefault(payload["service"], {"sent": [], "destination": None})
+            seen["sent"] = sorted(set(seen["sent"]) | set(payload["sent"]))
+            seen["destination"] = payload["destination"] or seen["destination"]
+        else:
+            w.sandbox_state = payload
 
     def _over_memory(self, w: _Worker) -> int:
         """Resident bytes when a busy worker is over the limit, else 0 (watchdog)."""
-        if self.rss is None or w.path is None or w.proc.pid is None:
-            return 0
+        if self.rss is None or self.memory_mb <= 0 or w.path is None or w.proc.pid is None:
+            return 0                             # 0 MB = no limit
         now = time.monotonic()
         if now - w.watched < self.WATCH_SECONDS:
             return 0
@@ -514,6 +1352,10 @@ class _IsolatedScan:
     # ---------------------------------------------------------------- helpers
     def _dispatch(self, w: _Worker) -> None:
         w.path, w.started = self.pending.pop(0), time.monotonic()
+        w.identity = file_identity(w.path)      # FI-1: before the worker opens it
+        w.evidence = Evidence()
+        w.provisional, w.sandbox_state, w.settled = None, None, False
+        w.external = {}
         try:
             w.parent.send(w.path)
         except Exception:
@@ -521,13 +1363,15 @@ class _IsolatedScan:
 
     def _receive(self, w: _Worker):
         try:
-            has = w.parent.poll(self.POLL_SECONDS)
+            has = w.parent.poll(0)              # _wait() already slept until a message
         except Exception:
             has = True                        # closed pipe: treat as a dead worker
         if not has:
             return "", None
         try:
-            return w.parent.recv()
+            return read_reply(w.parent)
+        except InvalidReply as e:
+            return "invalid", str(e)
         except Exception:
             return "dead", None
 
@@ -535,19 +1379,41 @@ class _IsolatedScan:
         self.done += 1
         self.on_result(self.done, path, result)
 
-    def _fail(self, path: str, reason: str) -> None:
+    def _fail(self, path: str, reason: str, evidence: Optional[Evidence] = None,
+              identity: Optional[Tuple[int, ...]] = None) -> None:
         logger.warning("Scan of %s failed: %s", path, reason)
-        self._finish(path, failure_result(self.scanner, path, reason))
+        self._finish(path, failure_result(self.scanner, path, reason, evidence=evidence,
+                                          identity=identity))
+
+    def _start(self) -> Optional[_Worker]:
+        try:
+            return _Worker(self.ctx, self.config, self.memory_mb)
+        except Exception as e:                # the process could not even be created
+            self._start_failed(f"{type(e).__name__}: {e}")
+            return None
+
+    def _start_failed(self, why: str) -> None:
+        self.failed_starts += 1
+        METRICS.worker_start(False, reason=why)
+        logger.warning("A scan worker did not start: %s", why)
+        if self.failed_starts >= self.MAX_FAILED_STARTS:
+            self.broken = True
 
     def _replace(self, i: int) -> bool:
+        """Kill worker i and start another. False (worker retired) once workers
+        evidently cannot start."""
         w = self.pool[i]
         if not w.ready:
-            self.failed_starts += 1
+            self._start_failed(f"the worker process ended before it was ready "
+                               f"(exit code {w.proc.exitcode})")
         w.kill()
-        if self.failed_starts >= self.MAX_FAILED_STARTS:
-            return False
-        self.pool[i] = _Worker(self.ctx, self.config, self.memory_mb)
-        return True
+        w.retired = True
+        while not self.broken:
+            new = self._start()
+            if new is not None:
+                self.pool[i] = new
+                return True
+        return False
 
     def _shutdown(self) -> None:
         for w in self.pool:
@@ -555,22 +1421,27 @@ class _IsolatedScan:
                 w.parent.send(None)
             except Exception:
                 pass
+            descendants = getattr(w, "descendants", None)
+            if descendants is not None:
+                descendants.stop(signal.SIGKILL)
             w.proc.join(2)
             if w.proc.is_alive():
                 w.kill()
             w.remove_temp()
 
-    def _scan_in_process(self) -> None:
-        # Worker processes cannot start here (e.g. an embedded interpreter without an
-        # importable __main__): finish without isolation instead of looping.
-        logger.warning("Worker processes cannot start; scanning the remaining %d file(s) "
-                       "in this process without isolation.", len(self.pending))
-        while self.pending and not self.cancelled():
-            path = self.pending.pop(0)
-            try:
-                self._finish(path, self.scanner.scan_file(path))
-            except Exception as e:
-                self._fail(path, f"{type(e).__name__}: {e}")
+    def _not_scanned(self) -> None:
+        """Fail closed: one isolation_unavailable result for every file left (e.g.
+        an embedded interpreter without an importable __main__, a process limit, a
+        broken image). Nothing is parsed in this process."""
+        paths, self.pending = self.pending, []
+        logger.error("Isolated scan workers could not start (%d failed start(s)): %d "
+                     "file(s) were not scanned. Nothing is scanned in the main process.",
+                     self.failed_starts, len(paths),
+                     extra={"event": ISOLATION_UNAVAILABLE, "files": len(paths)})
+        for path in paths:
+            self.not_scanned += 1
+            self._finish(path, failure_result(self.scanner, path, ISOLATION_TEXT,
+                                              ISOLATION_UNAVAILABLE, "unavailable"))
 
 
 def default_workers(config: Dict) -> int:

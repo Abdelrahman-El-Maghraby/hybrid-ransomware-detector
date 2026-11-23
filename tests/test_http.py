@@ -83,3 +83,15 @@ def test_safe_json():
     assert http.safe_json(Resp([1, 2])) == {}
     assert http.safe_json(Resp(exc=ValueError("not json"))) == {}
     assert http.safe_json(Resp(exc=requests.exceptions.JSONDecodeError("x", "y", 0))) == {}
+
+
+def test_external_services_see_the_engine_version():
+    """I-B1: three sessions sent three wrong versions (4.0, 4.4, 4.7)."""
+    from api.intel import IntelService
+    from core.sandbox import CapeClient
+    from engine.config import ENGINE_VERSION
+    want = f"aegis-sentinel/{ENGINE_VERSION}"
+    assert http.build_session().headers["User-Agent"] == want
+    assert CapeClient("https://sandbox.example.invalid").session.headers["User-Agent"] == want
+    intel = IntelService({"sandbox_url": "https://sandbox.example.invalid", "llm_provider": "none"})
+    assert intel.sandbox.session.headers["User-Agent"] == want

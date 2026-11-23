@@ -14,12 +14,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
-# The server's layers at the versions pinned in requirements.lock (no GUI, no ML
-# training: without scikit-learn no pickled model is ever loaded).
+# The server's layers at the versions and hashes in requirements-server.lock (no
+# GUI, no ML training: without scikit-learn no pickled model is ever loaded). A
+# download whose SHA-256 is not in the lock stops the build (PR-12).
 RUN python -m venv /opt/aegis \
- && /opt/aegis/bin/pip install --no-cache-dir -c requirements.lock \
-        ".[fuzzy,macro,yara,archives,office,qr,api]" \
- && /opt/aegis/bin/pip uninstall -y hybrid-ransomware-detector
+ && /opt/aegis/bin/pip install --no-cache-dir --require-hashes -r requirements-server.lock
 
 # ---------------------------------------------------------------- TLS proxy
 FROM ${CADDY} AS proxy

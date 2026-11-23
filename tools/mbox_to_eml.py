@@ -18,37 +18,44 @@ import mailbox
 import re
 import sys
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Dict, Iterable, Tuple
 
 
 def split(mboxes: Iterable[Path], out_dir: Path, limit: int = 0) -> Tuple[int, int, int]:
     """Write each message as OUT_DIR/<mailbox>_<n>.eml. Returns (written, duplicates, errors)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     seen = set()
+    stems: Dict[str, int] = {}
     written = dups = errors = 0
     for mb_path in mboxes:
         stem = re.sub(r"[^\w.-]", "_", mb_path.stem)[:40] or "mbox"
+        stems[stem] = stems.get(stem, 0) + 1
+        if stems[stem] > 1:               # L-C8: a/inbox.mbox and b/inbox.mbox
+            stem = f"{stem}-{stems[stem]}"
         try:
             box = mailbox.mbox(str(mb_path), create=False)
         except Exception as e:
             print(f"skip {mb_path}: {e}", file=sys.stderr)
             errors += 1
             continue
-        for i, key in enumerate(box.iterkeys(), 1):
-            if limit and written >= limit:
-                return written, dups, errors
-            try:
-                raw = box.get_bytes(key)
-            except Exception:
-                errors += 1
-                continue
-            digest = hashlib.sha256(raw).hexdigest()
-            if digest in seen:
-                dups += 1
-                continue
-            seen.add(digest)
-            (out_dir / f"{stem}_{i:05d}.eml").write_bytes(raw)
-            written += 1
+        try:
+            for i, key in enumerate(box.iterkeys(), 1):
+                if limit and written >= limit:
+                    return written, dups, errors
+                try:
+                    raw = box.get_bytes(key)
+                except Exception:
+                    errors += 1
+                    continue
+                digest = hashlib.sha256(raw).hexdigest()
+                if digest in seen:
+                    dups += 1
+                    continue
+                seen.add(digest)
+                (out_dir / f"{stem}_{i:05d}.eml").write_bytes(raw)
+                written += 1
+        finally:
+            box.close()                   # the mailbox file was left open
     return written, dups, errors
 
 

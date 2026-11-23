@@ -11,7 +11,9 @@ whole archive (`<pack>.sig`). The scanner installs a pack only if
   * every file in the archive is listed in the manifest with a matching hash,
   * every member is a plain file under rules/ (.yar / .yara) or the fuzzy
     signature file - no links, no absolute or ../ paths, bounded sizes,
-  * its version is newer than the installed one - always: an older or the same
+  * its version is purely numeric (`2026.11.02`; at most six dot-separated
+    parts) - it names the install folder, so nothing else is accepted - and
+    newer than the installed one - always: an older or the same
     pack is refused, so a pack whose rules are known to be bypassed cannot be
     replayed. A rollback after a defective update is a *signed rollback*: the
     publisher re-issues the previous good content under a new, higher version
@@ -21,8 +23,9 @@ whole archive (`<pack>.sig`). The scanner installs a pack only if
 Installed packs live in DATA_DIR/rulepacks/<version>/; `active.json` points at
 the one in use and records the key that signed it. A pack whose signing key is
 no longer trusted (removed from RULEPACK_PUBLIC_KEYS after a key compromise) is
-not used, and does not block installing a pack signed by a trusted key.
-See docs/RULE_PACKS.md.
+not used, and does not block installing a pack signed by a trusted key. With
+no key configured at all, a pack that records its signer is not used either
+(M27). See docs/RULE_PACKS.md.
 """
 
 from __future__ import annotations
@@ -32,6 +35,8 @@ import hashlib
 import io
 import json
 import logging
+import os
+import re
 import shutil
 import tarfile
 import time
@@ -49,10 +54,22 @@ MAX_PACK_BYTES = 50 * 1024 * 1024
 MAX_MEMBER_BYTES = 20 * 1024 * 1024
 MAX_MEMBERS = 2000
 FUZZY_NAME = "fuzzy_signatures.json"
+# A version names the install folder (rulepacks/<version>/), so only digits and
+# dots: no separators, no "..", no drive letters (PR-01).
+_VERSION = re.compile(r"^[0-9]+(\.[0-9]+){0,5}$")
 
 
 class RulePackError(Exception):
     pass
+
+
+def check_version(version: object, what: str = "version") -> str:
+    """The version string if it is purely numeric (`2026.11.02`), else RulePackError."""
+    v = str(version) if isinstance(version, (str, int)) else ""
+    if not _VERSION.fullmatch(v):
+        raise RulePackError(f"pack {what} {str(version)[:40]!r} is not numeric "
+                            "(digits and dots only, for example 2026.11.02)")
+    return v
 
 
 def _version_key(v: str) -> Tuple:
@@ -108,6 +125,7 @@ def _public_keys(encoded: Iterable[str]) -> List[Ed25519PublicKey]:
 # ------------------------------------------------------------------ build / sign
 def build_pack(rules_dir: PathLike, version: str, out: PathLike,
                fuzzy_db: Optional[PathLike] = None, min_engine: str = "4.4.0") -> Path:
+    version = check_version(version)
     rules = sorted(p for p in Path(rules_dir).glob("*.yar*") if p.is_file())
     if not rules:
         raise RulePackError(f"no .yar files in {rules_dir}")
@@ -125,6 +143,7 @@ def rollback_pack(previous: PathLike, public_keys: Iterable[str], version: str,
     """Publisher side: the content of a previous, verified pack under a new and
     higher `version`, with `rollback_of` naming the version it replaces. Sign it
     like any pack; installs accept it because its version is newer."""
+    version = check_version(version)
     checked = verify_pack(previous, public_keys, signature)
     old = checked["manifest"]
     files = checked["files"]
@@ -198,8 +217,11 @@ def verify_pack(pack: PathLike, public_keys: Iterable[str],
                      and pp.suffix.lower() in (".yar", ".yara")) or name == FUZZY_NAME):
                 raise RulePackError(f"unexpected file in pack: {name}")
             files[name] = tar.extractfile(m).read()                       # type: ignore[union-attr]
-    if not manifest:
+    if not isinstance(manifest, dict) or not manifest:
         raise RulePackError("manifest.json missing")
+    check_version(manifest.get("version", ""))
+    if manifest.get("rollback_of") is not None:
+        check_version(manifest["rollback_of"], "rollback_of")
     listed = manifest.get("files") or {}
     if set(listed) != set(files):
         raise RulePackError("manifest does not list exactly the files in the pack")
@@ -210,20 +232,35 @@ def verify_pack(pack: PathLike, public_keys: Iterable[str],
 
 
 def active_pack(data_dir: PathLike, public_keys: Optional[Iterable[str]] = None) -> Optional[Dict]:
-    """The installed pack in use, or None. With `public_keys`, a pack whose signing
-    key is no longer among them is not used (key compromise: remove the key and
-    the content it signed is dropped at once). Packs installed before 4.7 did not
-    record their signer and are kept."""
+    """The installed pack in use, or None. A pack whose signing key is not among
+    `public_keys` is not used (key compromise: remove the key and the content it
+    signed is dropped at once). M27 (owner-approved 2026-11-12): that holds when
+    no key is configured at all, too; the bundled rules are used instead and a
+    warning is logged. Packs installed before 4.7 did not record their signer
+    and are kept."""
     f = Path(data_dir) / "rulepacks" / "active.json"
+    if not f.exists():
+        return None                                     # no pack installed
     try:
         info = json.loads(f.read_text())
-        if not (Path(info["path"]) / "rules").is_dir():
-            return None
-    except Exception:
+        rules_dir = Path(info["path"]) / "rules"
+    except Exception as e:
+        logger.warning("Rule pack record %s cannot be read (%s): bundled rules instead.",
+                       f, type(e).__name__, extra={"event": "rulepack_unreadable"})
+        return None
+    if not rules_dir.is_dir():
+        logger.warning("Rule pack %s has no rules folder: bundled rules instead.",
+                       info.get("version"), extra={"event": "rulepack_unreadable"})
         return None
     keys = [k for k in (public_keys or []) if str(k).strip()]
     signer = info.get("signer")
-    if keys and signer and signer not in trusted_fingerprints(keys):
+    if signer and not keys:
+        logger.warning("Rule pack %s was signed by key %s, but no key is configured "
+                       "(RULEPACK_PUBLIC_KEYS): not used (bundled rules instead). Set the "
+                       "key again to use the pack.", info.get("version"), signer,
+                       extra={"event": "rulepack_no_key"})
+        return None
+    if signer and signer not in trusted_fingerprints(keys):
         logger.warning("Rule pack %s was signed by key %s, which is no longer trusted: not "
                        "used (bundled rules instead).", info.get("version"), signer,
                        extra={"event": "rulepack_untrusted"})
@@ -241,9 +278,7 @@ def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
     keys = list(public_keys)
     checked = verify_pack(pack, keys, signature)
     m = checked["manifest"]
-    version = str(m.get("version", ""))
-    if not version:
-        raise RulePackError("pack has no version")
+    version = check_version(m.get("version", ""))      # verify_pack checked it too
     if _version_key(str(m.get("min_engine", "0"))) > _version_key(engine_version.split("-")[0]):
         raise RulePackError(f"pack needs engine {m.get('min_engine')} or newer")
     current = active_pack(data_dir, keys)      # one signed by a distrusted key: no block
@@ -251,8 +286,13 @@ def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
         raise RulePackError(f"pack {version} is not newer than installed {current['version']}")
 
     root = Path(data_dir) / "rulepacks"
+    root.mkdir(parents=True, exist_ok=True)
+    real_root = root.resolve()
     staging = root / f".staging-{version}"
     final = root / version
+    for d in (staging, final):                          # a numeric version cannot escape;
+        if d.resolve().parent != real_root:             # also refuse a link planted there
+            raise RulePackError(f"install folder for {version} is outside {root}")
     shutil.rmtree(staging, ignore_errors=True)
     (staging / "rules").mkdir(parents=True)
     for name, blob in checked["files"].items():
@@ -275,5 +315,7 @@ def install_pack(pack: PathLike, data_dir: PathLike, public_keys: Iterable[str],
             "signer": checked["signer"]}
     if m.get("rollback_of"):
         info["rollback_of"] = str(m["rollback_of"])
-    (root / "active.json").write_text(json.dumps(info, indent=1))
+    tmp = root / ".active.json.tmp"
+    tmp.write_text(json.dumps(info, indent=1))
+    os.replace(tmp, root / "active.json")               # atomic: never a half-written record
     return info

@@ -32,11 +32,22 @@ SERVICE = "aegis-sentinel"
 # (environment variable, CONFIG key)
 SECRETS = (("OPENAI_API_KEY", "chatgpt_api_key"), ("VIRUSTOTAL_API_KEY", "virustotal_api_key"),
            ("SANDBOX_TOKEN", "sandbox_token"), ("WEBHOOK_SECRET", "webhook_secret"),
-           ("IMAP_PASSWORD", "imap_password"))
+           ("IMAP_PASSWORD", "imap_password"), ("SMTP_PASSWORD", "smtp_password"),
+           ("CLOUD_SECRET_ACCESS_KEY", "cloud_secret_access_key"),
+           ("CLOUD_PSEUDONYM_KEY", "cloud_pseudonym_key"))
 SECRET_NAMES = tuple(name for name, _ in SECRETS)
 
 # Names set in the process environment before any .env file was loaded into it.
 PROCESS_ENV: Set[str] = set(os.environ)
+
+# Template values such as "your-virustotal-api-key-here" (older .env.example
+# files): never a real key. Treated as unset, so copying the example does not
+# switch an external service on, and never moved to the keyring.
+_PLACEHOLDER = re.compile(r"^your[-_][a-z0-9_-]*[-_]here$", re.I)
+
+
+def is_placeholder(value: Optional[str]) -> bool:
+    return bool(value) and bool(_PLACEHOLDER.match(str(value).strip()))
 
 
 class SecretStoreError(RuntimeError):
@@ -106,14 +117,22 @@ def apply(config: MutableMapping[str, Any], backend: Optional[Any] = None) -> Di
     sources: Dict[str, str] = {}
     for name, key in SECRETS:
         env = from_environment(name)
-        if env:
-            config[key], sources[name] = env, "environment"
+        if env is not None and not env.strip():
+            # L-E11: set in the process environment, even empty, it wins: an empty
+            # value switches the service off for this run.
+            config[key], sources[name] = "", "environment"
             continue
-        stored = load(name, kr) if kr is not None else None
-        if stored:
-            config[key], sources[name] = stored, "keyring"
-        else:
-            sources[name] = ".env" if config.get(key) else "unset"
+        stored = None if env else (load(name, kr) if kr is not None else None)
+        candidates = [(env, "environment"), (stored, "keyring"), (config.get(key), ".env")]
+        placeholder_from = next((src for v, src in candidates if is_placeholder(v)), "")
+        if placeholder_from:
+            logger.warning("%s from the %s is the example placeholder, not a key: it is "
+                           "ignored.", name, placeholder_from)
+        value, source = next(((v, src) for v, src in candidates
+                              if v and not is_placeholder(v)), ("", "unset"))
+        if source != ".env":
+            config[key] = value
+        sources[name] = source
     return sources
 
 
@@ -130,7 +149,8 @@ _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 def migrate_env_file(env_file: Path, values: Mapping[str, Optional[str]],
                      backend: Optional[Any] = None) -> Migration:
     """Move the secrets in `env_file` (parsed as `values`) to the keyring."""
-    found = {n: v for n, v in values.items() if n in SECRET_NAMES and v}
+    found = {n: v for n, v in values.items()
+             if n in SECRET_NAMES and v and not is_placeholder(v)}
     result = Migration()
     if not found:
         return result
@@ -161,11 +181,36 @@ def migrate_env_file(env_file: Path, values: Mapping[str, Optional[str]],
     return result
 
 
+def _closes(text: str, quote: str) -> bool:
+    """Whether `text` holds the closing `quote` (a double quote can be escaped)."""
+    escaped = False
+    for ch in text:
+        if escaped:
+            escaped = False
+        elif ch == "\\" and quote == '"':
+            escaped = True
+        elif ch == quote:
+            return True
+    return False
+
+
 def _remove_lines(env_file: Path, names: Set[str]) -> None:
     """Rewrite .env without the lines that set `names`, atomically, same permissions."""
     text = env_file.read_text(encoding="utf-8")
-    kept = [ln for ln in text.splitlines(keepends=True)
-            if not ((m := _LINE.match(ln)) and m.group(1) in names)]
+    kept: List[str] = []
+    open_quote = ""                       # L-E3: inside a quoted value of a removed name
+    for ln in text.splitlines(keepends=True):
+        if open_quote:
+            if _closes(ln, open_quote):
+                open_quote = ""
+            continue
+        m = _LINE.match(ln)
+        if m and m.group(1) in names:
+            value = ln[m.end():].lstrip()
+            if value[:1] in ("'", '"') and not _closes(value[1:], value[0]):
+                open_quote = value[0]
+            continue
+        kept.append(ln)
     mode = env_file.stat().st_mode & 0o777
     fd, tmp = tempfile.mkstemp(dir=str(env_file.parent), prefix=".env.", suffix=".tmp")
     try:

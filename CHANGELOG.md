@@ -6,6 +6,156 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Production-hardening branch (`review/production-hardening`). Not released;
+no version or date is assigned. Finding IDs and evidence:
+`docs/FINDINGS_REGISTER.md` and `docs/VERIFICATION_MATRIX.md`.
+
+### Added
+
+- Optional Kubernetes deployment (`deploy/kubernetes/`, `docs/KUBERNETES.md`):
+  one analysis Pod with the TLS proxy, a default-deny NetworkPolicy, restricted
+  Pod Security, an isolation gate (init container and readiness probe), read-only
+  detection content updated by a Job, a manifest checker and operator scripts.
+  An optional intel component (`components/intel`) runs the external services in
+  their own Pod; analysis reaches it over TLS on one port (`AEGIS_INTEL_URL`,
+  `AEGIS_INTEL_CA_FILE`, `AEGIS_INTEL_SERVER_NAME`: a private CA and the
+  certificate's name are verified), its only network path.
+  **Limitations:** not run on a cluster yet; one replica, no high availability;
+  with intel, analysis has that authenticated path rather than Docker's
+  `network_mode: none`; isolation depends on the cluster enforcing NetworkPolicy;
+  `/tmp` is not `noexec`. Docker Compose remains the reference deployment.
+- Scan-failed and incomplete-scan notices; findings reported before a worker
+  failed are kept in its result.
+- Complete-scan rates and family-label coverage in the evaluation tools; a manual
+  tool to refresh the hash-pinned lock files.
+
+### Changed
+
+- More scans are reported as `partial` when part of a file was not inspected
+  (cut streams, unread CHM pages, oversized XML or relationship parts, IMAP size
+  limits, unusable LLM replies, a web page's payloads at the nesting limit, payloads
+  beyond a page's five-payload limit, a page cut at its 20 MB read limit). Web
+  results gain an additive `skipped` list; the schema version is unchanged.
+- Workers reply with bounded, checked JSON instead of pickle; an upload is read
+  only after its token is checked.
+- The API and intel refuse non-finite or negative numeric limits at start-up, and
+  the API refuses to start when `AEGIS_API_TOKEN_FILE` is set but unreadable or
+  empty (it used to fall back to `AEGIS_API_TOKEN`).
+- The bundled proxy's body limit is 51 MiB (was 52 MB, below the API's 50 MiB
+  file limit).
+- An upload must arrive within `AEGIS_API_UPLOAD_SECONDS` (600 s by default), or
+  the API answers 408 and frees the scan slot.
+- Alert retries carry stable identifiers: a webhook `Idempotency-Key` header and
+  an e-mail `Message-ID` derived from the alert id. Delivery is at least once.
+- With e-mail switched off on the intel service, e-mail alerts are no longer
+  queued, and e-mail already queued is removed with a warning.
+- The Kubernetes isolation gate probes the network only when the manifests ask
+  for it (`AEGIS_GATE_LIVE`, `AEGIS_GATE_TARGETS`); run elsewhere it refuses.
+- CI: the bandit gate also scans `deploy/`; the dependency audit runs daily; the
+  Linux test jobs fail when the Kubernetes render tests are skipped for a missing
+  `kubectl`.
+- `deploy/kubernetes/verify-cluster.sh` needs `--image-digest` (the build under
+  test) and stops when a container runs another image; with intel deployed it
+  checks a wrong certificate name, the secrets in the intel Pod and an intel
+  restart, counts a blocked connection only after its positive control, and
+  exits 3 when a result is inconclusive. Its restart test deletes a Pod only when
+  the Pod belongs to a Deployment labelled `aegis-sentinel.io/verification=disposable`
+  (on the Deployment and its Pod template), not merely to a labelled namespace.
+- Replies from the intel service are read with a 1 MiB limit (both the Docker
+  socket and the Kubernetes HTTPS transport) and in the identity encoding only.
+  An oversized, compressed or cut-short reply, or a successful reply that is not
+  JSON (it used to read as an empty answer), is now an error of that layer.
+
+### Fixed
+
+- A worker that kept sending progress messages ran past the scan time limit and
+  memory watchdog; a worker that failed to start left its temporary folder; a
+  worker's result naming another file is refused (auto-quarantine acted on that
+  path).
+- Alert outbox: a malformed entry, a failed rewrite or a temporary read error no
+  longer blocks or deletes other alerts; an alert that cannot be queued no longer
+  drops the rest of its batch; a delivered channel whose record failed is not
+  sent again.
+- Linear-time pattern checks for web, script, mail and embedded content; bounded
+  CHM, OCR and declared-size handling; special files no longer hang a scan.
+- Sandbox, VirusTotal and LLM waits are bounded by the worker's remaining time,
+  and the static result is kept when they stall.
+- Helper programs are stopped with their worker; on Windows, "access denied" is
+  no longer read as a dead process.
+- False-positive fixes for quoted commands, ransom-report prose, shadow-copy
+  listings and administrative commands; a right-to-left override in a top-level
+  file name is flagged.
+- Many smaller reliability fixes in the CLI, GUI delivery, IMAP, rule packs,
+  backups and deployment scripts (see the register).
+- The Kubernetes manifest checker accepted an intel egress range that covers a
+  private range without being a default route (for example `0.0.0.0/1` plus
+  `128.0.0.0/1`), which let intel reach cluster addresses.
+- Visible text that a text limit leaves unread now makes the scan partial with a
+  reason (TX-1): web pages and SVG over 2 MiB, PDF text over 200,000 characters
+  or 50 pages, Word and other Office text over 200,000 characters, OCR pages
+  after 20 or after a time-limit stop, and e-mail bodies over 200,000
+  characters (`scan_results.text_extraction.not_checked`,
+  `mail.body_not_checked`). Text ending exactly at a limit is not partial. The
+  limits, the text inspected, scores and verdicts are unchanged.
+- The printable-strings pass (TX-2) now reports its limits the same way: strings
+  past its 200,000-character output, or in the bytes after its 32 MiB read, make
+  the scan partial (`scan_results.text_extraction.strings_not_checked`). Any file
+  with more than 200,000 characters of printable strings, common for programs
+  and PDFs of a few MB, now scans as partial; strings, scores and verdicts are
+  unchanged. The search after the 32 MiB read is bounded to 32 MiB more (TX-2b):
+  bytes after the first 64 MiB are reported as not inspected for strings
+  (partial), and strings that cannot reach the output are no longer kept in
+  memory (TX-R2).
+- A web page or SVG that ends at the 2 MiB text limit followed only by white
+  space or markup (a final newline, closing tags, a script) no longer reads as
+  partial (TX-R1); only visible text after the limit counts.
+
+## [4.8.0] — pending release
+
+### Added
+
+- Desktop folder monitoring with settling, deduplication, bounded queues,
+  own-output exclusion, isolated scans and quarantine/restore integration.
+- Persistent webhook and e-mail alert outbox, retry and expiry; canary alerts;
+  verified TLS SMTP with hourly/daily caps. Docker uses one fixed-metadata intel
+  operation; desktop sends directly.
+- Optional desktop S3-compatible upload of redacted reports and structured log
+  events, local spool/retries/expiry and explicit full-detail opt-in.
+- GUI Monitoring and Alerts & cloud pages, delivery status and tests, quarantine
+  key export/import, and isolation failure/retry feedback.
+
+### Changed
+
+- Schema 1.4 adds `provenance.isolation`; result fields remain compatible.
+- Every scan uses isolated workers by default, including single files. Worker
+  dispatch waits for ready messages; API readiness reflects live startup failures.
+- Scheduled jobs survive individual failures; raising scans report failure.
+- Python 3.12 CI installs the shipped lock on all three OSes; Python 3.9 uses
+  latest compatible dependencies as the recorded S-04 exception. API and
+  Hypothesis extras are required. Release publication requires successful checks.
+
+### Security
+
+- Rule-pack versions and rollback versions are validated and install paths
+  confined; active metadata replacement is atomic.
+- DMG and CHM members are streamed from 7-Zip through extraction budgets.
+- Quarantine refuses files changed since scanning. Dependency locks carry hashes
+  and release/image installs require them.
+- No detection weights, thresholds or inspection coverage changed.
+
+### Upgrade notes
+
+- Create `deploy/secrets/smtp_password` before starting the new Compose file
+  (empty when mail is off). SMTP settings and credentials belong to intel.
+- Isolation startup failure returns API 503 and CLI exit 3; affected files are
+  unscanned. `ISOLATE_SCANS=0` is development only and refused in production.
+- Rule-pack versions must be numeric dotted components. Schema 1.4 is additive.
+- Cloud is off by default and desktop only. Configure the bucket's 90-day
+  lifecycle and restricted upload identity separately; local spool defaults to
+  30 days/1 GiB. Uploads are not tamper-evident. See `docs/OPERATIONS.md`.
+- Development validation and outstanding production prerequisites are recorded
+  in `docs/PROJECT_REVIEW.md`; this entry does not announce a tag or publication.
+
 ## [4.7.0] — 2026-10-28
 
 The on-prem production edition (`docs/RELEASE_SCOPE.md`). First published as the pre-release 4.7.0-rc1 the same day; 4.7.0 has the same changes with the final version number.

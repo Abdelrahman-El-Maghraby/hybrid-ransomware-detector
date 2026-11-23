@@ -6,6 +6,8 @@
   shared secret the body is signed (header X-Aegis-Signature: sha256=<hex HMAC>),
   so the receiver can reject forged alerts. Only metadata is sent - never file
   content.
+* Alerts (webhook, e-mail, canary trips) go through the persistent outbox
+  (core/outbox.py): a receiver that is down gets the alert later, once.
 """
 
 from __future__ import annotations
@@ -44,43 +46,67 @@ def alert_payload(r: Dict) -> Dict:
         "scan_status": r.get("scan_status", "complete"),
         "indicators": [c.get("indicator") for c in contribs[:8]],
         "top_reason": contribs[0].get("detail", "") if contribs else "",
+        **_quarantine(r),
     }
+
+
+def _quarantine(r: Dict) -> Dict:
+    """The automatic quarantine taken on this file, when there was one (F3)."""
+    q = r.get("quarantine") or {}
+    if q.get("id"):
+        return {"quarantine": {"id": q["id"], "original_removed": bool(q.get("original_removed"))}}
+    if q.get("error"):
+        return {"quarantine": {"error": str(q["error"])[:200]}}
+    return {}
 
 
 def sign(body: bytes, secret: str) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
-def send_webhook(results: Iterable[Dict], url: str, secret: str = "", min_verdict: str = "High",
-                 session=None, timeout: float = 10) -> List[str]:
-    """POST one alert per qualifying result; returns the file paths that were sent."""
+def _failure(e: BaseException, url: str) -> str:
+    """L-A7: the error type and the host only. A webhook URL path can be the
+    credential (chat services), and request errors repeat it."""
+    from urllib.parse import urlsplit
+    return f"{type(e).__name__} from {urlsplit(url).hostname or 'the webhook'}"
+
+
+def post_alert(payload: Dict, url: str, secret: str = "", session=None,
+               timeout: float = 10) -> None:
+    """POST one alert payload, signed when there is a secret; raises when it was
+    not accepted (2xx), so the outbox retries it."""
     import requests
     http = session or requests
-    floor = RANK.get(min_verdict, 3)
-    sent: List[str] = []
-    for r in results:
-        if RANK.get(r.get("verdict", "Clean"), 0) < floor:
-            continue
-        body = json.dumps(alert_payload(r), ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            headers["X-Aegis-Signature"] = sign(body, secret)
-        try:
-            resp = http.post(url, data=body, headers=headers, timeout=timeout)
-            if 200 <= getattr(resp, "status_code", 0) < 300:
-                sent.append(r.get("file_path", ""))
-            else:
-                logger.warning("Webhook returned %s for %s", resp.status_code, r.get("file_path"))
-        except Exception as e:
-            logger.warning("Webhook delivery failed for %s: %s", r.get("file_path"), e)
-    return sent
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if payload.get("alert_id"):          # the same on every retry: receivers de-duplicate
+        headers["Idempotency-Key"] = str(payload["alert_id"])
+    if secret:
+        headers["X-Aegis-Signature"] = sign(body, secret)
+    try:
+        resp = http.post(url, data=body, headers=headers, timeout=timeout)
+    except Exception as e:
+        raise RuntimeError(_failure(e, url)) from None
+    status = getattr(resp, "status_code", 0)
+    if not 200 <= status < 300:
+        raise RuntimeError(f"webhook answered HTTP {status}")
 
 
 def deliver(results: List[Dict], config: Dict, jsonl_path: Optional[str] = None) -> None:
-    """Send results to every configured output (JSONL file, webhook)."""
+    """Send results to every configured output: the JSON Lines file, and an alert
+    per qualifying result through the outbox (webhook, e-mail).
+
+    M17: a JSON Lines file that cannot be written (a directory, a full disk, a
+    read-only mount) is logged and does not stop the alerts."""
     path = jsonl_path or config.get("jsonl_path")
     if path:
-        write_jsonl(results, path)
-    if config.get("webhook_url"):
-        send_webhook(results, config["webhook_url"], config.get("webhook_secret", ""),
-                     config.get("webhook_min_verdict", "High"))
+        try:
+            write_jsonl(results, path)
+        except Exception as e:
+            logger.error("JSON Lines output %s could not be written: %s", path, e,
+                         extra={"event": "jsonl_error"})
+    from .intel_client import intel_configured
+    from .mailer import email_configured
+    from .outbox import queue_and_send, results_alerts
+    if config.get("webhook_url") or email_configured(config) or intel_configured(config):
+        queue_and_send(results_alerts(results), config)

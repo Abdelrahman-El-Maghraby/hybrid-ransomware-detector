@@ -11,6 +11,7 @@ Run it only on a machine you do not mind keeping busy; nothing is executed or
 sent anywhere.
 """
 
+import logging
 import os
 import sys
 import tempfile
@@ -29,6 +30,9 @@ with atheris.instrument_imports():
     from detectors.relationship_scanner import RelationshipScanner
     from detectors.script_analysis import ScriptAnalyzer
     from detectors.web_content import WebContentAnalyzer
+
+# Malformed-input warnings are expected; uncaught exceptions still fail fuzzing.
+logging.disable(logging.CRITICAL)
 
 WORK = tempfile.mkdtemp(prefix="aegis_fuzz_")
 
@@ -50,9 +54,15 @@ TARGETS = [
     ("f", ElfAnalyzer().analyze_file),
     ("f.one", EmbeddedContentAnalyzer(sevenzip=lambda: None).analyze),
     ("f.bin", FileIntegrityAnalyzer().analyze_file),
+    ("f.dmg", _archive),
+    ("f.pkg", _archive),
 ]
 
 
+COUNTS = [0] * (len(TARGETS) + 1)
+
+
+@atheris.instrument_func
 def TestOneInput(data: bytes) -> None:
     if len(data) < 2:
         return
@@ -61,12 +71,21 @@ def TestOneInput(data: bytes) -> None:
             list(read_cpio(data[1:], max_entries=100))
         except (FormatError, BudgetExceeded):
             pass
+        COUNTS[-1] += 1
+        if COUNTS[-1] == 1:
+            print("TARGET completed: cpio", flush=True)
         return
-    name, fn = TARGETS[data[0] % len(TARGETS)]
+    index = data[0] % len(TARGETS)
+    name, fn = TARGETS[index]
     path = os.path.join(WORK, name)
     with open(path, "wb") as fh:
         fh.write(data[1:])
     fn(path)
+    COUNTS[index] += 1
+    if COUNTS[index] == 1:
+        print(f"TARGET completed: {index} {name}", flush=True)
+    if sum(COUNTS) % 10000 == 0:
+        print(f"TARGET counts: {COUNTS}", flush=True)
 
 
 if __name__ == "__main__":

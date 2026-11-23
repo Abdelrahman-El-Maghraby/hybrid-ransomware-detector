@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import contextlib
 import email
 import email.policy
@@ -63,11 +64,19 @@ import tempfile
 from dataclasses import dataclass, field
 from email.message import Message
 from email.utils import getaddresses, parseaddr
+from itertools import islice
 from pathlib import Path, PurePosixPath
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from .cfb_writer import MAX_TREE_BYTES, write_cfb
-from .container_extractor import EXECUTABLE_EXTENSIONS, LURE_EXTENSIONS, RTLO, visible_name
+from .container_extractor import (
+    EXECUTABLE_EXTENSIONS,
+    LURE_EXTENSIONS,
+    RTLO,
+    not_a_device,
+    visible_name,
+    windows_name,
+)
 
 logger = logging.getLogger("RansomwareScanner.mail")
 
@@ -85,6 +94,7 @@ _RISKY_ATTACHMENT_EXTENSIONS = EXECUTABLE_EXTENSIONS | frozenset({
     ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppam", ".sldm",
 })
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+MAX_BODY_CHARS = 200_000            # body text for prompt-guard, LLM and passwords
 _AUTH_PASS = frozenset({"pass"})
 _AUTH_FAIL = frozenset({"fail", "softfail", "permerror"})
 
@@ -99,9 +109,173 @@ _LURE_SUBJECT_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = tuple(
         ("delivery lure", r"\b(parcel|package|shipment|delivery)\b.{0,30}\b(failed|held|pending)\b"),
         ("document share", r"\b(shared|sent) (a|the) (document|file)s? with you\b"),
     ))
+# HTML bodies come from untrusted mail and can be tens of megabytes, so the
+# helpers below give the same results as these single regular expressions on
+# real HTML, in linear time. The plain patterns backtrack polynomially on
+# crafted input (unclosed <a href=...> runs, long "a.a.a." runs, many '<'
+# without '>'): about 20 KB of HTML used to reach the worker timeout.
+#   links:   <a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>(.*?)</a\s*>   (re.I | re.S)
+#   domain:  \b((?:[a-z0-9-]+\.)+[a-z]{2,24})\b                        (re.I)
+#   scripts: <(script|style)\b.*?</\1\s*>                              (re.I | re.S)
 _DOMAIN_IN_TEXT = re.compile(r"\b((?:[a-z0-9-]+\.)+[a-z]{2,24})\b", re.I)
-_ANCHOR = re.compile(r"<a\b[^>]*\bhref\s*=\s*([\"'])(.*?)\1[^>]*>(.*?)</a\s*>", re.I | re.S)
+_DOMAIN_START = re.compile(r"\b[a-z0-9-]", re.I)
+_DOMAIN_CHAIN = re.compile(r"(?:[a-z0-9-]+\.)+", re.I)
+_DOMAIN_SEGMENT = re.compile(r"[a-z0-9-]*", re.I)
+_A_OPEN = re.compile(r"<a\b", re.I)
+_A_HREF = re.compile(r"\bhref\s*=\s*([\"'])", re.I)
+_A_CLOSE = re.compile(r"</a\s*>", re.I)
+_SCRIPT_OPEN = re.compile(r"<(script|style)\b", re.I)
+_SCRIPT_CLOSE = re.compile(r"</(\w{5,6})\s*>")
 _TAG = re.compile(r"<[^>]+>")
+
+
+class _Next:
+    """Next occurrence of a substring or pattern at or after a position.
+
+    Callers ask with non-decreasing positions (or repeat one), so the earlier
+    answer is reused while it still lies ahead and every search covers new
+    text: linear time over the whole document."""
+
+    def __init__(self, text: str, needle: Union[str, re.Pattern[str]],
+                 accept: Optional[Callable[[re.Match[str]], bool]] = None):
+        self.text, self.needle, self.accept = text, needle, accept
+        self.asked: Optional[int] = None
+        self.hit: Optional[Tuple[int, int]] = None      # (start, end); None = no more
+
+    def __call__(self, pos: int) -> Optional[Tuple[int, int]]:
+        if self.asked is not None and self.asked <= pos and (
+                self.hit is None or self.hit[0] >= pos):
+            return self.hit
+        self.asked = pos
+        if isinstance(self.needle, str):
+            i = self.text.find(self.needle, pos)
+            self.hit = (i, i + len(self.needle)) if i >= 0 else None
+        else:
+            m = self.needle.search(self.text, pos)
+            while m is not None and self.accept is not None and not self.accept(m):
+                m = self.needle.search(self.text, m.start() + 1)
+            self.hit = m.span() if m else None
+        return self.hit
+
+
+def _fold(text: str) -> str:
+    """Per-character simple lower case, as a case-insensitive backreference
+    compares characters (str.lower() maps U+0130 to two characters)."""
+    return "".join("i" if c == "\u0130" else c.lower() for c in text)
+
+
+_MAX_HREF_RETRIES = 16
+
+
+def _anchors(body: str) -> Iterator[Tuple[str, str]]:
+    """(href, inner HTML) of each link, as findall() with the "links" pattern
+    above returns them.
+
+    M19: a tag with several href attributes uses the first one that leads to a
+    complete link, as HTML parsing keeps the first of duplicate attributes (the
+    pattern with a lazy `[^>]*?` before `href`). The greedy pattern used the
+    last, so a second, harmless href hid a deceptive first one. Which href that
+    is depends only on the tag, so it is worked out once per tag (from at most
+    the first _MAX_HREF_RETRIES href attributes) and reused for a later "<a"
+    that starts inside the same tag."""
+    next_gt = _Next(body, ">")
+    # One finder chain per quote character: for each, the href attributes are
+    # visited left to right, so every finder is asked non-decreasing positions.
+    finders = {q: (_Next(body, q), _Next(body, ">"), _Next(body, _A_CLOSE)) for q in "\"'"}
+
+    def link_for(href: re.Match[str]) -> Optional[Tuple[int, int, int, int]]:
+        next_quote, next_tag_end, next_close = finders[href.group(1)]
+        quote = next_quote(href.end())
+        tag_end = next_tag_end(quote[1]) if quote else None
+        close = next_close(tag_end[1]) if tag_end else None
+        if quote is None or tag_end is None or close is None:
+            return None
+        return quote[0], tag_end[1], close[0], close[1]
+
+    tag_gt = -1
+    winner: Optional[Tuple[re.Match[str], Tuple[int, int, int, int]]] = None
+    pos = 0
+    while True:
+        m = _A_OPEN.search(body, pos)
+        if m is None:
+            return
+        start = m.start()
+        gt = next_gt(start)
+        if gt is None:
+            return                               # no '>' left: no later link can match
+        if gt[0] != tag_gt:                      # a new tag: find its working href once
+            tag_gt, winner = gt[0], None
+            for href in islice(_A_HREF.finditer(body, m.end(), gt[0]), _MAX_HREF_RETRIES):
+                found = link_for(href)           # the first one that works (M19)
+                if found:
+                    winner = (href, found)
+                    break
+        if winner is None or winner[0].start() < m.end():
+            pos = start + 1
+            continue
+        href, (value_end, inner_start, inner_end, link_end) = winner
+        yield body[href.end():value_end], body[inner_start:inner_end]
+        pos = link_end
+
+
+def _first_domain(text: str) -> str:
+    """The first match of the "domain" pattern above, or "".
+
+    When a match attempt fails at a position, it also fails at every later
+    position of the same dotted run, since those offer a subset of the same
+    candidate endings. The run is skipped instead of being retried there."""
+    pos = 0
+    while True:
+        s = _DOMAIN_START.search(text, pos)
+        if s is None:
+            return ""
+        start = s.start()
+        m = _DOMAIN_IN_TEXT.match(text, start)
+        if m:
+            return m.group(1)
+        chain = _DOMAIN_CHAIN.match(text, start)
+        if chain:
+            pos = chain.end()                     # the last, undotted segment can still start one
+        else:
+            seg = _DOMAIN_SEGMENT.match(text, start)
+            pos = max(seg.end() if seg else start, start) + 1
+
+
+def _same_folded_name(key: str) -> Callable[[re.Match[str]], bool]:
+    def accept(close: re.Match[str]) -> bool:
+        return _fold(close.group(1)) == key
+    return accept
+
+
+def _strip_script_style(body: str) -> str:
+    """The "scripts" pattern above, each match replaced by one space."""
+    closers: Dict[str, _Next] = {}           # by folded name: a handful at most
+    out: List[str] = []
+    done = pos = 0
+    while True:
+        m = _SCRIPT_OPEN.search(body, pos)
+        if m is None:
+            break
+        key = _fold(m.group(1))
+        if key not in closers:
+            closers[key] = _Next(body, _SCRIPT_CLOSE, _same_folded_name(key))
+        close = closers[key](m.end())
+        if close is None:
+            pos = m.start() + 1
+            continue
+        out += [body[done:m.start()], " "]
+        done = pos = close[1]
+    out.append(body[done:])
+    return "".join(out)
+
+
+def _strip_tags(text: str, repl: str) -> str:
+    """_TAG.sub(repl, text) without the quadratic scan when a '<' is never
+    closed: no tag can start after the last '>'."""
+    last = text.rfind(">")
+    if last < 0:
+        return text
+    return _TAG.sub(repl, text[:last + 1]) + text[last + 1:]
 
 # MS-OXPROPS property tags used from .msg files (stream names are
 # __substg1.0_<TAG><TYPE>, TYPE 001F = UTF-16 string, 001E = 8-bit string,
@@ -189,7 +363,7 @@ _PASSWORD_LABELS = (  # label words, not a password
     r"contrase(?:n|ñ)a|senha|parola|wachtwoord|has(?:l|ł)o|şifre|sifre|"
     r"كلمة (?:المرور|السر)|الرقم السري|كود|пароль")
 _PASSWORD_RX = re.compile(
-    r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?\s*[:=：\-–]?\s*"
+    r"(?:^|[\s(\[])(?:" + _PASSWORD_LABELS + r")(?:\s+(?:is|ist|est|es|é))?(?:\s*[:=：\-–])?\s*"
     r"[\"'“«‘]?([^\s\"'”»’<>]{3,40})", re.I | re.M)
 _NOT_PASSWORDS = frozenset({"the", "for", "and", "attached", "below", "above", "file", "files",
                             "zip", "archive", "document", "is", "please", "to", "you", "your"})
@@ -233,6 +407,7 @@ class MailResult:
     attachments: List[AttachmentInfo] = field(default_factory=list)
     attachments_skipped: int = 0
     body_text: str = ""             # plain text (HTML stripped) for prompt-guard / LLM
+    body_not_checked: str = ""      # TX-1: body text over the limit, not read (partial)
     archive_passwords: List[str] = field(default_factory=list)   # "Password: ..." in the mail
     error: str = ""
     detail: str = ""
@@ -271,6 +446,7 @@ class MailResult:
             "double_extension_attachments": self.double_extension_attachments,
             "rtlo_attachments": self.rtlo_attachments,
             "error": self.error, "detail": self.detail,
+            **({"body_not_checked": self.body_not_checked} if self.body_not_checked else {}),
         }
 
 
@@ -458,19 +634,22 @@ class MailAnalyzer:
     def _judge_body(self, plain: str, html_body: str, res: MailResult) -> None:
         text_from_html = ""
         if html_body:
-            for _q, href, inner in _ANCHOR.findall(html_body):
+            for href, inner in _anchors(html_body):
                 res.link_count += 1
-                shown = html.unescape(_TAG.sub("", inner)).strip()
+                shown = html.unescape(_strip_tags(inner, "")).strip()
                 target = _domain_of_url(html.unescape(href))
-                m = _DOMAIN_IN_TEXT.search(shown)
-                if target and m and not _same_org(m.group(1).lower(), target):
+                domain = _first_domain(shown).lower()
+                if target and domain and not _same_org(domain, target):
                     if len(res.deceptive_links) < 20:
-                        res.deceptive_links.append(f"text shows {m.group(1).lower()} "
+                        res.deceptive_links.append(f"text shows {domain} "
                                                    f"-> link goes to {target}")
-            stripped = re.sub(r"(?is)<(script|style)\b.*?</\1\s*>", " ", html_body)
-            text_from_html = html.unescape(_TAG.sub(" ", stripped))
+            text_from_html = html.unescape(_strip_tags(_strip_script_style(html_body), " "))
         body = plain.strip() or text_from_html
-        res.body_text = re.sub(r"[ \t\r\f\v]+", " ", body).strip()[:200_000]
+        body = re.sub(r"[ \t\r\f\v]+", " ", body).strip()
+        res.body_text = body[:MAX_BODY_CHARS]
+        if body[MAX_BODY_CHARS:].strip():
+            res.body_not_checked = (f"message text after the first {MAX_BODY_CHARS:,} "
+                                    "characters not read")
         res.archive_passwords = archive_passwords(res.subject, res.body_text)
 
     def _add_attachment(self, data: bytes, name: str, ctype: str, sandbox: Path,
@@ -480,7 +659,7 @@ class MailAnalyzer:
             res.attachments_skipped += 1
             return
         base = PurePosixPath(name.replace("\\", "/")).name or "attachment.bin"
-        clean = base.replace(RTLO, "")
+        clean = windows_name(base.replace(RTLO, ""))           # M24: as Windows saves it
         suffixes = [s.strip().lower() for s in PurePosixPath(clean).suffixes]
         info = AttachmentInfo(
             filename=visible_name(base), content_type=ctype, size=len(data),
@@ -491,7 +670,7 @@ class MailAnalyzer:
         target_dir = sandbox / f"a{len(res.attachments):04d}"
         target_dir.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^\w.\- ]", "_", clean)[-120:].lstrip(".") or "attachment.bin"
-        target = target_dir / safe
+        target = target_dir / not_a_device(safe)
         target.write_bytes(data)
         info.path = str(target)
         res.attachments.append(info)
@@ -551,8 +730,12 @@ def _decode_text(part: Message) -> str:
         payload = b""
     charset = part.get_content_charset() or "utf-8"
     try:
+        # M22: punycode is not a MIME charset and decodes in quadratic time.
+        if codecs.lookup(charset).name == "punycode":
+            charset = "utf-8"
         return payload.decode(charset, errors="replace")
-    except LookupError:
+    # M33: idna and undefined raise UnicodeError even with errors="replace".
+    except (LookupError, UnicodeError):
         return payload.decode("utf-8", errors="replace")
 
 
@@ -589,9 +772,9 @@ def _display_name_spoof(display: str, from_domain: str) -> str:
         if shown and not _same_org(shown, from_domain):
             return f"display name shows an address at {shown} but the mail is from {from_domain}"
         return ""
-    m = _DOMAIN_IN_TEXT.search(display)
-    if m and "." in m.group(1) and not _same_org(m.group(1).lower(), from_domain):
-        return f"display name shows {m.group(1).lower()} but the mail is from {from_domain}"
+    shown = _first_domain(display)        # M22: linear; the plain search was quadratic
+    if "." in shown and not _same_org(shown.lower(), from_domain):
+        return f"display name shows {shown.lower()} but the mail is from {from_domain}"
     return ""
 
 

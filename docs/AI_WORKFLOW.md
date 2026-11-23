@@ -134,7 +134,7 @@ For application changes, use the existing repository gates as appropriate:
 - python -m pytest -q
 - ruff check .
 - mypy
-- bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py -ll
+- bandit -q -r engine detectors core api aegis_gui tools RansomwareScanner.py deploy -ll
 
 Use coverage and regression checks when relevant; follow the actual configuration
 and CI workflows rather than assuming an old test count or coverage percentage.

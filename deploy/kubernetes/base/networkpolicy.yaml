@@ -1,0 +1,33 @@
+# Enforced only by a network plugin that implements NetworkPolicy; on any other
+# cluster these objects do nothing. The init container and the readiness probe of
+# the analysis Pod (isolation_gate.py) check the effect and keep the Pod out of
+# service while any outside destination answers.
+#
+# 1. Nothing in the namespace receives or sends anything unless allowed below.
+#    No Pod here needs egress: the proxy reaches analysis over a Unix socket in the
+#    Pod, analysis needs no DNS, and the content Job reads its pack from a ConfigMap.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. HTTPS to the proxy, from any source. Narrow `from` in the overlay to the
+#    client networks (with a LoadBalancer, externalTrafficPolicy: Local keeps the
+#    client address so ipBlock rules can match it).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-allow-https
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: aegis-sentinel
+      app.kubernetes.io/component: analysis
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8443

@@ -101,3 +101,17 @@ def test_real_boxjs_extracts_a_runtime_built_url(tmp_path):
                   'new ActiveXObject("WScript.Shell").Run("C:\\\\Users\\\\Public\\\\a.exe");\n')
     r = ScriptEmulator().emulate(str(js))
     assert r.ran and "http://dl.example.invalid/a.exe" in r.urls and r.downloads_and_runs
+
+
+def test_a_large_script_is_refused_before_it_is_read(tmp_path, monkeypatch):
+    """L-D3: emulate() read the whole file, then compared its length."""
+    from detectors import emulation as EM
+    big = tmp_path / "big.js"
+    with open(big, "wb") as fh:
+        fh.truncate(EM.MAX_SCRIPT_BYTES + 1)              # sparse: no data written
+    emu = EM.ScriptEmulator(tool="/usr/bin/true")
+
+    def no_read(self):
+        raise AssertionError("the whole file was read")
+    monkeypatch.setattr(EM.Path, "read_bytes", no_read)
+    assert emu.emulate(str(big)).detail == "script too large to emulate"

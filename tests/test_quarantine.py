@@ -154,3 +154,26 @@ def test_empty_file_roundtrip(vault, tmp_path):
 
 def test_self_test():
     assert QuarantineVault.self_test() is True
+
+
+def test_a_file_renamed_into_place_after_vaulting_is_not_deleted(vault, tmp_path, monkeypatch):
+    """FI-2: the original was removed by path after it was encrypted and verified.
+    A file renamed into that path in the meantime (another program saving over it)
+    was deleted, although it was never vaulted. Now only the file that was read is
+    removed; the other one stays and the item records that the original remains."""
+    src, vaulted = _sample(tmp_path)
+    original_verify = vault._decrypt_stream
+
+    def swap_then_verify(path, sink):
+        replacement = tmp_path / "replacement.tmp"
+        replacement.write_bytes(b"a document saved over it meanwhile")
+        os.replace(replacement, src)
+        return original_verify(path, sink)
+
+    monkeypatch.setattr(vault, "_decrypt_stream", swap_then_verify)
+    meta = vault.quarantine(src, reason="test")
+    monkeypatch.undo()
+    assert src.read_bytes() == b"a document saved over it meanwhile"
+    assert meta["original_removed"] is False
+    out = vault.restore(meta["id"], destination=tmp_path / "restored.bin")
+    assert Path(out).read_bytes() == vaulted

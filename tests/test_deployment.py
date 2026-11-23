@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
 SERVICES = COMPOSE["services"]
 RUNNING = [name for name, s in SERVICES.items() if "tools" not in s.get("profiles", [])]
-EXTERNAL_SECRETS = {"virustotal_api_key", "openai_api_key", "sandbox_token"}
+EXTERNAL_SECRETS = {"virustotal_api_key", "openai_api_key", "sandbox_token",
+                    "smtp_password"}       # 4.8: e-mail alerts are sent by intel
 
 
 def test_the_three_services_exist():
@@ -72,6 +73,8 @@ def test_secrets_come_from_files_not_the_environment():
     for name in RUNNING:
         env = SERVICES[name].get("environment", {})
         for key, value in env.items():
+            if key == "RULEPACK_PUBLIC_KEYS":          # public keys, not a secret (M27)
+                continue
             if any(w in key for w in ("TOKEN", "KEY", "PASSWORD", "SECRET")):
                 assert key.endswith("_FILE") and str(value).startswith("/run/secrets/"), key
 
@@ -92,7 +95,7 @@ def test_dockerfile_pins_bases_and_runs_unprivileged():
         assert "@sha256:" in line, line
     assert "USER 10001:10001" in text
     assert "setcap -r /usr/bin/caddy" in text
-    assert "-c requirements.lock" in text
+    assert "--require-hashes -r requirements-server.lock" in text      # PR-12 (was -c requirements.lock)
     assert "test ! -e /app/core/containment.py && test ! -e /app/core/response.py" in text
     ignored = (ROOT / ".dockerignore").read_text().splitlines()
     assert {"core/containment.py", "core/response.py", ".env", "tests", ".git"} <= set(ignored)
@@ -115,3 +118,40 @@ def test_workflow_actions_are_pinned_to_commits():
             m = re.search(r"uses:\s*(\S+)", line)
             if m and not m.group(1).startswith("./"):
                 assert re.search(r"@[0-9a-f]{40}$", m.group(1)), f"{wf.name}:{n} {m.group(1)}"
+
+
+LOCAL_ONLY = (".arena", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis",
+              ".coverage", "*.key", "secrets.*", "*.csv", "*.quar", "*.joblib", "keystore",
+              "quarantine", "scan_reports", "data", "datasets")
+
+
+def test_local_data_secrets_and_tool_caches_stay_out_of_the_image():
+    """L-B4: the Dockerfile copies the context (`COPY . .`), and .dockerignore did
+    not exclude tool caches, the .arena folder, or the local data and secret files
+    .gitignore keeps out of the repository (keys, hash CSVs, vault items)."""
+    ignored = set((ROOT / ".dockerignore").read_text().splitlines())
+    assert [p for p in LOCAL_ONLY if p not in ignored] == []
+
+
+def test_the_non_docker_server_install_uses_the_server_lock():
+    """L-B2 (owner-approved 2026-11-12): DEPLOYMENT.md installed the desktop lock
+    (with the GUI toolkit) on a server, and without --require-hashes."""
+    doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    installs = [line.strip() for line in doc.splitlines() if "pip install" in line and "-r " in line]
+    assert installs == ["/opt/aegis/venv/bin/pip install --require-hashes -r requirements-server.lock"]
+
+
+def test_the_proxy_cap_is_above_the_api_upload_limit():
+    """Caddy parses sizes with go-humanize: MB is 1,000,000 bytes, MiB 1,048,576. A
+    52MB cap stopped 50 MiB uploads at the proxy with its own 413 instead of the
+    API's answer (and the API's metrics never saw them)."""
+    import re
+    units = {"": 1, "b": 1, "kb": 1000, "kib": 1024, "mb": 1000 ** 2, "mib": 1024 ** 2,
+             "gb": 1000 ** 3, "gib": 1024 ** 3}
+    text = (ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+    number, unit = re.search(r"max_size\s+(\d+)\s*([A-Za-z]*)", text).groups()
+    cap = int(number) * units[unit.lower()]
+    from api.server import MULTIPART_OVERHEAD
+    api_body_limit = 50 * 1024 * 1024 + MULTIPART_OVERHEAD      # AEGIS_API_MAX_UPLOAD_MB default
+    assert cap >= api_body_limit
+    assert cap <= api_body_limit + 2 * 1024 * 1024               # still a tight outer bound

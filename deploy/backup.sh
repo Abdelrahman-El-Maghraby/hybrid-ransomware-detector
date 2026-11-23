@@ -7,10 +7,25 @@
 #
 #   deploy/backup.sh BACKUP_DIR          (run next to docker-compose.yml; the stack may run)
 set -euo pipefail
+umask 077     # L-A2: the backup holds keys; every file and folder it makes is private
 cd "$(dirname "$0")/.."
 dest="${1:?usage: deploy/backup.sh BACKUP_DIR}"
 project="${COMPOSE_PROJECT_NAME:-aegis}"
-image="aegis-sentinel:${AEGIS_VERSION:-4.7.0}"
+# the version docker compose uses: the environment, else AEGIS_VERSION in .env
+# (AEGIS_VERSION=4.8.0, quoted or not, with an optional "# comment"; L-A4)
+if [ -z "${AEGIS_VERSION:-}" ] && [ -f .env ]; then
+  AEGIS_VERSION="$(sed -n -E "s/^AEGIS_VERSION=[\"']?([A-Za-z0-9._+-]+)[\"']?[[:space:]]*(#.*)?$/\1/p" .env | tail -n 1)"
+  if [ -z "$AEGIS_VERSION" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?AEGIS_VERSION[[:space:]]*=' .env; then
+    echo "AEGIS_VERSION in .env is not in the form AEGIS_VERSION=4.8.0: write it so," \
+         "or set AEGIS_VERSION in the environment" >&2
+    exit 1
+  fi
+fi
+image="aegis-sentinel:${AEGIS_VERSION:-4.8.0}"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "image $image not found: set AEGIS_VERSION to the deployed version" >&2
+  exit 1
+fi
 mkdir -p "$dest/volumes"
 dest="$(cd "$dest" && pwd)"
 

@@ -6,6 +6,7 @@ import queue
 import threading
 
 from aegis_gui.common import RS, SETTINGS_FILE
+from engine.logs import TextFormatter
 
 # --- Settings persistence -----------------------------------------------------
 
@@ -18,6 +19,8 @@ class SettingsStore:
         "scan_interval_hours": None,
         "schedule_enabled": True,
         "diagnostics_seen": False,     # the first-run check has been shown
+        "watch_dirs": None,            # folder monitoring (seeded from WATCH_DIRS)
+        "monitor_enabled": False,      # monitoring was on when the app closed
     }
 
     def __init__(self):
@@ -30,12 +33,20 @@ class SettingsStore:
                 "Could not read GUI settings: %s", e)
         for key, default in self.DEFAULTS.items():
             self.data.setdefault(key, default)
-        if not self.data["scan_directories"]:
-            self.data["scan_directories"] = list(RS.CONFIG["scan_directories"])
-        if not self.data["file_extensions"]:
-            self.data["file_extensions"] = list(RS.CONFIG["file_extensions"])
-        if not self.data["scan_interval_hours"]:
-            self.data["scan_interval_hours"] = int(RS.CONFIG["scan_interval_hours"])
+        # M28: a value set in the environment or .env is shared with the background
+        # service and wins; otherwise the GUI's saved choice, or the default.
+        from aegis_gui.integration import SCAN_FIELDS
+        from engine.config import env_is_set
+        self.unsaved_scan_settings = False      # GUI choices the .env file lacks
+        for env, key in SCAN_FIELDS.items():
+            shared = RS.CONFIG[key]
+            if env_is_set(env) or not self.data[key]:
+                self.data[key] = list(shared) if isinstance(shared, list) else int(shared)
+            elif self.data[key] != shared:
+                self.unsaved_scan_settings = True
+        if self.data["watch_dirs"] is None:
+            from core.folder_watch import split_dirs
+            self.data["watch_dirs"] = split_dirs(RS.CONFIG.get("watch_dirs"))
 
     def save(self) -> None:
         try:
@@ -62,8 +73,8 @@ class QueueLogHandler(logging.Handler):
     def __init__(self, log_queue: queue.Queue):
         super().__init__()
         self.log_queue = log_queue
-        self.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s  %(message)s",
-                                            "%H:%M:%S"))
+        self.setFormatter(TextFormatter("[%(asctime)s] %(levelname)s  %(message)s",  # L-E9
+                                        "%H:%M:%S"))
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -99,17 +110,19 @@ class ScanController:
 
     def _work(self, scanner, mode, target):
         bus = self.bus
+        delivered = None
         try:
             def callback(done, total, path, res):
                 bus.put(("progress", done, total, path, res))
-            if mode == "file":
+            if mode == "file":                      # isolated like a folder scan (PR-03)
                 bus.put(("progress", 0, 1, target, None))
-                results = [scanner.scan_file(target)]
+                results = [scanner.scan_one(target)]
                 bus.put(("progress", 1, 1, target, results[0]))
             elif mode == "dir":
                 results = scanner.scan_directory(target, callback, self.cancel_event)
             else:
                 results = scanner.scan_all_directories(callback, self.cancel_event)
+            delivered = results                      # alerts go out even if the report fails
 
             cancelled = self.cancel_event.is_set()
             report_text = None
@@ -117,8 +130,25 @@ class ScanController:
                 impact = scanner.last_impact if mode != "file" else None
                 report_text = scanner.generate_report(results, impact=impact)
             bus.put(("scan_done", results, report_text, cancelled))
+            if getattr(scanner, "last_not_scanned", 0):     # fail closed (D-E)
+                bus.put(("isolation_unavailable", scanner.last_not_scanned, mode, target))
         except Exception as e:
             logging.getLogger("RansomwareScanner.GUI").exception("Scan failed")
             bus.put(("scan_error", str(e)))
         finally:
-            self.running = False
+            self.running = False                  # a new scan may start while alerts go out
+        if delivered:
+            self._deliver(scanner, delivered)
+
+    @staticmethod
+    def _deliver(scanner, results) -> None:
+        """The configured outputs (JSON Lines, webhook and e-mail alerts through
+        the outbox), as the CLI, the background service and folder monitoring do
+        after a scan. Also for a cancelled scan: what was found is still reported.
+        A delivery problem is logged; it does not turn the scan into an error."""
+        try:
+            from core.outputs import deliver
+            deliver(results, scanner.config)
+        except Exception:
+            logging.getLogger("RansomwareScanner.GUI").exception(
+                "Delivering scan results to the configured outputs failed")

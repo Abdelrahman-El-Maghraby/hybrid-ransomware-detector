@@ -85,3 +85,23 @@ def test_real_slow_layers_still_score(scanner, tmp_path):
     assert r["scan_results"]["ml_classifier"]["label"] == "suspicious"
     # The PE layer scored the packing first; the ML opinion on it is not added twice.
     assert {c["indicator"] for c in r["score_breakdown"]["contributions"]} == {"pe_packed"}
+
+
+class Failing(Layer):
+    heavy = True
+
+    def __init__(self, name):
+        self.name = name
+
+    def run(self, scanner, ctx):
+        raise RuntimeError(f"{self.name} broke")
+
+
+def test_errors_of_parallel_layers_are_all_kept(scanner, tmp_path):
+    """L-E1: the merge replaced the whole layer_errors entry, so with two heavy
+    layers raising only one was recorded (metrics, completeness reasons)."""
+    _replace_heavy(scanner, [Failing("slow_a"), Failing("slow_b")])
+    p = tmp_path / "scan" / "letter.pdf"
+    p.write_bytes(make_pdf("hello"))
+    errors = scanner.scan_file(str(p))["scan_results"]["layer_errors"]
+    assert set(errors) >= {"slow_a", "slow_b"} and "slow_b broke" in errors["slow_b"]
