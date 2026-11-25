@@ -70,7 +70,21 @@ proves where a file came from; it does not change what Windows or macOS show.
 * In CI both steps go into the `build` job, before `package`, with the certificate
   in an encrypted secret or a signing service, and only on tags.
 
-## 5. Notes for 4.7.0
+## 5. Notes for 4.8.0
+
+Order, as for 4.7.0: tag `v4.8.0-rc1` on the release-prep merge commit, check
+the pre-release (section 3), then tag `v4.8.0` on the same commit.
+
+Carry into the release notes (from `CHANGELOG.md`, "Upgrade notes" and "Known
+limitations"):
+
+* Create `deploy/secrets/smtp_password` before starting the new Compose file
+  (empty when mail is off).
+* Isolation startup failure now returns API 503 and CLI exit 3.
+* Legal review is still open; Kubernetes has not been run on a cluster; no
+  real-sample or real-service validation; desktop binaries are unsigned.
+
+## 6. Notes for 4.7.0
 
 Carry into the release notes:
 
