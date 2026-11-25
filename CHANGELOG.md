@@ -6,11 +6,24 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Production-hardening branch (`review/production-hardening`). Not released;
-no version or date is assigned. Finding IDs and evidence:
-`docs/FINDINGS_REGISTER.md` and `docs/VERIFICATION_MATRIX.md`.
+## [4.8.0] — 2026-11-25
+
+Desktop monitoring, alerting and cloud reporting, plus the production-hardening
+review (`review/production-hardening`, PR #47). Finding IDs and evidence:
+`docs/FINDINGS_REGISTER.md` and `docs/VERIFICATION_MATRIX.md`. Published first
+as the pre-release 4.8.0-rc1.
 
 ### Added
+
+- Desktop folder monitoring with settling, deduplication, bounded queues,
+  own-output exclusion, isolated scans and quarantine/restore integration.
+- Persistent webhook and e-mail alert outbox, retry and expiry; canary alerts;
+  verified TLS SMTP with hourly/daily caps. Docker uses one fixed-metadata intel
+  operation; desktop sends directly.
+- Optional desktop S3-compatible upload of redacted reports and structured log
+  events, local spool/retries/expiry and explicit full-detail opt-in.
+- GUI Monitoring and Alerts & cloud pages, delivery status and tests, quarantine
+  key export/import, and isolation failure/retry feedback.
 
 - Optional Kubernetes deployment (`deploy/kubernetes/`, `docs/KUBERNETES.md`):
   one analysis Pod with the TLS proxy, a default-deny NetworkPolicy, restricted
@@ -30,6 +43,14 @@ no version or date is assigned. Finding IDs and evidence:
   tool to refresh the hash-pinned lock files.
 
 ### Changed
+
+- Schema 1.4 adds `provenance.isolation`; result fields remain compatible.
+- Every scan uses isolated workers by default, including single files. Worker
+  dispatch waits for ready messages; API readiness reflects live startup failures.
+- Scheduled jobs survive individual failures; raising scans report failure.
+- Python 3.12 CI installs the shipped lock on all three OSes; Python 3.9 uses
+  latest compatible dependencies as the recorded S-04 exception. API and
+  Hypothesis extras are required. Release publication requires successful checks.
 
 - More scans are reported as `partial` when part of a file was not inspected
   (cut streams, unread CHM pages, oversized XML or relationship parts, IMAP size
@@ -110,30 +131,6 @@ no version or date is assigned. Finding IDs and evidence:
   space or markup (a final newline, closing tags, a script) no longer reads as
   partial (TX-R1); only visible text after the limit counts.
 
-## [4.8.0] — pending release
-
-### Added
-
-- Desktop folder monitoring with settling, deduplication, bounded queues,
-  own-output exclusion, isolated scans and quarantine/restore integration.
-- Persistent webhook and e-mail alert outbox, retry and expiry; canary alerts;
-  verified TLS SMTP with hourly/daily caps. Docker uses one fixed-metadata intel
-  operation; desktop sends directly.
-- Optional desktop S3-compatible upload of redacted reports and structured log
-  events, local spool/retries/expiry and explicit full-detail opt-in.
-- GUI Monitoring and Alerts & cloud pages, delivery status and tests, quarantine
-  key export/import, and isolation failure/retry feedback.
-
-### Changed
-
-- Schema 1.4 adds `provenance.isolation`; result fields remain compatible.
-- Every scan uses isolated workers by default, including single files. Worker
-  dispatch waits for ready messages; API readiness reflects live startup failures.
-- Scheduled jobs survive individual failures; raising scans report failure.
-- Python 3.12 CI installs the shipped lock on all three OSes; Python 3.9 uses
-  latest compatible dependencies as the recorded S-04 exception. API and
-  Hypothesis extras are required. Release publication requires successful checks.
-
 ### Security
 
 - Rule-pack versions and rollback versions are validated and install paths
@@ -154,7 +151,15 @@ no version or date is assigned. Finding IDs and evidence:
   lifecycle and restricted upload identity separately; local spool defaults to
   30 days/1 GiB. Uploads are not tamper-evident. See `docs/OPERATIONS.md`.
 - Development validation and outstanding production prerequisites are recorded
-  in `docs/PROJECT_REVIEW.md`; this entry does not announce a tag or publication.
+  in `docs/PROJECT_REVIEW.md`.
+
+### Known limitations
+
+- Legal review is still open (`docs/RELEASE_READINESS.md`, remaining blocker 2).
+- The Kubernetes deployment has not been run on a cluster.
+- No real-sample or real-service validation was done for this release.
+- Desktop binaries are unsigned (Authenticode / notarisation need certificates, X2).
+- Parser fuzzing in CI (27.5 / B4) runs only on manual dispatch.
 
 ## [4.7.0] — 2026-10-28
 
