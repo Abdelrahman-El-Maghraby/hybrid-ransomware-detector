@@ -204,6 +204,7 @@ class StagedPipelineMixin:
                 self._clear_provisional(ctx)
                 self._publish_pending([layer], ctx)
                 self._run_layer(layer, ctx)
+            self._clear_provisional(ctx)    # a finished layer must not stay "at timeout"
             return
 
         def run_on_copy(layer: Layer) -> ScanContext:
@@ -240,6 +241,7 @@ class StagedPipelineMixin:
             self._publish_pending(pending, snapshot)
         for index in sorted(finished):
             self._merge_layer(ctx, finished[index], before_signals, before_result)
+        self._clear_provisional(ctx)        # every layer finished: no snapshot stops one
 
     def _clear_provisional(self, ctx: ScanContext) -> None:
         clear = getattr(self, "clear_provisional_listener", None)

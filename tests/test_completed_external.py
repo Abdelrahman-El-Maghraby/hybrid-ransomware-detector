@@ -108,3 +108,29 @@ def test_progress_reset_and_completed_validation():
     W._IsolatedScan._progress(w, "completed", copy.deepcopy(completed))
     scan._dispatch(w)
     assert w.provisional is None and w.external == {} and not w.settled
+
+
+@pytest.mark.parametrize("parallel", [True, False])
+def test_no_stopped_snapshot_outlives_the_slow_layers(tmp_path, parallel):
+    """Once VirusTotal and the LLM have answered, the parent must not still hold a
+    snapshot that stops one of them: a stall in the final assembly would then
+    replace a real answer with a timeout. Before the fix the last message before
+    `completed` was the provisional naming the last layer to finish."""
+    import time
+
+    from tests.completed_fakes import CompletedScanner
+    cfg = _cfg(tmp_path, 30, virustotal_api_key="k" * 64, parallel_heavy_layers=parallel,
+               _delays={"virustotal": 0.2})
+    cfg.pop("_scanner_factory")
+    s = CompletedScanner(dict(cfg, isolate_scans=False))
+    msgs = []
+    s.provisional_listener = lambda r, settled=False: msgs.append(
+        ("provisional", tuple(r["scan_results"].get("stopped_layers") or ())))
+    s.clear_provisional_listener = lambda: msgs.append(("clear", ()))
+    s.completed_listener = lambda r: msgs.append(("completed", ()))
+    s.sandbox_listener = s.external_listener = lambda *a: None
+    s.scan_deadline = time.monotonic() + 30
+    r = s.scan_file(str(_script(tmp_path)))
+    assert r["scan_results"]["virustotal"]["malicious_detections"] == 8
+    assert any(kind == "provisional" for kind, _ in msgs)      # the stage was published
+    assert msgs[-1][0] == "completed" and msgs[-2][0] == "clear"
