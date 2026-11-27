@@ -6,6 +6,27 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `AEGIS_API_AUTH_WINDOW_SECONDS` and `AEGIS_API_AUTH_LOCKOUT_SECONDS` must be
+  above 0: 0 switched the failed-token lockout off, and the API now refuses to
+  start with it (AR-2).
+
+### Fixed
+
+- Bounded memory for hostile OLE streams and per-page PDF decoding (B4-O1,
+  B4-P1); the original B4 fuzz out-of-memory is still unconfirmed.
+- CAPE reports are read within 128 MiB; a larger one is a sandbox error
+  (PR-S2). Quarantine restore never overwrites a file that appears meanwhile
+  (PR-Q1); a restarted folder monitor never revives its stopped loop (PR-F1).
+- API: `.env` upload limits honoured (AR-1); a long upload name keeps its
+  right-to-left override and extension for the name checks (AR-3).
+- Partial answers are no longer taken as clean or cached: an LLM reply without
+  a verdict (RV-L1), an LLM answer on partly read text (RV-L2), a VirusTotal
+  record with no engine results (RV-V1).
+- Alert outbox: non-UTF-8 entries removed, a deleted `sent/` folder recreated
+  (RV-O1, RV-O2). Canary checks run on their own thread (RV-C1).
+
 ## [4.8.0] — 2026-11-25
 
 Desktop monitoring, alerting and cloud reporting, plus the production-hardening

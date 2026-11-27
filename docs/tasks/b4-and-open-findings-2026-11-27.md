@@ -93,9 +93,10 @@ product. Neither is confirmed as the cause of the three OOMs.
 
 YARA match objects on repetitive input; ZIP central-directory entries duplicated
 onto one member (olevba reads each OLE member fully); olefile sector sizes other
-than 512/4096 (logged, not refused) with `read(sector_size)`; the olefile
-directory read, which still follows the FAT length (not capped: it carries no
-declared size). None was measured.
+than 512/4096 (logged, not refused) with `read(sector_size)`. None was
+measured. Examined in the follow-up (section 8): the olefile directory read is
+already bounded (olefile cuts the FAT to the file), and a repeated DIFAT chain
+(B4-O2) grows too slowly to match B4.
 
 **Status: candidate root-cause repairs implemented (2a most likely); original
 B4 OOM validation pending in the VM.** B4 stays open in the register.
@@ -106,7 +107,7 @@ B4 OOM validation pending in the VM.** B4 stays open in the register.
 3.12, like the workflow), no shared folders, no network after setup, no
 credentials. Two checkouts: baseline `673acdc` (the last campaign commit) and
 the repaired revision (the branch tip recorded in docs/HANDOFF.md once
-pushed; it contains `2a6f76c` and `63658a3`). Install as `.github/workflows/fuzz.yml` does: `apt-get install
+pushed; it contains `2a6f76c`, `29f2206` and `63658a3`). Install as `.github/workflows/fuzz.yml` does: `apt-get install
 7zip unar libzbar0`; `pip install --require-hashes -r requirements.lock`; `pip
 install pytest hypothesis`; `pip install --require-hashes -r
 fuzz/requirements-linux.txt`. The three OOM artifacts
@@ -134,7 +135,9 @@ exit status, `/usr/bin/time -v` max RSS, and only metadata.
    `python -m pytest -q tests/test_ole_limits.py tests/test_prompt_guard.py tests/test_qr.py`
    on both revisions (baseline: copy the three test files in; they fail there),
    then the same probes at 512 MiB declared size under the 512 MiB limit:
-   baseline should hit the limit, repaired should not.
+   baseline should hit the limit, repaired should not. Optionally measure
+   B4-O2 (section 8) with 4096-byte sectors under the same limit to confirm it
+   is time-bound, not memory-bound.
 6. **Campaign comparison:** the workflow's exact command (`-max_total_time=3600
    -timeout=90 -rss_limit_mb=4096 -max_len=1048576 -seed=20261030`) for both
    groups on both revisions, sampling RSS every 60 s. Pass: the repaired revision
@@ -197,10 +200,64 @@ each on main (Dependabot `@dependabot rebase`, owner action) so `tests`,
 `quality` and `docker` run on the current base; the release-only actions
 (#24, #26, #27) need either an `-rc` tag run or acceptance on release notes.
 
-## 8. Progress
+## 8. Follow-up pass (owner request, 2026-11-27)
+
+### Open findings
+
+| ID | Result | Commit |
+|---|---|---|
+| AR-2 | Fixed: 0 for the lockout window or duration is refused at start, as nan already was (L-E2). An operator with 0 set must change it (CHANGELOG) | `0305f29` |
+| AR-3 | Fixed: extension and stored name come from the whole client name; the `upload<ext>` fallback keeps a right-to-left override, so M30 sees it. Long names also keep their extension now | `0305f29` |
+| RV-L2 | Confirmed and fixed: the scan context carries `text_complete` (heavy layers run on a copy without `scan_results`); an LLM answer is cached only on fully read text | `78fb35a` |
+| RV-V1 | Confirmed and fixed as CO-1: no engine results = layer error, not cached | `5962225` |
+| RV-C1 | Confirmed and fixed: canary jobs on `CANARY_JOBS` with their own thread; the test fails with the shared layout | `46c788a` |
+| RV-I1 | Not a defect as described: no analysis-side cache with intel; each API upload runs in a newly spawned worker. Residual: one scan per spare worker started before an intel restart | none |
+
+### B4 repairs, reviewed
+
+- **OLE (`29f2206`).** Two errors in `2a6f76c` found by reading olefile 0.47 and
+  probing: (1) cutting a stream that claims at least the 4,096-byte cutoff to a
+  smaller file's size moved its read from the FAT to the MiniFAT (other bytes;
+  probe: 512 B from the FAT before, 64 B from the MiniFAT after); (2) treating
+  0x7FFFFFFF, olefile's unknown size, as declared read one repeated sector more
+  and logged a defect olefile did not. Both fixed; the wrapper is installed only
+  over the 0.47 `_open(start, size, force_FAT)` signature and a test requires it.
+  Differential (in one process, original vs bounded `_open`): 300/300 valid
+  generated files identical (bytes and `parsing_issues`); 1,482/1,500 mutated
+  files identical; the other 18 read past the file in the original (8 amplified,
+  10 longer), and the bound returns a prefix that holds every distinct sector.
+- **Why a private method.** `_open` is olefile's single stream-open path: the
+  public `openstream` does not cover the MiniStream load (`root.size`), and
+  olevba builds its own `OleFileIO`, so a subclass cannot be passed in.
+  Refusing such files before olevba would hide their macros. The tests run
+  against the pinned olefile 0.47; they cannot vouch for later versions.
+- **Malformed input reporting.** olefile's `parsing_issues` are identical where
+  the bytes are; Aegis does not surface olefile parsing issues in reports,
+  before or after (unchanged).
+- **B4-O2 (new observation, not patched).** A DIFAT chain that repeats one
+  sector makes `loadfat` grow the FAT before olefile cuts it: memory linear
+  (about 124 KB per repeat), time quadratic (160 repeats: 4.05 s, 19.9 MiB). Far
+  too slow to match B4's 4 GB in 11 to 17 s; bounded by the scan time limit.
+- **PDF (`63658a3`, kept).** `decoded_self` set to None makes pypdf decode again
+  on the next `get_data()`; each check opens its own reader. Object streams are
+  released too, so pypdf decodes one again when it next resolves an object in
+  it: at most 50 times per file, each within pypdf's 75 MB cap (a hostile file
+  could already force 50 such decodes through its content streams). Keeping them
+  would let object streams accumulate as pages did. Benign PDFs with object
+  streams (1 to 231 pages): 2.3 to 99 ms, no measurable change, peak equal or
+  lower. If pypdf renames these attributes the release becomes a no-op; the
+  tracemalloc tests would fail on the pinned version only.
+- **CAPE (`8852880`).** Over the limit was read as "not finished yet": the scan
+  polled to its limit, fetched the report each time and ended as a timeout with
+  no reason. It is now a sandbox error naming the limit (partial); only
+  "reported" results are cached (`api/intel.py`).
+
+## 9. Progress
 
 - Local commits after `6c42dc8` (none pushed): `63658a3`, `2a6f76c`, `5a9e3a5`,
-  `7221c64`, `11144b8`, `64425f7`, `1e22a3f`, `672730e`, then documentation.
+  `7221c64`, `11144b8`, `64425f7`, `1e22a3f`, `672730e`, documentation
+  (`1c7a1f7`, `442a346`), then the follow-up (section 8): `0305f29`, `78fb35a`,
+  `5962225`, `46c788a`, `29f2206`, `8852880`, and its documentation.
 - Last verified remote commit: `6c42dc8` (PR #49 head, 11 checks green).
 - Next: owner review; on approval push the branch, update PR #49, watch CI on
   all platforms; then the VM procedure (section 3) and the PR-M1 decision.
