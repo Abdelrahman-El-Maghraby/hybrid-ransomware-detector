@@ -256,3 +256,14 @@ def test_a_stalled_upload_gives_up_its_slot(monkeypatch):
     with pytest.raises(HTTPException) as e:
         asyncio.run(server._scan_upload(Stalled(), None, None))
     assert e.value.status_code == 408
+
+
+@pytest.mark.parametrize("setting", ["AEGIS_API_AUTH_WINDOW_SECONDS", "AEGIS_API_AUTH_LOCKOUT_SECONDS"])
+def test_a_zero_lockout_setting_is_refused(tmp_path, monkeypatch, setting):
+    """AR-2: 0 let every wrong token through without a lockout, like nan (L-E2)."""
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    monkeypatch.setenv(setting, "0")
+    with pytest.raises(RuntimeError, match=setting):
+        create_app(_config(tmp_path), token="t" * 32, isolate=False)

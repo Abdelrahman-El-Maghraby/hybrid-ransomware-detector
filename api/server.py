@@ -113,7 +113,11 @@ def stored_name(name: str, ext: str) -> str:
     plain = (0 < size <= 200 and bool(stem.strip(". ")) and not re.search(r"[\x00-\x1f\x7f\\:]", name)
              and name == windows_name(name) and name == not_a_device(name)
              and Path(name).suffix.lower() == ext)
-    return stem + ext if plain else f"upload{ext}"
+    if plain:
+        return stem + ext
+    # AR-3: a long or unusual name still carries its right-to-left override to M30
+    from detectors.container_extractor import RTLO
+    return f"upload{RTLO}{ext}" if RTLO in name else f"upload{ext}"
 
 
 def _without_work_path(value: Any, path: str, display: str) -> Any:
@@ -315,8 +319,9 @@ class _Auth:
     def __init__(self, token: str, trust_proxy: bool):
         self.token, self.trust_proxy = token, trust_proxy
         self.guard = AuthGuard(int(_env_number("AEGIS_API_AUTH_FAILURES", 5)),
-                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300),
-                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900))
+                               # AR-2: 0 switched the lockout off, like the nan of L-E2
+                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300, positive=True),
+                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900, positive=True))
         self.quota = TokenBuckets(_env_number("AEGIS_API_RATE_PER_MINUTE", 60),
                                   int(_env_number("AEGIS_API_BURST", 10)))
 
@@ -376,11 +381,12 @@ async def _scan_upload(request: Request, service: _ScanService, alerts: _Alerts)
 
 
 def _store_and_scan(upload: Any, service: _ScanService, alerts: _Alerts) -> Dict:
-    name = Path(upload.filename or "upload").name[:200] or "upload"
-    ext = upload_extension(name)
+    full = Path(upload.filename or "upload").name or "upload"
+    name = full[:200]                     # shown; AR-3: the checks use the whole name
+    ext = upload_extension(full)
     work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
     try:
-        target = work / stored_name(name, ext)
+        target = work / stored_name(full, ext)
         file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
         written = 0
         with open(target, "wb") as out:

@@ -149,6 +149,15 @@ def test_the_upload_name_reaches_the_name_checks(client):
     assert r["verdict"] != "Clean"
 
 
+def test_a_long_upload_name_still_reaches_the_name_checks(client):
+    """AR-3: a name over the length limit was stored as `upload<ext>` and cut to
+    200 characters, so the override and the extension were both lost."""
+    r = client.post("/scan", headers=auth(),
+                    files={"file": ("a" * 250 + "\u202efdp.txt", b"hello world\n")}).json()
+    assert "file_rtlo_spoof" in {c["indicator"] for c in r["score_breakdown"]["contributions"]}
+    assert r["verdict"] != "Clean"
+
+
 @pytest.mark.parametrize("name,ext,stored", [
     ("Report.PDF", ".pdf", "Report.pdf"),
     ("invoice\u202efdp.txt", ".txt", "invoice\u202efdp.txt"),
@@ -161,6 +170,8 @@ def test_the_upload_name_reaches_the_name_checks(client):
     ("x.$$$", "", "upload"),                       # an extension upload_extension refused
     ("\udcff.pdf", ".pdf", "upload.pdf"),          # not encodable
     ("\u00e9" * 150 + ".pdf", ".pdf", "upload.pdf"),  # over the byte limit
+    ("a" * 250 + "\u202efdp.txt", ".txt", "upload\u202e.txt"),  # AR-3: too long, override kept
+    ("a\\b\u202efdp.txt", ".txt", "upload\u202e.txt"),
 ])
 def test_stored_upload_names(name, ext, stored):
     from api.server import stored_name, upload_extension
