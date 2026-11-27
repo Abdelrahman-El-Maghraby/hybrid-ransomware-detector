@@ -184,7 +184,8 @@ def test_a_hidden_content_limit_makes_the_scan_partial(scanner, tmp_path, monkey
 import detectors.llm_backends as lb  # noqa: E402
 
 
-@pytest.mark.parametrize("reply", ["", "I will not answer.", "[1, 2]", '"just a string"'])
+@pytest.mark.parametrize("reply", ["", "I will not answer.", "[1, 2]", '"just a string"',
+                                   "{}", '{"confidence_score": 0.9}'])   # RV-L1: no verdict
 def test_unusable_llm_replies_are_errors(reply):
     r = lb._parse_analysis(reply)
     assert r["analyzed"] is False and r["is_malicious"] is False and r["error"]
