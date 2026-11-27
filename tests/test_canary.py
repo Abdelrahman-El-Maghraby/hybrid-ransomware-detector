@@ -157,3 +157,28 @@ def test_remove_keeps_a_file_that_is_no_longer_the_canary(setup, caplog):
     assert edited.read_text(encoding="utf-8").startswith("my own numbers")
     assert any(str(edited.name) in r.getMessage() for r in caplog.records)
     assert mgr.entries() == []
+
+
+def test_a_folder_reached_through_a_link_keeps_its_canaries_excluded(tmp_path, caplog):
+    """Canaries are stored by their real path; the scan walk and a redeploy compared
+    the unresolved one, so through a linked folder (macOS /tmp, a user's link) the
+    canaries were scan targets and a redeploy warned about "non-canary" files."""
+    import logging
+
+    import RansomwareScanner as RS
+    from tests.test_scanner_integration import _config
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links are not available")
+    s = RS.RansomwareScanner(_config(tmp_path, canary_registry=str(tmp_path / "c.json")))
+    assert len(s.canaries.deploy([link])) == len(CANARY_TEMPLATES)
+    with caplog.at_level(logging.WARNING, logger="RansomwareScanner.canary"):
+        assert s.canaries.deploy([link]) == []
+    assert "non-canary" not in caplog.text
+    (real / "user.pdf").write_bytes(b"%PDF-1.4 user file")
+    s.file_extensions = [".pdf", ".docx", ".csv"]
+    assert [os.path.basename(p) for p in s._collect_target_files(str(link))] == ["user.pdf"]

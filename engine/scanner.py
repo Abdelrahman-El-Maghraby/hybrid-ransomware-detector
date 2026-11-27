@@ -27,6 +27,7 @@ from core import (
     build_session,
 )
 from core.allowlist import load_allowlist
+from core.canary import norm_path as canary_norm
 from detectors import (
     ContainerExtractor,
     FileIntegrityAnalyzer,
@@ -377,7 +378,7 @@ class RansomwareScanner(StagedPipelineMixin, ProtectionMixin, ReportMixin, Exter
                                 bucket.append(full_path)
                     if filename.startswith("~$") or not filename.lower().endswith(exts):
                         continue
-                    if os.path.normcase(os.path.abspath(full_path)) in canary_paths:
+                    if canary_norm(full_path) in canary_paths:
                         continue
                     if not is_regular_file(full_path):
                         # A FIFO, socket or device (or a link to one) has no file

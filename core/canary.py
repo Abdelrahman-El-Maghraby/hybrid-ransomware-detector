@@ -69,8 +69,12 @@ CANARY_TEMPLATES = [
 EXPECTED_FORMAT = {"docx": "zip", "pdf": "pdf", "csv": "text"}
 
 
-def _norm(path: PathLike) -> str:
-    return os.path.normcase(os.path.abspath(str(path)))
+def norm_path(path: PathLike) -> str:
+    """The comparable form of a canary path: its folder resolved (canaries are
+    stored by their real path, a scan or deploy may reach them through a link);
+    the file name itself is not followed."""
+    folder, name = os.path.split(os.path.abspath(str(path)))
+    return os.path.normcase(os.path.join(os.path.realpath(folder), name))
 
 
 def _sha256(path: Path) -> str:
@@ -257,14 +261,14 @@ class CanaryManager:
 
     def paths(self) -> Set[str]:
         """Normalised paths of every registered canary (for scan exclusion)."""
-        return {_norm(e["path"]) for e in self._load()}
+        return {norm_path(e["path"]) for e in self._load()}
 
     # -- deploy ----------------------------------------------------------------
     def deploy(self, directories: Iterable[PathLike]) -> List[Dict[str, Any]]:
         """Plant the canary set in each existing directory. Never overwrites an
         existing file; already-registered canaries are left as they are."""
         entries = self._load()
-        registered = {_norm(e["path"]) for e in entries}
+        registered = {norm_path(e["path"]) for e in entries}
         created: List[Dict[str, Any]] = []
         for directory in directories:
             d = Path(directory).expanduser()
@@ -273,7 +277,7 @@ class CanaryManager:
                 continue
             for name, kind in CANARY_TEMPLATES:
                 target = d / name
-                if _norm(target) in registered:
+                if norm_path(target) in registered:
                     continue
                 if target.exists():
                     logger.warning("Canary deploy skipped - a non-canary file exists at %s", target)
@@ -289,7 +293,7 @@ class CanaryManager:
                          "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
                          "deployed_at": time.strftime("%Y-%m-%d %H:%M:%S")}
                 entries.append(entry)
-                registered.add(_norm(target))
+                registered.add(norm_path(target))
                 created.append(entry)
         self._save(entries)
         if created:
