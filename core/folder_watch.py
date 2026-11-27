@@ -199,8 +199,11 @@ class FolderMonitor:
         observer.daemon = True
         observer.start()
         self._observer = observer
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="aegis-folder-monitor", daemon=True)
+        # PR-F1: a new event per run; clearing a shared one revived a stopped loop
+        # still finishing its scan, so two loops then ran for good.
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, args=(self._stop,),
+                                        name="aegis-folder-monitor", daemon=True)
         self._thread.start()
         logger.info("Monitoring %d folder(s) for new and changed files.", len(self.roots),
                     extra={"event": "monitor_started", "files": len(self.roots)})
@@ -214,6 +217,9 @@ class FolderMonitor:
             self._observer = None
         if self._thread is not None:
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                logger.warning("Folder monitor stopped; a scan already running will finish "
+                               "and report its results.", extra={"event": "monitor_stopping"})
             self._thread = None
 
     def resume(self) -> None:
@@ -399,8 +405,8 @@ class FolderMonitor:
                          extra={"event": "monitor_output_error"})
         return results
 
-    def _loop(self) -> None:
-        while not self._stop.wait(0.5):
+    def _loop(self, stop: threading.Event) -> None:
+        while not stop.wait(0.5):
             try:
                 self.scan_due()
             except Exception as e:                # the monitor must keep running

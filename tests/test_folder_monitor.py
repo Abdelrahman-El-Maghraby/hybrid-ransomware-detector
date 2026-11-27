@@ -315,3 +315,33 @@ def test_a_partly_unscanned_batch_still_delivers_what_was_scanned(tmp_path, monk
     assert m.status()["scanned"] == 1
     clock.now += 61                                                 # the retry
     assert m.due() == [b]                                      # only the unscanned file
+
+
+@pytest.mark.skipif(not FW.WATCHDOG_AVAILABLE, reason="watchdog not installed")
+def test_a_restart_while_a_scan_still_runs_leaves_one_loop(tmp_path, monkeypatch):
+    # PR-F1: stop() gave up after 10 s on a loop still scanning, and start()
+    # cleared the shared stop event, so that old loop ran on beside the new one.
+    import threading
+    m = _monitor(tmp_path, _scanner(tmp_path))
+    entered, release = threading.Event(), threading.Event()
+
+    def busy():
+        entered.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(m, "scan_due", busy)
+    assert m.start()
+    try:
+        assert entered.wait(5)
+        old = m._thread
+        monkeypatch.setattr(old, "join", lambda timeout=None: None)   # stop() times out
+        m.stop()
+        assert m.start()
+        release.set()
+        threading.Thread.join(old, 3)
+        assert not old.is_alive()
+        assert m.running
+    finally:
+        release.set()
+        m.stop()
