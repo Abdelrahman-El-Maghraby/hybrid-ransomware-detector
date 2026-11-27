@@ -62,6 +62,17 @@ not unknowable.
 | `b4only` | `673acdc` plus `63658a3`, `2a6f76c`, `29f2206` (they apply cleanly; checked with `git cherry-pick --no-commit`) | same as `base` |
 | `head` | `64db93f` (PR #49 head, 11/11 checks green; code at `648a80b`) | current (pypdf 6.21.4, other updates) |
 
+**`b4only` is not runtime-tested.** The three commits were only shown to apply
+cleanly (`git cherry-pick --no-commit` on the development Mac); clean
+application is not functional verification, and step 6.1 is its first test.
+Checked statically: the three commits touch only `detectors/__init__.py`,
+`detectors/ole_limits.py`, `detectors/prompt_guard.py`,
+`detectors/qr_scanner.py` and tests (`tests/helpers.py` gains a function and
+loses nothing), so `b4only` installs the same `requirements.lock` and
+`fuzz/requirements-linux.txt` as `base`. Steps 6.3 and 6.4 use one set of
+fixture files for every revision; the seed generator and its sources are
+unchanged, and step 6.5 compares the generated corpora by hash at run time.
+
 `head` differs from `base` by more than B4: other fixes and dependency updates.
 **Attribute a difference to B4 only when `base` and `b4only` differ**; a
 difference seen only between `base` and `head` may come from anything else.
@@ -119,11 +130,13 @@ Disconnect the network and take a snapshot.
 
 ```sh
 for R in ~/b4-b4only ~/b4-head; do
-  cd $R && prlimit --as=$((4*1024*1024*1024)) --cpu=900 -- timeout 1200 /usr/bin/time -v .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ole_limits.py tests/test_prompt_guard.py tests/test_qr.py 2>&1 | tee ~/b4-evidence/6.1-$(basename $R).log
+  cd $R && git diff --stat 673acdc -- requirements.lock fuzz/ | tee ~/b4-evidence/6.1-$(basename $R)-dep-diff.txt
+  prlimit --as=$((4*1024*1024*1024)) --cpu=900 -- timeout 1200 /usr/bin/time -v .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ole_limits.py tests/test_prompt_guard.py tests/test_qr.py 2>&1 | tee ~/b4-evidence/6.1-$(basename $R).log
 done
 ```
 
-Expected: all passed (one skip without `cv2` is normal). A failure stops the
+Expected: an empty dependency diff for `b4only` (a non-empty one for `head`
+is expected), and all tests passed (one skip without `cv2` is normal). A failure stops the
 procedure; on `b4only` it may reveal a dependency on code outside the three
 commits, which is itself a finding.
 
@@ -193,11 +206,16 @@ least 5 GB).
 G=b4; R=~/b4-head   # repeat for G=parsers and for R=~/b4-b4only
 N=$(basename $R) && W=/tmp/aegis-$G-$N && mkdir -p $W/artifacts && cd $R
 LLM_PROVIDER=none prlimit --as=$((2*1024*1024*1024)) --cpu=300 -- timeout 600 .venv/bin/python fuzz/seed_corpus.py $G $W/corpus
+(cd $W/corpus && find . -type f -exec sha256sum {} + | sort -k2 | sha256sum) | tee ~/b4-evidence/6.5-$G-$N-corpus.sha256
 (LLM_PROVIDER=none prlimit --as=$((10*1024*1024*1024)) --cpu=4200 -- timeout 4000 /usr/bin/time -v .venv/bin/python fuzz/fuzz_$G.py -max_total_time=3600 -timeout=90 -rss_limit_mb=4096 -max_len=1048576 -seed=20261030 -print_final_stats=1 -artifact_prefix=$W/artifacts/ $W/corpus > $W/run.log 2>&1; echo "exit=$?" >> $W/run.log) &
 P=$!
 while kill -0 $P 2>/dev/null; do echo "$(date +%T) rss_kb=$(ps -eo rss=,args= | grep "[f]uzz/fuzz_$G.py" | sort -n | tail -1 | awk '{print $1}') free_disk=$(df --output=avail -BM /tmp | tail -1)" >> $W/rss.log; sleep 60; done
 tail -25 $W/run.log; ls -l $W/artifacts; cp $W/run.log ~/b4-evidence/6.5-$G-$N-run.log; cp $W/rss.log ~/b4-evidence/6.5-$G-$N-rss.log
 ```
+
+The corpus hash must be the same for `base`, `b4only` and `head` of one group;
+if it differs, the campaigns did not start from the same inputs: record it and
+do not compare them.
 
 A clean run: `exit=0`, `Done ... in 3600 second(s)`, `stat::peak_rss_mb` well
 below 4096, no `oom-*`, `crash-*` or `timeout-*` in `artifacts/`. Any artifact
