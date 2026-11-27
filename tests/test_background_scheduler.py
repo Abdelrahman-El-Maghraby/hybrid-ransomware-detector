@@ -60,44 +60,76 @@ class Watcher:
 def service(monkeypatch):
     schedule.clear()
     RS.SERVICE_JOBS.clear()
-    outbox = threading.Event()
-    monkeypatch.setattr("core.outbox.flush_pending", lambda cfg: outbox.set())
+    RS.CANARY_JOBS.clear()
+    outbox, outbox_release = threading.Event(), threading.Event()
+    outbox_release.set()
+
+    def flush(cfg):
+        outbox.set()
+        outbox_release.wait(5)
+    monkeypatch.setattr("core.outbox.flush_pending", flush)
     monkeypatch.setattr("core.cloud.run_uploads", lambda *a, **k: None)
     scanner = SlowScanner()
     RS._schedule_background_jobs(scanner, Watcher(), CONFIG)
     due = datetime.datetime.now() - datetime.timedelta(seconds=1)
-    for job in schedule.jobs + RS.SERVICE_JOBS.jobs:
+    for job in schedule.jobs + RS.SERVICE_JOBS.jobs + RS.CANARY_JOBS.jobs:
         job.next_run = due                       # every job is due now
     stop = threading.Event()
     main = threading.Thread(target=RS._run_background_loop, daemon=True, kwargs={
         "sleep": lambda _s: time.sleep(0.01), "keep_going": lambda: not stop.is_set()})
     jobs = RS._ServiceJobThread(tick=0.01)
-    yield SimpleNamespace(scanner=scanner, outbox=outbox, main=main, jobs=jobs)
+    canary = RS._ServiceJobThread(RS.CANARY_JOBS, tick=0.01)
+    yield SimpleNamespace(scanner=scanner, outbox=outbox, outbox_release=outbox_release,
+                          main=main, jobs=jobs, canary=canary)
     scanner.release.set()
+    outbox_release.set()
     stop.set()
     jobs.stop(2)
+    canary.stop(2)
     if main.is_alive():
         main.join(5)
     schedule.clear()
     RS.SERVICE_JOBS.clear()
+    RS.CANARY_JOBS.clear()
 
 
 def test_only_scans_and_mailbox_checks_stay_on_the_main_loop(service):
     main = sorted(j.job_func.__name__ for j in schedule.jobs)
     short = sorted(j.job_func.__name__ for j in RS.SERVICE_JOBS.jobs)
+    canary = sorted(j.job_func.__name__ for j in RS.CANARY_JOBS.jobs)
     assert main == ["guarded_mailbox", "guarded_scan"]
-    assert short == ["guarded_alert_outbox", "guarded_canary_check", "guarded_canary_refresh",
-                     "guarded_cloud_cleanup", "guarded_cloud_upload"]
+    assert short == ["guarded_alert_outbox", "guarded_cloud_cleanup", "guarded_cloud_upload"]
+    assert canary == ["guarded_canary_check", "guarded_canary_refresh"]
 
 
 def test_alert_retries_and_canary_checks_run_during_a_long_scan(service):
     service.main.start()
     service.jobs.start()
+    service.canary.start()
     assert service.scanner.scanning.wait(2)
     # before I-4 both waited for the scan (the scan here would hold them 5 s)
     assert service.outbox.wait(2)
     assert service.scanner.canary_checked.wait(2)
     assert service.scanner.active == 1           # the scan is still running
+
+
+def test_a_slow_outbox_flush_does_not_hold_back_the_canary_check(service):
+    """RV-C1: the outbox has network timeouts but no total budget; on the shared
+    short-job thread a hung flush delayed the scheduled canary check."""
+    later = datetime.datetime.now() + datetime.timedelta(days=1)
+    for job in RS.SERVICE_JOBS.jobs + RS.CANARY_JOBS.jobs:
+        job.next_run = later
+    outbox = next(j for j in RS.SERVICE_JOBS.jobs if j.job_func.__name__ == "guarded_alert_outbox")
+    outbox.next_run = datetime.datetime.now() - datetime.timedelta(seconds=1)
+    service.outbox_release.clear()               # the flush hangs until released
+    service.jobs.start()
+    service.canary.start()
+    assert service.outbox.wait(2)
+    for job in RS.SERVICE_JOBS.jobs + RS.CANARY_JOBS.jobs:  # the next canary check falls due
+        if job.job_func.__name__ == "guarded_canary_check":
+            job.next_run = datetime.datetime.now() - datetime.timedelta(seconds=1)
+    assert service.scanner.canary_checked.wait(2)
+    service.outbox_release.set()
 
 
 def test_scans_and_mailbox_checks_never_overlap(service):
