@@ -303,7 +303,10 @@ _RESULT_FIELDS: Dict[str, Tuple[Any, bool]] = {   # name: (types, required)
     "severity_score": (_NUMBER, False), "score_breakdown": (dict, False),
     "incomplete_reasons": (list, False), "provenance": (dict, False),
     "verdict_label": (str, False), "engine_version": (str, False),
+    "scan_duration_ms": (int, False),
 }
+# scan_results entries the parent reads itself (metrics, notices, the API).
+_SCAN_RESULT_OBJECTS = ("scan_failed", "layer_errors")
 
 
 _SEND_LOCK = threading.Lock()
@@ -508,6 +511,11 @@ def _check_result(result: Any) -> None:
         value = result[name]
         if not isinstance(value, types) or (types is not bool and isinstance(value, bool)):
             raise InvalidReply(f"a result whose {name} is a {type(value).__name__}")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise InvalidReply(f"a result whose {name} is not finite")
+    for name in _SCAN_RESULT_OBJECTS:
+        if not isinstance(result["scan_results"].get(name, {}), dict):
+            raise InvalidReply(f"a result whose scan_results.{name} is not an object")
     if result["verdict"] not in VERDICTS or result["scan_status"] not in PRECEDENCE:
         raise InvalidReply("a result with an unknown verdict or scan status")
     if not all(isinstance(r, dict) for r in result.get("incomplete_reasons") or []):
