@@ -276,6 +276,13 @@ class ExternalLookupsMixin:
 
                 # Calculate detection ratio
                 total_engines = sum(v for v in stats.values() if isinstance(v, int))
+                if not total_engines:
+                    # RV-V1, as CO-1: a record with no engine results (still queued) is
+                    # no answer, not a clean one
+                    return self._vt_empty(error="VirusTotal has no engine results for this "
+                                                "file yet.",
+                                          details="VirusTotal knows the file but has no "
+                                                  "analysis results yet (look it up later).")
                 malicious = stats.get("malicious", 0)
                 suspicious = stats.get("suspicious", 0)
                 detection_ratio = (malicious + suspicious) / total_engines if total_engines > 0 else 0
@@ -288,7 +295,7 @@ class ExternalLookupsMixin:
                     "total_engines": total_engines,
                     "permalink": f"https://www.virustotal.com/gui/file/{file_hash}/detection"
                 }
-                if self.cache is not None and total_engines:
+                if self.cache is not None:
                     self.cache.put(file_hash, self._vt_cache_layer(), result)
                 return result
             if response.status_code == 404:

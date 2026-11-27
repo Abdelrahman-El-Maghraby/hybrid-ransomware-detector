@@ -249,6 +249,19 @@ def test_vt_hit_is_scored_and_cached(tmp_path):
     assert len(h.http.seen) == 1
 
 
+@pytest.mark.parametrize("body", [{"data": {"attributes": {"last_analysis_stats": {}}}},
+                                  {"data": {"attributes": {}}}])
+def test_vt_record_without_engine_results_is_no_answer(tmp_path, body):
+    """RV-V1, as CO-1: a known file with no engine results yet read as complete
+    and clean. It is now a layer error (partial) and is not cached."""
+    f = tmp_path / "f.bin"
+    f.write_bytes(b"x")
+    h = Host(tmp_path, [Resp(200, body), Resp(200, STATS)])
+    r = h.scan_file_with_virustotal(str(f))
+    assert r["error"] and not r["is_malicious"] and not r.get("cached")
+    assert h.scan_file_with_virustotal(str(f))["total_engines"] == 70   # asked again
+
+
 def test_vt_unknown_without_upload_and_errors(tmp_path):
     f = tmp_path / "f.bin"
     f.write_bytes(b"x")
