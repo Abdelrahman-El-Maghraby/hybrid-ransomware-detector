@@ -121,6 +121,54 @@ def test_restore_does_not_clobber_existing_file(vault, tmp_path):
     assert src.read_bytes() == b"new file the user created meanwhile"
 
 
+def test_a_file_created_while_restoring_is_never_replaced(vault, tmp_path, monkeypatch):
+    # PR-Q1: restore checked the name, decrypted, then os.replace()d whatever had
+    # appeared there meanwhile. A program that creates the file only if the name
+    # is free must now find it taken, or keep its data.
+    src, data = _sample(tmp_path)
+    meta = vault.quarantine(src)
+    decrypt, created = vault._decrypt_stream, []
+
+    def racing(vault_file, sink):
+        if sink is not None:
+            try:
+                with open(src, "xb") as other:
+                    other.write(b"created by another program")
+                created.append(True)
+            except FileExistsError:
+                pass
+        return decrypt(vault_file, sink=sink)
+
+    monkeypatch.setattr(vault, "_decrypt_stream", racing)
+    restored = vault.restore(meta["id"])
+    assert restored.read_bytes() == data
+    if created:
+        assert src.read_bytes() == b"created by another program"
+
+
+def test_a_second_restore_never_overwrites_an_earlier_one(vault, tmp_path):
+    src, data = _sample(tmp_path)
+    meta = vault.quarantine(src)
+    src.write_bytes(b"user file")
+    first = vault.restore(meta["id"], remove_from_vault=False)
+    first.write_bytes(b"edited after the first restore")
+    with pytest.raises(QuarantineError, match="nothing was overwritten"):
+        vault.restore(meta["id"], remove_from_vault=False)
+    assert first.read_bytes() == b"edited after the first restore"
+    assert src.read_bytes() == b"user file"
+    assert sorted(p.name for p in src.parent.iterdir() if p.name.startswith(".restore-")) == []
+    assert vault.restore(meta["id"], overwrite=True).read_bytes() == data
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="POSIX links")
+def test_a_dangling_link_at_the_destination_is_kept(vault, tmp_path):
+    src, data = _sample(tmp_path)
+    meta = vault.quarantine(src)
+    src.symlink_to(tmp_path / "missing-target")
+    restored = vault.restore(meta["id"])
+    assert src.is_symlink() and restored != src and restored.read_bytes() == data
+
+
 def test_id_prefix_resolution(vault, tmp_path):
     src, _ = _sample(tmp_path)
     meta = vault.quarantine(src)

@@ -24,11 +24,16 @@ REPORT = {
 
 
 class FakeResponse:
+    headers: dict = {}
+
     def __init__(self, body, status=200):
         self._body, self.status_code = body, status
 
     def json(self):
         return self._body
+
+    def iter_content(self, chunk_size=1):
+        yield json.dumps(self._body).encode()
 
 
 class FakeCape:
@@ -43,7 +48,7 @@ class FakeCape:
             return FakeResponse({"error": True, "error_value": "file too big"}, 400)
         return FakeResponse({"error": False, "data": {"task_ids": [42]}})
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, **kwargs):
         self.gets.append(url)
         if "/tasks/view/" in url:
             status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
@@ -90,6 +95,30 @@ def test_failures_are_reported_not_raised(tmp_path, fake, status):
     assert client(fake, wait=60).analyze(str(f)).status == status
 
 
+class OversizedReport(FakeCape):
+    """PR-S2: a finished report whose declared size is over the 128 MiB limit."""
+    def get(self, url, timeout=None, **kwargs):
+        r = super().get(url, timeout)
+        if "/get/report/" in url:
+            r.headers = {"Content-Length": str(200 * 1024 * 1024)}
+        return r
+
+
+@pytest.mark.parametrize("deadline", [None, 1e9])
+def test_an_oversized_report_is_an_error_not_a_wait(tmp_path, deadline):
+    """It will not get smaller: waited on as "unreadable" before, each poll
+    fetched it again until the scan's limit, and the reason was never named."""
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"x")
+    fake = OversizedReport(statuses=("reported",))
+    c = client(fake, wait=600)
+    res = c.analyze(str(f)) if deadline is None else c.analyze(str(f), deadline=deadline)
+    assert res.status == "error" and "limit" in res.detail
+    assert sum("/get/report/" in u for u in fake.gets) == 1
+    poll = c.poll(42)
+    assert poll.status == "error" and "limit" in poll.detail
+
+
 def test_unreachable_server(tmp_path):
     class Broken(FakeCape):
         def post(self, *a, **k):
@@ -98,6 +127,26 @@ def test_unreachable_server(tmp_path):
     f.write_bytes(b"x")
     r = client(Broken()).analyze(str(f))
     assert r.status == "error" and "unreachable" in r.detail
+
+
+def test_a_failed_status_check_is_pending_not_the_end(tmp_path):
+    """One network error during a poll ended the wait with an error, and the
+    intel service then forgot the task, so CAPE's report was never fetched."""
+    class Flaky(FakeCape):
+        failed = False
+
+        def get(self, url, timeout=None, **kwargs):
+            if "/tasks/view/" in url and not self.failed:
+                self.failed = True
+                raise ConnectionError("reset")
+            return super().get(url, timeout)
+    c = client(Flaky(statuses=("reported",)))
+    first = c.poll(42)
+    assert first.status == "pending" and "status check failed" in first.detail
+    assert c.poll(42).status == "reported"
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"x")
+    assert client(Flaky(), wait=60).analyze(str(f)).status == "reported"
 
 
 def test_scoring_dynamic_category():

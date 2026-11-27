@@ -102,7 +102,7 @@ class FakeCape:
         r.status_code, r._content = 200, b'{"error": false, "data": {"task_ids": [7]}}'
         return r
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, **kwargs):
         r = requests.Response()
         r.status_code = 200
         if "/tasks/view/" in url:
@@ -112,6 +112,7 @@ class FakeCape:
         else:
             r._content = b'{"malscore": 8.5, "signatures": [{"name": "ransomware_files", ' \
                          b'"severity": 3}]}'
+        r._content_consumed = True               # as if streamed: iter_content reads _content
         return r
 
 

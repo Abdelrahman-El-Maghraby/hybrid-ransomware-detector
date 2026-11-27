@@ -1,4 +1,4 @@
-# Findings register (production-hardening branch)
+# Findings register
 
 One current status list for every finding of the production review. It replaces
 the status columns of older tables (PROJECT_REVIEW 28.1, 31.10, 32.6, 33.6 and the
@@ -121,6 +121,26 @@ a regression test that failed before it and passes after it, on this Mac only.
 | TX-R2 | Defect in `2672376`, found in its cost review (2026-11-22): after the strings output was full, every further string read was kept in memory although none could reach the output, so a tail of white-space strings grew the Python heap about 10 MiB per MiB read (measured: 11.0, 31.4 and 61.0 MiB peaks for 1, 3 and 6 MiB tails; up to about 330 MiB at the 32 MiB read limit by extrapolation). Strings past the output are no longer kept: 3.3, 4.3 and 4.3 MiB on the same fixtures. Output and reasons unchanged | 0a6be7f (`tests/test_strings_limits.py::test_strings_that_cannot_reach_the_output_are_not_kept`) |
 | TX-2b | Gap, owner-approved bound (2026-11-22): the TX-2 search for a string after the 32 MiB read went on to the end of the file (measured: a 160 MiB file was read in full), bounded only by the worker time-out, or by nothing with `ISOLATE_SCANS=0`. It now reads at most 32 MiB more (`STRINGS_LOOKAHEAD_BYTES`), so the strings pass reads at most 64 MiB per file; bytes left after that, with no string found before them, give the reason "file bytes after the first 64 MiB not inspected for strings" (`partial`), which claims nothing about their content. The size check uses the file size, not a read. Extraction limits, strings, scores and verdicts unchanged. Optional faster search (B): done later as TX-2c (below) | 0a6be7f (`tests/test_strings_limits.py`: bytes read counted at small limits and on sparse files at the real 64 MiB, a zip through a real scan worker) |
 | TX-2c | Improvement, owner-requested optimisation B (2026-11-22): the bounded lookahead visited every printable run in Python, white-space-only runs included. A chunk with no byte in `\x21-\x7e` at or after the first unread byte cannot hold a qualifying run, so one regular-expression search now skips it; other chunks use the unchanged loop. Identical output and reasons (300,248 compared cases); measured on 9 MiB fixtures: 9.1x faster for space-only runs, 4.3x with text near the end, 2.4x for NUL padding, unchanged for short or mixed runs, and about 11 ms slower per 8 MiB of long space runs. **Not improved:** a file with one non-space byte in every chunk (measured 0.31 s per 8 MiB before and after). A whole-run regular expression (candidate 1) was identical but up to 10x slower and was discarded | 38c817b (`tests/test_strings_limits.py`: reference comparison, spy tests that fail on `0a6be7f`) |
+| PR-W1 | Post-release review (2026-11-27), reproduced: a worker reply that passed the shape check with `scan_results.scan_failed` or `layer_errors` mistyped, or a text `scan_duration_ms`, raised in the parent's metrics and lost the whole batch's results. Those fields and non-finite numbers are now an invalid reply (that file fails) | `fd29e39` |
+| PR-W2 | Reproduced in-process: after the last of several parallel slow layers answered, the parent kept the snapshot marking it stopped at timeout; a stall in the final assembly would have replaced a real VirusTotal/LLM answer with a timeout. The snapshot is cleared after every slow-layer group | `d92403c` |
+| PR-A1 | Reproduced: the API stored uploads as `upload<ext>`, so M30's right-to-left-override name check never saw the client's name (Clean through the API, High from the CLI). A plain name ending in the scanned extension is now kept inside the private work folder; device names, separators, control characters, trailing dots and long names fall back | `39dc503` |
+| PR-C1 | Reproduced: canaries are stored by real path, but the scan walk and a redeploy compared the unresolved path; through a linked folder canaries became scan targets and a redeploy warned about its own files | `208e14d` |
+| PR-S1 | Reproduced with a stand-in: one network error during a CAPE status check ended the wait with an error, and the intel service then forgot the task, so in Docker the report was never fetched. `poll()` now treats it as pending, as the bounded wait already did | `5904898` |
+| PR-R1 | CI flake (PR #25, macOS): the VirusTotal deadline test allowed 0.1 s of wall-clock slack; it now asserts the scan limit itself | `0c47a31` |
+| PR-D1 | Register, matrix, project map and releasing notes still said no CI ran after `3e5a3f2` | `0c47a31` |
+| B4-O1 | B4 investigation (2026-11-27, second pass), reproduced with a 6.6 KB inert file: olefile follows a stream's FAT chain for its declared size (up to 4 GiB) and re-reads a looping sector; olevba reads every stream of every OLE file, the .msg reader its property streams (4 MiB declared: 9.3 MiB peak). Every declared read is now capped at the file size, which keeps every byte the file holds. Review (`29f2206`): the cap no longer moves a stream from the FAT to the MiniFAT in a file under the 4,096-byte cutoff, leaves olefile's own unknown size (0x7FFFFFFF, already bounded by the FAT olefile cuts to the file) alone, and is installed only over olefile 0.47's `_open` signature. Differential run: 300 valid generated files and 1,482 of 1,500 mutated ones give identical bytes and parsing issues; the other 18 read past the file in the original (8 amplified, 10 longer), where the bound returns a prefix holding every distinct sector. Candidate cause of the 27.5 / B4 OOMs, not confirmed | `2a6f76c`, `29f2206` |
+| B4-P1 | Reproduced: pypdf caches each decoded stream for the reader's lifetime, so the hidden-text check and the QR image walk held every page's decoded content (memory grew per page; about 3.75 GB possible from a 19 KB PDF). Released after each page; coverage unchanged | `63658a3` |
+| PR-S2 | Was a suspicion: CAPE reports were buffered (gzip-decoded) and parsed without a bound. Streamed and capped at 128 MiB of decoded bytes. Review (`8852880`): over the limit was read as M34's "not finished yet", so the scan polled to its limit, fetched the report again each time and ended as a timeout with no reason; it is now a sandbox error naming the limit (scan partial, not cached) | `5a9e3a5`, `8852880` |
+| PR-Q1 | Was a suspicion, reproduced deterministically: restore replaced a file created at the destination during decryption, a dangling link, or an earlier `.restored-<id>` copy. Target reserved with `O_EXCL` first | `7221c64` |
+| PR-F1 | Was a suspicion, reproduced: after `stop()` timed out on a running scan, `start()` revived the old loop beside the new one. One stop event per run | `11144b8` |
+| AR-1 | Review (2026-11-27): the API's upload size and upload-time limits were read before `.env` was loaded, so `.env` values were ignored | `64425f7` |
+| RV-O1, RV-O2 | A non-UTF-8 outbox entry was never removed; a deleted `sent/` folder stopped every flush silently | `1e22a3f` |
+| RV-L1 | An LLM reply without `is_suspicious` (e.g. `{}`) read as analysed and clean and was cached 24 h | `672730e` |
+| AR-2 | `AEGIS_API_AUTH_WINDOW_SECONDS=0` or `AEGIS_API_AUTH_LOCKOUT_SECONDS=0` switched the failed-token lockout off, as L-E2 found for nan; 0 was never documented as off (only the two rate limits document "0 = no limit"; `AEGIS_API_AUTH_FAILURES` is clamped to at least 1). Both must now be above 0: the server stops with `remove it to use the default (300/900)`; upgrade step in CHANGELOG | `0305f29`, `648a80b` |
+| AR-3 | A client name over the stored-name limit (or with a backslash) fell back to `upload<ext>` after being cut to 200 characters, so M30 never saw its right-to-left override and a long name lost its extension. The extension and stored name come from the whole name; the fallback keeps the override. Rules and weights unchanged | `0305f29` |
+| RV-L2 | Confirmed: the desktop LLM cache (by SHA-256) stored an answer given on partly read text (OCR missing, a page or strings limit) and served it to a later complete scan. Stored only when the text was read in full; the intel service keys by the text itself | `78fb35a` |
+| RV-V1 | Confirmed: a VirusTotal 200 reply with empty or missing `last_analysis_stats` read as complete and clean. As CO-1, it is now a layer error (partial), not cached | `5962225` |
+| RV-C1 | Confirmed: the scheduled canary check shared a thread with the outbox flush and cloud uploads (network timeouts, no total budget), so a hung receiver delayed it; without real-time watching it is the only tripwire. Canary jobs now have their own thread, same cadence | `46c788a` |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -130,7 +150,8 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 
 | ID | Description | Why it stays open | Next action |
 |---|---|---|---|
-| 27.5 / B4 | Long fuzz campaigns ended in out-of-memory failures | Restricted: replay only in the isolated VM | VM investigation, separately authorized |
+| 27.5 / B4 | Three Atheris runs (2026-10-29) ended in out-of-memory after 30 to 85 s of fuzzing, not after long campaigns; the logs show one input growing past 4 GB (H1), not accumulation. Candidate root-cause repairs B4-O1 (most likely) and B4-P1 are implemented; the cause is not confirmed | Replay and campaigns only in the isolated VM | [VM validation guide](tasks/b4-vm-validation-guide.md) (owner-run, not executed); background in the [brief](tasks/b4-and-open-findings-2026-11-27.md#3-b4-vm-validation-procedure-owner-run-not-executed-here) |
+| PR-M1 | The worker memory limit is per process. On macOS the watchdog reads only the worker's own pid, so helper programs it starts (7-Zip, unar, pdftoppm/Tesseract, box-js) are not counted; on Linux and Windows each helper inherits its own copy of the limit. Confirmed by code (`engine/workers.py` `_over_memory`, `_limit_memory`); not measured | Counting helpers changes containment and needs a memory measurement that is excluded on this host | Owner decision between options A to D in the [brief](tasks/b4-and-open-findings-2026-11-27.md#5-pr-m1-no-code-change-policy); measure in the VM |
 
 ### Documented ambiguities (left unchanged on purpose)
 
@@ -167,6 +188,10 @@ none is implemented.
 | S-03 | Concurrent canary checks race on the last signature | Still not reproduced. Because I-4 runs the scheduled check on its own thread (and the real-time watcher already ran one), the compare-and-set now runs under a lock (`f8af202`); the two-thread test still passes |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
 | H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
+| SU-1 to SU-4 | API token from the environment with trailing white space never matches; spooled upload files after an interrupted form; per-address limits behind a Kubernetes Service; deep JSON to intel giving 500 | Not reproduced (review 2026-11-27) |
+| RV-S6 | Canary watcher `running` checks only that an observer exists; a webhook redirect counted as delivered (and its body read unbounded); an empty canary registry disarming canaries; an alert whose channels are all disabled marked sent | Not reproduced (review 2026-11-27) |
+| RV-I1 | Intel capabilities are kept for the life of an `IntelClient`, so a restarted intel with another LLM model would keep the old model in the cache key | No cache-key impact found: with intel configured the analysis side keeps no cache (`scanner.cache is None`), and every API upload is scanned in a freshly spawned worker that reads capabilities on first use. Residual: a spare worker started before an intel restart can use the old capabilities for its one scan. No code change |
+| B4-O2 | olefile's `loadfat` follows a DIFAT chain `num_fat_sectors`-times even when it repeats one sector | Measured (bounded, 512-byte sectors): memory linear, about 124 KB per repeat; time quadratic (40 repeats 0.21 s, 160 repeats 4.05 s, 19.9 MiB). Far too slow to match B4's 4 GB in 11 to 17 s; bounded by the scan time limit. Not patched (another private olefile method). olefile's directory read is already bounded: it cuts the FAT to the file |
 | RV-S5 | The outbox writes without `fsync`; a power loss could leave an empty file | Not reproduced (no power-loss test here). Checked the consequence: an empty entry is removed with an ERROR naming the alert id, so the loss would be visible, not silent. Uncertainty: whether the platform's file system can leave an empty renamed file |
 
 ## 4. Deferred improvements (not started on purpose)
@@ -186,12 +211,16 @@ non-ASCII API token at start-up; deriving the proxy cap from `AEGIS_API_MAX_UPLO
 
 The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md).
 
-- **CI:** no workflow has run on any commit after `3e5a3f2`; the daily audit (I-3)
-  and the release job (M16, I-B2, the pip change) run only on GitHub.
+- **CI:** `tests` (Ubuntu, Windows, macOS; Python 3.9 and 3.12), `quality` and
+  `docker` pass on main at the 4.8.0 release commit `da7d6c9`, and the release
+  workflow built and signed 4.8.0 from it (VERIFICATION_MATRIX section 17 for the
+  merge; section 18 for this review). The daily audit (I-3) runs only on GitHub.
+  CI shows the suite passes on those platforms; it does not exercise the
+  platform-specific items below beyond what the tests cover.
 - **Windows:** RV-1 and RA-1 (the Kubernetes tests; procedure in VERIFICATION_MATRIX section 5), M2, M9, M20, M24 (what mail clients and archive tools save), M30
   names, L-A5 order, L-E6 (only a stand-in kernel32 was used), the Job Object path for
   L-E5, worker pipes (M18), toasts, containment, autostart.
-- **Linux:** the worker process groups (L-E5) and the rest of the suite (no CI run).
+- **Linux:** the suite passes in CI; worker session escapes (L-E5) are not covered.
 - **Docker:** `deploy/check-deployment.sh`, M26 through intel (and intel's own CAPE
   requests, which continue after a worker stops waiting), M27, I-B3, the L-B4
   image, backup scripts on real volumes, D22/D23.

@@ -52,15 +52,18 @@ class FakeWatcher:
 def jobs():
     schedule.clear()
     RS.SERVICE_JOBS.clear()
+    RS.CANARY_JOBS.clear()
     yield
     schedule.clear()
     RS.SERVICE_JOBS.clear()
+    RS.CANARY_JOBS.clear()
 
 
 def run_all_jobs():
     """Every job of both schedulers (scans; short jobs, I-4) runs once."""
     schedule.run_all()
     RS.SERVICE_JOBS.run_all()
+    RS.CANARY_JOBS.run_all()
 
 
 CONFIG = {"scan_interval_hours": 24, "canary_check_minutes": 5, "imap_check_minutes": 0}
@@ -82,7 +85,8 @@ def test_a_failing_job_is_logged_counted_and_the_others_still_run(jobs, caplog):
     assert "No space left on device" in caplog.text
     # nothing cancelled: the scan here, canary check and refresh, outbox, cloud
     # upload and cleanup on the short-job scheduler (I-4)
-    assert len(schedule.get_jobs()) == 1 and len(RS.SERVICE_JOBS.get_jobs()) == 5
+    assert len(schedule.get_jobs()) == 1 and len(RS.SERVICE_JOBS.get_jobs()) == 3
+    assert len(RS.CANARY_JOBS.get_jobs()) == 2                 # RV-C1
 
 
 def test_the_loop_keeps_running_and_the_next_canary_check_runs(jobs, monkeypatch):

@@ -256,3 +256,40 @@ def test_a_stalled_upload_gives_up_its_slot(monkeypatch):
     with pytest.raises(HTTPException) as e:
         asyncio.run(server._scan_upload(Stalled(), None, None))
     assert e.value.status_code == 408
+
+
+@pytest.mark.parametrize("setting", ["AEGIS_API_AUTH_WINDOW_SECONDS", "AEGIS_API_AUTH_LOCKOUT_SECONDS"])
+def test_a_zero_lockout_setting_is_refused(tmp_path, monkeypatch, setting):
+    """AR-2: 0 let every wrong token through without a lockout, like nan (L-E2)."""
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    monkeypatch.setenv(setting, "0")
+    with pytest.raises(RuntimeError, match=f"{setting}='0' must be a finite number above 0; "
+                                            r"remove it to use the default \(\d+\)"):
+        create_app(_config(tmp_path), token="t" * 32, isolate=False)
+
+
+@pytest.mark.parametrize("window,lockout", [("", ""), ("300", "900"), ("0.5", "1"), ("86400", "604800")])
+def test_positive_lockout_settings_still_start(tmp_path, monkeypatch, window, lockout):
+    """AR-2: only 0 (and nan, inf, negatives, as before) is refused."""
+    pytest.importorskip("fastapi")
+    from api.server import create_app
+    from tests.test_scanner_integration import _config
+    monkeypatch.setenv("AEGIS_API_AUTH_WINDOW_SECONDS", window)
+    monkeypatch.setenv("AEGIS_API_AUTH_LOCKOUT_SECONDS", lockout)
+    assert create_app(_config(tmp_path), token="t" * 32, isolate=False) is not None
+
+
+def test_a_zero_lockout_setting_stops_the_server_with_its_message(monkeypatch):
+    """What an operator with 0 in .env sees: one line, no traceback, no listener."""
+    pytest.importorskip("fastapi")
+    import api.server as srv
+    monkeypatch.setattr("engine.config.init_runtime", lambda *a, **k: None)
+    monkeypatch.setenv("AEGIS_API_AUTH_LOCKOUT_SECONDS", "0")
+    monkeypatch.setenv("AEGIS_API_TOKEN", "t" * 32)
+    monkeypatch.setattr(srv, "create_app", lambda: srv._Auth("t" * 32, False))
+    with pytest.raises(SystemExit) as stop:
+        srv.main()
+    assert str(stop.value) == ("aegis-api: AEGIS_API_AUTH_LOCKOUT_SECONDS='0' must be a finite "
+                               "number above 0; remove it to use the default (900)")

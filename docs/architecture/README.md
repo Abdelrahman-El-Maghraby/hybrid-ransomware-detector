@@ -5,7 +5,9 @@ views), drawn from the code and checked against it. All of them were reviewed on
 2026-11-19 against commit `e012d3f` on `review/production-hardening` (application code
 last changed in `d45715a`; `deploy/kubernetes/` in `a1c752e`); the review record is
 [DIAGRAM_REVIEW](../security-overview/DIAGRAM_REVIEW.md). Class, method and message names
-are the ones in the code. The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md); the full
+are the ones in the code. Rechecked on 2026-11-27 against the code changes of pull request #49
+(up to `648a80b`): no drawing changed; the background-service rows in section 4 now
+say that canary checks have their own thread (RV-C1). The prose tour is in [ARCHITECTURE](../ARCHITECTURE.md); the full
 technical overview (PDF) is in [security-overview](../security-overview/README.md).
 
 | # | Diagram | Question it answers | Drawing | Definition |
@@ -148,7 +150,7 @@ Parent to worker: the file path, then `None` to stop.
 |---|---|---|
 | GUI (`ScanController`) | `scan_one()`, `scan_directory()` or `scan_all_directories()` | dashboard, report files, JSON Lines, alerts, cloud; vault after folder scans |
 | CLI | `scan_one()` (`--scan-file`) or `run_scan()` (`--scan-now`) | console report, report files, JSON Lines, alerts, cloud; vault after folder scans |
-| Background service | `run_scan()` on a schedule (main loop; the short jobs run on their own thread) | report files, JSON Lines, alerts, cloud, vault |
+| Background service | `run_scan()` on a schedule (main loop; canary checks on one thread, alert retries and cloud uploads on another) | report files, JSON Lines, alerts, cloud, vault |
 | Folder monitoring (`FolderMonitor`) | `_scan_targets()` | report files, JSON Lines, alerts, cloud, vault |
 | IMAP mailbox (`MailboxScanner`) | `_scan_targets()` | report files, JSON Lines, alerts, cloud, vault |
 | REST API (`_ScanService`) | `scan_isolated()` | JSON response, e-mail alerts |
@@ -167,7 +169,7 @@ Output behaviour that differs by entry point, and why:
 | No report file for a cancelled GUI scan; alerts and JSON Lines still go out | GUI | Yes: what was found is still delivered |
 | E-mail alerts only; no webhook, JSON Lines, report file or cloud upload | REST API (`_Alerts` clears `webhook_url`) | Yes: the Docker analysis side has no network |
 | Partly unscanned monitor batch: the scanned files get their outputs, only the unscanned ones are retried | Folder monitor | Fixed in this review: the whole batch was held back before |
-| Scheduled short jobs (canary checks, alert retries, cloud uploads) run beside a long scan | Background service | Fixed in this review (I-4) |
+| Scheduled short jobs (canary checks, alert retries, cloud uploads) run beside a long scan; a slow alert flush or upload does not delay the canary check | Background service | Fixed in reviews (I-4; RV-C1) |
 
 ### 5. Deployment and trust boundaries
 
@@ -257,7 +259,7 @@ repository.
 graph diagrams 1 to 5 were first drawn from: 6,366 nodes covering all 253 Python files at
 commit `72aa761`, grouped into named communities. It is a **snapshot of
 `72aa761`** and the page says so; it does not include the later code changes
-listed in [HANDOFF](../HANDOFF.md) (the background scheduler, the folder monitor's
+recorded in the [findings register](../FINDINGS_REGISTER.md) (the background scheduler, the folder monitor's
 partial batches, the evaluation summary, the layer-order check and a GUI label), nor
 the optional Kubernetes deployment in `deploy/kubernetes/`. It is a single page; it loads
 the `vis-network` 9.1.6 library from unpkg, so it needs an internet connection.

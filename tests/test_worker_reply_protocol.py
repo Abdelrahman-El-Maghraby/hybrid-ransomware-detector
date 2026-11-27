@@ -90,6 +90,16 @@ def test_an_oversized_message_is_refused_before_it_is_read(pipe, monkeypatch):
     (json.dumps(["ok", _result(risk_score=True)]).encode(), "risk_score is a bool"),
     (json.dumps(["ok", _result(scan_results=[])]).encode(), "scan_results is a list"),
     (json.dumps(["ok", _result(incomplete_reasons=["x"])]).encode(), "not objects"),
+    # Shapes the parent's metrics read outside any guard; before the fix one such
+    # reply raised in the parent and lost the results of the whole batch.
+    (json.dumps(["ok", _result(scan_duration_ms="abc")]).encode(), "scan_duration_ms is a str"),
+    (json.dumps(["ok", _result(scan_results={"scan_failed": "x"})]).encode(),
+     "scan_results.scan_failed is not an object"),
+    (json.dumps(["ok", _result(scan_results={"layer_errors": 5})]).encode(),
+     "scan_results.layer_errors is not an object"),
+    (b'["ok", ' + json.dumps(_result(risk_score=0)).replace('"risk_score": 0', '"risk_score": NaN').encode() + b']',
+     "risk_score is not finite"),
+    (json.dumps(["ok", _result(severity_score=float("inf"))]).encode(), "severity_score is not finite"),
 ], ids=lambda v: v.decode("latin-1")[:24] if isinstance(v, bytes) else None)
 def test_malformed_and_unexpected_messages_are_refused(pipe, raw, why):
     parent, child = pipe

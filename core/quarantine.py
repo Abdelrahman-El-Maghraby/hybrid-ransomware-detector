@@ -476,9 +476,9 @@ class QuarantineVault:
         dest = Path(destination) if destination else Path(meta["original_path"])
         if dest.exists() and dest.is_dir():
             dest = dest / meta.get("original_name", f"{item_id}.bin")
-        if dest.exists() and not overwrite:
-            dest = dest.with_name(f"{dest.name}.restored-{item_id}")
         dest.parent.mkdir(parents=True, exist_ok=True)
+        reserved = None if overwrite else _reserve(dest, item_id)
+        dest = reserved or dest
 
         fd, tmp_name = tempfile.mkstemp(prefix=".restore-", dir=str(dest.parent))
         tmp = Path(tmp_name)
@@ -492,6 +492,8 @@ class QuarantineVault:
             os.replace(tmp, dest)
         except Exception:
             tmp.unlink(missing_ok=True)
+            if reserved is not None and _is_empty_file(reserved):
+                reserved.unlink(missing_ok=True)        # our placeholder, never written
             raise
         try:
             os.chmod(dest, int(meta.get("mode", 0o600)) & 0o777)
@@ -559,3 +561,26 @@ class QuarantineVault:
             return False
         finally:
             logger.disabled = was_disabled
+
+
+def _reserve(dest: Path, item_id: str) -> Path:
+    """PR-Q1: create the restore target exclusively before decrypting into its
+    folder, so a file (or link) that appears there meanwhile is never replaced
+    without `overwrite`. A taken name falls back to `<name>.restored-<id>`; if
+    that is taken too, nothing is written."""
+    for candidate in (dest, dest.with_name(f"{dest.name}.restored-{item_id}")):
+        try:
+            os.close(os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            return candidate
+        except FileExistsError:
+            continue
+    raise QuarantineError(f"{dest} and {dest.name}.restored-{item_id} already exist; "
+                          "nothing was overwritten (restore with overwrite or another "
+                          "destination)")
+
+
+def _is_empty_file(path: Path) -> bool:
+    try:
+        return path.is_file() and not path.is_symlink() and path.stat().st_size == 0
+    except OSError:
+        return False

@@ -138,6 +138,47 @@ def test_hostile_file_names_are_not_used_as_paths(client):
     assert r.status_code == 200 and r.json()["file_name"] == "passwd;rm -rf .pdf"
 
 
+def test_the_upload_name_reaches_the_name_checks(client):
+    """M30 through the API: the upload was stored as `upload<ext>`, so a
+    right-to-left override in the client's name scored Clean here and High from
+    the CLI. Unusable names still fall back to `upload<ext>`."""
+    r = client.post("/scan", headers=auth(),
+                    files={"file": ("invoice\u202efdp.txt", b"hello world\n")}).json()
+    assert r["file_name"] == "invoice\u202efdp.txt"
+    assert "file_rtlo_spoof" in {c["indicator"] for c in r["score_breakdown"]["contributions"]}
+    assert r["verdict"] != "Clean"
+
+
+def test_a_long_upload_name_still_reaches_the_name_checks(client):
+    """AR-3: a name over the length limit was stored as `upload<ext>` and cut to
+    200 characters, so the override and the extension were both lost."""
+    r = client.post("/scan", headers=auth(),
+                    files={"file": ("a" * 250 + "\u202efdp.txt", b"hello world\n")}).json()
+    assert "file_rtlo_spoof" in {c["indicator"] for c in r["score_breakdown"]["contributions"]}
+    assert r["verdict"] != "Clean"
+
+
+@pytest.mark.parametrize("name,ext,stored", [
+    ("Report.PDF", ".pdf", "Report.pdf"),
+    ("invoice\u202efdp.txt", ".txt", "invoice\u202efdp.txt"),
+    ("README", "", "README"),
+    ("NUL.pdf", ".pdf", "upload.pdf"),            # M20: a Windows device
+    ("a:b.pdf", ".pdf", "upload.pdf"),            # an NTFS stream
+    ("a\\b.pdf", ".pdf", "upload.pdf"),
+    ("bad\x01.pdf", ".pdf", "upload.pdf"),
+    ("invoice.pdf.js.", ".js", "upload.js"),       # M24: Windows would drop the dots
+    ("x.$$$", "", "upload"),                       # an extension upload_extension refused
+    ("\udcff.pdf", ".pdf", "upload.pdf"),          # not encodable
+    ("\u00e9" * 150 + ".pdf", ".pdf", "upload.pdf"),  # over the byte limit
+    ("a" * 250 + "\u202efdp.txt", ".txt", "upload\u202e.txt"),  # AR-3: too long, override kept
+    ("a\\b\u202efdp.txt", ".txt", "upload\u202e.txt"),
+])
+def test_stored_upload_names(name, ext, stored):
+    from api.server import stored_name, upload_extension
+    assert upload_extension(name) == ext
+    assert stored_name(name, ext) == stored
+
+
 def test_upload_size_limit(client, monkeypatch):
     import api.server as srv
     monkeypatch.setattr(srv, "MAX_UPLOAD_MB", 0.001)
@@ -168,3 +209,25 @@ def test_api_results_never_show_the_server_work_folder(client):
     text = r.text
     assert "aegis_api_" not in text and "upload.zip" not in text
     assert "bundle.zip!/tool.exe" in text
+
+
+def test_upload_limits_set_in_the_env_file_are_honoured(monkeypatch):
+    # AR-1: both limits were read at import, before main() loaded .env.
+    pytest.importorskip("uvicorn")
+    import uvicorn
+
+    import api.server as server
+    import engine.config as config
+    for name in ("MAX_UPLOAD_MB", "UPLOAD_SECONDS"):
+        monkeypatch.setattr(server, name, getattr(server, name))        # restored afterwards
+
+    def load_env_file():                                  # what .env would contain
+        monkeypatch.setenv("AEGIS_API_MAX_UPLOAD_MB", "7")
+        monkeypatch.setenv("AEGIS_API_UPLOAD_SECONDS", "30")
+
+    monkeypatch.setattr(config, "init_runtime", load_env_file)
+    monkeypatch.setattr(server, "create_app", lambda: object())
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.delenv("AEGIS_API_SOCKET", raising=False)
+    server.main()
+    assert (server.MAX_UPLOAD_MB, server.UPLOAD_SECONDS) == (7.0, 30.0)

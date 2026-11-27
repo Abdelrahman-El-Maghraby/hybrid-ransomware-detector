@@ -55,14 +55,16 @@ class ExternalLookupsMixin:
 
     def analyze_with_llm(self, file_path: str, file_content: Optional[str] = None,
                          embedded_strings: Optional[str] = None,
-                         sha256: Optional[str] = None) -> Dict:
+                         sha256: Optional[str] = None, complete: bool = True) -> Dict:
         """Send document content + embedded strings to the configured LLM backend.
 
         The backend is chosen once at init (local Ollama by default for OPSEC,
         cloud OpenAI optional). Prompt-injection hardening lives in the backend:
         analyst instructions in the system role, untrusted file content in the
         user role wrapped in per-request nonce delimiters, temperature 0,
-        JSON-only output. Answers are cached by SHA-256 when one is given.
+        JSON-only output. Answers are cached by SHA-256 when one is given, and
+        stored only when `complete` (RV-L2: an answer on partly read text must not
+        stand for the whole file in a later scan).
         """
         try:
             if not getattr(self.llm_backend, "available", True):
@@ -112,7 +114,7 @@ class ExternalLookupsMixin:
                                     "local" if self.llm_backend.is_local else "cloud")
                 result = self.llm_backend.analyze(combined,
                                                   timeout=self._call_timeout(180, end))
-            if sha256 and self.cache is not None and result.get("analyzed"):
+            if sha256 and complete and self.cache is not None and result.get("analyzed"):
                 self.cache.put(sha256, cache_layer, result)
             if not result.get("cached"):             # intel may have answered from its cache
                 result = dict(result, sent=["text"],
@@ -274,6 +276,13 @@ class ExternalLookupsMixin:
 
                 # Calculate detection ratio
                 total_engines = sum(v for v in stats.values() if isinstance(v, int))
+                if not total_engines:
+                    # RV-V1, as CO-1: a record with no engine results (still queued) is
+                    # no answer, not a clean one
+                    return self._vt_empty(error="VirusTotal has no engine results for this "
+                                                "file yet.",
+                                          details="VirusTotal knows the file but has no "
+                                                  "analysis results yet (look it up later).")
                 malicious = stats.get("malicious", 0)
                 suspicious = stats.get("suspicious", 0)
                 detection_ratio = (malicious + suspicious) / total_engines if total_engines > 0 else 0
@@ -286,7 +295,7 @@ class ExternalLookupsMixin:
                     "total_engines": total_engines,
                     "permalink": f"https://www.virustotal.com/gui/file/{file_hash}/detection"
                 }
-                if self.cache is not None and total_engines:
+                if self.cache is not None:
                     self.cache.put(file_hash, self._vt_cache_layer(), result)
                 return result
             if response.status_code == 404:

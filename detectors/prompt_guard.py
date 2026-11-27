@@ -371,6 +371,7 @@ class PromptGuard:
                 if contents is None:
                     continue
                 data = contents.get_data()
+                release_decoded_streams(reader)
                 # "3 Tr" selects the invisible text render mode; it only matters
                 # if text is actually shown afterwards (Tj / TJ / ' / ").
                 if re.search(rb"(?<![\d.])3\s+Tr\b", data) and re.search(rb"\bT[jJ]\b|['\"]\s", data):
@@ -535,6 +536,20 @@ def _xls_sheet_states(path: Path) -> List[Tuple[str, int]]:
         name = raw.decode("utf-16-le" if high else "latin-1", errors="replace")
         sheets.append((name, state))
     return sheets
+
+
+def release_decoded_streams(reader) -> None:
+    """Drop pypdf's cached decoded copy of every stream the reader resolved (B4).
+
+    pypdf keeps each decoded stream on its object (``decoded_self``) for the
+    reader's lifetime, so a small PDF whose 50 pages each decode to pypdf's
+    75 MB stream cap held about 3.75 GB at once. Callers that read one page at a
+    time call this after each page; a stream shared by pages is decoded again,
+    within pypdf's own caps.
+    """
+    for obj in list(getattr(reader, "resolved_objects", {}).values()):
+        if getattr(obj, "decoded_self", None) is not None:
+            obj.decoded_self = None
 
 
 def _read_xml(zf: zipfile.ZipFile, name: str, found: _Findings):

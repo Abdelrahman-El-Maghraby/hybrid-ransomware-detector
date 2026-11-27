@@ -249,6 +249,19 @@ def test_vt_hit_is_scored_and_cached(tmp_path):
     assert len(h.http.seen) == 1
 
 
+@pytest.mark.parametrize("body", [{"data": {"attributes": {"last_analysis_stats": {}}}},
+                                  {"data": {"attributes": {}}}])
+def test_vt_record_without_engine_results_is_no_answer(tmp_path, body):
+    """RV-V1, as CO-1: a known file with no engine results yet read as complete
+    and clean. It is now a layer error (partial) and is not cached."""
+    f = tmp_path / "f.bin"
+    f.write_bytes(b"x")
+    h = Host(tmp_path, [Resp(200, body), Resp(200, STATS)])
+    r = h.scan_file_with_virustotal(str(f))
+    assert r["error"] and not r["is_malicious"] and not r.get("cached")
+    assert h.scan_file_with_virustotal(str(f))["total_engines"] == 70   # asked again
+
+
 def test_vt_unknown_without_upload_and_errors(tmp_path):
     f = tmp_path / "f.bin"
     f.write_bytes(b"x")
@@ -291,6 +304,10 @@ def test_llm_glue_skips_caches_and_survives_errors(tmp_path):
     r1 = h.analyze_with_llm("f", "text", "strings", sha256="d" * 64)
     r2 = h.analyze_with_llm("f", "text", "strings", sha256="d" * 64)
     assert r1["is_malicious"] and r2.get("cached") and Counting.n == 1
+    # RV-L2: an answer on partly read text is not stored for the whole file
+    h.analyze_with_llm("f", "part", "strings", sha256="e" * 64, complete=False)
+    assert not h.analyze_with_llm("f", "all", "strings", sha256="e" * 64).get("cached")
+    assert Counting.n == 3
     assert "No content" in h.analyze_with_llm("f", " ", " ")["details"]
     assert h.analyze_with_chatgpt is not None
 

@@ -128,6 +128,9 @@ def _parse_analysis(content: str) -> Dict:
         return _empty_analysis("LLM response was not valid JSON.", error=True)
     if not isinstance(data, dict):
         return _empty_analysis("LLM response was not a JSON object.", error=True)
+    if "is_suspicious" not in data:
+        # RV-L1: "{}" or a reply without the verdict is no opinion, not "clean"
+        return _empty_analysis("LLM response had no is_suspicious verdict.", error=True)
     try:
         confidence = float(data.get("confidence_score", 0) or 0)
     except (TypeError, ValueError):

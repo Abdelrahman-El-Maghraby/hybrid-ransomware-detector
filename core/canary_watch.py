@@ -27,7 +27,7 @@ from typing import Any, Callable, List, Optional, Set
 
 from detectors.file_integrity import RANSOM_NOTE_RE
 
-from .canary import CanaryManager, _norm
+from .canary import CanaryManager, norm_path
 
 logger = logging.getLogger("RansomwareScanner.canary")
 
@@ -122,7 +122,7 @@ class CanaryWatcher:
 
     # ----------------------------------------------------------------- events
     def is_relevant(self, path: str) -> bool:
-        p = _norm(path)
+        p = norm_path(path)
         if p in self._canaries:
             return True
         # A canary renamed with an appended extension (x.docx -> x.docx.lockbit).

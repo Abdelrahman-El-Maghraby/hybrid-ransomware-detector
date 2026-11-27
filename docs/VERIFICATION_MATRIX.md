@@ -35,9 +35,9 @@ available), **history** (an earlier revision only).
 
 | Check | macOS 27.2.1 arm64 (this Mac) | Linux | Windows |
 |---|---|---|---|
-| Worker IPC: JSON replies, size and type checks, invalid replies | passed here (full suite) | history: CI `3e5a3f2` predates M18 | history: CI `3e5a3f2` predates M18 |
-| Time limit, partial and failed results, fail-closed start | passed here | history (CI `3e5a3f2`) | history (CI `3e5a3f2`) |
-| Memory limit | RSS watchdog: passed here with stand-ins; the runaway-allocation test is deselected (memory spike) | RLIMIT_AS: pending | Job Object: stand-in only |
+| Worker IPC: JSON replies, size and type checks, invalid replies | passed here (full suite) | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
+| Time limit, partial and failed results, fail-closed start | passed here | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
+| Memory limit (the worker process only; helpers: PR-M1) | RSS watchdog: stand-in tests passed here; the runaway-allocation test is not run here (memory spike) but passed in CI on macOS (`da7d6c9`) | RLIMIT_AS: runaway-allocation test passed in CI (`da7d6c9`) | Job Object: runaway-allocation test passed in CI (`da7d6c9`) |
 | Helper cleanup (L-E5) | passed here: escaped-helper tests; probe confirms the reparent-before-discovery limit | process groups: pending | Job Object: pending |
 | Liveness of a stale worker folder (L-E6) | n/a | n/a | stand-in kernel32 only |
 | Canary containment (`stop_writers`, `lock_folders`, `network_off`) | unit tests with stand-ins; no real process suspended | pending | Restart Manager and Controlled Folder Access: pending |
@@ -47,7 +47,7 @@ available), **history** (an earlier revision only).
 
 | Check | Status |
 |---|---|
-| `deploy/check-deployment.sh` (build, isolation, health, signed rule pack, M27) | pending: the Docker daemon is not running on this Mac; CI's `docker` job last ran on `3e5a3f2` |
+| `deploy/check-deployment.sh` (build, isolation, health, signed rule pack, M27) | passed in CI's `docker` job on Ubuntu (`da7d6c9`, run 45620268850) and in the release `image` job for 4.8.0; not run on this Mac (Docker daemon off) |
 | `analysis` has no network; intel reaches only allowlisted destinations | pending (compose file read; not run) |
 | Backup and restore scripts on real volumes | pending |
 | Upgrade from 4.7 and rollback of a rule pack | pending |
@@ -90,9 +90,9 @@ available), **history** (an earlier revision only).
 | Check | Status |
 |---|---|
 | Wheel contents (M15) | history: passed at `72aa761`; packaging files unchanged since |
-| Desktop binaries (PyInstaller) | pending: the release workflow runs on a tag only |
-| Release gate (M16), SBOM, hash-pinned tools | pending: GitHub only |
-| Python 3.9 and 3.12 | pending: CI only; this Mac runs 3.14.2 |
+| Desktop binaries (PyInstaller) | built and smoke-tested by `build.py` in the 4.8.0 release run (45630024216) on Windows, macOS arm64 and Linux; not run on a display |
+| Release gate (M16), SBOM, hash-pinned tools | passed in the 4.8.0 release run (GitHub) |
+| Python 3.9 and 3.12 | CI passed on all three systems (`da7d6c9`); 3.9 installs latest releases, not the lock (S-04); this Mac runs 3.14.2 |
 | Linux and Windows ARM64, macOS Intel | pending: no runner |
 
 ### Detection effectiveness
@@ -453,3 +453,69 @@ Python 3.14): **2,317 passed, 8 skipped, 0 failed**.
 
 Not run: fuzz campaigns (restricted), Kubernetes cluster, real samples, real
 external services. Release readiness is unchanged by this section.
+
+## 18. Post-release review (2026-11-27, Claude Code)
+
+Branch `review/remaining-issues-2026-11-27` from `da7d6c9`; macOS arm64, Python
+3.14.2. Findings and commits: FINDINGS_REGISTER (PR-W1, PR-W2, PR-A1, PR-C1,
+PR-S1, PR-R1, PR-D1; open PR-M1; suspicions PR-S2, PR-Q1, PR-F1).
+
+| Check | Result |
+|---|---|
+| Safe suite at `5904898` (command of section 11) | **2,316 passed, 0 failed, 8 skipped, 4 deselected**, 606 s, 0 ResourceWarnings; the usual 8 platform skips |
+| Each new regression test against the code before its fix | failed (5 reply shapes; the parallel stale snapshot; the API RTLO name; the linked canary folder; the flaky CAPE poll) |
+| ruff (tracked files), mypy (69 files), bandit gate | clean |
+| Not run here, by rule | `tests/test_fuzz_parsers.py` (its seeds are shared with the failed Atheris campaigns) and the runaway-allocation test (a deliberate spike past 1 GB on an 8 GB host). Both ran and passed in every `tests.yml` job at `da7d6c9`: no skip or failure for either in the run log |
+| Not run anywhere | Atheris campaigns and OOM artifact replay (27.5 / B4, VM only), real CAPE/VirusTotal/LLM, a cluster |
+
+CI for this branch: see the pull request.
+
+
+## 19. B4 investigation and open findings (2026-11-27, second pass, local runs)
+
+Commits on `review/remaining-issues-2026-11-27` after `6c42dc8`, run locally
+before they were pushed (CI evidence: section 21); macOS 27.2 arm64, Python 3.14.2,
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` (without it zbar is not found and
+QR-dependent tests read `partial`). Details: [brief](tasks/b4-and-open-findings-2026-11-27.md).
+
+| Check | Result |
+|---|---|
+| Safe suite at `11144b8` (B4-O1, B4-P1, PR-S2, PR-Q1, PR-F1): `pytest -p no:cacheprovider -q -rfE -rs --tb=short -o faulthandler_timeout=300 --ignore=tests/test_fuzz_parsers.py --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation tests` | **2,332 passed, 0 failed, 8 skipped, 1 deselected**, 602 s, exit 0; the usual 8 platform skips |
+| Safe suite at `1c7a1f7` (adds AR-1, RV-O1, RV-O2, RV-L1), same command | **2,337 passed, 0 failed, 8 skipped, 1 deselected**, 600 s, exit 0 |
+| Each new regression test against the code before its fix | failed: OLE cap (2 of 4; the 2 content tests pass either way), PDF page memory (2), CAPE size (2), restore race (3), monitor restart (1), AR-1, RV-O1, RV-O2, RV-L1 (2) |
+| ruff (excluding the private `.arena/`), mypy (70 files), bandit gate | clean |
+| B4 probes (inert, bounded at 4 MiB declared / 8 pages of 2 MiB) | see the brief, section 2; no fuzzing, no artifact, no allocation over about 25 MiB |
+| Not run, by rule | `tests/test_fuzz_parsers.py`, the runaway-allocation test, Atheris campaigns, artifact replay (VM procedure in the brief); real CAPE/VirusTotal/LLM; a cluster; Windows and Linux (CI after upload) |
+
+## 20. Follow-up: open findings and B4 review (2026-11-27, local runs)
+
+Same host and command as section 19. Details: [brief, section 8](tasks/b4-and-open-findings-2026-11-27.md#8-follow-up-pass-owner-request-2026-11-27).
+
+| Check | Result |
+|---|---|
+| Safe suite at `071d780` (all code of the follow-up except `648a80b`) | **2,350 passed, 0 failed, 8 skipped, 1 deselected**, 608 s, exit 0; the usual 8 platform skips |
+| After `648a80b` (AR-2 message and tests, DEPLOYMENT.md, CHANGELOG): every test that imports the API server or reads `docs/` or the changelog (23 files) | 543 passed |
+| ruff (excluding `.arena/`), mypy (70 files), bandit with the CI arguments | clean at `648a80b` |
+| New regression tests against the code before their fix | failed: AR-2 (2), AR-3 (3), RV-L2 (2), RV-V1 (2), RV-C1 (1, with the shared-thread layout), OLE table choice and unknown size (2, against `2a6f76c`), CAPE over the limit (2) |
+| OLE differential, original vs bounded `_open` (generated, inert) | 300/300 valid and 1,482/1,500 mutated files identical (bytes and `parsing_issues`); the other 18 read past the file in the original |
+| PDF release cost, benign local PDFs with object streams (1 to 231 pages) | 2.3 to 99 ms, no measurable change; peak equal or lower |
+| B4-O2 probe (DIFAT repeats, 512-byte sectors, at most 160 repeats) | 19.9 MiB, 4.05 s: time-bound |
+| Not run, by rule | as section 19 |
+
+## 21. CI on pull request #49 (2026-11-27)
+
+Every push of `review/remaining-issues-2026-11-27` after section 20 ran the
+`tests`, `quality` and `docker` workflows (11 checks). The parser-fuzz workflow
+was not dispatched. Code last changed in `648a80b`; the later commits are
+documentation.
+
+| Head | Result | Runs (tests, quality, docker) |
+|---|---|---|
+| `c17c4a8` | 11/11 passed | 46001387006, 46001387045, 46001387002 |
+| `64db93f` | 11/11 passed | 46004699224, 46004699280, 46004699243 |
+| `162caf9` | 11/11 passed | [46057763815](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763815), [46057763841](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763841), [46057763824](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763824) |
+
+The tests jobs cover Ubuntu (Python 3.12 and 3.9), macOS arm64 and Windows x64
+(Python 3.12 and 3.9) with synthetic inputs. They do not cover B4 (VM only),
+real samples, real CAPE/VirusTotal/LLM services, a Kubernetes cluster, ARM64
+Linux or Windows, or Intel macOS. Later heads: see the pull request.

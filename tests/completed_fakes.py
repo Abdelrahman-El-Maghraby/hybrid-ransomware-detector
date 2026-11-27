@@ -38,7 +38,7 @@ class CompletedScanner(SandboxProbeScanner):
         return {"malicious_detections": 8, "suspicious_detections": 0, "total_engines": 10,
                 "detection_ratio": 0.8, "sent": ["sha256"], "status": "reported"}
 
-    def analyze_with_llm(self, path, text, strings, sha256=None):
+    def analyze_with_llm(self, path, text, strings, sha256=None, complete=True):
         self._answer("llm")
         return {"is_malicious": True, "confidence": 1.0, "suspicious_elements": ["inert finding"],
                 "analyzed": True, "sent": ["text"], "destination": "local"}

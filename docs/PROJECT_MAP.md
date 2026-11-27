@@ -5,8 +5,9 @@ instead of repeating them: [README](../README.md) (features and settings),
 [ARCHITECTURE](ARCHITECTURE.md) and its [eleven diagrams](architecture/README.md),
 [THREAT_MODEL](THREAT_MODEL.md),
 [FINDINGS_REGISTER](FINDINGS_REGISTER.md) (every finding's current status),
-[PROJECT_REVIEW](PROJECT_REVIEW.md) (the review, sections 28 to 34) and
-[HANDOFF](HANDOFF.md) (each repair group, with its commands and results).
+[PROJECT_REVIEW](PROJECT_REVIEW.md) (the review, sections 28 to 34),
+[VERIFICATION_MATRIX](VERIFICATION_MATRIX.md) (checks actually run, by revision) and
+[HANDOFF](HANDOFF.md) (the current task state only).
 
 ## 1. What the project is
 
@@ -29,13 +30,12 @@ external opinions (VirusTotal, an LLM, a self-hosted CAPE sandbox).
 | Operations | `deploy/`, `Dockerfile`, `docker-compose.yml`, `tools/` | Docker edition, backup and restore, deployment check, the optional Kubernetes deployment (`deploy/kubernetes/`, [guide](KUBERNETES.md)), evaluation and build tools |
 | Tests | `tests/`, `test_smoke.py` | about 2,000 tests; see section 6 for what runs here |
 
-## 2. What the hardening branch changed
+## 2. What the hardening work changed
 
-Branch `review/production-hardening`, cut from `3e5a3f2`, contains the accumulated
-hardening work. Current publication status and verification are recorded in
-[HANDOFF](HANDOFF.md) and the
-[publication review](tasks/github-publication-2026-11-22.md). Publishing this
-development branch is separate from merging or releasing it. By purpose
+Branch `review/production-hardening`, cut from `3e5a3f2`, held the accumulated
+hardening work; it was merged into main through PR #47 and released in 4.8.0
+(tag `v4.8.0`, commit `da7d6c9`). Verification is recorded in
+[VERIFICATION_MATRIX](VERIFICATION_MATRIX.md). By purpose
 (IDs and commits in the register):
 
 - **Security:** checked JSON from workers instead of pickle (M18); the API reads an
@@ -78,8 +78,9 @@ synthetic inputs and local stand-in services only**.
 ## 4. What remains
 
 All in the [register](FINDINGS_REGISTER.md):
-- **Confirmed and unresolved** (section 2): only the restricted 27.5 out-of-memory
-  failures (VM only). Documented ambiguities (S-Y1, the encryptor strings, the S-Y4
+- **Confirmed and unresolved** (section 2): the restricted 27.5 / B4 out-of-memory
+  failures (candidate repairs in, cause unconfirmed; [VM guide](tasks/b4-vm-validation-guide.md))
+  and PR-M1 (helper programs and the worker memory limit; owner decision). Documented ambiguities (S-Y1, the encryptor strings, the S-Y4
   service tradeoff) and residuals of fixed items are listed there too.
 - **Unconfirmed suspicions** (section 3): S-01, S-03, S-04, H-03, OOM-H.
 - **External or platform validation** (section 5): CI, Windows, Linux, Docker, real
@@ -99,8 +100,8 @@ All in the [register](FINDINGS_REGISTER.md):
   parent: it is not a full security boundary.
 - The sandbox, VirusTotal and LLM waits are bounded cooperatively; the guarantee is
   the worker's scan limit, after which the static findings are kept.
-- **Not production ready:** CI has not run on this branch, and the platform checks in
-  register section 5 are open.
+- **Validation is incomplete:** CI covers synthetic inputs on Linux x64, Windows x64
+  and macOS arm64 only; the platform and service checks in register section 5 are open.
 
 ## 6. How to resume
 
@@ -112,5 +113,5 @@ All in the [register](FINDINGS_REGISTER.md):
    `tests/test_fuzz_parsers.py`, the runaway-memory test or the three intel socket
    tests that hardcode `/tmp`. Check any file list built by matching names before
    running it.
-4. The work is **paused for owner review**. Start again only on a new request; the
-   owner decisions in register section 6 come first.
+4. The current task and its approval boundary are in [HANDOFF](HANDOFF.md). Start new
+   work only on a new request; the owner decisions in register section 6 come first.

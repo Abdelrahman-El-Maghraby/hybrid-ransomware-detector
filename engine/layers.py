@@ -98,6 +98,7 @@ class ScanContext:
     hashes: Dict = field(default_factory=dict)
     text: str = ""                # visible text (or the e-mail body)
     strings: str = ""             # printable strings from the raw bytes
+    text_complete: bool = True    # RV-L2: False when text or strings were partly read
     signals: Signals = field(default_factory=Signals)
     # incomplete_reasons of the members scanned through this file (engine/completeness.py)
     member_reasons: List[Dict] = field(default_factory=list)
@@ -354,6 +355,7 @@ class PromptGuardLayer(Layer):
             extraction["strings_not_checked"] = "; ".join(strings_cut)[:500]
         if extraction:
             ctx.scan_results["text_extraction"] = extraction
+            ctx.text_complete = False
         hidden = scanner.prompt_guard.inspect_hidden_content(ctx.path)
         guard = scanner.prompt_guard.analyze(ctx.text, ctx.strings, hidden)
         ctx.scan_results["prompt_guard"] = guard.as_dict()
@@ -431,7 +433,8 @@ class LLMLayer(Layer):
                    "details": "Image: no text to analyse; LLM layer skipped."}
         else:
             llm = scanner.analyze_with_llm(ctx.path, ctx.text, ctx.strings,
-                                           sha256=ctx.hashes.get("sha256"))
+                                           sha256=ctx.hashes.get("sha256"),
+                                           complete=ctx.text_complete)
         ctx.scan_results["chatgpt_analysis"] = llm      # legacy key name kept
         ctx.signals.llm = LlmSignal(is_suspicious=bool(llm.get("is_malicious", False)),
                                     confidence=float(llm.get("confidence", 0) or 0),

@@ -966,6 +966,8 @@ def _scan_or_schedule(args, scanner) -> None:
         _schedule_background_jobs(scanner, watcher, CONFIG)
         service_jobs = _ServiceJobThread()          # I-4: short jobs keep their cadence
         service_jobs.start()
+        canary_jobs = _ServiceJobThread(CANARY_JOBS, name="aegis-canary-jobs")   # RV-C1
+        canary_jobs.start()
         from core.folder_watch import monitor_from_config
         monitor = monitor_from_config(scanner, CONFIG)      # WATCH_DIRS (desktop, F1)
         if monitor is not None:
@@ -979,6 +981,7 @@ def _scan_or_schedule(args, scanner) -> None:
             logger.info("Scanner stopped by user.")
         finally:
             service_jobs.stop()
+            canary_jobs.stop()
             watcher.stop()
             if monitor is not None:
                 monitor.stop()
@@ -1006,11 +1009,15 @@ def _guarded(name: str, job):
 # back. Scans and mailbox checks stay on the main loop, one at a time, as before:
 # they never overlap, and Ctrl+C stops them and their workers as before.
 SERVICE_JOBS = schedule.Scheduler()
+# RV-C1: the canary check and refresh on a thread of their own, so a slow outbox
+# flush or cloud upload (network timeouts, no total budget) cannot hold them back
+CANARY_JOBS = schedule.Scheduler()
 
 
 def _schedule_background_jobs(scanner, watcher, config) -> None:
     """Register the background service's jobs, each one guarded: the scans on the
-    main scheduler (`schedule`), the short jobs on SERVICE_JOBS (I-4)."""
+    main scheduler (`schedule`), the short jobs on SERVICE_JOBS (I-4), the canary
+    jobs on CANARY_JOBS (RV-C1)."""
     logger.info(f"Scheduling scans every {config['scan_interval_hours']} hours.")
     schedule.every(config['scan_interval_hours']).hours.do(_guarded("scan", scanner.run_scan))
     # Always scheduled: with no canaries deployed the check is a no-op, and
@@ -1023,9 +1030,9 @@ def _schedule_background_jobs(scanner, watcher, config) -> None:
                     ("no real-time watching (pip install watchdog)"
                      if not WATCHDOG_AVAILABLE else "real-time watching unavailable"),
                     minutes)
-    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
+    CANARY_JOBS.every(minutes).minutes.do(_guarded("canary_check", scanner.check_canaries))
     # Canaries deployed or removed later (GUI or CLI) are picked up here.
-    SERVICE_JOBS.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
+    CANARY_JOBS.every(minutes).minutes.do(_guarded("canary_refresh", watcher.refresh))
     # optional cloud storage (core/cloud.py): spool cleaned at start and daily,
     # uploads every 5 minutes; nothing is queued or uploaded while it is off
     from core import cloud
@@ -1060,11 +1067,11 @@ class _ServiceJobThread:
     guarded and short; the outbox and cloud spool lock their folders for every
     thread and process, and canary checks are serialised (ProtectionMixin)."""
 
-    def __init__(self, jobs: schedule.Scheduler = SERVICE_JOBS, tick: float = 30.0):
+    def __init__(self, jobs: schedule.Scheduler = SERVICE_JOBS, tick: float = 30.0,
+                 name: str = "aegis-service-jobs"):
         self.jobs, self.tick = jobs, tick
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name="aegis-service-jobs",
-                                        daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
 
     def _loop(self) -> None:
         _run_background_loop(sleep=lambda _s: self._stop.wait(self.tick),

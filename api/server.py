@@ -78,7 +78,8 @@ def _env_number(name: str, default: float, positive: bool = False) -> float:
         raise RuntimeError(f"{name} must be a number") from None
     if not math.isfinite(number) or number < 0 or (positive and number <= 0):
         raise RuntimeError(f"{name}={raw!r} must be a finite number "
-                           f"{'above 0' if positive else 'of at least 0'}")
+                           f"{'above 0' if positive else 'of at least 0'}; "
+                           f"remove it to use the default ({default:g})")
     return number
 
 
@@ -97,6 +98,27 @@ def upload_extension(name: str) -> str:
     ext = Path(name.rstrip(". ") or ".").suffix
     return ext.lower() if _SAFE_EXT.match(ext) else ""
 
+
+
+def stored_name(name: str, ext: str) -> str:
+    """The upload's name inside its private work folder. The scanner reads the
+    top-level name itself (M30: a right-to-left override), so the client's name is
+    kept when it is a plain file name ending in the scanned extension; otherwise
+    `upload<ext>` as before."""
+    from detectors.container_extractor import not_a_device, windows_name
+    stem = name[:len(name) - len(ext)]
+    try:
+        size = len(name.encode("utf-8"))
+    except UnicodeEncodeError:
+        size = 0
+    plain = (0 < size <= 200 and bool(stem.strip(". ")) and not re.search(r"[\x00-\x1f\x7f\\:]", name)
+             and name == windows_name(name) and name == not_a_device(name)
+             and Path(name).suffix.lower() == ext)
+    if plain:
+        return stem + ext
+    # AR-3: a long or unusual name still carries its right-to-left override to M30
+    from detectors.container_extractor import RTLO
+    return f"upload{RTLO}{ext}" if RTLO in name else f"upload{ext}"
 
 
 def _without_work_path(value: Any, path: str, display: str) -> Any:
@@ -298,8 +320,9 @@ class _Auth:
     def __init__(self, token: str, trust_proxy: bool):
         self.token, self.trust_proxy = token, trust_proxy
         self.guard = AuthGuard(int(_env_number("AEGIS_API_AUTH_FAILURES", 5)),
-                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300),
-                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900))
+                               # AR-2: 0 switched the lockout off, like the nan of L-E2
+                               _env_number("AEGIS_API_AUTH_WINDOW_SECONDS", 300, positive=True),
+                               _env_number("AEGIS_API_AUTH_LOCKOUT_SECONDS", 900, positive=True))
         self.quota = TokenBuckets(_env_number("AEGIS_API_RATE_PER_MINUTE", 60),
                                   int(_env_number("AEGIS_API_BURST", 10)))
 
@@ -359,11 +382,12 @@ async def _scan_upload(request: Request, service: _ScanService, alerts: _Alerts)
 
 
 def _store_and_scan(upload: Any, service: _ScanService, alerts: _Alerts) -> Dict:
-    name = Path(upload.filename or "upload").name[:200] or "upload"
-    ext = upload_extension(name)
+    full = Path(upload.filename or "upload").name or "upload"
+    name = full[:200]                     # shown; AR-3: the checks use the whole name
+    ext = upload_extension(full)
     work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
     try:
-        target = work / f"upload{ext.lower()}"
+        target = work / stored_name(full, ext)
         file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
         written = 0
         with open(target, "wb") as out:
@@ -493,7 +517,11 @@ def main() -> None:
     from engine.config import init_runtime
     from engine.validation import ConfigError
     init_runtime()
+    # AR-1: these two were read at import, before init_runtime() loaded .env
+    global MAX_UPLOAD_MB, UPLOAD_SECONDS
     try:
+        MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50, positive=True)
+        UPLOAD_SECONDS = _env_number("AEGIS_API_UPLOAD_SECONDS", 600, positive=True)
         app = create_app()           # fails fast on a bad token or configuration
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-api: {e}") from e

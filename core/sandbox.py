@@ -19,6 +19,7 @@ CAPE REST API (apiv2) used:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -42,6 +43,10 @@ SUBMISSION_STATES = ("not_attempted", "possible", "refused", "confirmed")
 TRANSMISSION = {"not_attempted": "none", "possible": "possible", "refused": "sent",
                 "confirmed": "sent"}
 MIN_REQUEST_SECONDS = 1.0     # M26: with less time left, a request is not started
+# PR-S2: a report is read (after any gzip decoding) and parsed in the worker or in
+# intel, both limited to WORKER_MEMORY_MB (2,048): parsed JSON takes several times
+# its text, so a larger report could only end in a memory failure.
+MAX_REPORT_BYTES = 128 * 1024 * 1024
 Progress = Callable[..., None]
 
 
@@ -237,14 +242,21 @@ class CapeClient:
             if status != "reported":
                 return res
             r = self.session.get(f"{self.url}/apiv2/tasks/get/report/{task_id}/",
-                                 timeout=timeout)
+                                 timeout=timeout, stream=True)
             report = report_body(r)
             if report is None:                       # M34: not a finished report; wait on
                 res.detail = _unreadable(task_id, r)
                 return res
             return _reported(res, report, task_id)
+        except ReportTooLarge as e:
+            res.status, res.detail = "error", _too_large(task_id, e)
+            return res
         except Exception as e:
-            return self._unreachable(res, e)
+            # Transient, as in the bounded wait: CAPE still holds the task, so a
+            # later check (the next poll, or intel's) can fetch its report.
+            logger.info("Sandbox status check failed (will try again): %s", type(e).__name__)
+            res.detail = f"sandbox status check failed ({type(e).__name__})"
+            return res
 
     # ------------------------------------------------- M26: the bounded wait
     def _bounded_session(self):
@@ -323,13 +335,18 @@ class CapeClient:
             return pending
         try:
             r = session.get(f"{self.url}/apiv2/tasks/get/report/{task_id}/",
-                            timeout=min(self.timeout, self._left(deadline)))
+                            timeout=min(self.timeout, self._left(deadline)), stream=True)
             code = int(getattr(r, "status_code", 200) or 200)
             if not 200 <= code < 300:
+                _close(r)
                 return None, retry_after(r), True
             if self._left(deadline) <= 0:            # arrived too late: not decoded
+                _close(r)
                 return pending
             report = report_body(r)
+        except ReportTooLarge as e:
+            return SandboxResult(enabled=True, submitted=True, task_id=task_id, status="error",
+                                 submission="confirmed", detail=_too_large(task_id, e)), None, False
         except Exception as e:
             logger.info("Sandbox report could not be read (will try again): %s", type(e).__name__)
             return None, None, True
@@ -346,24 +363,62 @@ class CapeClient:
         return res
 
 
-def report_body(response) -> Optional[Dict]:
+class ReportTooLarge(Exception):
+    """PR-S2: a finished CAPE report over the size limit. It will not get smaller,
+    so the result is an error (scan partial, nothing cached), not a wait."""
+
+
+def report_body(response, limit: int = MAX_REPORT_BYTES) -> Optional[Dict]:
     """M34: a CAPE report only when the request succeeded (2xx) and its body is
     a JSON object; an empty object is a valid report. Anything else (an error
-    page, a proxy's answer, a truncated body) is not a finished report."""
-    code = int(getattr(response, "status_code", 200) or 200)
-    if not 200 <= code < 300:
-        return None
+    page, a proxy's answer, a truncated body) is not a finished report.
+
+    PR-S2: the body is read in chunks after content decoding, so neither a large
+    report nor a small gzip bomb is held past `limit`; a declared Content-Length
+    over it is refused unread, and either raises ReportTooLarge. Either way the
+    response is closed."""
     try:
-        body = response.json()
+        code = int(getattr(response, "status_code", 200) or 200)
+        if not 200 <= code < 300:
+            return None
+        declared = (getattr(response, "headers", None) or {}).get("Content-Length")
+        if declared is not None and declared.strip().isdigit() and int(declared) > limit:
+            raise ReportTooLarge(f"its report ({int(declared):,} bytes) is over the "
+                                 f"{limit:,}-byte limit")
+        chunks, total = [], 0
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            total += len(chunk)
+            if total > limit:
+                raise ReportTooLarge(f"its report is over the {limit:,}-byte limit")
+            chunks.append(chunk)
+        body = json.loads(b"".join(chunks))
+    except ReportTooLarge as e:
+        logger.warning("CAPE report not read: %s", e)
+        raise
     except Exception:
         return None
+    finally:
+        _close(response)
     return body if isinstance(body, dict) else None
+
+
+def _close(response) -> None:
+    close = getattr(response, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # pragma: no cover - nothing more to release
+            pass
 
 
 def _unreadable(task_id: int, response) -> str:
     code = getattr(response, "status_code", "?")
     return (f"CAPE said task {task_id} finished, but its report could not be read "
             f"(HTTP {code}); look it up in CAPE later")
+
+
+def _too_large(task_id: int, e: ReportTooLarge) -> str:
+    return f"CAPE task {task_id} finished, but {e}; look it up in CAPE"
 
 
 def _reported(res: SandboxResult, report: Dict, task_id: int) -> SandboxResult:

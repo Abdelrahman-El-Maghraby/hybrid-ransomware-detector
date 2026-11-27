@@ -1,6 +1,4 @@
-# 🛡️ Hybrid Ransomware Detection System
-
-*Desktop app name: **Aegis Sentinel**.*
+# 🛡️ Aegis Sentinel: hybrid ransomware detector
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![Version](https://img.shields.io/badge/version-4.8.0-brightgreen)
@@ -9,22 +7,81 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Arch](https://img.shields.io/badge/tested-Linux%20x64%20%7C%20Windows%20x64%20%7C%20macOS%20arm64-lightgrey)
 
-A multi-layered scanner that inspects **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF documents, archives (ZIP, 7z, RAR, ISO), scripts, web pages and e-mails (.eml / Outlook .msg, or straight from an IMAP mailbox)** for ransomware and other malicious indicators. It fuses **twenty detection layers** through a **transparent weighted scoring matrix** that produces a 0–100 risk score, a verdict band, and a report showing *why* each file scored what it did. Around the scanner sit two host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
+Aegis Sentinel (repository `hybrid-ransomware-detector`) is a defensive scanner that inspects files **without running them**: **PDF, Microsoft Office (Word / Excel / PowerPoint), RTF, archives (ZIP, 7z, RAR, ISO), scripts, Windows and Linux programs, web pages and e-mails (.eml / Outlook .msg, or straight from an IMAP mailbox)**. It looks for ransomware and other malicious indicators. Twenty detection layers feed a **transparent weighted scoring matrix**. The result is a 0–100 risk score and a verdict band. Every report shows *why* the file scored what it did, and whether the scan was complete. Around the scanner sit host-side protections: **ransomware canary tripwires** and an **AES-256-GCM encrypted quarantine vault**.
 
-Runs on **Windows, macOS, and Linux**, from the command line or a desktop GUI, with optional autostart at login. CI tests Linux x64, Windows x64 and macOS arm64; Linux and Windows on ARM64 and macOS on Intel are not tested.
-
-Originally built as my B.Sc. graduation project as a three-layer scanner, then grown release by release: structural detection and the scoring matrix (v3); file integrity, prompt-injection defence, external links, archives, canaries and quarantine (v4); e-mail and ML (4.1); an explicit pipeline (4.2); RAR and Outlook OLE objects (4.3); scripts, QR codes, ELF, an optional sandbox and signed CI releases (4.4); mailbox scanning, canary response actions and script emulation (4.5); Windows program analysis, process containment, typed internals and production operations (4.6); a hardened Docker deployment, scan completeness and provenance (4.7). It is intended for **defensive and educational use**: analysing suspicious documents, not creating malware.
+It started as a B.Sc. graduation project. It is intended for **defensive and educational use**: analysing suspicious files, not creating malware.
 
 ![Aegis Sentinel dashboard](docs/screenshot-v4-dashboard.png)
+
+## At a glance
+
+| Interface | What it does | Details |
+|---|---|---|
+| CLI | `RansomwareScanner.py`: single files, folders, the IMAP mailbox, protection commands | [Usage](#-usage) |
+| Desktop GUI | Tk app (`gui.py`): scans, results, monitoring, alerts, quarantine, settings | [Graphical interface](#-graphical-interface) |
+| REST API | `aegis-api` (FastAPI): token-protected `/scan`, plus `/health`, `/ready`, `/version`, `/schema` and `/metrics` | [Deployment, section 2](docs/DEPLOYMENT.md#2-the-rest-api-behind-a-tls-reverse-proxy) |
+| Docker deployment | The analysis service runs with no network. A separate intel service reaches external services, and a TLS proxy sits in front | [Deployment](docs/DEPLOYMENT.md), [Operations](docs/OPERATIONS.md) |
+| Folder monitoring | New and changed files are scanned after they settle, in isolated workers | [Operations, section 8](docs/OPERATIONS.md#8-desktop-monitoring-alerts-and-cloud) |
+| Alerts | Signed webhook, TLS e-mail and JSON Lines, through a persistent outbox | [Operations](docs/OPERATIONS.md) |
+| Quarantine and canaries | Encrypted vault with verified restore; tripwire files with optional containment | [Protection features](#️-protection-features) |
+| Optional intelligence | VirusTotal hash lookup, a local or remote LLM, a self-hosted CAPEv2 sandbox; all off by default | [Data policy](docs/DATA_POLICY.md) |
+
+## Quick start
+
+A first scan with no external services, on a harmless text file:
+
+```bash
+git clone https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector.git
+cd hybrid-ransomware-detector
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+python RansomwareScanner.py --version
+echo "Meeting notes: agenda and action items." > notes.txt
+python RansomwareScanner.py --scan-file notes.txt --llm-provider none
+```
+
+The report ends with the verdict (`Clean` for this file), the scan completeness and what was sent outside (`nothing`). A JSON report is written under `~/RansomwareScanner/scan_reports/`. For the full dependency guidance (optional libraries, OCR, Tkinter, the hash-pinned lock file) see [Requirements](#-requirements) and [Installation](#-installation). For a server, use the [Docker deployment](docs/DEPLOYMENT.md#0-docker-the-supported-deployment). Analyse real suspicious files only inside an isolated machine.
+
+## Documentation map
+
+| Topic | Document |
+|---|---|
+| How it is built | [Architecture overview](docs/ARCHITECTURE.md) · [eleven diagrams, explained in text](docs/architecture/README.md) · [all diagrams on one page](docs/architecture/ARCHITECTURE_UML_DIAGRAMS.html) (HTML; download and open it in a browser) · [technical overview (PDF)](docs/security-overview/README.md) |
+| Detection design | [Detection v4](docs/DETECTION_v4.md) · [v3](docs/DETECTION_v3.md) · [weights](detectors/indicators.yaml) |
+| Security model | [Threat model](docs/THREAT_MODEL.md) · [data policy](docs/DATA_POLICY.md) |
+| Deploying and running | [Deployment](docs/DEPLOYMENT.md) (Docker, API, TLS, systemd) · [Kubernetes (optional)](docs/KUBERNETES.md) · [operations](docs/OPERATIONS.md) · [runbooks](docs/RUNBOOKS.md) · [`.env.example`](.env.example) |
+| API contract | [Result JSON schema](api/scan_result.schema.json) · [API limits and health checks](docs/DEPLOYMENT.md#2-the-rest-api-behind-a-tls-reverse-proxy) |
+| Detection content | [Rule packs](docs/RULE_PACKS.md) · [YARA rules](rules/) |
+| Support | [Reporting a false positive or a miss](docs/SUPPORT.md) |
+| Evidence and status | [Verification matrix](docs/VERIFICATION_MATRIX.md) (checks actually run) · [findings register](docs/FINDINGS_REGISTER.md) (status of every finding) · [project map](docs/PROJECT_MAP.md) |
+| Releases | [Changelog](CHANGELOG.md) · [releasing](docs/RELEASING.md) · [release readiness (4.7 history)](docs/RELEASE_READINESS.md) · [release scope](docs/RELEASE_SCOPE.md) |
+| Evaluation | [Dataset plan and evaluation procedure](docs/DATASET_PLAN.md) · [third-party notices](docs/THIRD_PARTY.md) |
+| Contributors and agents | [AGENTS.md](AGENTS.md) · [AI workflow](docs/AI_WORKFLOW.md) · [current task handoff](docs/HANDOFF.md) |
+
+## Status and limitations
+
+- **Current release: [v4.8.0](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/releases/tag/v4.8.0)** (2026-11-25). Fixes made after it are listed under `[Unreleased]` in the [changelog](CHANGELOG.md). They reach `main` only when their pull request is merged.
+- **Verification is on synthetic inputs.** CI runs the suite on Linux x64, Windows x64 and macOS arm64, with Python 3.9 and 3.12. ARM64 Linux and Windows, and Intel macOS, are not tested. The [verification matrix](docs/VERIFICATION_MATRIX.md) records each run and what it did not cover.
+- **Detection effectiveness is not measured.** No detection rate on real malware exists yet. The last false-alarm figure (benign files) predates the 4.8 rule changes. Real-sample evaluation belongs in an isolated VM ([procedure](docs/DATASET_PLAN.md#part-3-reproducible-evaluation-procedure)).
+- **Open items** are tracked in the [findings register](docs/FINDINGS_REGISTER.md). Two examples:
+  - Out-of-memory failures in long parser-fuzzing campaigns (27.5 / B4): candidate repairs exist, but the cause is unconfirmed. The [VM validation guide](docs/tasks/b4-vm-validation-guide.md) describes the owner-run check.
+  - How helper programs count against the worker memory limit (PR-M1).
+- **Not exercised:** real VirusTotal, LLM and CAPE services, and a Kubernetes cluster. Desktop binaries are unsigned.
+- Static analysis by default, worker isolation is not a security sandbox, and canaries limit damage rather than prevent it. See the full [limitations](#️-limitations) and the [threat model](docs/THREAT_MODEL.md).
+
+## Contributing and reporting security issues
+
+- **Changes:** use a branch and a pull request against `main`; the owner merges. Keep code, docs and commits in English, and run the checks under [Testing](#-testing). Read [AGENTS.md](AGENTS.md) for the shared working rules.
+- **False positives and misses:** follow [SUPPORT.md](docs/SUPPORT.md). Send hashes and result JSON, never live malware.
+- **Security vulnerabilities:** do not open a public issue with exploit details. This repository has no private vulnerability-reporting channel enabled yet. Contact the author privately through the profile under [Author](#-author) first.
 
 ---
 
 ## 📖 Table of Contents
 
+- [At a glance](#at-a-glance) · [Quick start](#quick-start) · [Documentation map](#documentation-map) · [Status and limitations](#status-and-limitations) · [Contributing and reporting security issues](#contributing-and-reporting-security-issues)
 - [🆕 What's new in 4.8](#-whats-new-in-48)
-- [🆕 What's new in 4.7](#-whats-new-in-47)
-- [🆕 What's new in 4.6](#-whats-new-in-46)
-- [🆕 What's new in 4.5](#-whats-new-in-45)
 - [🗂️ Earlier releases](#️-earlier-releases)
 - [🧩 Why "hybrid"?](#-why-hybrid)
 - [🔬 Detection layers](#-detection-layers)
@@ -68,7 +125,16 @@ not start and files were not scanned. API callers receive 503 in this case.
 Exit code **1** means a missing input: `--scan-file` was given a path that does not
 exist, or `--import-database` did not import (the current database is kept).
 
-## 🆕 What's new in 4.7
+---
+
+## 🗂️ Earlier releases
+
+The full history is in the [changelog](CHANGELOG.md).
+
+<details>
+<summary>4.7, 4.6, 4.5, 4.4, 4.3, 4.2, 4.1 and 4.0</summary>
+
+### 4.7
 
 The on-prem production edition (`docs/RELEASE_SCOPE.md`).
 
@@ -80,7 +146,7 @@ The on-prem production edition (`docs/RELEASE_SCOPE.md`).
 - **Operations:** `/ready`, start-up checks of required layers, backup and restore scripts, runbooks, a data policy, and per-artifact SBOMs. Releases include the server images for offline install.
 - **Desktop:** a Diagnostics panel, Windows alerts, and undo of a quarantine from the result view.
 
-## 🆕 What's new in 4.6
+### 4.6
 
 - **Windows programs are analysed on their own.** A new layer reads `.exe` / `.dll` / `.sys` structure without running it and without extra libraries:
   - per-section entropy, packer section names (UPX, VMProtect, Themida …) and writable+executable sections;
@@ -104,22 +170,13 @@ The on-prem production edition (`docs/RELEASE_SCOPE.md`).
   - every function under cyclomatic complexity 20, enforced in CI;
   - 858 tests, 91 % coverage.
 
-## 🆕 What's new in 4.5
+### 4.5
 
 - **Scan the mailbox itself (IMAP).** `python RansomwareScanner.py --scan-imap` reads new messages from `IMAP_FOLDER` with their full transport headers, so SPF / DKIM / DMARC and spoofing checks work even when saved copies would have lost them. Read-only (the folder is opened with EXAMINE and bodies fetched with `BODY.PEEK[]`, so nothing is marked as read), TLS only with certificate checks, each message scanned in an isolated worker, nothing scanned twice (last UID per folder, reset when the server's UIDVALIDITY changes), bounded by `IMAP_MAX_MESSAGES` and `IMAP_MAX_MB`. With `--background` and `IMAP_CHECK_MINUTES`, the mailbox is checked on a schedule. Use an app password.
 - **Canary response actions.** A tripwire can now act, not only alert: `CANARY_RESPONSE=network_off` disables the network adapters (PowerShell `Disable-NetAdapter`, `nmcli networking off`, `networksetup`), and `script` runs your own response script with the alert as JSON on stdin. Off by default; the script must be an absolute path only its owner can change, and every action is time-limited and logged in the alert file. On Windows, also turn on **Controlled Folder Access**: it blocks unknown programs from writing to protected folders (since 4.6 the `controlled_folder_access` action can switch it on when a canary trips).
 - **JavaScript emulation (optional).** With `EMULATION_ENABLED=1` and [box-js](https://github.com/CapacitorSet/box-js) installed, `.js` / `.jse` files are run against fake WScript / ActiveX objects and what they tried to do is recorded: URLs fetched (including ones built at run time), files written and commands run. A fetch plus a run or a dropped program scores 65 (`emulated_dropper`, dynamic category). It executes the attacker's script in a Node sandbox, so enable it inside an analysis VM only.
 - **More formats closed:** Equation Editor 3.0 objects (CVE-2017-11882) in RTF and legacy Office files, hidden / very hidden sheets in `.xls`, LUKS and `openssl enc` files recognised as legitimate encrypted containers.
 - **Security hardening:** helper programs are never taken from the current directory, ML models other users could change are refused, bandit runs in CI, and type checking covers every detector.
-
----
-
-## 🗂️ Earlier releases
-
-The full history is in the [changelog](CHANGELOG.md).
-
-<details>
-<summary>4.4, 4.3, 4.2, 4.1 and 4.0</summary>
 
 ### 4.4
 
@@ -858,7 +915,7 @@ See [`docs/DETECTION_v4.md`](docs/DETECTION_v4.md) for the design of the v4 laye
 
 ## 🏗️ Engineering
 
-How the project is built to be trusted, not only to detect. Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+How the project is built to be trusted, not only to detect. Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the [architecture diagrams](docs/architecture/README.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 - **One indicator registry.** Every weight, category cap and label lives in `detectors/indicators.yaml`; scoring, the desktop app and the calibration tool read it. Reports record the registry version. Reviewed changes can be applied as an override file (`WEIGHTS_OVERRIDE`) without editing code.
 - **Isolation.** Every scan (folders, single files, the folder monitor, the mailbox, the API) runs each file in a worker process with a time limit and a memory limit (RLIMIT_AS on Linux, a Job Object on Windows, a resident-memory watchdog on macOS); a file that hangs or kills a worker is reported as `scan_failed` (status `failed`), keeps the findings reported before the failure (its container's own findings and the members that finished, in `scan_results.partial_evidence`; the higher of those and Medium is its verdict), and a separate **scan-failed notice** (`kind: scan_failed`, not a detection) goes to the configured webhook and e-mail whatever the verdict floor; the verdict, score and scan status do not change. Inside a scan, every layer runs in a guard, so a failing parser only loses its own evidence (`layer_errors`). Each file is read once and shared by the layers that need all its bytes.
