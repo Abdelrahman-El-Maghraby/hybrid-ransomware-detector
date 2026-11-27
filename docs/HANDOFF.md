@@ -17,8 +17,8 @@
 ## Checks
 
 - Safe suite at `11144b8`: 2,332 passed, 0 failed, 8 skipped, 1 deselected
-  (VERIFICATION_MATRIX section 19). The final tree is checked again before stop;
-  see the matrix for the result.
+  and at `1c7a1f7` (all code of this pass): 2,337 passed, 0 failed, 8 skipped,
+  1 deselected (VERIFICATION_MATRIX section 19).
 - ruff (without `.arena/`), mypy, bandit: clean at `672730e`.
 - Not run: fuzz suite and runaway-allocation test (by rule), Windows/Linux (CI
   after upload), real external services, a cluster.

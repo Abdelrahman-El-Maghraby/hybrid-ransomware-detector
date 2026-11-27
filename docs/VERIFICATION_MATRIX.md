@@ -481,7 +481,7 @@ QR-dependent tests read `partial`). Details: [brief](tasks/b4-and-open-findings-
 | Check | Result |
 |---|---|
 | Safe suite at `11144b8` (B4-O1, B4-P1, PR-S2, PR-Q1, PR-F1): `pytest -p no:cacheprovider -q -rfE -rs --tb=short -o faulthandler_timeout=300 --ignore=tests/test_fuzz_parsers.py --deselect tests/test_workers.py::test_memory_limit_stops_runaway_allocation tests` | **2,332 passed, 0 failed, 8 skipped, 1 deselected**, 602 s, exit 0; the usual 8 platform skips |
-| AR-1, RV-O1, RV-O2, RV-L1 (`64425f7` to `672730e`) | affected files: 185 passed; full suite not rerun after these three commits |
+| Safe suite at `1c7a1f7` (adds AR-1, RV-O1, RV-O2, RV-L1), same command | **2,337 passed, 0 failed, 8 skipped, 1 deselected**, 600 s, exit 0 |
 | Each new regression test against the code before its fix | failed: OLE cap (2 of 4; the 2 content tests pass either way), PDF page memory (2), CAPE size (2), restore race (3), monitor restart (1), AR-1, RV-O1, RV-O2, RV-L1 (2) |
 | ruff (excluding the private `.arena/`), mypy (70 files), bandit gate | clean |
 | B4 probes (inert, bounded at 4 MiB declared / 8 pages of 2 MiB) | see the brief, section 2; no fuzzing, no artifact, no allocation over about 25 MiB |
