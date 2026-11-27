@@ -24,11 +24,16 @@ REPORT = {
 
 
 class FakeResponse:
+    headers: dict = {}
+
     def __init__(self, body, status=200):
         self._body, self.status_code = body, status
 
     def json(self):
         return self._body
+
+    def iter_content(self, chunk_size=1):
+        yield json.dumps(self._body).encode()
 
 
 class FakeCape:
@@ -43,7 +48,7 @@ class FakeCape:
             return FakeResponse({"error": True, "error_value": "file too big"}, 400)
         return FakeResponse({"error": False, "data": {"task_ids": [42]}})
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, **kwargs):
         self.gets.append(url)
         if "/tasks/view/" in url:
             status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
@@ -106,7 +111,7 @@ def test_a_failed_status_check_is_pending_not_the_end(tmp_path):
     class Flaky(FakeCape):
         failed = False
 
-        def get(self, url, timeout=None):
+        def get(self, url, timeout=None, **kwargs):
             if "/tasks/view/" in url and not self.failed:
                 self.failed = True
                 raise ConnectionError("reset")

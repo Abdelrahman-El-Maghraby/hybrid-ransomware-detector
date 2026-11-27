@@ -19,6 +19,7 @@ CAPE REST API (apiv2) used:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -42,6 +43,10 @@ SUBMISSION_STATES = ("not_attempted", "possible", "refused", "confirmed")
 TRANSMISSION = {"not_attempted": "none", "possible": "possible", "refused": "sent",
                 "confirmed": "sent"}
 MIN_REQUEST_SECONDS = 1.0     # M26: with less time left, a request is not started
+# PR-S2: a report is read (after any gzip decoding) and parsed in the worker or in
+# intel, both limited to WORKER_MEMORY_MB (2,048): parsed JSON takes several times
+# its text, so a larger report could only end in a memory failure.
+MAX_REPORT_BYTES = 128 * 1024 * 1024
 Progress = Callable[..., None]
 
 
@@ -237,7 +242,7 @@ class CapeClient:
             if status != "reported":
                 return res
             r = self.session.get(f"{self.url}/apiv2/tasks/get/report/{task_id}/",
-                                 timeout=timeout)
+                                 timeout=timeout, stream=True)
             report = report_body(r)
             if report is None:                       # M34: not a finished report; wait on
                 res.detail = _unreadable(task_id, r)
@@ -327,11 +332,13 @@ class CapeClient:
             return pending
         try:
             r = session.get(f"{self.url}/apiv2/tasks/get/report/{task_id}/",
-                            timeout=min(self.timeout, self._left(deadline)))
+                            timeout=min(self.timeout, self._left(deadline)), stream=True)
             code = int(getattr(r, "status_code", 200) or 200)
             if not 200 <= code < 300:
+                _close(r)
                 return None, retry_after(r), True
             if self._left(deadline) <= 0:            # arrived too late: not decoded
+                _close(r)
                 return pending
             report = report_body(r)
         except Exception as e:
@@ -350,18 +357,45 @@ class CapeClient:
         return res
 
 
-def report_body(response) -> Optional[Dict]:
+def report_body(response, limit: int = MAX_REPORT_BYTES) -> Optional[Dict]:
     """M34: a CAPE report only when the request succeeded (2xx) and its body is
     a JSON object; an empty object is a valid report. Anything else (an error
-    page, a proxy's answer, a truncated body) is not a finished report."""
-    code = int(getattr(response, "status_code", 200) or 200)
-    if not 200 <= code < 300:
-        return None
+    page, a proxy's answer, a truncated body) is not a finished report.
+
+    PR-S2: the body is read in chunks after content decoding, so neither a large
+    report nor a small gzip bomb is held past `limit`; a declared Content-Length
+    over it is refused unread. Either way the response is closed."""
     try:
-        body = response.json()
+        code = int(getattr(response, "status_code", 200) or 200)
+        if not 200 <= code < 300:
+            return None
+        declared = (getattr(response, "headers", None) or {}).get("Content-Length")
+        if declared is not None and declared.strip().isdigit() and int(declared) > limit:
+            logger.warning("CAPE report of %s bytes is over the %d-byte limit; not read",
+                           declared, limit)
+            return None
+        chunks, total = [], 0
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            total += len(chunk)
+            if total > limit:
+                logger.warning("CAPE report is over the %d-byte limit; not read", limit)
+                return None
+            chunks.append(chunk)
+        body = json.loads(b"".join(chunks))
     except Exception:
         return None
+    finally:
+        _close(response)
     return body if isinstance(body, dict) else None
+
+
+def _close(response) -> None:
+    close = getattr(response, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # pragma: no cover - nothing more to release
+            pass
 
 
 def _unreadable(task_id: int, response) -> str:

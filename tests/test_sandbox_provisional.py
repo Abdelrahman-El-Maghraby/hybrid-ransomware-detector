@@ -575,7 +575,7 @@ def test_each_request_gets_the_time_left_when_it_starts(tmp_path):
             self.clock["t"] += 5
             return super().post(url, files, data, timeout)
 
-        def get(self, url, timeout=None):
+        def get(self, url, timeout=None, **kwargs):
             self.timeouts.append(timeout)
             self.clock["t"] += 5
             return super().get(url, timeout)
@@ -855,7 +855,7 @@ class ReportFails(FakeCape):
         super().__init__(statuses=("reported",))
         self.response = response
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, **kwargs):
         self.gets.append(url)
         if "/tasks/view/" in url:
             return FakeResponse({"data": {"status": "reported"}})
@@ -865,6 +865,9 @@ class ReportFails(FakeCape):
 class BadJson(FakeResponse):
     def json(self):
         raise ValueError("not JSON")
+
+    def iter_content(self, chunk_size=1):
+        yield b"<html>not JSON</html>"
 
 
 @pytest.mark.parametrize("response", [FakeResponse({"error": "x"}, 500), FakeResponse([], 200),
@@ -933,3 +936,36 @@ def test_settled_results_are_checked():
                                                "transmission": "sent", **change})
         with pytest.raises(W.InvalidReply):
             W.check_reply(["settled", bad])
+
+
+class _Streamed:
+    """A streamed response: chunks as requests yields them after gzip decoding."""
+
+    def __init__(self, chunks, headers=None):
+        self.status_code, self.headers, self._chunks = 200, headers or {}, chunks
+        self.read, self.closed = 0, False
+
+    def iter_content(self, chunk_size=1):
+        for chunk in self._chunks:
+            self.read += len(chunk)
+            yield chunk
+
+    def close(self):
+        self.closed = True
+
+
+def test_a_report_over_the_size_limit_is_not_read():
+    # PR-S2: the report was buffered and parsed whole, gzip-decoded, without a bound.
+    from core.sandbox import report_body
+    declared = _Streamed([b"{}"], headers={"Content-Length": "2000"})
+    assert report_body(declared, limit=1000) is None
+    assert declared.read == 0 and declared.closed
+    endless = _Streamed(b"x" * 400 for _ in range(1000))      # 400 KB if read to the end
+    assert report_body(endless, limit=1000) is None
+    assert endless.read <= 1200 and endless.closed
+
+
+def test_a_report_within_the_limit_is_read_and_closed():
+    from core.sandbox import report_body
+    ok = _Streamed([b'{"malscore": ', b'2.5}'])
+    assert report_body(ok, limit=1000) == {"malscore": 2.5} and ok.closed

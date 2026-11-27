@@ -34,7 +34,7 @@ class DelayedCape(FakeCape):
         self.ready_at = self.t + self.ready_delay
         return super().post(url, files, data, timeout)
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, **kwargs):
         if "/tasks/view/" in url:
             self.advance(0.1, timeout)
             return FakeResponse({"data": {"status": "reported" if self.t >= self.ready_at else "running"}})
