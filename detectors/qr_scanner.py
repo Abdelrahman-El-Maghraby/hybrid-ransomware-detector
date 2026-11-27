@@ -34,6 +34,8 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
+from .prompt_guard import release_decoded_streams
+
 logger = logging.getLogger("RansomwareScanner")
 
 PathLike = Union[str, Path]
@@ -289,6 +291,8 @@ class QRScanner:
                 logger.debug("PDF page %d images unreadable: %s", pno, e)
                 unreadable.append(str(pno))
                 continue
+            finally:                     # B4: the encoded copies in `images` are kept
+                release_decoded_streams(reader)
             for img in images:
                 if len(out) >= self.max_images:
                     notes.append(f"image limit ({self.max_images}) reached on page {pno}: "

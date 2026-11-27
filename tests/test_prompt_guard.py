@@ -1,10 +1,11 @@
 import re
+import tracemalloc
 
 import pytest
 
 from detectors.llm_backends import SYSTEM_INSTRUCTIONS, _parse_analysis, build_messages
 from detectors.prompt_guard import DEFUSEDXML_AVAILABLE, PromptGuard, wrap_untrusted_with_nonce
-from tests.helpers import make_docx, make_pdf
+from tests.helpers import make_docx, make_pdf, make_pdf_pages
 
 G = PromptGuard()
 needs_defused = pytest.mark.skipif(not DEFUSEDXML_AVAILABLE, reason="defusedxml missing")
@@ -58,6 +59,37 @@ def test_normal_pdf_has_no_hidden_text(tmp_path):
     p = tmp_path / "letter.pdf"
     p.write_bytes(make_pdf("Dear customer"))
     assert not G.inspect_hidden_content(p).found
+
+
+def _pdf_peak(path) -> int:
+    tracemalloc.start()
+    try:
+        G.inspect_hidden_content(path)
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_pdf_pages_are_not_all_held_in_memory(tmp_path):
+    # B4: pypdf cached every page's decoded stream for the whole reader, so
+    # memory grew with the page count (8 x 1 MiB pages: about 7 MiB more than 2).
+    size = 1024 * 1024
+    files = []
+    for n in (2, 8):
+        files.append(tmp_path / f"p{n}.pdf")
+        files[-1].write_bytes(make_pdf_pages([b" " * size + b"%d" % i for i in range(n)]))
+    G.inspect_hidden_content(files[0])         # the first call also imports pypdf
+    peaks = [_pdf_peak(p) for p in files]
+    assert peaks[1] - peaks[0] < 2 * size, peaks
+
+
+def test_pdf_stream_shared_by_pages_is_still_read_on_each(tmp_path):
+    invisible = b"BT /F1 12 Tf 3 Tr 72 700 Td (x) Tj ET"
+    p = tmp_path / "shared.pdf"
+    p.write_bytes(make_pdf_pages([b"BT (a) Tj ET", invisible], page_streams=[1, 0, 1]))
+    hidden = G.inspect_hidden_content(p)
+    assert hidden.reasons == ["pdf_invisible_text_render_mode"]
+    assert "page(s) 1, 3" in hidden.snippets[0]
 
 
 def test_malformed_files_never_raise(tmp_path):

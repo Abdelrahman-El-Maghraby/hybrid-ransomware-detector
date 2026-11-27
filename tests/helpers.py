@@ -94,6 +94,37 @@ def make_pdf(text: str = "Hello", invisible: Optional[str] = None) -> bytes:
     return out.getvalue()
 
 
+def make_pdf_pages(streams: list, page_streams: Optional[list] = None) -> bytes:
+    """PDF whose page i shows the Flate-compressed content stream
+    streams[page_streams[i]] (default: one stream per page). Pages may share a
+    stream object."""
+    page_streams = list(range(len(streams))) if page_streams is None else page_streams
+    first_stream = 3 + len(page_streams)
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [" + b" ".join(b"%d 0 R" % (3 + i) for i in
+                                                   range(len(page_streams)))
+            + b"] /Count %d >>" % len(page_streams)]
+    objs += [b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R >>"
+             % (first_stream + s) for s in page_streams]
+    for content in streams:
+        body = zlib.compress(content, 9)
+        objs.append(b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(body) + body
+                    + b"\nendstream")
+    out = io.BytesIO()
+    out.write(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objs, 1):
+        offsets.append(out.tell())
+        out.write(f"{i} 0 obj\n".encode() + body + b"\nendobj\n")
+    xref = out.tell()
+    out.write(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode())
+    for off in offsets:
+        out.write(f"{off:010d} 00000 n \n".encode())
+    out.write(f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+              .encode())
+    return out.getvalue()
+
+
 # ---------------------------------------------------------------- ZipCrypto
 class _ZipCryptoKeys:
     """Traditional PKWARE stream cipher (what `zip -P` produces). Implemented

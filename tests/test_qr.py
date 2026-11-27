@@ -93,6 +93,54 @@ def test_limits_and_files_without_images(tmp_path):
     assert s.analyze_file(junk).codes == []
 
 
+def _flate_image_pdf(pages: int, w: int = 1024, h: int = 512) -> bytes:
+    """One uniform w x h grey Flate image per page (decodes to w*h bytes)."""
+    import zlib
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [" + b" ".join(b"%d 0 R" % (3 + 3 * i) for i in range(pages))
+            + b"] /Count %d >>" % pages]
+    for i in range(pages):
+        content, image = 4 + 3 * i, 5 + 3 * i
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources "
+                    b"<< /XObject << /Im0 %d 0 R >> >> /Contents %d 0 R >>" % (image, content))
+        ops = b"q 10 0 0 10 0 0 cm /Im0 Do Q"
+        objs.append(b"<< /Length %d >>\nstream\n" % len(ops) + ops + b"\nendstream")
+        raw = zlib.compress(bytes([i]) * (w * h), 9)
+        objs.append(b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace "
+                    b"/DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\n"
+                    b"stream\n" % (w, h, len(raw)) + raw + b"\nendstream")
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for n, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
+
+
+def test_pdf_page_images_are_not_all_held_decoded(tmp_path):
+    # B4: pypdf kept every page's decoded image for the whole reader; only the
+    # encoded copies the layer returns are needed (8 x 0.5 MiB: ~3 MiB more than 2).
+    import tracemalloc
+    s = QRScanner()
+    files = []
+    for n in (2, 8):
+        files.append(tmp_path / f"p{n}.pdf")
+        files[-1].write_bytes(_flate_image_pdf(n))
+    s._pdf_images(files[0], [])                  # the first call also imports pypdf
+    peaks = []
+    for p in files:
+        tracemalloc.start()
+        try:
+            assert len(s._pdf_images(p, [])) == int(p.stem[1:])
+            peaks.append(tracemalloc.get_traced_memory()[1])
+        finally:
+            tracemalloc.stop()
+    assert peaks[1] - peaks[0] < 1024 * 1024, peaks
+
+
 def test_without_a_decoder_the_layer_says_so(tmp_path, monkeypatch):
     monkeypatch.setattr(qr, "QR_AVAILABLE", False)
     png = tmp_path / "a.png"
