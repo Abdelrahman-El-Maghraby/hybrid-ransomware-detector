@@ -128,6 +128,14 @@ a regression test that failed before it and passes after it, on this Mac only.
 | PR-S1 | Reproduced with a stand-in: one network error during a CAPE status check ended the wait with an error, and the intel service then forgot the task, so in Docker the report was never fetched. `poll()` now treats it as pending, as the bounded wait already did | `5904898` |
 | PR-R1 | CI flake (PR #25, macOS): the VirusTotal deadline test allowed 0.1 s of wall-clock slack; it now asserts the scan limit itself | `0c47a31` |
 | PR-D1 | Register, matrix, project map and releasing notes still said no CI ran after `3e5a3f2` | `0c47a31` |
+| B4-O1 | B4 investigation (2026-11-27, second pass), reproduced with a 6.6 KB inert file: olefile follows a stream's FAT chain for its declared size (up to 4 GiB) and re-reads a looping sector; olevba reads every stream of every OLE file, the .msg reader its property streams (4 MiB declared: 9.3 MiB peak). Every declared read is now capped at the file size, which keeps every byte the file holds. Candidate cause of the 27.5 / B4 OOMs, not confirmed | `2a6f76c` (local) |
+| B4-P1 | Reproduced: pypdf caches each decoded stream for the reader's lifetime, so the hidden-text check and the QR image walk held every page's decoded content (memory grew per page; about 3.75 GB possible from a 19 KB PDF). Released after each page; coverage unchanged | `63658a3` (local) |
+| PR-S2 | Was a suspicion: CAPE reports were buffered (gzip-decoded) and parsed without a bound. Streamed and capped at 128 MiB of decoded bytes; over it = an unreadable report (M34) | `5a9e3a5` (local) |
+| PR-Q1 | Was a suspicion, reproduced deterministically: restore replaced a file created at the destination during decryption, a dangling link, or an earlier `.restored-<id>` copy. Target reserved with `O_EXCL` first | `7221c64` (local) |
+| PR-F1 | Was a suspicion, reproduced: after `stop()` timed out on a running scan, `start()` revived the old loop beside the new one. One stop event per run | `11144b8` (local) |
+| AR-1 | Review (2026-11-27): the API's upload size and upload-time limits were read before `.env` was loaded, so `.env` values were ignored | `64425f7` (local) |
+| RV-O1, RV-O2 | A non-UTF-8 outbox entry was never removed; a deleted `sent/` folder stopped every flush silently | `1e22a3f` (local) |
+| RV-L1 | An LLM reply without `is_suspicious` (e.g. `{}`) read as analysed and clean and was cached 24 h | `672730e` (local) |
 
 **Documentation only:** D1 to D9, D11 to D13, D15 to D25, D27 to D42, L-B2 (server
 lock and secrets), L-B6 (platform claims), D26 (`db01796`: Python 3.9 stays
@@ -137,8 +145,14 @@ supported). D10 and D14 (release-state text) are left as they are on purpose.
 
 | ID | Description | Why it stays open | Next action |
 |---|---|---|---|
-| 27.5 / B4 | Long fuzz campaigns ended in out-of-memory failures | Restricted: replay only in the isolated VM | VM investigation, separately authorized |
-| PR-M1 | The worker memory limit is per process. On macOS the watchdog reads only the worker's own pid, so helper programs it starts (7-Zip, unar, pdftoppm/Tesseract, box-js) are not counted; on Linux and Windows each helper inherits its own copy of the limit. Confirmed by code (`engine/workers.py` `_over_memory`, `_limit_memory`); not measured | Counting helpers changes containment and needs a memory measurement that is excluded on this host | Owner decision; measure in the VM (brief: post-release-review-2026-11-27) |
+| 27.5 / B4 | Three Atheris runs (2026-10-29) ended in out-of-memory after 30 to 85 s of fuzzing, not after long campaigns; the logs show one input growing past 4 GB (H1), not accumulation. Candidate root-cause repairs B4-O1 (most likely) and B4-P1 are implemented; the cause is not confirmed | Replay and campaigns only in the isolated VM | VM procedure in the [brief](tasks/b4-and-open-findings-2026-11-27.md#3-b4-vm-validation-procedure-owner-run-not-executed-here) |
+| PR-M1 | The worker memory limit is per process. On macOS the watchdog reads only the worker's own pid, so helper programs it starts (7-Zip, unar, pdftoppm/Tesseract, box-js) are not counted; on Linux and Windows each helper inherits its own copy of the limit. Confirmed by code (`engine/workers.py` `_over_memory`, `_limit_memory`); not measured | Counting helpers changes containment and needs a memory measurement that is excluded on this host | Owner decision between options A to D in the [brief](tasks/b4-and-open-findings-2026-11-27.md#5-pr-m1-no-code-change-policy); measure in the VM |
+| AR-2 | `AEGIS_API_AUTH_WINDOW_SECONDS=0` or `AEGIS_API_AUTH_LOCKOUT_SECONDS=0` silently disables the failed-token lockout (confirmed with `AuthGuard`); 0 is not documented as off | Refusing 0 changes accepted configuration | Owner: refuse 0, or document it as off |
+| AR-3 | A client file name over 200 bytes (or with a backslash) is stored as `upload<ext>`, so the right-to-left-override name check never runs through the API: a chosen evasion of PR-A1 (confirmed on `stored_name`) | Needs a policy for long names (e.g. check the original name before shortening) | Next repair pass |
+| RV-L2 | The LLM cache key ignores whether the text extraction (OCR) was complete, so a strings-only answer from a partial scan is reused for a later complete one (by reading) | Cache-key change | Next repair pass |
+| RV-V1 | A VirusTotal 200 reply with empty `last_analysis_stats` reads as complete and clean (by reading; same pattern as CO-1) | Needs a decision on how to show a queued file | Next repair pass |
+| RV-I1 | Intel capabilities are cached for the life of the analysis process, so a restarted intel with another LLM model keeps the old model in the cache key (by reading) | Refresh policy | Next repair pass |
+| RV-C1 | A slow outbox flush (no time budget) delays the scheduled canary check on the shared service thread (by reading; residual of I-4) | Scheduling change | Next repair pass |
 
 ### Documented ambiguities (left unchanged on purpose)
 
@@ -175,9 +189,8 @@ none is implemented.
 | S-03 | Concurrent canary checks race on the last signature | Still not reproduced. Because I-4 runs the scheduled check on its own thread (and the real-time watcher already ran one), the compare-and-set now runs under a lock (`f8af202`); the two-thread test still passes |
 | S-04 | `requirements.lock` does not install on Python 3.9 | A recorded CI exception: the 3.9 job installs the latest releases instead (`tests.yml`) |
 | H-03, OOM-H | Nested containers keep each level in memory; XAR TOC and pypdf memory hypotheses | Not measured: memory measurements are excluded on this Mac (VM only). L-D1's range check (`e68d50a`) removes one of the XAR paths |
-| PR-S2 | CAPE reports are read with `response.json()` and no size bound (`core/sandbox.py` `report_body`); a very large report could reach the worker or intel memory limit | Not reproduced (no real CAPE here) |
-| PR-Q1 | Restore checks `dest.exists()` and later `os.replace()`s; a file created at the destination in between is replaced even without `overwrite` | Not reproduced; narrow local race |
-| PR-F1 | Folder monitor `stop()` waits 10 s, then forgets a thread that may still be finishing a scan, which can deliver one more result after stop | Not reproduced |
+| SU-1 to SU-4 | API token from the environment with trailing white space never matches; spooled upload files after an interrupted form; per-address limits behind a Kubernetes Service; deep JSON to intel giving 500 | Not reproduced (review 2026-11-27) |
+| RV-S6 | Canary watcher `running` checks only that an observer exists; a webhook redirect counted as delivered (and its body read unbounded); an empty canary registry disarming canaries; an alert whose channels are all disabled marked sent | Not reproduced (review 2026-11-27) |
 | RV-S5 | The outbox writes without `fsync`; a power loss could leave an empty file | Not reproduced (no power-loss test here). Checked the consequence: an empty entry is removed with an ERROR naming the alert id, so the loss would be visible, not silent. Uncertainty: whether the platform's file system can leave an empty renamed file |
 
 ## 4. Deferred improvements (not started on purpose)
