@@ -99,6 +99,23 @@ def upload_extension(name: str) -> str:
 
 
 
+def stored_name(name: str, ext: str) -> str:
+    """The upload's name inside its private work folder. The scanner reads the
+    top-level name itself (M30: a right-to-left override), so the client's name is
+    kept when it is a plain file name ending in the scanned extension; otherwise
+    `upload<ext>` as before."""
+    from detectors.container_extractor import not_a_device, windows_name
+    stem = name[:len(name) - len(ext)]
+    try:
+        size = len(name.encode("utf-8"))
+    except UnicodeEncodeError:
+        size = 0
+    plain = (0 < size <= 200 and bool(stem.strip(". ")) and not re.search(r"[\x00-\x1f\x7f\\:]", name)
+             and name == windows_name(name) and name == not_a_device(name)
+             and Path(name).suffix.lower() == ext)
+    return stem + ext if plain else f"upload{ext}"
+
+
 def _without_work_path(value: Any, path: str, display: str) -> Any:
     """L-A1: the upload is scanned under a temporary work folder; member names,
     evidence and messages show the client's file name instead of that path."""
@@ -363,7 +380,7 @@ def _store_and_scan(upload: Any, service: _ScanService, alerts: _Alerts) -> Dict
     ext = upload_extension(name)
     work = Path(tempfile.mkdtemp(prefix="aegis_api_"))
     try:
-        target = work / f"upload{ext.lower()}"
+        target = work / stored_name(name, ext)
         file_limit = int(MAX_UPLOAD_MB * 1024 * 1024)   # checked again on the file itself
         written = 0
         with open(target, "wb") as out:

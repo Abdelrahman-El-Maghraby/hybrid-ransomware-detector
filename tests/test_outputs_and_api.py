@@ -138,6 +138,36 @@ def test_hostile_file_names_are_not_used_as_paths(client):
     assert r.status_code == 200 and r.json()["file_name"] == "passwd;rm -rf .pdf"
 
 
+def test_the_upload_name_reaches_the_name_checks(client):
+    """M30 through the API: the upload was stored as `upload<ext>`, so a
+    right-to-left override in the client's name scored Clean here and High from
+    the CLI. Unusable names still fall back to `upload<ext>`."""
+    r = client.post("/scan", headers=auth(),
+                    files={"file": ("invoice\u202efdp.txt", b"hello world\n")}).json()
+    assert r["file_name"] == "invoice\u202efdp.txt"
+    assert "file_rtlo_spoof" in {c["indicator"] for c in r["score_breakdown"]["contributions"]}
+    assert r["verdict"] != "Clean"
+
+
+@pytest.mark.parametrize("name,ext,stored", [
+    ("Report.PDF", ".pdf", "Report.pdf"),
+    ("invoice\u202efdp.txt", ".txt", "invoice\u202efdp.txt"),
+    ("README", "", "README"),
+    ("NUL.pdf", ".pdf", "upload.pdf"),            # M20: a Windows device
+    ("a:b.pdf", ".pdf", "upload.pdf"),            # an NTFS stream
+    ("a\\b.pdf", ".pdf", "upload.pdf"),
+    ("bad\x01.pdf", ".pdf", "upload.pdf"),
+    ("invoice.pdf.js.", ".js", "upload.js"),       # M24: Windows would drop the dots
+    ("x.$$$", "", "upload"),                       # an extension upload_extension refused
+    ("\udcff.pdf", ".pdf", "upload.pdf"),          # not encodable
+    ("\u00e9" * 150 + ".pdf", ".pdf", "upload.pdf"),  # over the byte limit
+])
+def test_stored_upload_names(name, ext, stored):
+    from api.server import stored_name, upload_extension
+    assert upload_extension(name) == ext
+    assert stored_name(name, ext) == stored
+
+
 def test_upload_size_limit(client, monkeypatch):
     import api.server as srv
     monkeypatch.setattr(srv, "MAX_UPLOAD_MB", 0.001)
