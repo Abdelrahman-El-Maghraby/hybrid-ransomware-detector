@@ -9,8 +9,10 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - `AEGIS_API_AUTH_WINDOW_SECONDS` and `AEGIS_API_AUTH_LOCKOUT_SECONDS` must be
-  above 0: 0 switched the failed-token lockout off, and the API now refuses to
-  start with it (AR-2).
+  above 0: 0 silently switched the failed-token lockout off (never a documented
+  setting), and the API now refuses to start with it (AR-2). To upgrade, remove
+  either line from `.env` or the environment (defaults 300 and 900 seconds) or
+  set a positive number.
 
 ### Fixed
 

@@ -78,7 +78,8 @@ def _env_number(name: str, default: float, positive: bool = False) -> float:
         raise RuntimeError(f"{name} must be a number") from None
     if not math.isfinite(number) or number < 0 or (positive and number <= 0):
         raise RuntimeError(f"{name}={raw!r} must be a finite number "
-                           f"{'above 0' if positive else 'of at least 0'}")
+                           f"{'above 0' if positive else 'of at least 0'}; "
+                           f"remove it to use the default ({default:g})")
     return number
 
 

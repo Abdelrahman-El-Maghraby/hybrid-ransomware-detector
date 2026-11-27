@@ -281,7 +281,7 @@ prints the same layer states on the command line.
 | Upload size: the declared `Content-Length` is checked before reading, then the body is counted as it streams | `AEGIS_API_MAX_UPLOAD_MB` | 413 |
 | Upload body: `/scan` reads and parses it only after the token check and a free scan slot (M4), so an unauthenticated or refused request costs no read or spool | - | 401, 429 or 503 before the body is read |
 | Requests per IP address, before authentication | `AEGIS_API_IP_RATE_PER_MINUTE` (120), `AEGIS_API_IP_BURST` (30) | 429 + `Retry-After` |
-| Failed bearer tokens per IP address: N failures within the window lock the address out, checked before the token is compared | `AEGIS_API_AUTH_FAILURES` (5), `AEGIS_API_AUTH_WINDOW_SECONDS` (300), `AEGIS_API_AUTH_LOCKOUT_SECONDS` (900) | 401, then 429 + `Retry-After` |
+| Failed bearer tokens per IP address: N failures within the window lock the address out, checked before the token is compared. The lockout cannot be switched off: the two durations must be above 0, or the server does not start | `AEGIS_API_AUTH_FAILURES` (5, at least 1), `AEGIS_API_AUTH_WINDOW_SECONDS` (300), `AEGIS_API_AUTH_LOCKOUT_SECONDS` (900) | 401, then 429 + `Retry-After` |
 | Requests per authenticated client (IP and valid token) | `AEGIS_API_RATE_PER_MINUTE`, `AEGIS_API_BURST` | 429 + `Retry-After` |
 | Scans running at once | `AEGIS_API_MAX_CONCURRENT_SCANS` | 503 + `Retry-After` |
 | Time and memory per scan, in an isolated worker | `SCAN_TIMEOUT_SECONDS`, `WORKER_MEMORY_MB` | result with `scan_failed` |
