@@ -4,13 +4,17 @@
   not merged.
 - Task: B4 investigation and repair, PR-M1, PR-S2, PR-Q1, PR-F1, a review of
   the remaining areas, then a follow-up on AR-2, AR-3, RV-L2, RV-V1, RV-I1,
-  RV-C1 and a review of the B4 repairs. Brief: [tasks/b4-and-open-findings-2026-11-27.md](tasks/b4-and-open-findings-2026-11-27.md) (follow-up: section 8).
+  RV-C1, a review of the B4 repairs, the B4 VM validation guide, and a
+  documentation and repository-presentation pass (README, navigation, link
+  audit). Brief: [tasks/b4-and-open-findings-2026-11-27.md](tasks/b4-and-open-findings-2026-11-27.md) (follow-up: section 8).
 - Active agent: Claude (the previous agent is stopped).
 - Branch: `review/remaining-issues-2026-11-27`, base `main` (`da7d6c9`, v4.8.0),
   PR #49 (open, mergeable).
-- Last verified commit: `162caf9`, the PR #49 head, pushed on owner approval
-  (local and remote SHAs matched). The last implementation commit is `648a80b`;
-  `c17c4a8`, `64db93f`, `398cb94` and `162caf9` are documentation. Pushed after `6c42dc8`:
+- Last implementation commit: `648a80b`. Every later commit is documentation:
+  `c17c4a8`, `64db93f`, `398cb94`, `162caf9`, `38f6582` and the documentation
+  pass (README overview, navigation and stale-status fixes). Last head with
+  verified CI: `162caf9` (local and remote SHAs matched); later heads: PR #49
+  checks. Pushed after `6c42dc8`:
   `63658a3`, `2a6f76c`, `5a9e3a5`, `7221c64`, `11144b8`, `64425f7`, `1e22a3f`,
   `672730e`, `0305f29`, `78fb35a`, `5962225`, `46c788a`, `29f2206`, `8852880`,
   `648a80b`, plus documentation.
@@ -29,7 +33,13 @@
   [46057763815](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763815) (tests),
   [46057763841](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763841) (quality),
   [46057763824](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763824) (docker).
-  Earlier: `c17c4a8` and `64db93f` also 11/11.
+  Earlier: `c17c4a8` and `64db93f` also 11/11. All heads: VERIFICATION_MATRIX
+  section 21.
+- Documentation pass (no application code changed): every relative link and
+  anchor in the tracked Markdown files resolves (local check); the eleven SVGs
+  parse; the diagrams were rechecked against the PR #49 code and not rebuilt;
+  the test files that read docs or the README: 252 passed. Application suite
+  not rerun for documentation-only changes.
 - Local safe suite at `071d780`: 2,350 passed, 0 failed, 8 skipped, 1 deselected;
   after `648a80b` the 23 API/docs test files: 543 passed (VERIFICATION_MATRIX
   section 20). ruff, mypy, bandit clean.
@@ -47,6 +57,8 @@
    with 0 set must remove the line or set a positive value (CHANGELOG).
 4. S-Y1/S-Y4 unchanged; Dependabot #23 to #27 rebase; close the superseded
    draft #46.
+5. Optional owner setting: GitHub private vulnerability reporting is disabled;
+   the README asks reporters to contact the author privately until it is enabled.
 
 ## Next step
 
