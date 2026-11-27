@@ -800,6 +800,28 @@ def test_a_malformed_entry_does_not_stop_the_alerts_behind_it(tmp_path, clock):
     assert not (box.pending / "0000.json").exists()          # removed like corrupt JSON
 
 
+def test_an_entry_that_is_not_utf8_is_removed_too(tmp_path, clock):
+    # RV-O1: UnicodeDecodeError is a ValueError, not an OSError: the entry was
+    # kept for good, logged every minute and counted as waiting.
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    good, _ = _two_alerts()
+    box.enqueue(good, ["webhook"])
+    (box.pending / "0000.json").write_bytes(b"\xff\xfe{bad")
+    counts = box.flush({"webhook": hook, "email": None})
+    assert counts["sent"] == 1 and counts["waiting"] == 0
+    assert not (box.pending / "0000.json").exists()
+
+
+def test_a_deleted_sent_folder_does_not_stop_delivery(tmp_path, clock):
+    # RV-O2: flush pruned sent/ without checking it, so every run failed silently.
+    import shutil
+    box, hook = _box(tmp_path, clock), Receiver(up=True)
+    good, _ = _two_alerts()
+    box.enqueue(good, ["webhook"])
+    shutil.rmtree(box.sent)
+    assert box.flush({"webhook": hook, "email": None})["sent"] == 1
+
+
 def test_a_failed_rewrite_does_not_starve_later_alerts(tmp_path, clock, monkeypatch):
     box, hook, mail = _box(tmp_path, clock), Receiver(up=True), Receiver()
     first, second = sorted(_two_alerts(), key=lambda a: a["id"])

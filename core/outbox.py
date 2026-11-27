@@ -340,6 +340,7 @@ class Outbox:
                             "alerts are left to it.", extra={"event": "alert_flush_busy"})
                 counts["waiting"] = sum(1 for _ in self.pending.glob("*.json"))
                 return counts
+            self._ensure()                 # RV-O2: a deleted sent/ stopped every run
             self._prune_sent()
             for path in sorted(self.pending.glob("*.json")):
                 try:
@@ -356,6 +357,8 @@ class Outbox:
         now = self._clock()
         try:
             text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = ""                      # RV-O1: not UTF-8 = corrupt, removed below
         except OSError as e:
             # often temporary (a scanner or indexer holding the file, too many open
             # files): keep the alert, unless it is older than the maximum age
