@@ -198,3 +198,25 @@ def test_api_results_never_show_the_server_work_folder(client):
     text = r.text
     assert "aegis_api_" not in text and "upload.zip" not in text
     assert "bundle.zip!/tool.exe" in text
+
+
+def test_upload_limits_set_in_the_env_file_are_honoured(monkeypatch):
+    # AR-1: both limits were read at import, before main() loaded .env.
+    pytest.importorskip("uvicorn")
+    import uvicorn
+
+    import api.server as server
+    import engine.config as config
+    for name in ("MAX_UPLOAD_MB", "UPLOAD_SECONDS"):
+        monkeypatch.setattr(server, name, getattr(server, name))        # restored afterwards
+
+    def load_env_file():                                  # what .env would contain
+        monkeypatch.setenv("AEGIS_API_MAX_UPLOAD_MB", "7")
+        monkeypatch.setenv("AEGIS_API_UPLOAD_SECONDS", "30")
+
+    monkeypatch.setattr(config, "init_runtime", load_env_file)
+    monkeypatch.setattr(server, "create_app", lambda: object())
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.delenv("AEGIS_API_SOCKET", raising=False)
+    server.main()
+    assert (server.MAX_UPLOAD_MB, server.UPLOAD_SECONDS) == (7.0, 30.0)

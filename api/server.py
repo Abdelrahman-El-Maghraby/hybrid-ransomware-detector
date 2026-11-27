@@ -510,7 +510,11 @@ def main() -> None:
     from engine.config import init_runtime
     from engine.validation import ConfigError
     init_runtime()
+    # AR-1: these two were read at import, before init_runtime() loaded .env
+    global MAX_UPLOAD_MB, UPLOAD_SECONDS
     try:
+        MAX_UPLOAD_MB = _env_number("AEGIS_API_MAX_UPLOAD_MB", 50, positive=True)
+        UPLOAD_SECONDS = _env_number("AEGIS_API_UPLOAD_SECONDS", 600, positive=True)
         app = create_app()           # fails fast on a bad token or configuration
     except (ConfigError, RuntimeError) as e:
         raise SystemExit(f"aegis-api: {e}") from e
