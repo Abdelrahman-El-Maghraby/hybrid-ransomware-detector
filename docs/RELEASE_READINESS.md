@@ -1,8 +1,8 @@
 # Release readiness: v4.7 (first paid edition)
 
 The acceptance criteria live in [`RELEASE_SCOPE.md`](RELEASE_SCOPE.md) section 6.
-This file tracks every task against them. It records the v4.7 work; what is
-verified on the current 4.8 hardening branch, by platform and service, is in
+This file tracks every task against them. It records the v4.7 work and is kept as history; what has been
+verified since, by revision, platform and service, is in
 [`VERIFICATION_MATRIX.md`](VERIFICATION_MATRIX.md).
 
 **Status values:** `done` (evidence given) · `failed` · `external dependency`

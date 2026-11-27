@@ -471,10 +471,10 @@ PR-S1, PR-R1, PR-D1; open PR-M1; suspicions PR-S2, PR-Q1, PR-F1).
 CI for this branch: see the pull request.
 
 
-## 19. B4 investigation and open findings (2026-11-27, second pass, local only)
+## 19. B4 investigation and open findings (2026-11-27, second pass, local runs)
 
-Local commits on `review/remaining-issues-2026-11-27` after `6c42dc8`, not
-pushed (no CI evidence yet); macOS 27.2 arm64, Python 3.14.2,
+Commits on `review/remaining-issues-2026-11-27` after `6c42dc8`, run locally
+before they were pushed (CI evidence: section 21); macOS 27.2 arm64, Python 3.14.2,
 `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` (without it zbar is not found and
 QR-dependent tests read `partial`). Details: [brief](tasks/b4-and-open-findings-2026-11-27.md).
 
@@ -487,7 +487,7 @@ QR-dependent tests read `partial`). Details: [brief](tasks/b4-and-open-findings-
 | B4 probes (inert, bounded at 4 MiB declared / 8 pages of 2 MiB) | see the brief, section 2; no fuzzing, no artifact, no allocation over about 25 MiB |
 | Not run, by rule | `tests/test_fuzz_parsers.py`, the runaway-allocation test, Atheris campaigns, artifact replay (VM procedure in the brief); real CAPE/VirusTotal/LLM; a cluster; Windows and Linux (CI after upload) |
 
-## 20. Follow-up: open findings and B4 review (2026-11-27, local only)
+## 20. Follow-up: open findings and B4 review (2026-11-27, local runs)
 
 Same host and command as section 19. Details: [brief, section 8](tasks/b4-and-open-findings-2026-11-27.md#8-follow-up-pass-owner-request-2026-11-27).
 
@@ -501,3 +501,21 @@ Same host and command as section 19. Details: [brief, section 8](tasks/b4-and-op
 | PDF release cost, benign local PDFs with object streams (1 to 231 pages) | 2.3 to 99 ms, no measurable change; peak equal or lower |
 | B4-O2 probe (DIFAT repeats, 512-byte sectors, at most 160 repeats) | 19.9 MiB, 4.05 s: time-bound |
 | Not run, by rule | as section 19 |
+
+## 21. CI on pull request #49 (2026-11-27)
+
+Every push of `review/remaining-issues-2026-11-27` after section 20 ran the
+`tests`, `quality` and `docker` workflows (11 checks). The parser-fuzz workflow
+was not dispatched. Code last changed in `648a80b`; the later commits are
+documentation.
+
+| Head | Result | Runs (tests, quality, docker) |
+|---|---|---|
+| `c17c4a8` | 11/11 passed | 46001387006, 46001387045, 46001387002 |
+| `64db93f` | 11/11 passed | 46004699224, 46004699280, 46004699243 |
+| `162caf9` | 11/11 passed | [46057763815](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763815), [46057763841](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763841), [46057763824](https://github.com/Abdelrahman-El-Maghraby/hybrid-ransomware-detector/actions/runs/46057763824) |
+
+The tests jobs cover Ubuntu (Python 3.12 and 3.9), macOS arm64 and Windows x64
+(Python 3.12 and 3.9) with synthetic inputs. They do not cover B4 (VM only),
+real samples, real CAPE/VirusTotal/LLM services, a Kubernetes cluster, ARM64
+Linux or Windows, or Intel macOS. Later heads: see the pull request.
