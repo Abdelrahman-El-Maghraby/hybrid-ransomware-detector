@@ -29,13 +29,12 @@ external opinions (VirusTotal, an LLM, a self-hosted CAPE sandbox).
 | Operations | `deploy/`, `Dockerfile`, `docker-compose.yml`, `tools/` | Docker edition, backup and restore, deployment check, the optional Kubernetes deployment (`deploy/kubernetes/`, [guide](KUBERNETES.md)), evaluation and build tools |
 | Tests | `tests/`, `test_smoke.py` | about 2,000 tests; see section 6 for what runs here |
 
-## 2. What the hardening branch changed
+## 2. What the hardening work changed
 
-Branch `review/production-hardening`, cut from `3e5a3f2`, contains the accumulated
-hardening work. Current publication status and verification are recorded in
-[HANDOFF](HANDOFF.md) and the
-[publication review](tasks/github-publication-2026-11-22.md). Publishing this
-development branch is separate from merging or releasing it. By purpose
+Branch `review/production-hardening`, cut from `3e5a3f2`, held the accumulated
+hardening work; it was merged into main through PR #47 and released in 4.8.0
+(tag `v4.8.0`, commit `da7d6c9`). Verification is recorded in
+[VERIFICATION_MATRIX](VERIFICATION_MATRIX.md). By purpose
 (IDs and commits in the register):
 
 - **Security:** checked JSON from workers instead of pickle (M18); the API reads an

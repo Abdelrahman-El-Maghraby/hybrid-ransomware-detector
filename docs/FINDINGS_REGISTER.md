@@ -1,4 +1,4 @@
-# Findings register (production-hardening branch)
+# Findings register
 
 One current status list for every finding of the production review. It replaces
 the status columns of older tables (PROJECT_REVIEW 28.1, 31.10, 32.6, 33.6 and the
@@ -186,12 +186,16 @@ non-ASCII API token at start-up; deriving the proxy cap from `AEGIS_API_MAX_UPLO
 
 The current matrix, by platform and service, is [VERIFICATION_MATRIX](VERIFICATION_MATRIX.md).
 
-- **CI:** no workflow has run on any commit after `3e5a3f2`; the daily audit (I-3)
-  and the release job (M16, I-B2, the pip change) run only on GitHub.
+- **CI:** `tests` (Ubuntu, Windows, macOS; Python 3.9 and 3.12), `quality` and
+  `docker` pass on main at the 4.8.0 release commit `da7d6c9`, and the release
+  workflow built and signed 4.8.0 from it (VERIFICATION_MATRIX section 17 for the
+  merge; section 18 for this review). The daily audit (I-3) runs only on GitHub.
+  CI shows the suite passes on those platforms; it does not exercise the
+  platform-specific items below beyond what the tests cover.
 - **Windows:** RV-1 and RA-1 (the Kubernetes tests; procedure in VERIFICATION_MATRIX section 5), M2, M9, M20, M24 (what mail clients and archive tools save), M30
   names, L-A5 order, L-E6 (only a stand-in kernel32 was used), the Job Object path for
   L-E5, worker pipes (M18), toasts, containment, autostart.
-- **Linux:** the worker process groups (L-E5) and the rest of the suite (no CI run).
+- **Linux:** the suite passes in CI; worker session escapes (L-E5) are not covered.
 - **Docker:** `deploy/check-deployment.sh`, M26 through intel (and intel's own CAPE
   requests, which continue after a worker stops waiting), M27, I-B3, the L-B4
   image, backup scripts on real volumes, D22/D23.

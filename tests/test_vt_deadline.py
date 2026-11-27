@@ -81,9 +81,11 @@ def test_a_finished_analysis_is_used_in_a_worker(scanner, tmp_path):
 def test_the_upload_wait_ends_before_the_scan_limit(scanner, tmp_path):
     scanner.http = vt = FakeVT()
     _in_worker(scanner, left=2.5, limit=5)                # 2.5 - 1 s margin = 1.5 s
-    started = time.monotonic()
     r = scanner.scan_file_with_virustotal(_file(tmp_path))
-    assert time.monotonic() - started < 1.6
+    # The scan limit itself, not a wall-clock tolerance (a loaded CI runner took
+    # 1.63 s for the 1.5 s budget). Fewer than VT_POLLS checks (all ten would fit
+    # in 2.0 s) shows the 1 s margin was applied.
+    assert time.monotonic() < scanner.scan_deadline
     assert 1 <= vt.checks < external.VT_POLLS
     assert r["status"] == "timeout" and "did not finish before the scan time limit" in r["details"]
     assert r["sent"] == ["sha256", "file"]                # the upload did leave the machine

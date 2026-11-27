@@ -35,8 +35,8 @@ available), **history** (an earlier revision only).
 
 | Check | macOS 27.2.1 arm64 (this Mac) | Linux | Windows |
 |---|---|---|---|
-| Worker IPC: JSON replies, size and type checks, invalid replies | passed here (full suite) | history: CI `3e5a3f2` predates M18 | history: CI `3e5a3f2` predates M18 |
-| Time limit, partial and failed results, fail-closed start | passed here | history (CI `3e5a3f2`) | history (CI `3e5a3f2`) |
+| Worker IPC: JSON replies, size and type checks, invalid replies | passed here (full suite) | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
+| Time limit, partial and failed results, fail-closed start | passed here | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
 | Memory limit | RSS watchdog: passed here with stand-ins; the runaway-allocation test is deselected (memory spike) | RLIMIT_AS: pending | Job Object: stand-in only |
 | Helper cleanup (L-E5) | passed here: escaped-helper tests; probe confirms the reparent-before-discovery limit | process groups: pending | Job Object: pending |
 | Liveness of a stale worker folder (L-E6) | n/a | n/a | stand-in kernel32 only |
@@ -47,7 +47,7 @@ available), **history** (an earlier revision only).
 
 | Check | Status |
 |---|---|
-| `deploy/check-deployment.sh` (build, isolation, health, signed rule pack, M27) | pending: the Docker daemon is not running on this Mac; CI's `docker` job last ran on `3e5a3f2` |
+| `deploy/check-deployment.sh` (build, isolation, health, signed rule pack, M27) | passed in CI's `docker` job on Ubuntu (`da7d6c9`, run 45620268850) and in the release `image` job for 4.8.0; not run on this Mac (Docker daemon off) |
 | `analysis` has no network; intel reaches only allowlisted destinations | pending (compose file read; not run) |
 | Backup and restore scripts on real volumes | pending |
 | Upgrade from 4.7 and rollback of a rule pack | pending |
@@ -90,9 +90,9 @@ available), **history** (an earlier revision only).
 | Check | Status |
 |---|---|
 | Wheel contents (M15) | history: passed at `72aa761`; packaging files unchanged since |
-| Desktop binaries (PyInstaller) | pending: the release workflow runs on a tag only |
-| Release gate (M16), SBOM, hash-pinned tools | pending: GitHub only |
-| Python 3.9 and 3.12 | pending: CI only; this Mac runs 3.14.2 |
+| Desktop binaries (PyInstaller) | built and smoke-tested by `build.py` in the 4.8.0 release run (45630024216) on Windows, macOS arm64 and Linux; not run on a display |
+| Release gate (M16), SBOM, hash-pinned tools | passed in the 4.8.0 release run (GitHub) |
+| Python 3.9 and 3.12 | CI passed on all three systems (`da7d6c9`); 3.9 installs latest releases, not the lock (S-04); this Mac runs 3.14.2 |
 | Linux and Windows ARM64, macOS Intel | pending: no runner |
 
 ### Detection effectiveness

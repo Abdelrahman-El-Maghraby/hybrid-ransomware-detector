@@ -5,7 +5,7 @@ branch.
 
 ## 1. Before the tag
 
-1. `integration/v4.8` (or the release branch) is merged into `main` through a pull
+1. The release branch is merged into `main` through a pull
    request with every check green: `tests`, `quality`, `docker`. The release
    workflow enforces this for the tagged commit itself: its `gate` job stops the
    release unless each of the three workflows has a successful run for exactly
@@ -14,9 +14,9 @@ branch.
 2. `ENGINE_VERSION` in `engine/config.py`, `version` in `pyproject.toml` and the
    `CHANGELOG.md` heading say the same version. The release workflow compares the tag with
    the first two only (M16); keep the changelog heading in step by hand.
-3. The readiness matrix (`docs/RELEASE_READINESS.md`) has no open blocker for this
-   release. That matrix is the 4.7 one; for 4.8 the state is in sections 24 to 33 of
-   `docs/PROJECT_REVIEW.md` and in `docs/HANDOFF.md`.
+3. No open blocker for this release in `docs/FINDINGS_REGISTER.md` (current status
+   of every finding) and `docs/RELEASE_READINESS.md` (the 4.7 acceptance matrix,
+   kept as history).
 
 ## 2. Tag
 
@@ -70,7 +70,7 @@ proves where a file came from; it does not change what Windows or macOS show.
 * In CI both steps go into the `build` job, before `package`, with the certificate
   in an encrypted secret or a signing service, and only on tags.
 
-## 5. Notes for 4.8.0
+## 5. Notes for 4.8.0 (released 2026-11-25)
 
 Order, as for 4.7.0: tag `v4.8.0-rc1` on the release-prep merge commit, check
 the pre-release (section 3), then tag `v4.8.0` on the same commit.
