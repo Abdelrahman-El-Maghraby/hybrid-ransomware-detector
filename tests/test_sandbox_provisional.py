@@ -956,12 +956,14 @@ class _Streamed:
 
 def test_a_report_over_the_size_limit_is_not_read():
     # PR-S2: the report was buffered and parsed whole, gzip-decoded, without a bound.
-    from core.sandbox import report_body
+    from core.sandbox import ReportTooLarge, report_body
     declared = _Streamed([b"{}"], headers={"Content-Length": "2000"})
-    assert report_body(declared, limit=1000) is None
+    with pytest.raises(ReportTooLarge, match="limit"):
+        report_body(declared, limit=1000)
     assert declared.read == 0 and declared.closed
     endless = _Streamed(b"x" * 400 for _ in range(1000))      # 400 KB if read to the end
-    assert report_body(endless, limit=1000) is None
+    with pytest.raises(ReportTooLarge):
+        report_body(endless, limit=1000)
     assert endless.read <= 1200 and endless.closed
 
 

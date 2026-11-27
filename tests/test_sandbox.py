@@ -95,6 +95,30 @@ def test_failures_are_reported_not_raised(tmp_path, fake, status):
     assert client(fake, wait=60).analyze(str(f)).status == status
 
 
+class OversizedReport(FakeCape):
+    """PR-S2: a finished report whose declared size is over the 128 MiB limit."""
+    def get(self, url, timeout=None, **kwargs):
+        r = super().get(url, timeout)
+        if "/get/report/" in url:
+            r.headers = {"Content-Length": str(200 * 1024 * 1024)}
+        return r
+
+
+@pytest.mark.parametrize("deadline", [None, 1e9])
+def test_an_oversized_report_is_an_error_not_a_wait(tmp_path, deadline):
+    """It will not get smaller: waited on as "unreadable" before, each poll
+    fetched it again until the scan's limit, and the reason was never named."""
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"x")
+    fake = OversizedReport(statuses=("reported",))
+    c = client(fake, wait=600)
+    res = c.analyze(str(f)) if deadline is None else c.analyze(str(f), deadline=deadline)
+    assert res.status == "error" and "limit" in res.detail
+    assert sum("/get/report/" in u for u in fake.gets) == 1
+    poll = c.poll(42)
+    assert poll.status == "error" and "limit" in poll.detail
+
+
 def test_unreachable_server(tmp_path):
     class Broken(FakeCape):
         def post(self, *a, **k):
