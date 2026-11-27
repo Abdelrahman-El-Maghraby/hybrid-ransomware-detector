@@ -100,6 +100,26 @@ def test_unreachable_server(tmp_path):
     assert r.status == "error" and "unreachable" in r.detail
 
 
+def test_a_failed_status_check_is_pending_not_the_end(tmp_path):
+    """One network error during a poll ended the wait with an error, and the
+    intel service then forgot the task, so CAPE's report was never fetched."""
+    class Flaky(FakeCape):
+        failed = False
+
+        def get(self, url, timeout=None):
+            if "/tasks/view/" in url and not self.failed:
+                self.failed = True
+                raise ConnectionError("reset")
+            return super().get(url, timeout)
+    c = client(Flaky(statuses=("reported",)))
+    first = c.poll(42)
+    assert first.status == "pending" and "status check failed" in first.detail
+    assert c.poll(42).status == "reported"
+    f = tmp_path / "s.bin"
+    f.write_bytes(b"x")
+    assert client(Flaky(), wait=60).analyze(str(f)).status == "reported"
+
+
 def test_scoring_dynamic_category():
     m = ScoringMatrix()
     s = m.score({"sandbox": {"ransomware": ["deletes_shadow_copies"],

@@ -244,7 +244,11 @@ class CapeClient:
                 return res
             return _reported(res, report, task_id)
         except Exception as e:
-            return self._unreachable(res, e)
+            # Transient, as in the bounded wait: CAPE still holds the task, so a
+            # later check (the next poll, or intel's) can fetch its report.
+            logger.info("Sandbox status check failed (will try again): %s", type(e).__name__)
+            res.detail = f"sandbox status check failed ({type(e).__name__})"
+            return res
 
     # ------------------------------------------------- M26: the bounded wait
     def _bounded_session(self):
