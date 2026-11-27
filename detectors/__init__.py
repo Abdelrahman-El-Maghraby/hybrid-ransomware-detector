@@ -27,6 +27,7 @@ third-party dependency is not installed:
     scoring               transparent weighted scoring matrix
 """
 
+from . import ole_limits  # noqa: F401  (bounds every olefile stream read; B4)
 from .container_extractor import ContainerExtractor, ContainerResult
 from .elf_analysis import ElfAnalyzer, ElfResult
 from .file_integrity import FileIntegrityAnalyzer, IntegrityResult, ransom_indicator
