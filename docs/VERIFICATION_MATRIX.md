@@ -486,3 +486,18 @@ QR-dependent tests read `partial`). Details: [brief](tasks/b4-and-open-findings-
 | ruff (excluding the private `.arena/`), mypy (70 files), bandit gate | clean |
 | B4 probes (inert, bounded at 4 MiB declared / 8 pages of 2 MiB) | see the brief, section 2; no fuzzing, no artifact, no allocation over about 25 MiB |
 | Not run, by rule | `tests/test_fuzz_parsers.py`, the runaway-allocation test, Atheris campaigns, artifact replay (VM procedure in the brief); real CAPE/VirusTotal/LLM; a cluster; Windows and Linux (CI after upload) |
+
+## 20. Follow-up: open findings and B4 review (2026-11-27, local only)
+
+Same host and command as section 19. Details: [brief, section 8](tasks/b4-and-open-findings-2026-11-27.md#8-follow-up-pass-owner-request-2026-11-27).
+
+| Check | Result |
+|---|---|
+| Safe suite at `071d780` (all code of the follow-up except `648a80b`) | **2,350 passed, 0 failed, 8 skipped, 1 deselected**, 608 s, exit 0; the usual 8 platform skips |
+| After `648a80b` (AR-2 message and tests, DEPLOYMENT.md, CHANGELOG): every test that imports the API server or reads `docs/` or the changelog (23 files) | 543 passed |
+| ruff (excluding `.arena/`), mypy (70 files), bandit with the CI arguments | clean at `648a80b` |
+| New regression tests against the code before their fix | failed: AR-2 (2), AR-3 (3), RV-L2 (2), RV-V1 (2), RV-C1 (1, with the shared-thread layout), OLE table choice and unknown size (2, against `2a6f76c`), CAPE over the limit (2) |
+| OLE differential, original vs bounded `_open` (generated, inert) | 300/300 valid and 1,482/1,500 mutated files identical (bytes and `parsing_issues`); the other 18 read past the file in the original |
+| PDF release cost, benign local PDFs with object streams (1 to 231 pages) | 2.3 to 99 ms, no measurable change; peak equal or lower |
+| B4-O2 probe (DIFAT repeats, 512-byte sectors, at most 160 repeats) | 19.9 MiB, 4.05 s: time-bound |
+| Not run, by rule | as section 19 |
