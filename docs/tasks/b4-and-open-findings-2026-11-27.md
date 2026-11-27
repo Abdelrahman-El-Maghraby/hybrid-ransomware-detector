@@ -112,8 +112,12 @@ pushed; it contains `2a6f76c`, `29f2206` and `63658a3`). Install as `.github/wor
 install pytest hypothesis`; `pip install --require-hashes -r
 fuzz/requirements-linux.txt`. The three OOM artifacts
 (`oom-07598bbb…`, `oom-50152c60…`, `oom-fb07a247…`) only if their 14-day
-retention left them (runs of 2026-10-29: probably expired); otherwise skip to
-step 5.
+retention left them. Checked by metadata on 2026-11-27: neither run has an
+artifact available any more (`total_count=0`); other copies are not ruled out.
+Step-by-step guide with bounds, stop conditions, expected results and closing
+wordings: [b4-vm-validation-guide.md](b4-vm-validation-guide.md). It adds a
+B4-only revision (`673acdc` plus `63658a3`, `2a6f76c`, `29f2206`) so that B4 is
+separated from the other changes and dependency updates.
 
 Every step runs under `prlimit --as=$((512*1024*1024)) --cpu=60 timeout 120`
 (step 6: 4096 MB, like the workflow) and stops at the first limit hit. Record
@@ -127,7 +131,7 @@ exit status, `/usr/bin/time -v` max RSS, and only metadata.
 3. **Single replay, repaired:** the same command at the repaired revision.
    Pass: exits 0 (or a documented exception) with max RSS under 512 MB.
 4. **Product path:** `WORKER_MEMORY_MB=512` and scan the artifact with
-   `scan_isolated()` (CLI: `ISOLATE_SCANS=1 python RansomwareScanner.py --scan ART`
+   `scan_isolated()` (CLI: `ISOLATE_SCANS=true WORKER_MEMORY_MB=512 python RansomwareScanner.py --scan-file ART`
    from a scratch folder). Baseline expected `scan_failed` with a memory reason
    and a healthy parent; repaired expected a normal result. Anything else is a
    product finding.
@@ -145,9 +149,10 @@ exit status, `/usr/bin/time -v` max RSS, and only metadata.
 
 **Sufficient to close B4:** each historical OOM attributed to a target and a
 cause (steps 1 to 3), the product contains or no longer reaches it (step 4), and
-step 6 passes for both groups on the repaired revision. If the artifacts are gone,
-B4 can only be closed by step 6 plus step 5, recorded as "historical inputs not
-replayed".
+step 6 passes for both groups on the repaired revision. Without the artifacts
+the historical cause stays unconfirmed: the guide (section 8) lists the closing
+wordings, which separate validated candidate repairs from a confirmed historical
+cause. Campaigns are supporting evidence and never close B4 on their own.
 
 ## 4. Other repairs in this pass (local commits)
 
