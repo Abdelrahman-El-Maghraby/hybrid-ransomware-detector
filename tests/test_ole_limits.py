@@ -42,6 +42,44 @@ def test_an_inflated_size_keeps_the_real_content():
         assert ole.openstream("Data").read() == CONTENT
 
 
+def test_the_bound_is_installed_on_this_olefile():
+    # the wrapper copies olefile 0.47's _open signature; another one is left alone
+    assert getattr(olefile.OleFileIO._open, "aegis_bounded", False), olefile.__version__
+
+
+def _read(data: bytes, name: str, original: bool = False) -> bytes:
+    bound = olefile.OleFileIO._open
+    if original:
+        olefile.OleFileIO._open = bound.aegis_original
+    try:
+        with olefile.OleFileIO(data) as ole:
+            return ole.openstream(name).read()
+    finally:
+        olefile.OleFileIO._open = bound
+
+
+def _small_file_with_large_entry(size: int) -> bytes:
+    """A 2,560-byte file whose 64-byte stream claims `size` bytes from FAT sector 0."""
+    data = bytearray(write_cfb({"Small": b"MACROTEXT" * 7}))
+    dir_start = struct.unpack_from("<I", data, 48)[0]
+    with olefile.OleFileIO(bytes(data)) as ole:
+        sid, root = ole._find(["Small"]), ole.root.isectStart
+    struct.pack_into("<I", data, 512 + dir_start * 512 + sid * 128 + 116, root)
+    struct.pack_into("<I", data, 512 + dir_start * 512 + sid * 128 + 120, size)
+    return bytes(data)
+
+
+@pytest.mark.parametrize("size", [0x10000, 0x7FFFFFFF])
+def test_a_large_entry_in_a_small_file_reads_what_olefile_reads(size):
+    """Cut to a file under the 4,096-byte cutoff, a large stream must still be read
+    from the FAT, not the MiniFAT; 0x7FFFFFFF is olefile's unknown size, already
+    bounded by the FAT olefile cuts to the file, and is left alone."""
+    data = _small_file_with_large_entry(size)
+    assert len(data) < 4096
+    assert _read(data, "Small") == _read(data, "Small", original=True)
+    assert len(_read(data, "Small")) == 512                 # one FAT sector, not 64 mini bytes
+
+
 def test_ordinary_streams_are_unchanged():
     with olefile.OleFileIO(write_cfb({"Data": CONTENT, "Small": b"x" * 100})) as ole:
         assert ole.openstream("Data").read() == CONTENT

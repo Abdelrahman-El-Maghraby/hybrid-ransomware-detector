@@ -12,6 +12,8 @@ the file holds, and a valid chain still stops at its end marker as before.
 
 from __future__ import annotations
 
+import inspect
+
 try:
     import olefile
 except ImportError:  # pragma: no cover - optional dependency
@@ -19,18 +21,32 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 def _bounded_open(original):
-    def _open(self, start, size=None, *args, **kwargs):
+    def _open(self, start, size=None, force_FAT=False):
         if size is None:
-            return original(self, start, *args, **kwargs)
+            return original(self, start, force_FAT=force_FAT)
         filesize = getattr(self, "_filesize", None)
-        # An explicit size is declared by the file (0x7FFFFFFF included: olefile
-        # would then read the whole FAT); only olefile's own directory read omits it.
-        if filesize is not None and size > filesize:
+        # UNKNOWN_SIZE (0x7FFFFFFF, also when a file declares it) makes olefile read
+        # len(fat) sectors, and olefile already cuts the FAT to the file: left as is
+        if filesize is not None and filesize < size != olefile.olefile.UNKNOWN_SIZE:
+            # the declared size picked the table: a stream at or over the cutoff is
+            # in the FAT even when the file is smaller than the cutoff
+            force_FAT = force_FAT or size >= self.minisectorcutoff
             size = filesize
-        return original(self, start, size, *args, **kwargs)
+        return original(self, start, size, force_FAT)
     _open.aegis_bounded = True                  # type: ignore[attr-defined]
+    _open.aegis_original = original             # type: ignore[attr-defined]
     return _open
 
 
-if olefile is not None and not getattr(olefile.OleFileIO._open, "aegis_bounded", False):
+def _expected_signature(method) -> bool:
+    """The wrapper copies olefile 0.47's _open(start, size, force_FAT); another
+    signature is left alone (and the tests that require the bound fail)."""
+    try:
+        return list(inspect.signature(method).parameters) == ["self", "start", "size", "force_FAT"]
+    except (TypeError, ValueError):
+        return False
+
+
+if (olefile is not None and not getattr(olefile.OleFileIO._open, "aegis_bounded", False)
+        and _expected_signature(olefile.OleFileIO._open)):
     olefile.OleFileIO._open = _bounded_open(olefile.OleFileIO._open)
