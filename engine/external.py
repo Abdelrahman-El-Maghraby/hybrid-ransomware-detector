@@ -55,14 +55,16 @@ class ExternalLookupsMixin:
 
     def analyze_with_llm(self, file_path: str, file_content: Optional[str] = None,
                          embedded_strings: Optional[str] = None,
-                         sha256: Optional[str] = None) -> Dict:
+                         sha256: Optional[str] = None, complete: bool = True) -> Dict:
         """Send document content + embedded strings to the configured LLM backend.
 
         The backend is chosen once at init (local Ollama by default for OPSEC,
         cloud OpenAI optional). Prompt-injection hardening lives in the backend:
         analyst instructions in the system role, untrusted file content in the
         user role wrapped in per-request nonce delimiters, temperature 0,
-        JSON-only output. Answers are cached by SHA-256 when one is given.
+        JSON-only output. Answers are cached by SHA-256 when one is given, and
+        stored only when `complete` (RV-L2: an answer on partly read text must not
+        stand for the whole file in a later scan).
         """
         try:
             if not getattr(self.llm_backend, "available", True):
@@ -112,7 +114,7 @@ class ExternalLookupsMixin:
                                     "local" if self.llm_backend.is_local else "cloud")
                 result = self.llm_backend.analyze(combined,
                                                   timeout=self._call_timeout(180, end))
-            if sha256 and self.cache is not None and result.get("analyzed"):
+            if sha256 and complete and self.cache is not None and result.get("analyzed"):
                 self.cache.put(sha256, cache_layer, result)
             if not result.get("cached"):             # intel may have answered from its cache
                 result = dict(result, sent=["text"],

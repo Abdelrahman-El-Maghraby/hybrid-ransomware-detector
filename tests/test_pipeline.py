@@ -193,12 +193,22 @@ def test_the_llm_receives_the_text_the_prompt_guard_extracted(scanner, tmp_path,
     class Backend:
         available = True
 
-    def analyze(path, text, strings, sha256=None):
-        seen["text"] = text
+    def analyze(path, text, strings, sha256=None, complete=True):
+        seen["text"], seen["complete"] = text, complete
         return {"is_malicious": False, "confidence": 0, "suspicious_elements": []}
     monkeypatch.setattr(scanner, "llm_backend", Backend())
     monkeypatch.setattr(scanner, "analyze_with_llm", analyze)
     p = tmp_path / "scan" / "letter.pdf"
     p.write_bytes(make_pdf("quarterly invoice attached"))
     scanner.scan_file(str(p))
-    assert "quarterly invoice attached" in seen["text"]
+    assert "quarterly invoice attached" in seen["text"] and seen["complete"] is True
+
+    # RV-L2: text a limit left partly unread is marked, so its answer is not cached
+    extract = scanner._extract_text_from_file
+
+    def cut(path, allow_ocr=True, errors=None, omitted=None):
+        omitted.append("page limit")
+        return extract(path, allow_ocr, errors)
+    monkeypatch.setattr(scanner, "_extract_text_from_file", cut)
+    scanner.scan_file(str(p))
+    assert seen["complete"] is False

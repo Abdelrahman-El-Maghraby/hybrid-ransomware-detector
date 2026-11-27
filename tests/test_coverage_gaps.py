@@ -291,6 +291,10 @@ def test_llm_glue_skips_caches_and_survives_errors(tmp_path):
     r1 = h.analyze_with_llm("f", "text", "strings", sha256="d" * 64)
     r2 = h.analyze_with_llm("f", "text", "strings", sha256="d" * 64)
     assert r1["is_malicious"] and r2.get("cached") and Counting.n == 1
+    # RV-L2: an answer on partly read text is not stored for the whole file
+    h.analyze_with_llm("f", "part", "strings", sha256="e" * 64, complete=False)
+    assert not h.analyze_with_llm("f", "all", "strings", sha256="e" * 64).get("cached")
+    assert Counting.n == 3
     assert "No content" in h.analyze_with_llm("f", " ", " ")["details"]
     assert h.analyze_with_chatgpt is not None
 
