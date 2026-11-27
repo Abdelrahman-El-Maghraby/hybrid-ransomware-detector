@@ -71,13 +71,16 @@ library cannot handle; an archive nests 50 levels deep.*
   took 140 s).
 - `pip-audit` in CI against the pinned lock file.
 
-Memory is capped on every OS: RLIMIT_AS on Linux, a Job Object
+Each worker's memory is capped on every OS: RLIMIT_AS on Linux, a Job Object
 (JOB_OBJECT_LIMIT_PROCESS_MEMORY) on Windows, and on macOS, where RLIMIT_AS is not
 enforced, the parent reads each busy worker's resident size four times a second
 and stops it over the limit.
 
-*Residual:* on macOS a burst of allocation between two watchdog reads can go above
-the limit for up to 0.25 s. A determined attacker can still make one file slow up
+*Residual:* the limit is per process. On macOS the watchdog reads only the
+worker itself, so helper programs it starts (7-Zip, unar, pdftoppm, Tesseract,
+box-js) are not counted; on Linux and Windows each helper inherits its own copy of
+the limit (PR-M1). On macOS a burst of allocation between two watchdog reads can
+go above the limit for up to 0.25 s. A determined attacker can still make one file slow up
 to the time limit.
 
 ### 2. Escape the extraction sandbox (path traversal, links)

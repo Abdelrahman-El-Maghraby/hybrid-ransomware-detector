@@ -37,7 +37,7 @@ available), **history** (an earlier revision only).
 |---|---|---|---|
 | Worker IPC: JSON replies, size and type checks, invalid replies | passed here (full suite) | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
 | Time limit, partial and failed results, fail-closed start | passed here | CI suite passed (`da7d6c9`) | CI suite passed (`da7d6c9`) |
-| Memory limit | RSS watchdog: passed here with stand-ins; the runaway-allocation test is deselected (memory spike) | RLIMIT_AS: pending | Job Object: stand-in only |
+| Memory limit (the worker process only; helpers: PR-M1) | RSS watchdog: stand-in tests passed here; the runaway-allocation test is not run here (memory spike) but passed in CI on macOS (`da7d6c9`) | RLIMIT_AS: runaway-allocation test passed in CI (`da7d6c9`) | Job Object: runaway-allocation test passed in CI (`da7d6c9`) |
 | Helper cleanup (L-E5) | passed here: escaped-helper tests; probe confirms the reparent-before-discovery limit | process groups: pending | Job Object: pending |
 | Liveness of a stale worker folder (L-E6) | n/a | n/a | stand-in kernel32 only |
 | Canary containment (`stop_writers`, `lock_folders`, `network_off`) | unit tests with stand-ins; no real process suspended | pending | Restart Manager and Controlled Folder Access: pending |
@@ -453,3 +453,20 @@ Python 3.14): **2,317 passed, 8 skipped, 0 failed**.
 
 Not run: fuzz campaigns (restricted), Kubernetes cluster, real samples, real
 external services. Release readiness is unchanged by this section.
+
+## 18. Post-release review (2026-11-27, Claude Code)
+
+Branch `review/remaining-issues-2026-11-27` from `da7d6c9`; macOS arm64, Python
+3.14.2. Findings and commits: FINDINGS_REGISTER (PR-W1, PR-W2, PR-A1, PR-C1,
+PR-S1, PR-R1, PR-D1; open PR-M1; suspicions PR-S2, PR-Q1, PR-F1).
+
+| Check | Result |
+|---|---|
+| Safe suite at `5904898` (command of section 11) | **2,316 passed, 0 failed, 8 skipped, 4 deselected**, 606 s, 0 ResourceWarnings; the usual 8 platform skips |
+| Each new regression test against the code before its fix | failed (5 reply shapes; the parallel stale snapshot; the API RTLO name; the linked canary folder; the flaky CAPE poll) |
+| ruff (tracked files), mypy (69 files), bandit gate | clean |
+| Not run here, by rule | `tests/test_fuzz_parsers.py` (its seeds are shared with the failed Atheris campaigns) and the runaway-allocation test (a deliberate spike past 1 GB on an 8 GB host). Both ran and passed in every `tests.yml` job at `da7d6c9`: no skip or failure for either in the run log |
+| Not run anywhere | Atheris campaigns and OOM artifact replay (27.5 / B4, VM only), real CAPE/VirusTotal/LLM, a cluster |
+
+CI for this branch: see the pull request.
+
